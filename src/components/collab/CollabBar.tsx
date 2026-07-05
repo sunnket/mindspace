@@ -1,0 +1,142 @@
+'use client';
+
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useCollabStore } from '@/store/collabStore';
+import { initialsOf } from '@/lib/collab/palette';
+
+const spring = { type: 'spring' as const, stiffness: 300, damping: 26 };
+
+export default function CollabBar() {
+  const status = useCollabStore((s) => s.status);
+  const code = useCollabStore((s) => s.code);
+  const me = useCollabStore((s) => s.me);
+  const peers = useCollabStore((s) => s.peers);
+  const transportKind = useCollabStore((s) => s.transportKind);
+  const openModal = useCollabStore((s) => s.openModal);
+  const leave = useCollabStore((s) => s.leave);
+
+  const [copied, setCopied] = useState(false);
+
+  const peerList = Object.values(peers);
+  const active = status === 'connected';
+
+  const copyCode = () => {
+    if (!code) return;
+    navigator.clipboard?.writeText(code).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1600);
+      },
+      () => {}
+    );
+  };
+
+  return (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[120] pointer-events-none">
+      <AnimatePresence mode="wait">
+        {!active ? (
+          <motion.button
+            key="share"
+            layout
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={spring}
+            onClick={openModal}
+            whileHover={{ y: -1 }}
+            whileTap={{ scale: 0.97 }}
+            className="glass-bar pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-bold text-[var(--text-primary)] cursor-pointer hover:text-[var(--accent)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="18" cy="5" r="3" />
+              <circle cx="6" cy="12" r="3" />
+              <circle cx="18" cy="19" r="3" />
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+            </svg>
+            Collaborate
+          </motion.button>
+        ) : (
+          <motion.div
+            key="session"
+            layout
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={spring}
+            className="glass-bar pointer-events-auto flex items-center gap-3 pl-4 pr-2 py-2 rounded-full"
+          >
+            {/* live dot + transport hint */}
+            <span className="flex items-center gap-2 shrink-0" title={transportKind === 'supabase' ? 'Live across the internet' : 'Live across your tabs & windows on this device'}>
+              <span className="relative flex w-2 h-2">
+                <span className="absolute inline-flex w-full h-full rounded-full bg-[#30A46C] opacity-60 animate-ping" />
+                <span className="relative inline-flex w-2 h-2 rounded-full bg-[#30A46C]" />
+              </span>
+              <span className="text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-secondary)]">
+                {transportKind === 'supabase' ? 'Live' : 'Local'}
+              </span>
+            </span>
+
+            {/* code chip */}
+            <button
+              onClick={copyCode}
+              title="Copy invite code"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full clay-inset text-[11px] font-mono font-bold tracking-widest text-[var(--text-primary)] cursor-pointer hover:text-[var(--accent)] transition-colors"
+            >
+              {code}
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                {copied ? (
+                  <polyline points="20 6 9 17 4 12" />
+                ) : (
+                  <>
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </>
+                )}
+              </svg>
+            </button>
+
+            {/* presence avatars (me + peers) */}
+            <div className="flex items-center -space-x-2">
+              {me && <Avatar name={me.name} color={me.color} you />}
+              {peerList.map((p) => (
+                <Avatar key={p.id} name={p.name} color={p.color} />
+              ))}
+            </div>
+
+            <span className="text-[10px] font-bold text-[var(--text-tertiary)] tabular-nums shrink-0">
+              {peerList.length > 0 ? `${peerList.length + 1} here` : 'waiting…'}
+            </span>
+
+            {/* leave */}
+            <button
+              onClick={leave}
+              title="Leave session"
+              aria-label="Leave session"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function Avatar({ name, color, you = false }: { name: string; color: string; you?: boolean }) {
+  return (
+    <div
+      title={you ? `${name} (you)` : name}
+      className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-extrabold text-white ring-2 ring-white select-none"
+      style={{ background: color }}
+    >
+      {initialsOf(name)}
+    </div>
+  );
+}
