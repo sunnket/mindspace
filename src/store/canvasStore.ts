@@ -1,8 +1,27 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { CanvasObjectData, DrawingStroke, ConnectionData } from '@/lib/db';
+import type { CanvasOp } from '@/lib/collab/types';
 
 export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow';
+
+/* ------------------------------------------------------------------
+   Collaboration bridge — inert unless a live session sets these.
+   When solo, collabEmitter is null (no broadcast) and collabAuthor is
+   null (objects are never author-stamped), so nothing changes.
+   ------------------------------------------------------------------ */
+let collabEmitter: ((op: CanvasOp) => void) | null = null;
+let collabAuthor: { id: string; color: string } | null = null;
+
+export function setCollabEmitter(fn: ((op: CanvasOp) => void) | null) {
+  collabEmitter = fn;
+}
+export function setCollabAuthor(a: { id: string; color: string } | null) {
+  collabAuthor = a;
+}
+function emitCollab(op: CanvasOp) {
+  if (collabEmitter) collabEmitter(op);
+}
 
 export interface UndoAction {
   type: 'add' | 'delete' | 'move' | 'edit' | 'stroke-add' | 'stroke-delete';
@@ -40,6 +59,14 @@ interface CanvasStore {
   setStrokes: (strokes: DrawingStroke[]) => void;
   addStroke: (stroke: DrawingStroke) => void;
   removeStroke: (id: string) => void;
+
+  // Collaboration — apply remote edits without re-broadcasting
+  applyRemoteOp: (op: CanvasOp) => void;
+  applyRemoteSnapshot: (
+    objects: CanvasObjectData[],
+    strokes: DrawingStroke[],
+    connections: ConnectionData[]
+  ) => void;
   
   // Selection
   selectedId: string | null;
@@ -264,6 +291,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       ...partial,
       id, // Override ID in case partial has a duplicate
     };
+
+    // During a live session, stamp authorship so collaborators can be told apart.
+    if (collabAuthor && obj.style && obj.style.authorId === undefined) {
+      obj.style = { ...obj.style, authorId: collabAuthor.id, authorColor: collabAuthor.color };
+    }
+
     set((state) => ({
       objects: [...state.objects.filter(o => o.id !== obj.id), obj],
       isDirty: true,
@@ -271,6 +304,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       undoStack: [...state.undoStack, { type: 'add', objectId: obj.id, objectData: obj }],
       redoStack: [],
     }));
+    emitCollab({ kind: 'add', object: obj });
     return obj;
   },
   updateObject: (id, updates) => {
@@ -321,11 +355,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         isDirty: true,
       };
     });
+    emitCollab({ kind: 'update', id, updates });
   },
   removeObject: (id) => {
     const obj = get().objects.find(o => o.id === id);
     const relatedConns = get().connections.filter(c => c.fromId === id || c.toId === id);
-    
+
     set((state) => ({
       objects: state.objects.filter((o) => o.id !== id),
       selectedId: state.selectedId === id ? null : state.selectedId,
@@ -334,6 +369,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       undoStack: obj ? [...state.undoStack, { type: 'delete', objectId: id, objectData: obj }] : state.undoStack,
       redoStack: [],
     }));
+    emitCollab({ kind: 'remove', id });
 
     // Clean up in DB (both object and related connections)
     import('@/lib/db').then(({ deleteObject, deleteConnection }) => {
@@ -365,6 +401,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       undoStack: [...state.undoStack, { type: 'stroke-add', strokeId: stroke.id, strokeData: strokeWithParent }],
       redoStack: [],
     }));
+    emitCollab({ kind: 'stroke-add', stroke: strokeWithParent });
   },
   removeStroke: (id) => {
     const stroke = get().strokes.find(s => s.id === id);
@@ -374,8 +411,98 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       undoStack: stroke ? [...state.undoStack, { type: 'stroke-delete', strokeId: id, strokeData: stroke }] : state.undoStack,
       redoStack: [],
     }));
+    emitCollab({ kind: 'stroke-remove', id });
   },
-  
+
+  // Collaboration — apply an incoming edit locally. Re-parents to the viewer's
+  // current canvas so it persists and reloads correctly, and never re-broadcasts.
+  applyRemoteOp: (op) => {
+    const stack = get().canvasStack;
+    const pid = stack.length > 0 ? stack[stack.length - 1] : get().urlCanvasId;
+    const localParent = pid === 'root' ? undefined : pid;
+
+    switch (op.kind) {
+      case 'add': {
+        const obj = { ...op.object, parentId: localParent };
+        set((state) => ({
+          objects: [...state.objects.filter((o) => o.id !== obj.id), obj],
+          isDirty: true,
+          maxZIndex: Math.max(state.maxZIndex, obj.zIndex || 0),
+        }));
+        import('@/lib/db').then(({ saveObject }) => saveObject(obj));
+        break;
+      }
+      case 'update': {
+        set((state) => ({
+          objects: state.objects.map((o) =>
+            o.id === op.id ? { ...o, ...op.updates, updatedAt: Date.now() } : o
+          ),
+          isDirty: true,
+        }));
+        const updated = get().objects.find((o) => o.id === op.id);
+        if (updated) import('@/lib/db').then(({ saveObject }) => saveObject(updated));
+        break;
+      }
+      case 'remove': {
+        set((state) => ({
+          objects: state.objects.filter((o) => o.id !== op.id),
+          connections: state.connections.filter((c) => c.fromId !== op.id && c.toId !== op.id),
+          selectedId: state.selectedId === op.id ? null : state.selectedId,
+          isDirty: true,
+        }));
+        import('@/lib/db').then(({ deleteObject }) => deleteObject(op.id));
+        break;
+      }
+      case 'stroke-add': {
+        const stroke = { ...op.stroke, parentId: localParent };
+        set((state) => ({
+          strokes: [...state.strokes.filter((s) => s.id !== stroke.id), stroke],
+          isDirty: true,
+        }));
+        import('@/lib/db').then(({ saveStroke }) => saveStroke(stroke));
+        break;
+      }
+      case 'stroke-remove': {
+        set((state) => ({ strokes: state.strokes.filter((s) => s.id !== op.id), isDirty: true }));
+        import('@/lib/db').then(({ deleteStroke }) => deleteStroke(op.id));
+        break;
+      }
+      case 'connection-add': {
+        const conn = { ...op.connection, parentId: localParent };
+        set((state) => ({
+          connections: [...state.connections.filter((c) => c.id !== conn.id), conn],
+          isDirty: true,
+        }));
+        import('@/lib/db').then(({ saveConnection }) => saveConnection(conn));
+        break;
+      }
+      case 'connection-remove': {
+        set((state) => ({ connections: state.connections.filter((c) => c.id !== op.id), isDirty: true }));
+        import('@/lib/db').then(({ deleteConnection }) => deleteConnection(op.id));
+        break;
+      }
+    }
+  },
+
+  applyRemoteSnapshot: (objects, strokes, connections) => {
+    const stack = get().canvasStack;
+    const pid = stack.length > 0 ? stack[stack.length - 1] : get().urlCanvasId;
+    const localParent = pid === 'root' ? undefined : pid;
+
+    const reObjects = objects.map((o) => ({ ...o, parentId: localParent }));
+    const reStrokes = strokes.map((s) => ({ ...s, parentId: localParent }));
+    const reConnections = connections.map((c) => ({ ...c, parentId: localParent }));
+
+    const maxZ = reObjects.reduce((m, o) => Math.max(m, o.zIndex || 0), get().maxZIndex);
+    set({ objects: reObjects, strokes: reStrokes, connections: reConnections, maxZIndex: maxZ, isDirty: true });
+
+    import('@/lib/db').then(({ saveObjects, saveStrokes, saveConnection }) => {
+      saveObjects(reObjects);
+      saveStrokes(reStrokes);
+      reConnections.forEach((c) => saveConnection(c));
+    });
+  },
+
   // Selection
   selectedId: null,
   setSelectedId: (id) => {
@@ -710,11 +837,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       style,
     };
     set((state) => ({ connections: [...state.connections, newConn], isDirty: true }));
+    emitCollab({ kind: 'connection-add', connection: newConn });
     // Save to DB
     import('@/lib/db').then(({ saveConnection }) => saveConnection(newConn));
   },
   removeConnection: (id) => {
     set((state) => ({ connections: state.connections.filter(c => c.id !== id), isDirty: true }));
+    emitCollab({ kind: 'connection-remove', id });
     // Delete from DB
     import('@/lib/db').then(({ deleteConnection }) => deleteConnection(id));
   },
@@ -807,6 +936,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       children.forEach((childId) => {
         const currentLevel = levels.get(childId) ?? -1;
         if (level + 1 > currentLevel) {
+          if (level + 1 > workflowNodes.length) {
+            // Cycle detected: halt traversal along this path to avoid an infinite loop
+            return;
+          }
           levels.set(childId, level + 1);
           queue.push({ id: childId, level: level + 1 });
         }
