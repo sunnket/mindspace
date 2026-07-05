@@ -1,0 +1,2505 @@
+'use client';
+
+import React, { useRef, useCallback, useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useCanvasStore } from '@/store/canvasStore';
+import { CanvasObjectData } from '@/lib/db';
+import { getSnapPoints } from '@/lib/utils';
+import VoiceNoteBlock from './VoiceNoteBlock';
+import CodeSandboxBlock from './CodeSandboxBlock';
+import QuoteBlock from './QuoteBlock';
+import TodoBlock from './TodoBlock';
+import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock } from './ExtensionBlocks';
+
+interface CommentBubbleProps {
+  obj: CanvasObjectData;
+  isEditing: boolean;
+  onStartEditing: () => void;
+  onStopEditing: () => void;
+}
+
+function CommentBubble({ obj, isEditing, onStartEditing, onStopEditing }: CommentBubbleProps) {
+  const updateObject = useCanvasStore((s) => s.updateObject);
+  const camera = useCanvasStore((s) => s.camera);
+  const offset = (obj.style?.commentOffset as { x: number; y: number }) || { x: 0, y: 0 };
+  const width = (obj.style?.commentWidth as number) || 180;
+  const height = (obj.style?.commentHeight as number) || 80;
+  
+  const [localComment, setLocalComment] = useState((obj.style?.comment as string) || '');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sync local state when external comment changes (if not editing)
+  useEffect(() => {
+    if (!isEditing) {
+      setLocalComment((obj.style?.comment as string) || '');
+    }
+  }, [obj.style?.comment, isEditing]);
+
+  // Explicit focus management
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      const input = inputRef.current;
+      requestAnimationFrame(() => {
+        input.focus();
+        // Move cursor to end
+        const length = input.value.length;
+        input.setSelectionRange(length, length);
+      });
+    }
+  }, [isEditing]);
+
+  const handleDrag = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isEditing || (e.target as HTMLElement).tagName === 'INPUT') return;
+    
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const initialOffset = { ...offset };
+
+    let moved = false;
+    const onMove = (moveE: MouseEvent) => {
+      const dx = (moveE.clientX - startX) / camera.zoom;
+      const dy = (moveE.clientY - startY) / camera.zoom;
+      
+      if (!moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+      moved = true;
+
+      updateObject(obj.id, {
+        style: {
+          ...obj.style,
+          commentOffset: {
+            x: initialOffset.x + dx,
+            y: initialOffset.y + dy,
+          }
+        }
+      });
+    };
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [offset, camera.zoom, obj.id, obj.style, updateObject]);
+
+  const handleResize = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const initialWidth = width;
+    const initialHeight = height;
+
+    const onMove = (moveE: MouseEvent) => {
+      const dx = (moveE.clientX - startX) / camera.zoom;
+      const dy = (moveE.clientY - startY) / camera.zoom;
+      updateObject(obj.id, {
+        style: {
+          ...obj.style,
+          commentWidth: Math.max(120, initialWidth + dx),
+          commentHeight: Math.max(60, initialHeight + dy),
+        }
+      });
+    };
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [width, height, camera.zoom, obj.id, obj.style, updateObject]);
+
+  const handleSave = () => {
+    updateObject(obj.id, { style: { ...obj.style, comment: localComment } });
+    onStopEditing();
+  };
+
+  return (
+    <div 
+      className={`absolute select-auto ${isEditing ? 'z-[1000]' : 'z-[102]'}`}
+      style={{
+        left: offset.x,
+        top: offset.y,
+        transform: 'translate(-50%, -50%)',
+      }}
+    >
+      <div className="relative group/comment">
+        {/* Speech Bubble SVG Container */}
+        <motion.div
+          onMouseDown={handleDrag}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className={`relative flex items-center justify-center ${isEditing ? 'cursor-text' : 'cursor-grab active:cursor-grabbing'}`}
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+        >
+          {/* Speech Bubble SVG - Dynamic Sizing */}
+          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="drop-shadow-xl filter pointer-events-none">
+            <path 
+              d={`M10,10 Q10,0 20,0 L${width-20},0 Q${width-10},0 ${width-10},10 L${width-10},${height-30} Q${width-10},${height-20} ${width-20},${height-20} L40,${height-20} L10,${height-5} L10,${height-20} Q0,${height-20} 0,${height-30} L0,10 Q0,0 10,0`} 
+              fill="white" 
+              stroke="var(--accent-light)" 
+              strokeWidth="1.5"
+              transform="translate(5, 5) scale(0.95)"
+            />
+          </svg>
+
+          {/* Content inside bubble */}
+          <div 
+            className="absolute inset-0 flex flex-col justify-center px-6 pb-5 pointer-events-auto"
+            onClick={() => isEditing && inputRef.current?.focus()}
+          >
+            <div className="flex items-center gap-2 w-full pt-1">
+              {isEditing ? (
+                <textarea
+                  ref={inputRef as any}
+                  value={localComment}
+                  onChange={(e) => {
+                    setLocalComment(e.target.value);
+                    // Auto-resize height
+                    e.target.style.height = 'auto';
+                    e.target.style.height = e.target.scrollHeight + 'px';
+                  }}
+                  onBlur={handleSave}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSave();
+                    }
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                  className="bg-transparent border-none outline-none text-[12px] w-full resize-none overflow-hidden text-[var(--text-primary)] font-medium leading-tight"
+                  placeholder="Type a comment..."
+                  rows={1}
+                />
+              ) : (
+                <div 
+                  className="text-[12px] text-[var(--text-secondary)] font-medium whitespace-pre-wrap break-words w-full cursor-text"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStartEditing();
+                  }}
+                >
+                  {(obj.style?.comment as string) || 'Add a comment...'}
+                </div>
+              )}
+              
+              {!isEditing && (
+                <button 
+                  className="opacity-0 group-hover/comment:opacity-100 transition-opacity text-[10px] text-red-400 hover:text-red-600 p-1"
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    updateObject(obj.id, { style: { ...obj.style, comment: null } });
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Resizer Handle */}
+          {!isEditing && (
+            <div
+              onMouseDown={handleResize}
+              className="absolute bottom-2 right-2 w-3 h-3 cursor-nwse-resize opacity-0 group-hover/comment:opacity-100 transition-opacity flex items-center justify-center"
+            >
+              <div className="w-1.5 h-1.5 border-r border-b border-[var(--text-muted)]" />
+            </div>
+          )}
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+
+interface CanvasObjectProps {
+  obj: CanvasObjectData;
+  isSelected: boolean;
+  isFocused: boolean;
+}
+
+export default function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
+  const updateObject = useCanvasStore((s) => s.updateObject);
+  const setSelectedId = useCanvasStore((s) => s.setSelectedId);
+  const setFocusedId = useCanvasStore((s) => s.setFocusedId);
+  const pushUndo = useCanvasStore((s) => s.pushUndo);
+  const objects = useCanvasStore((s) => s.objects);
+  const camera = useCanvasStore((s) => s.camera);
+  const mode = useCanvasStore((s) => s.mode);
+  const getNextZIndex = useCanvasStore((s) => s.getNextZIndex);
+  const pushCanvas = useCanvasStore((s) => s.pushCanvas);
+  const setPlusMenuPos = useCanvasStore((s) => s.setPlusMenuPos);
+
+  const removeObject = useCanvasStore((s) => s.removeObject);
+  const editingId = useCanvasStore((s) => s.editingId);
+  const setEditingId = useCanvasStore((s) => s.setEditingId);
+  const addToTrash = useCanvasStore((s) => s.addToTrash);
+  const connections = useCanvasStore((s) => s.connections);
+  const setSlashMenu = useCanvasStore((s) => s.setSlashMenu);
+
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const hoverTimeout = useRef<NodeJS.Timeout | null>(null);
+  const editingCommentId = useCanvasStore((s) => s.editingCommentId);
+  const setEditingCommentId = useCanvasStore((s) => s.setEditingCommentId);
+  const connectorSelectedIds = useCanvasStore((s) => s.connectorSelectedIds);
+  const toggleConnectorSelection = useCanvasStore((s) => s.toggleConnectorSelection);
+  
+  const isEditing = editingId === obj.id && mode !== 'connector';
+  const dragStart = useRef({ x: 0, y: 0, objX: 0, objY: 0 });
+  const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 });
+  const contentRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const latestContent = useRef(obj.content || '');
+
+  useEffect(() => {
+    if (isEditing) {
+      setIsHovered(false);
+      if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
+    }
+  }, [isEditing]);
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (mode === 'draw' || isEditing) return;
+      
+      e.stopPropagation();
+      e.preventDefault();
+
+      // Only select if not in connector mode
+      if (mode !== 'connector') {
+        setSelectedId(obj.id);
+      }
+
+      const newZ = getNextZIndex();
+      updateObject(obj.id, { zIndex: newZ });
+
+      const before = { x: obj.x, y: obj.y };
+      dragStart.current = {
+        x: e.clientX,
+        y: e.clientY,
+        objX: obj.x,
+        objY: obj.y,
+        // For arrows:
+        objStartX: obj.style?.startX as number || 0,
+        objStartY: obj.style?.startY as number || 0,
+        objEndX: obj.style?.endX as number || 0,
+        objEndY: obj.style?.endY as number || 0,
+      } as any;
+
+      setIsDragging(true);
+
+      const handleMouseMove = (moveE: MouseEvent) => {
+        const dx = (moveE.clientX - dragStart.current.x) / camera.zoom;
+        const dy = (moveE.clientY - dragStart.current.y) / camera.zoom;
+
+        let newX = dragStart.current.objX + dx;
+        let newY = dragStart.current.objY + dy;
+
+        // Skip snapping in connector mode for a more fluid feel
+        if (mode !== 'connector') {
+          const others = objects
+            .filter((o) => o.id !== obj.id)
+            .map((o) => ({ x: o.x, y: o.y, width: o.width, height: o.height }));
+
+          const snap = getSnapPoints(newX, newY, obj.width, obj.height, others);
+          if (snap.x !== null) newX = snap.x;
+          if (snap.y !== null) newY = snap.y;
+        }
+
+        if (obj.type === 'arrow') {
+          updateObject(obj.id, {
+            x: newX,
+            y: newY,
+            style: {
+              ...obj.style,
+              startX: (dragStart.current as any).objStartX + dx,
+              startY: (dragStart.current as any).objStartY + dy,
+              endX: (dragStart.current as any).objEndX + dx,
+              endY: (dragStart.current as any).objEndY + dy,
+            }
+          });
+        } else {
+          updateObject(obj.id, { x: newX, y: newY });
+        }
+      };
+
+      const handleMouseUp = () => {
+        setIsDragging(false);
+        pushUndo({
+          type: 'move',
+          objectId: obj.id,
+          before,
+          after: { x: obj.x, y: obj.y },
+        });
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    },
+    [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex]
+  );
+
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      setIsResizing(true);
+
+      resizeStart.current = {
+        x: e.clientX,
+        y: e.clientY,
+        w: obj.width,
+        h: obj.height,
+        // For arrows:
+        objEndX: obj.style?.endX as number || 0,
+        objEndY: obj.style?.endY as number || 0,
+      } as any;
+
+      const handleMouseMove = (moveE: MouseEvent) => {
+        const dx = (moveE.clientX - resizeStart.current.x) / camera.zoom;
+        const dy = (moveE.clientY - resizeStart.current.y) / camera.zoom;
+        
+        if (obj.type === 'arrow') {
+          const initialStyle = obj.style || {};
+          const startX = initialStyle.startX as number || 0;
+          const startY = initialStyle.startY as number || 0;
+          const initialEndX = (resizeStart.current as any).objEndX || 0;
+          const initialEndY = (resizeStart.current as any).objEndY || 0;
+          const newEndX = initialEndX + dx;
+          const newEndY = initialEndY + dy;
+          
+          const minX = Math.min(startX, newEndX);
+          const minY = Math.min(startY, newEndY);
+          const maxX = Math.max(startX, newEndX);
+          const maxY = Math.max(startY, newEndY);
+          
+          updateObject(obj.id, {
+            x: minX,
+            y: minY,
+            width: Math.max(15, maxX - minX),
+            height: Math.max(15, maxY - minY),
+            style: {
+              ...initialStyle,
+              endX: newEndX,
+              endY: newEndY,
+            }
+          });
+        } else {
+          const newW = Math.max(100, resizeStart.current.w + dx);
+          const newH = Math.max(50, resizeStart.current.h + dy);
+          updateObject(obj.id, { 
+            width: newW, 
+            height: newH,
+            style: {
+              ...obj.style,
+              isResized: true
+            }
+          });
+        }
+      };
+
+      const handleMouseUp = () => {
+        setIsResizing(false);
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    },
+    [obj, camera.zoom, updateObject]
+  );
+
+  const handleRotateStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      const initialRotation = obj.rotation || 0;
+      const startAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+
+      const handleMouseMove = (moveE: MouseEvent) => {
+        const currentAngle = Math.atan2(moveE.clientY - centerY, moveE.clientX - centerX);
+        const angleDiff = currentAngle - startAngle;
+        let newRotation = initialRotation + (angleDiff * 180) / Math.PI;
+
+        newRotation = (newRotation % 360 + 360) % 360;
+
+        // Snap to 15-degree increments if Shift is held
+        if (moveE.shiftKey) {
+          newRotation = Math.round(newRotation / 15) * 15;
+        }
+
+        updateObject(obj.id, { rotation: newRotation });
+      };
+
+      const handleMouseUp = () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    },
+    [obj, updateObject]
+  );
+
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+
+      if (obj.type === 'heading') {
+        // Navigate into nested canvas
+        pushCanvas(obj.id);
+        return;
+      }
+
+      // Enter focus mode
+      setFocusedId(obj.id);
+
+      if (obj.type === 'text' || obj.type === 'sticky' || obj.type === 'card' || obj.type === 'shape') {
+        setEditingId(obj.id);
+      }
+    },
+    [obj, setFocusedId, pushCanvas, setEditingId]
+  );
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (mode === 'draw' || isEditing) return;
+
+      if (mode === 'connector') {
+        toggleConnectorSelection(obj.id);
+        return;
+      }
+
+      // If it's a pure click (no drag) and already selected, enter edit mode
+      if (isSelected && obj.type !== 'image') {
+        setEditingId(obj.id);
+      }
+    },
+    [mode, isEditing, isSelected, obj, setEditingId]
+  );
+
+  useEffect(() => {
+    if (isEditing && contentRef.current) {
+      contentRef.current.innerText = obj.content || '';
+      latestContent.current = obj.content || '';
+      contentRef.current.focus();
+      
+      // Move cursor to end
+      const range = document.createRange();
+      const sel = window.getSelection();
+      if (contentRef.current.childNodes.length > 0) {
+        range.selectNodeContents(contentRef.current);
+        range.collapse(false);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      }
+    }
+  }, [isEditing]);
+
+  // Track native input for all editable text blocks to keep latestContent in sync and handle slash commands
+  useEffect(() => {
+    if (!isEditing) return;
+    
+    let timeoutId: NodeJS.Timeout;
+    
+    const handleNativeInput = () => {
+      if (contentRef.current) {
+        const text = contentRef.current.innerText;
+        latestContent.current = text;
+        
+        // Slash Command Detection: matches a forward slash optionally followed by search query, e.g. "/coun"
+        const match = text.match(/(?:^|\s)\/([a-zA-Z]*)$/);
+        if (match) {
+          const query = match[1] || '';
+          const rect = contentRef.current.getBoundingClientRect();
+          setSlashMenu({
+            objectId: obj.id,
+            query: query,
+            x: rect.left,
+            y: rect.bottom + window.scrollY + 6
+          });
+        } else {
+          // Hide slash menu if no match and it was open for this object
+          const currentMenu = useCanvasStore.getState().slashMenu;
+          if (currentMenu && currentMenu.objectId === obj.id) {
+            setSlashMenu(null);
+          }
+        }
+        
+        // Auto-adjust height during typing!
+        if (obj.type === 'text' || obj.type === 'heading' || obj.type === 'workflow-node') {
+          const padding = obj.type === 'workflow-node' ? 30 : 10;
+          const minHeight = obj.type === 'workflow-node' ? 60 : 30;
+          const calculatedHeight = contentRef.current.scrollHeight + padding;
+          const baseHeight = obj.style?.isResized ? obj.height : minHeight;
+          const newHeight = Math.max(baseHeight, calculatedHeight);
+          if (newHeight !== obj.height) {
+            updateObject(obj.id, { height: newHeight });
+          }
+        }
+
+        // Auto-remove empty text blocks after 8 seconds of inactivity
+        if (obj.type === 'text' || obj.type === 'heading') {
+          clearTimeout(timeoutId);
+          if (latestContent.current.trim() === '') {
+            timeoutId = setTimeout(() => {
+              if (latestContent.current.trim() === '') {
+                removeObject(obj.id);
+                if (editingId === obj.id) setEditingId(null);
+              }
+            }, 8000);
+          }
+        }
+      }
+    };
+
+    const handleNativeKeyDown = (e: KeyboardEvent) => {
+      const currentMenu = useCanvasStore.getState().slashMenu;
+      if (!currentMenu || currentMenu.objectId !== obj.id) return;
+
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        let eventName = 'slash-menu-down';
+        if (e.key === 'ArrowUp') eventName = 'slash-menu-up';
+        if (e.key === 'Enter') eventName = 'slash-menu-select';
+        
+        window.dispatchEvent(new CustomEvent(eventName));
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setSlashMenu(null);
+      }
+    };
+
+    const ref = contentRef.current;
+    if (ref) {
+      ref.addEventListener('input', handleNativeInput);
+      ref.addEventListener('keydown', handleNativeKeyDown);
+      
+      // Start the timeout initially if it's an empty text/heading block
+      if ((obj.type === 'text' || obj.type === 'heading') && latestContent.current.trim() === '') {
+        timeoutId = setTimeout(() => {
+          if (latestContent.current.trim() === '') {
+            removeObject(obj.id);
+            if (editingId === obj.id) setEditingId(null);
+          }
+        }, 8000);
+      }
+    }
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (ref) {
+        ref.removeEventListener('input', handleNativeInput);
+        ref.removeEventListener('keydown', handleNativeKeyDown);
+      }
+      // Cleanup the slash menu if it was opened by this object
+      const currentMenu = useCanvasStore.getState().slashMenu;
+      if (currentMenu && currentMenu.objectId === obj.id) {
+        setSlashMenu(null);
+      }
+    };
+  }, [isEditing, obj.id, obj.type, removeObject, editingId, setEditingId, obj.height, updateObject, setSlashMenu]);
+
+  // Handle unified content saving and URL detection/conversion
+  // Handle unified content saving
+  const saveContent = useCallback((finalContent: string) => {
+    if (obj.style?.isCheckpoint) return;
+    if (finalContent === obj.content) return;
+
+    const updates: any = { content: finalContent };
+    
+    // Auto-adjust height for text elements
+    if (obj.type === 'text' || obj.type === 'heading' || obj.type === 'workflow-node') {
+      if (contentRef.current) {
+        const padding = obj.type === 'workflow-node' ? 30 : 10;
+        const minHeight = obj.type === 'workflow-node' ? 60 : 30;
+        const calculatedHeight = contentRef.current.scrollHeight + padding;
+        const baseHeight = obj.style?.isResized ? obj.height : minHeight;
+        updates.height = Math.max(baseHeight, calculatedHeight);
+      }
+    }
+
+    updateObject(obj.id, updates);
+  }, [obj.id, obj.type, obj.content, updateObject, obj.style?.isCheckpoint]);
+
+  // Handle saving when editing ends
+  const wasEditing = useRef(isEditing);
+  useEffect(() => {
+    if (obj.style?.isCheckpoint) {
+      wasEditing.current = isEditing;
+      return;
+    }
+    if (wasEditing.current && !isEditing) {
+      // Editing just ended!
+      const finalContent = contentRef.current ? contentRef.current.innerText : latestContent.current;
+      saveContent(finalContent);
+      
+      const isPlainCardOrQuote = obj.type === 'card' && !obj.style?.isVoiceNote && !obj.style?.isCheckpoint && !obj.style?.isTodo && !obj.style?.isCode;
+      const shouldDelete = finalContent.trim() === '' && (
+        obj.type === 'text' || 
+        obj.type === 'heading' || 
+        obj.type === 'sticky' || 
+        isPlainCardOrQuote
+      );
+      if (shouldDelete) {
+        removeObject(obj.id);
+      }
+    }
+    wasEditing.current = isEditing;
+  }, [isEditing, obj.id, obj.type, removeObject, saveContent, obj.style?.isCheckpoint, obj.style?.isVoiceNote, obj.style?.isTodo, obj.style?.isCode]);
+
+  const handleBlur = useCallback(() => {
+    if (editingId === obj.id) {
+      setEditingId(null);
+    }
+    if (obj.style?.isCheckpoint) return;
+    
+    const finalContent = contentRef.current ? contentRef.current.innerText : latestContent.current;
+    saveContent(finalContent);
+    
+    const isPlainCardOrQuote = obj.type === 'card' && !obj.style?.isVoiceNote && !obj.style?.isCheckpoint && !obj.style?.isTodo && !obj.style?.isCode;
+    const shouldDelete = finalContent.trim() === '' && (
+      obj.type === 'text' || 
+      obj.type === 'heading' || 
+      obj.type === 'sticky' || 
+      isPlainCardOrQuote
+    );
+    if (shouldDelete) {
+      removeObject(obj.id);
+    }
+  }, [obj.id, obj.type, removeObject, editingId, setEditingId, saveContent, obj.style?.isCheckpoint, obj.style?.isVoiceNote, obj.style?.isTodo, obj.style?.isCode]);
+
+
+
+
+
+  // Render content based on type
+  const renderContent = () => {
+    switch (obj.type) {
+      case 'arrow': {
+        const startX = obj.style?.startX as number || 0;
+        const startY = obj.style?.startY as number || 0;
+        const endX = obj.style?.endX as number || 0;
+        const endY = obj.style?.endY as number || 0;
+        const minX = Math.min(startX, endX);
+        const minY = Math.min(startY, endY);
+        
+        const localX1 = startX - minX;
+        const localY1 = startY - minY;
+        const localX2 = endX - minX;
+        const localY2 = endY - minY;
+        
+        const midX = (localX1 + localX2) / 2;
+        const midY = (localY1 + localY2) / 2;
+        
+        const color = (obj.style?.color as string) || 'var(--accent)';
+        const thickness = (obj.style?.thickness as number) || 3;
+        const pointerType = (obj.style?.pointerType as string) || 'line';
+        
+        return (
+          <div className="w-full h-full relative" style={{ overflow: 'visible', pointerEvents: 'none' }}>
+            <svg className="w-full h-full overflow-visible pointer-events-none">
+              <defs>
+                <marker 
+                  id={`arrow-head-${obj.id}`} 
+                  markerWidth="8" 
+                  markerHeight="8" 
+                  refX="6" 
+                  refY="4" 
+                  orient="auto" 
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M0,1 L8,4 L0,7 Z" fill={color} />
+                </marker>
+                <marker 
+                  id={`dot-head-${obj.id}`} 
+                  markerWidth="8" 
+                  markerHeight="8" 
+                  refX="4" 
+                  refY="4" 
+                  orient="auto" 
+                  markerUnits="strokeWidth"
+                >
+                  <circle cx="4" cy="4" r="3" fill={color} />
+                </marker>
+                <marker 
+                  id={`diamond-head-${obj.id}`} 
+                  markerWidth="8" 
+                  markerHeight="8" 
+                  refX="4" 
+                  refY="4" 
+                  orient="auto" 
+                  markerUnits="strokeWidth"
+                >
+                  <polygon points="4,1 7,4 4,7 1,4" fill={color} />
+                </marker>
+              </defs>
+              <line 
+                x1={localX1} 
+                y1={localY1} 
+                x2={localX2} 
+                y2={localY2} 
+                stroke={color} 
+                strokeWidth={thickness}
+                strokeDasharray={obj.style?.dashStyle === 'dashed' ? '8,6' : obj.style?.dashStyle === 'dotted' ? '2,4' : undefined}
+                markerEnd={
+                  pointerType === 'arrow' ? `url(#arrow-head-${obj.id})` :
+                  pointerType === 'dot' ? `url(#dot-head-${obj.id})` :
+                  pointerType === 'diamond' ? `url(#diamond-head-${obj.id})` : undefined
+                }
+              />
+            </svg>
+            
+            {/* Label in the middle */}
+            {(isEditing || obj.content) && (
+              <div 
+                className="absolute z-20 -translate-x-1/2 -translate-y-1/2 glass-panel p-1.5 rounded-lg shadow-sm border border-[var(--border)] min-w-[80px] pointer-events-auto"
+                style={{
+                  left: `${midX}px`,
+                  top: `${midY}px`,
+                  background: 'var(--bg-glass)',
+                  backdropFilter: 'blur(8px)',
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {isEditing ? (
+                  <div
+                    ref={contentRef}
+                    contentEditable={isEditing}
+                    suppressContentEditableWarning
+                    onBlur={handleBlur}
+                    className="text-block-editable text-xs font-semibold px-1 py-0.5 text-[var(--text-primary)]"
+                    style={{ outline: 'none', textAlign: 'center', minWidth: '70px' }}
+                  />
+                ) : (
+                  <div className="text-xs font-semibold px-1 py-0.5 text-[var(--text-primary)] whitespace-nowrap text-center">
+                    {obj.content}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      case 'text':
+        return isEditing ? (
+          <div
+            ref={contentRef}
+            className="text-block-editable animate-fade-in"
+            contentEditable={isEditing}
+            suppressContentEditableWarning
+            onBlur={handleBlur}
+            data-placeholder="Start typing..."
+            style={{
+              fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '15px',
+              fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+              lineHeight: '1.7'
+            }}
+          />
+        ) : (
+          <div
+            className="text-block-display break-words select-none"
+            style={{
+              fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '15px',
+              fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+              lineHeight: '1.7',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}
+          >
+            {obj.content || ''}
+          </div>
+        );
+
+      case 'heading':
+        return (
+          <div className="relative group">
+            {isEditing ? (
+              <div
+                ref={contentRef}
+                contentEditable={isEditing}
+                suppressContentEditableWarning
+                onBlur={handleBlur}
+                className="text-block-editable"
+                style={{
+                  fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+                  fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '2.2rem',
+                  fontWeight: 500,
+                  lineHeight: 1.2,
+                  color: 'var(--text-primary)',
+                }}
+              />
+            ) : (
+              <div
+                className="text-block-display select-none"
+                style={{
+                  fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+                  fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '2.2rem',
+                  fontWeight: 500,
+                  lineHeight: 1.2,
+                  color: 'var(--text-primary)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {obj.content || ''}
+              </div>
+            )}
+            <div
+              className="absolute -bottom-2 left-0 h-[2px] bg-gradient-to-r from-[var(--accent)] to-transparent opacity-30"
+              style={{ width: '60%' }}
+            />
+            <div className="absolute -right-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-60 transition-opacity text-xs text-[var(--text-tertiary)] cursor-pointer">
+              ↵
+            </div>
+          </div>
+        );
+
+      case 'sticky':
+        return (
+          <div
+            className="sticky-note"
+            style={{
+              background: (obj.style?.color as string) || 'var(--sticky-yellow)',
+              width: '100%',
+              height: '100%',
+            }}
+          >
+            {isEditing ? (
+              <div
+                ref={contentRef}
+                contentEditable={isEditing}
+                suppressContentEditableWarning
+                onBlur={handleBlur}
+                className="text-block-editable"
+                data-placeholder="Note..."
+                style={{
+                  fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+                  fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '14px',
+                }}
+              />
+            ) : (
+              <div
+                className="text-block-display select-none"
+                style={{
+                  fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+                  fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '14px',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  padding: '12px',
+                }}
+              >
+                {obj.content || ''}
+              </div>
+            )}
+          </div>
+        );
+
+      case 'card':
+        if (obj.style?.isVoiceNote) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <VoiceNoteBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isCheckpoint) {
+          return (
+            <div className="flex items-center gap-2.5 w-full h-full px-3 py-1.5 bg-[var(--bg-glass)] backdrop-blur-xl rounded-full border border-white/20 shadow-sm pointer-events-auto transition-all hover:bg-white/30 hover:border-white/40">
+              <div 
+                className="flex items-center justify-center cursor-pointer hover:scale-115 transition-transform text-[var(--accent)]"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isDragging) return;
+                  const camX = window.innerWidth / 2 - (obj.x + obj.width/2) * camera.zoom;
+                  const camY = window.innerHeight / 2 - (obj.y + obj.height/2) * camera.zoom;
+                  useCanvasStore.getState().animateCamera({ x: camX, y: camY, zoom: camera.zoom });
+                }}
+                title="Bounce to Checkpoint"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon>
+                  <line x1="8" y1="2" x2="8" y2="18"></line>
+                  <line x1="16" y1="6" x2="16" y2="22"></line>
+                </svg>
+              </div>
+              <input
+                type="text"
+                value={obj.content || ''}
+                onChange={(e) => {
+                  latestContent.current = e.target.value;
+                  updateObject(obj.id, { content: e.target.value });
+                }}
+                placeholder="Checkpoint name..."
+                className="bg-transparent border-none outline-none text-xs font-semibold text-[var(--text-primary)] w-full placeholder:opacity-40"
+                style={{ fontFamily: "'Outfit', sans-serif" }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+              />
+            </div>
+          );
+        }
+        if (obj.style?.isCountdown) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <CountdownBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isPoll) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <PollBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isLiveMetric) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <LiveMetricBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isQuickData) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <QuickDataBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isTodo) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <TodoBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isCode) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <CodeSandboxBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isQuote) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <QuoteBlock 
+                obj={obj} 
+                isEditing={isEditing} 
+                onBlur={handleBlur} 
+                innerRef={contentRef}
+              />
+            </div>
+          );
+        }
+        return (
+          <div className="floating-card animate-fade-in" style={{ width: '100%', height: '100%', padding: '12px' }}>
+            {isEditing ? (
+              <div
+                ref={contentRef}
+                contentEditable={isEditing}
+                suppressContentEditableWarning
+                onBlur={handleBlur}
+                className="text-block-editable"
+                data-placeholder="Write something..."
+                style={{
+                  fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+                  fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '14px',
+                }}
+              />
+            ) : (
+              <div
+                className="text-block-display select-none"
+                style={{
+                  fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+                  fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '14px',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {obj.content || ''}
+              </div>
+            )}
+          </div>
+        );
+      case 'shape':
+        {
+          const shapeType = (obj.style?.shapeType as string) || 'square';
+          const isShapeEditing = isEditing;
+          
+          // Define shape color from style, otherwise use default themes
+          const shapeBg = (obj.style?.color as string) || 'var(--bg-glass)';
+          const shapeBorder = (obj.style?.borderColor as string) || 'var(--accent-light)';
+          
+          const getShapePadding = (shape: string) => {
+            switch (shape) {
+              case 'triangle': return { left: '20%', right: '20%', top: '35%', bottom: '15%' };
+              case 'diamond': return { left: '22%', right: '22%', top: '22%', bottom: '22%' };
+              case 'star': return { left: '25%', right: '25%', top: '30%', bottom: '25%' };
+              case 'heart': return { left: '20%', right: '20%', top: '25%', bottom: '30%' };
+              case 'cloud': return { left: '20%', right: '20%', top: '35%', bottom: '20%' };
+              case 'database': return { left: '18%', right: '18%', top: '25%', bottom: '18%' };
+              case 'document': return { left: '15%', right: '15%', top: '20%', bottom: '20%' };
+              case 'speech': return { left: '18%', right: '18%', top: '20%', bottom: '25%' };
+              case 'message': return { left: '15%', right: '15%', top: '20%', bottom: '20%' };
+              case 'cross': return { left: '30%', right: '30%', top: '30%', bottom: '30%' };
+              case 'lightning': return { left: '30%', right: '30%', top: '35%', bottom: '20%' };
+              case 'shield': return { left: '18%', right: '18%', top: '20%', bottom: '20%' };
+              case 'arrow-left': return { left: '35%', right: '15%', top: '20%', bottom: '20%' };
+              case 'arrow-right': return { left: '15%', right: '35%', top: '20%', bottom: '20%' };
+              case 'arrow-up': return { left: '35%', right: '35%', top: '15%', bottom: '45%' };
+              case 'arrow-down': return { left: '35%', right: '35%', top: '45%', bottom: '15%' };
+              case 'tag': return { left: '15%', right: '22%', top: '20%', bottom: '20%' };
+              case 'banner': return { left: '20%', right: '20%', top: '25%', bottom: '25%' };
+              case 'octagon': return { left: '15%', right: '15%', top: '15%', bottom: '15%' };
+              case 'folder': return { left: '15%', right: '15%', top: '30%', bottom: '20%' };
+              case 'sun': return { left: '30%', right: '30%', top: '30%', bottom: '30%' };
+              case 'moon': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
+              
+              case 'lightbulb': return { left: '25%', right: '25%', top: '20%', bottom: '30%' };
+              case 'sticky': return { left: '15%', right: '15%', top: '15%', bottom: '15%' };
+              case 'target': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'funnel': return { left: '25%', right: '25%', top: '15%', bottom: '50%' };
+              case 'magnet': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
+              case 'puzzle': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'gear': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
+              
+              case 'terminal': return { left: '15%', right: '15%', top: '35%', bottom: '15%' };
+              case 'brackets': return { left: '20%', right: '20%', top: '15%', bottom: '15%' };
+              case 'api': return { left: '15%', right: '15%', top: '20%', bottom: '20%' };
+              case 'server': return { left: '20%', right: '20%', top: '15%', bottom: '15%' };
+              case 'cube': return { left: '20%', right: '20%', top: '30%', bottom: '25%' };
+              case 'branch': return { left: '35%', right: '15%', top: '20%', bottom: '20%' };
+              case 'terminal-prompt': return { left: '35%', right: '15%', top: '20%', bottom: '20%' };
+              case 'cpu': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
+              case 'globe': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'key': return { left: '35%', right: '15%', top: '20%', bottom: '20%' };
+              
+              case 'smile': return { left: '20%', right: '20%', top: '20%', bottom: '35%' };
+              case 'thumbs-up': return { left: '30%', right: '15%', top: '35%', bottom: '20%' };
+              case 'thumbs-down': return { left: '30%', right: '15%', top: '20%', bottom: '35%' };
+              case 'flower': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
+              case 'sparkles': return { left: '30%', right: '30%', top: '30%', bottom: '30%' };
+              case 'trophy': return { left: '25%', right: '25%', top: '20%', bottom: '35%' };
+              case 'medal': return { left: '20%', right: '20%', top: '40%', bottom: '20%' };
+              case 'gift': return { left: '20%', right: '20%', top: '35%', bottom: '20%' };
+              case 'balloon': return { left: '20%', right: '20%', top: '15%', bottom: '35%' };
+              case 'clapping': return { left: '25%', right: '25%', top: '40%', bottom: '20%' };
+              case 'coffee': return { left: '25%', right: '25%', top: '35%', bottom: '25%' };
+              case 'check-circle': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'cross-circle': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              
+              case 'user': return { left: '20%', right: '20%', top: '50%', bottom: '20%' };
+              case 'clock': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'calendar': return { left: '15%', right: '15%', top: '35%', bottom: '15%' };
+              case 'card': return { left: '15%', right: '15%', top: '40%', bottom: '20%' };
+              case 'chart': return { left: '15%', right: '15%', top: '15%', bottom: '15%' };
+              case 'cart': return { left: '20%', right: '20%', top: '30%', bottom: '35%' };
+              case 'play': return { left: '30%', right: '20%', top: '20%', bottom: '20%' };
+              case 'pause': return { left: '30%', right: '30%', top: '20%', bottom: '20%' };
+              case 'stop': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'infinity': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
+              
+              // Story shapes
+              case 'beat': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'scene': return { left: '15%', right: '15%', top: '35%', bottom: '15%' };
+              case 'arc': return { left: '20%', right: '20%', top: '40%', bottom: '20%' };
+              case 'twist': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'stakes': return { left: '25%', right: '25%', top: '20%', bottom: '45%' };
+              case 'character': return { left: '20%', right: '20%', top: '45%', bottom: '20%' };
+              case 'whisper': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'foreshadow': return { left: '15%', right: '15%', top: '20%', bottom: '20%' };
+              case 'world': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'voice': return { left: '30%', right: '15%', top: '20%', bottom: '20%' };
+              
+              // Extended Tech shapes
+              case 'queue': return { left: '15%', right: '15%', top: '35%', bottom: '35%' };
+              case 'webhook': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'cache': return { left: '15%', right: '15%', top: '25%', bottom: '25%' };
+              case 'event': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
+              case 'pipeline': return { left: '15%', right: '15%', top: '35%', bottom: '35%' };
+              case 'auth': return { left: '20%', right: '20%', top: '40%', bottom: '20%' };
+              case 'diff': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'hash': return { left: '22%', right: '22%', top: '22%', bottom: '22%' };
+              case 'branch-merge': return { left: '25%', right: '25%', top: '20%', bottom: '20%' };
+              case 'token': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+
+              // System shapes
+              case 'feedback': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'bottleneck': return { left: '25%', right: '25%', top: '20%', bottom: '45%' };
+              case 'cascade': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'threshold': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
+              case 'trade-off': return { left: '25%', right: '15%', top: '15%', bottom: '25%' };
+              case 'pareto': return { left: '15%', right: '15%', top: '20%', bottom: '35%' };
+              case 'pivot': return { left: '20%', right: '20%', top: '35%', bottom: '20%' };
+              case 'lever': return { left: '20%', right: '20%', top: '20%', bottom: '35%' };
+              case 'compound': return { left: '25%', right: '15%', top: '40%', bottom: '20%' };
+              case 'risk': return { left: '25%', right: '25%', top: '40%', bottom: '15%' };
+              
+              default: return { left: '10%', right: '10%', top: '10%', bottom: '10%' };
+            }
+          };
+
+          const pad = getShapePadding(shapeType);
+          
+          return (
+            <div className={`shape-container ${shapeType}`} style={{ width: '100%', height: '100%', position: 'relative' }}>
+              {/* Background Shape */}
+              <div className="absolute inset-0 pointer-events-none z-0">
+                {shapeType === 'circle' && (
+                  <div 
+                    className="w-full h-full rounded-full transition-all duration-300"
+                    style={{
+                      backgroundColor: shapeBg,
+                      border: `1.5px solid ${shapeBorder}`,
+                      boxShadow: isSelected ? '0 0 15px rgba(201, 123, 75, 0.2)' : 'var(--shadow-sm)',
+                      backdropFilter: 'blur(10px)',
+                    }}
+                  />
+                )}
+                {shapeType === 'square' && (
+                  <div 
+                    className="w-full h-full rounded-xl transition-all duration-300"
+                    style={{
+                      backgroundColor: shapeBg,
+                      border: `1.5px solid ${shapeBorder}`,
+                      boxShadow: isSelected ? '0 0 15px rgba(201, 123, 75, 0.2)' : 'var(--shadow-sm)',
+                      backdropFilter: 'blur(10px)',
+                    }}
+                  />
+                )}
+                {shapeType === 'triangle' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon 
+                      points="50,2 98,96 2,96" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'diamond' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon 
+                      points="50,2 98,50 50,98 2,50" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'pentagon' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon 
+                      points="50,4 96,37 78,92 22,92 4,37" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'hexagon' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon 
+                      points="50,2 94,27 94,73 50,98 6,73 6,27" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'star' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon 
+                      points="50,2 63,35 98,35 70,57 81,91 50,70 19,91 30,57 2,35 37,35" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'heart' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M50,25 C35,5 5,5 5,42 C5,68 45,90 50,95 C55,90 95,68 95,42 C95,5 65,5 50,25 Z" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'cloud' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M25,50 C25,35 40,25 55,25 C70,25 85,35 85,50 C92,50 98,56 98,63 C98,71 92,77 85,77 L25,77 C15,77 8,70 8,60 C8,51 16,45 25,50 Z" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'database' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M10,25 C10,15 28,10 50,10 C72,10 90,15 90,25 L90,75 C90,85 72,90 50,90 C28,90 10,85 10,75 Z M10,25 C10,35 28,40 50,40 C72,40 90,35 90,25" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'document' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M15,10 L65,10 L85,30 L85,90 L15,90 Z M65,10 L65,30 L85,30" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'speech' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M10,15 C10,7 20,7 30,7 L80,7 C90,7 90,15 90,25 L90,65 C90,75 80,75 70,75 L45,75 L20,93 L25,75 C10,75 10,65 10,55 Z" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'message' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M10,20 L90,20 L90,80 L10,80 Z M10,20 L50,55 L90,20" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'cross' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon 
+                      points="35,10 65,10 65,35 90,35 90,65 65,65 65,90 35,90 35,65 10,65 10,35 35,35" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'lightning' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon 
+                      points="60,2 15,55 48,55 35,98 85,42 50,42" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'shield' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M15,10 L50,5 L85,10 C85,45 75,75 50,95 C25,75 15,45 15,10 Z" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'arrow-left' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon 
+                      points="45,10 10,50 45,90 45,65 90,65 90,35 45,35" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'arrow-right' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon 
+                      points="55,10 90,50 55,90 55,65 10,65 10,35 55,35" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'tag' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M10,25 L65,25 L90,50 L65,75 L10,75 Z M25,50 A5,5 0 1,1 25,49.9 Z" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'banner' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon 
+                      points="10,20 90,20 75,50 90,80 10,80 25,50" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'octagon' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon 
+                      points="29,5 71,5 95,29 95,71 71,95 29,95 5,71 5,29" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'folder' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M10,15 L35,15 L45,28 L90,28 L90,85 L10,85 Z" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'sun' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="22" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <path 
+                      d="M50,8 L50,18 M50,82 L50,92 M8,50 L18,50 M82,50 L92,50 M20,20 L27,27 M73,73 L80,80 M20,80 L27,73 M73,27 L80,20" 
+                      stroke={shapeBorder} 
+                      strokeWidth="2" 
+                      strokeLinecap="round" 
+                    />
+                  </svg>
+                )}
+                {shapeType === 'moon' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M75,15 C45,15 25,35 25,60 C25,75 35,90 55,95 C30,90 15,70 15,50 C15,25 35,10 65,10 C70,10 73,12 75,15 Z" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                )}
+                {shapeType === 'lightbulb' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M50,10 C28,10 25,35 32,50 C37,60 40,65 40,75 L60,75 C60,65 63,60 68,50 C75,35 72,10 50,10 Z M38,82 L62,82 M42,90 L58,90" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5" 
+                      strokeLinejoin="round" 
+                    />
+                  </svg>
+                )}
+                {shapeType === 'sticky' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M10,10 L70,10 L90,30 L90,90 L10,90 Z" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5" 
+                      strokeLinejoin="round" 
+                    />
+                    <path 
+                      d="M70,10 L70,30 L90,30 Z" 
+                      fill={shapeBorder} 
+                      opacity="0.25"
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5" 
+                      strokeLinejoin="round" 
+                    />
+                  </svg>
+                )}
+                {shapeType === 'target' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="42" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="50" cy="50" r="28" fill="none" stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="50" cy="50" r="14" fill="none" stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="50" cy="50" r="4" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'funnel' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon 
+                      points="10,10 90,10 60,45 60,85 40,95 40,45" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5" 
+                      strokeLinejoin="round" 
+                    />
+                  </svg>
+                )}
+                {shapeType === 'magnet' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M20,40 C20,15 80,15 80,40 L80,75 L62,75 L62,40 C62,28 38,28 38,40 L38,75 L20,75 Z" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5" 
+                      strokeLinejoin="round" 
+                    />
+                    <rect x="20" y="70" width="18" height="10" fill={shapeBorder} stroke={shapeBorder} strokeWidth="1.5" />
+                    <rect x="62" y="70" width="18" height="10" fill={shapeBorder} stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'puzzle' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path 
+                      d="M20,20 L40,20 C40,10 60,10 60,20 L80,20 L80,40 C90,40 90,60 80,60 L80,80 L60,80 C60,70 40,70 40,80 L20,80 L20,60 C30,60 30,40 20,40 Z" 
+                      fill={shapeBg} 
+                      stroke={shapeBorder} 
+                      strokeWidth="1.5" 
+                      strokeLinejoin="round" 
+                    />
+                  </svg>
+                )}
+                {shapeType === 'gear' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="22" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <path 
+                      d="M50,15 L50,5 M50,95 L50,85 M15,50 L5,50 M95,50 L85,50 M25,25 L18,18 M75,75 L82,82 M25,80 L18,82 M75,25 L82,18" 
+                      stroke={shapeBorder} 
+                      strokeWidth="3" 
+                      strokeLinecap="round" 
+                    />
+                    <circle cx="50" cy="50" r="8" fill="none" stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'terminal' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="5" y="15" width="90" height="70" rx="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="5" y1="35" x2="95" y2="35" stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="15" cy="25" r="3" fill={shapeBorder} />
+                    <circle cx="25" cy="25" r="3" fill={shapeBorder} />
+                    <circle cx="35" cy="25" r="3" fill={shapeBorder} />
+                    <path d="M15,47 L25,55 L15,63 M30,63 L45,63" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'brackets' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="5" y="10" width="90" height="80" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <path d="M30,30 C20,30 20,40 20,50 C20,60 20,70 30,70 M70,30 C80,30 80,40 80,50 C80,60 80,70 70,70" fill="none" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'api' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="35" width="80" height="30" rx="15" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="30" cy="50" r="6" fill={shapeBorder} />
+                    <circle cx="50" cy="50" r="6" fill={shapeBorder} />
+                    <circle cx="70" cy="50" r="6" fill={shapeBorder} />
+                    <line x1="36" y1="50" x2="44" y2="50" stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="56" y1="50" x2="64" y2="50" stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'server' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="10" width="70" height="22" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <rect x="15" y="38" width="70" height="22" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <rect x="15" y="66" width="70" height="22" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="28" cy="21" r="2" fill={shapeBorder} />
+                    <circle cx="28" cy="49" r="2" fill={shapeBorder} />
+                    <circle cx="28" cy="77" r="2" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'cube' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,5 92,26 92,74 50,95 8,74 8,26" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="50" y1="5" x2="50" y2="95" stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="50" y1="48" x2="92" y2="26" stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="50" y1="48" x2="8" y2="26" stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'branch' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M30,85 L30,15 M30,50 Q60,50 70,30 L70,15" fill="none" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                    <circle cx="30" cy="15" r="7" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="30" cy="85" r="7" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="70" cy="15" r="7" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'terminal-prompt' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M20,30 L45,50 L20,70 M50,70 L80,70" fill="none" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'cpu' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="20" y="20" width="60" height="60" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <rect x="35" y="35" width="30" height="30" rx="4" fill="none" stroke={shapeBorder} strokeWidth="1.5" />
+                    <path d="M35,20 L35,10 M50,20 L50,10 M65,20 L65,10 M35,80 L35,90 M50,80 L50,90 M65,80 L65,90 M20,35 L10,35 M20,50 L10,50 M20,65 L10,65 M80,35 L90,35 M80,50 L90,50 M80,65 L90,65" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'globe' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="42" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <ellipse cx="50" cy="50" rx="20" ry="42" fill="none" stroke={shapeBorder} strokeWidth="1.5" />
+                    <ellipse cx="50" cy="50" rx="42" ry="15" fill="none" stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="8" y1="50" x2="92" y2="50" stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="50" y1="8" x2="50" y2="92" stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'key' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M35,50 A15,15 0 1,1 35,49.9 L75,50 L75,65 L85,65 L85,50 L90,50 L90,35 L35,35 Z M25,50 A4,4 0 1,0 25,49.9 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'smile' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="42" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="35" cy="40" r="5" fill={shapeBorder} />
+                    <circle cx="65" cy="40" r="5" fill={shapeBorder} />
+                    <path d="M30,60 C38,72 62,72 70,60" fill="none" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'thumbs-up' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M15,50 L15,85 L28,85 L28,50 Z M28,85 L65,85 C72,85 75,80 75,70 L80,45 C80,38 75,35 68,35 L50,35 L53,15 C53,10 47,5 40,8 L28,30 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'thumbs-down' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M15,50 L15,15 L28,15 L28,50 Z M28,15 L65,15 C72,15 75,20 75,30 L80,55 C80,62 75,65 68,65 L50,65 L53,85 C53,90 47,95 40,92 L28,70 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'flower' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,28 C50,15 65,15 65,28 C65,40 50,40 50,28 Z M50,72 C50,85 35,85 35,72 C35,60 50,60 50,72 Z M28,50 C15,50 15,35 28,35 C40,35 40,50 28,50 Z M72,50 C85,50 85,65 72,65 C60,65 60,50 72,50 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="50" cy="50" r="14" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'sparkles' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,10 Q50,40 80,40 Q50,40 50,70 Q50,40 20,40 Q50,40 50,10 Z M75,65 Q75,80 90,80 Q75,80 75,95 Q75,80 60,80 Q75,80 75,65 Z M25,70 Q25,80 35,80 Q25,80 25,90 Q25,80 15,80 Q25,80 25,70 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="1" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'trophy' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,15 L75,15 L70,55 C65,68 55,70 50,70 C45,70 35,68 30,55 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                    <path d="M25,25 C15,25 15,40 25,40 M75,25 C85,25 85,40 75,40" fill="none" stroke={shapeBorder} strokeWidth="1.5" strokeLinecap="round" />
+                    <path d="M50,70 L50,85 M35,85 L65,85" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'medal' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="35,5 50,35 65,5 45,5" fill={shapeBorder} opacity="0.3" stroke={shapeBorder} strokeWidth="1.5" />
+                    <polygon points="50,35 30,5 38,5" fill={shapeBorder} opacity="0.5" stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="50" cy="60" r="28" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="50" cy="60" r="18" fill="none" stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'gift' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="30" width="70" height="60" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <rect x="10" y="20" width="80" height="15" rx="2" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="50" y1="20" x2="50" y2="90" stroke={shapeBorder} strokeWidth="2" />
+                    <path d="M50,20 C40,5 30,15 50,20 C60,5 70,15 50,20" fill="none" stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'balloon' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,5 C25,5 25,45 50,65 C75,45 75,5 50,5 Z M47,65 L53,65 L50,70 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <path d="M50,70 Q45,80 52,90 T48,100" fill="none" stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'clapping' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M30,60 L20,45 C15,38 25,30 32,37 L40,47 M55,30 L65,15 C70,8 80,18 73,25 L60,40 M45,45 C50,38 60,45 55,55 L35,80 L20,70 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'coffee' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M20,30 L80,30 C80,65 65,80 45,80 L35,80 C20,80 20,65 20,30 Z M80,40 C90,40 90,55 80,55" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                    <path d="M35,10 Q35,20 40,20 M50,10 Q50,20 55,20 M65,10 Q65,20 70,20" fill="none" stroke={shapeBorder} strokeWidth="1.5" strokeLinecap="round" />
+                    <line x1="15" y1="88" x2="85" y2="88" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'check-circle' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="42" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <path d="M32,50 L44,62 L68,36" fill="none" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'cross-circle' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="42" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <path d="M35,35 L65,65 M65,35 L35,65" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'arrow-up' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,10 90,45 65,45 65,90 35,90 35,45 10,45" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'arrow-down' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,90 90,55 65,55 65,10 35,10 35,55 10,55" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'user' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="30" r="18" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <path d="M15,85 C15,65 30,55 50,55 C70,55 85,65 85,85 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'clock' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="42" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <path d="M50,20 L50,50 L70,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'calendar' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="20" width="70" height="70" rx="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="15" y1="40" x2="85" y2="40" stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="30" y1="12" x2="30" y2="24" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="70" y1="12" x2="70" y2="24" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="30" cy="55" r="3" fill={shapeBorder} />
+                    <circle cx="50" cy="55" r="3" fill={shapeBorder} />
+                    <circle cx="70" cy="55" r="3" fill={shapeBorder} />
+                    <circle cx="30" cy="75" r="3" fill={shapeBorder} />
+                    <circle cx="50" cy="75" r="3" fill={shapeBorder} />
+                    <circle cx="70" cy="75" r="3" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'card' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="20" width="80" height="60" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <rect x="10" y="32" width="80" height="15" fill={shapeBorder} />
+                    <rect x="20" y="58" width="16" height="10" rx="2" fill="none" stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'chart' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="10" width="80" height="80" rx="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <path d="M20,70 L35,50 L55,60 L75,30" fill="none" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                    <circle cx="75" cy="30" r="3.5" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'cart' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,15 L25,15 L40,60 L80,60 L90,28 L30,28" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <circle cx="45" cy="78" r="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="75" cy="78" r="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'play' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="25,15 85,50 25,85" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'pause' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="22" y="15" width="16" height="70" rx="3" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                    <rect x="62" y="15" width="16" height="70" rx="3" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'stop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="15" width="70" height="70" rx="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" />
+                  </svg>
+                )}
+                {shapeType === 'infinity' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M28,32 C12,32 12,68 28,68 C38,68 45,56 50,50 C55,44 62,32 72,32 C88,32 88,68 72,68 C62,68 55,56 50,50 C45,44 38,32 28,32 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'beat' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M 10,65 C 30,65 35,35 55,35 C 70,35 75,55 90,55" fill="none" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                    <circle cx="10" cy="65" r="4.5" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="55" cy="35" r="5.5" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="90" cy="55" r="4.5" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'scene' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="15" width="80" height="70" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <path d="M 10,32 L 90,32" stroke={shapeBorder} strokeWidth="2" />
+                    <path d="M 10,23 C 10,18 14,15 18,15 L 82,15 C 86,15 90,18 90,23 L 90,32 L 10,32 Z" fill={shapeBorder} opacity="0.12" />
+                  </svg>
+                )}
+                {shapeType === 'arc' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M 10,85 C 10,20 90,20 90,85 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <path d="M 10,85 C 10,20 90,20 90,85" fill="none" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'twist' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="5" y="5" width="90" height="90" rx="10" fill={shapeBg} stroke="none" opacity="0.1" />
+                    <path d="M 10,65 L 40,65 L 50,20 L 60,65 L 90,65" fill="none" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <circle cx="50" cy="20" r="4.5" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'stakes' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,10 90,50 65,50 65,85 35,85 35,50 10,50" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                    <line x1="15" y1="85" x2="85" y2="85" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'character' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="30" r="16" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <path d="M 20,80 C 20,62 32,58 50,58 C 68,58 80,62 80,80 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'whisper' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="5" y="5" width="90" height="90" rx="10" fill={shapeBg} stroke="none" opacity="0.1" />
+                    <path d="M 15,30 C 35,15 45,85 65,70 C 75,60 80,40 90,30" fill="none" stroke={shapeBorder} strokeWidth="3" strokeDasharray="6,6" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'foreshadow' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="22" cy="50" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" strokeDasharray="3,3" opacity="0.6" />
+                    <line x1="32" y1="50" x2="68" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeDasharray="4,4" strokeLinecap="round" />
+                    <circle cx="78" cy="50" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="78" cy="50" r="4" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'world' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="40" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <ellipse cx="50" cy="50" rx="40" ry="16" fill="none" stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="10" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2" />
+                    <ellipse cx="50" cy="50" rx="16" ry="40" fill="none" stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="50" y1="10" x2="50" y2="90" stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'voice' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M 18,40 L 38,40 L 58,20 L 58,80 L 38,60 L 18,60 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                    <path d="M 70,32 C 76,40 76,60 70,68" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <path d="M 80,20 C 90,32 90,68 80,80" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'queue' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="38" width="80" height="24" rx="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="26" cy="50" r="5" fill={shapeBorder} />
+                    <circle cx="42" cy="50" r="5" fill={shapeBorder} />
+                    <circle cx="58" cy="50" r="5" fill={shapeBorder} />
+                    <circle cx="74" cy="50" r="7" fill={shapeBg} stroke={shapeBorder} strokeWidth="3" />
+                  </svg>
+                )}
+                {shapeType === 'webhook' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M 25,20 C 25,60 75,25 75,60" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeDasharray="4,4" />
+                    <circle cx="25" cy="20" r="5" fill={shapeBorder} />
+                    <circle cx="75" cy="65" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="75" cy="65" r="4" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'cache' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="20" width="70" height="15" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <rect x="15" y="42" width="70" height="15" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <rect x="15" y="65" width="70" height="15" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="25" y1="27.5" x2="35" y2="27.5" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="25" y1="49.5" x2="35" y2="49.5" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="25" y1="72.5" x2="35" y2="72.5" stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'event' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,12 62,38 90,38 68,54 76,82 50,65 24,82 32,54 10,38 38,38" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'pipeline' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="20" y1="50" x2="80" y2="50" stroke={shapeBorder} strokeWidth="3" />
+                    <rect x="12" y="38" width="18" height="24" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <rect x="41" y="38" width="18" height="24" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <rect x="70" y="38" width="18" height="24" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'auth' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M 30,45 L 30,30 C 30,18 40,15 50,15 C 60,15 70,18 70,30 L 70,45" fill="none" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                    <rect x="22" y="42" width="56" height="42" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="50" cy="58" r="4.5" fill={shapeBorder} />
+                    <line x1="50" y1="62" x2="50" y2="70" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'diff' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="15" width="80" height="70" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="50" y1="15" x2="50" y2="85" stroke={shapeBorder} strokeWidth="1.5" />
+                    <line x1="20" y1="30" x2="40" y2="30" stroke={shapeBorder} strokeWidth="2.5" opacity="0.6" strokeLinecap="round" />
+                    <line x1="20" y1="45" x2="35" y2="45" stroke={shapeBorder} strokeWidth="2.5" opacity="0.6" strokeLinecap="round" />
+                    <line x1="60" y1="30" x2="80" y2="30" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="60" y1="55" x2="75" y2="55" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'hash' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="38" y1="12" x2="38" y2="88" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                    <line x1="62" y1="12" x2="62" y2="88" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                    <line x1="12" y1="38" x2="88" y2="38" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                    <line x1="12" y1="62" x2="88" y2="62" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'branch-merge' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="25" y1="80" x2="25" y2="20" stroke={shapeBorder} strokeWidth="3" />
+                    <path d="M 25,65 Q 65,65 65,50 Q 65,35 25,35" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="25" cy="75" r="5" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="65" cy="50" r="5" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="25" cy="25" r="5" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'token' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="38" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="50" r="28" fill="none" stroke={shapeBorder} strokeWidth="1" strokeDasharray="3,3" />
+                    <path d="M 40,42 L 50,36 L 60,42 L 60,52 C 60,60 50,65 50,65 C 50,65 40,60 40,52 Z" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'feedback' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M 30,50 C 15,32 15,68 30,50 C 45,32 55,68 70,50 C 85,32 85,68 70,50 C 55,32 45,68 30,50 Z" fill="none" stroke={shapeBorder} strokeWidth="3" strokeLinejoin="round" />
+                    <polygon points="34,42 36,49 29,48" fill={shapeBorder} />
+                    <polygon points="66,58 64,51 71,52" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'bottleneck' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M 15,20 L 85,20 L 58,55 L 58,80 L 42,80 L 42,55 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="50" y1="28" x2="50" y2="45" stroke={shapeBorder} strokeWidth="1.5" strokeDasharray="3,3" />
+                    <line x1="50" y1="60" x2="50" y2="76" stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'cascade' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M 15,22 Q 40,25 45,50 T 85,78" fill="none" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                    <circle cx="15" cy="22" r="5" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="45" cy="50" r="5" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="85" cy="78" r="5" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'threshold' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="10" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="1.5" strokeDasharray="4,4" />
+                    <path d="M 15,80 C 35,80 40,20 85,20" fill="none" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                    <circle cx="50" cy="50" r="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'trade-off' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="20" y1="80" x2="20" y2="15" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                    <line x1="20" y1="80" x2="85" y2="80" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                    <path d="M 14,24 L 20,15 L 26,24" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M 76,74 L 85,80 L 76,86" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M 25,75 L 75,25" fill="none" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                    <circle cx="50" cy="50" r="4.5" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'pareto' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="25" width="12" height="55" rx="2" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <rect x="35" y="45" width="12" height="35" rx="2" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <rect x="55" y="60" width="12" height="20" rx="2" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <rect x="75" y="70" width="12" height="10" rx="2" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <path d="M 21,25 Q 50,22 81,68" fill="none" stroke={shapeBorder} strokeWidth="1.5" strokeDasharray="2,2" />
+                  </svg>
+                )}
+                {shapeType === 'pivot' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M 20,75 L 50,40 L 80,75" fill="none" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                    <circle cx="50" cy="40" r="5" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="50" y1="28" x2="50" y2="22" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                    <line x1="38" y1="32" x2="32" y2="28" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                    <line x1="62" y1="32" x2="68" y2="28" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'lever' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,55 60,75 40,75" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                    <line x1="15" y1="70" x2="85" y2="40" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                    <circle cx="85" cy="40" r="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'compound' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M 15,80 C 45,80 60,65 85,15" fill="none" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                    <line x1="10" y1="80" x2="90" y2="80" stroke={shapeBorder} strokeWidth="1.5" strokeLinecap="round" />
+                    <line x1="15" y1="85" x2="15" y2="10" stroke={shapeBorder} strokeWidth="1.5" strokeLinecap="round" />
+                    <circle cx="85" cy="15" r="4.5" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'risk' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,15 90,82 10,82" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                    <line x1="50" y1="42" x2="50" y2="60" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                    <circle cx="50" cy="71" r="3.5" fill={shapeBorder} />
+                  </svg>
+                )}
+              </div>
+              
+              {/* Inner Content Area */}
+              <div 
+                className="absolute flex items-center justify-center text-center z-10"
+                style={{
+                  left: pad.left,
+                  right: pad.right,
+                  top: pad.top,
+                  bottom: pad.bottom,
+                  overflow: 'hidden',
+                }}
+              >
+                {isShapeEditing ? (
+                  <div
+                    ref={contentRef}
+                    contentEditable={isShapeEditing}
+                    suppressContentEditableWarning
+                    onBlur={handleBlur}
+                    className="text-block-editable w-full max-h-full overflow-y-auto text-center custom-scrollbar"
+                    data-placeholder="Type inside..."
+                    style={{
+                      fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '14px',
+                      fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+                      lineHeight: '1.4',
+                      color: 'var(--text-primary)',
+                      display: 'inline-block',
+                      verticalAlign: 'middle',
+                    }}
+                  />
+                ) : (
+                  <div
+                    className="text-block-display select-none w-full max-h-full overflow-hidden text-ellipsis text-center"
+                    style={{
+                      fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '14px',
+                      fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+                      lineHeight: '1.4',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      color: 'var(--text-primary)',
+                      alignSelf: 'center',
+                    }}
+                    onClick={(e) => {
+                      if (isSelected) {
+                        e.stopPropagation();
+                        setEditingId(obj.id);
+                      }
+                    }}
+                  >
+                    {obj.content || ''}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        }
+
+      case 'workflow-node': {
+        const nodeShape = (obj.style?.nodeShape as string) || 'pill';
+        const shapeBg = (obj.style?.color as string) || '#FAF6F1';
+        const shapeBorder = (obj.style?.borderColor as string) || '#C97B4B';
+        const textColor = (obj.style?.textColor as string) || '#2D2A26';
+        const fontSize = (obj.style?.fontSize as number) || 14;
+        const fontFamily = (obj.style?.fontFamily as string) || "'Inter', sans-serif";
+
+        const pad = nodeShape === 'diamond' ? { left: '20%', right: '20%', top: '20%', bottom: '20%' } :
+                    nodeShape === 'circle' ? { left: '15%', right: '15%', top: '15%', bottom: '15%' } :
+                    { left: '12px', right: '12px', top: '8px', bottom: '8px' };
+
+        return (
+          <div className={`workflow-node-container ${nodeShape}`} style={{ width: '100%', height: '100%', position: 'relative' }}>
+            {/* Background shape */}
+            <div className="absolute inset-0 pointer-events-none z-0">
+              {(nodeShape === 'pill' || nodeShape === 'circle' || nodeShape === 'square') && (
+                <div 
+                  className={`w-full h-full transition-all duration-300 ${
+                    nodeShape === 'pill' || nodeShape === 'circle' ? 'rounded-full' : 'rounded-xl'
+                  }`} 
+                  style={{ 
+                    backgroundColor: shapeBg, 
+                    border: `1.5px solid ${shapeBorder}`, 
+                    boxShadow: isSelected ? '0 0 12px rgba(201, 123, 75, 0.2)' : 'var(--shadow-sm)' 
+                  }} 
+                />
+              )}
+              {nodeShape === 'diamond' && (
+                <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-sm absolute inset-0">
+                  <polygon points="50,2 98,50 50,98 2,50" fill={shapeBg} stroke={shapeBorder} strokeWidth="1.5" className="transition-all duration-300" />
+                </svg>
+              )}
+            </div>
+
+            {/* Inner Content Area */}
+            <div 
+              className="absolute flex items-center justify-center text-center z-10"
+              style={{
+                left: pad.left,
+                right: pad.right,
+                top: pad.top,
+                bottom: pad.bottom,
+                overflow: 'hidden',
+              }}
+            >
+              {isEditing ? (
+                <div
+                  ref={contentRef}
+                  contentEditable={isEditing}
+                  suppressContentEditableWarning
+                  onBlur={handleBlur}
+                  className="text-block-editable w-full max-h-full overflow-y-auto text-center custom-scrollbar"
+                  data-placeholder="Type..."
+                  style={{
+                    fontSize: `${fontSize}px`,
+                    fontFamily: fontFamily,
+                    lineHeight: '1.3',
+                    color: textColor,
+                    display: 'inline-block',
+                    verticalAlign: 'middle',
+                    outline: 'none'
+                  }}
+                />
+              ) : (
+                <div
+                  className="text-block-display select-none w-full max-h-full overflow-hidden text-ellipsis text-center font-medium"
+                  style={{
+                    fontSize: `${fontSize}px`,
+                    fontFamily: fontFamily,
+                    lineHeight: '1.3',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    color: textColor,
+                    alignSelf: 'center',
+                  }}
+                  onClick={(e) => {
+                    if (isSelected) {
+                      e.stopPropagation();
+                      setEditingId(obj.id);
+                    }
+                  }}
+                >
+                  {obj.content || ''}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      case 'image':
+        return (
+          <div className="image-block" style={{ width: '100%', height: '100%' }}>
+            {obj.content ? (
+              <img
+                src={obj.content}
+                alt="Canvas image"
+                draggable={false}
+                style={{
+                  transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
+                }}
+              />
+            ) : (
+              <div className="flex items-center justify-center w-full h-full bg-[var(--bg-tertiary)] text-[var(--text-muted)] text-sm">
+                Drop image here
+              </div>
+            )}
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  const getButtonsPosition = () => {
+    if (obj.type !== 'text' && obj.type !== 'heading') {
+      return { right: 0 };
+    }
+    const fontSize = obj.style?.fontSize ? Number(obj.style.fontSize) : (obj.type === 'heading' ? 32 : 15);
+    const text = obj.content || '';
+    if (!text) {
+      return { left: 10 };
+    }
+    const firstLine = text.split('\n')[0] || '';
+    const charWidth = fontSize * 0.52; // highly precise character width for Inter font family
+    const padding = 12;
+    const estimatedWidth = firstLine.length * charWidth + padding;
+    const maxLeft = Math.max(80, obj.width - 100);
+    const leftPos = Math.min(maxLeft, Math.max(10, estimatedWidth));
+    return { left: leftPos };
+  };
+
+  return (
+    <motion.div
+      ref={containerRef}
+      className={`canvas-object absolute group ${(isEditing || editingCommentId === obj.id) ? '' : 'select-none'} ${obj.type === 'arrow' ? '' : (isDragging ? 'dragging' : '')} ${obj.type === 'arrow' ? '' : (isSelected ? 'selected' : '')} ${connectorSelectedIds.includes(obj.id) ? 'connector-selected' : ''}`}
+      style={{
+        left: obj.x,
+        top: obj.y,
+        width: obj.width,
+        height: obj.height,
+        zIndex: isDragging ? 1000 : isSelected ? 100 : obj.zIndex || 1,
+        cursor: mode === 'connector' ? 'grab' : isEditing ? 'text' : isDragging ? 'grabbing' : 'pointer',
+        background: (mode === 'connector' || connectorSelectedIds.includes(obj.id)) 
+          ? (obj.type === 'sticky' ? 'none' : 'var(--bg-card)')
+          : 'rgba(0,0,0,0)',
+        boxShadow: obj.type === 'arrow' ? 'none' : ((connectorSelectedIds.includes(obj.id) || mode === 'connector')
+          ? (connectorSelectedIds.includes(obj.id)
+            ? '0 0 50px rgba(201, 123, 75, 0.4), 0 8px 32px rgba(0,0,0,0.15)'
+            : '0 0 40px rgba(201, 123, 75, 0.25), 0 8px 32px rgba(0,0,0,0.1)')
+          : 'none'),
+        border: obj.type === 'arrow' ? 'none' : (connectorSelectedIds.includes(obj.id)
+          ? '3px solid rgba(201, 123, 75, 0.8)'
+          : mode === 'connector' 
+          ? '2px solid rgba(201, 123, 75, 0.5)'
+          : 'none'),
+        pointerEvents: (mode === 'draw' || mode === 'arrow') ? 'none' : 'auto',
+        willChange: 'transform, left, top',
+        rotate: obj.rotation || 0,
+      }}
+      animate={mode === 'connector' ? {
+        y: [0, -10, 0, 10, 0],
+        rotate: [obj.rotation || 0, (obj.rotation || 0) + 0.5, obj.rotation || 0, (obj.rotation || 0) - 0.5, obj.rotation || 0],
+      } : { y: 0, rotate: obj.rotation || 0 }}
+      transition={mode === 'connector' ? {
+        y: {
+          duration: 3 + (obj.x % 500) / 100,
+          repeat: Infinity,
+          ease: "easeInOut"
+        },
+        rotate: {
+          duration: 4 + (obj.y % 400) / 100,
+          repeat: Infinity,
+          ease: "easeInOut"
+        }
+      } : { duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+      onMouseDown={handleMouseDown}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      onMouseEnter={() => {
+        if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
+        setIsHovered(true);
+      }}
+      onMouseLeave={() => {
+        hoverTimeout.current = setTimeout(() => {
+          setIsHovered(false);
+        }, 600);
+      }}
+    >
+      {renderContent()}
+
+      {/* Connector Selection Marker */}
+      <AnimatePresence>
+        {mode === 'connector' && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            className="absolute inset-0 z-[10] flex items-center justify-center pointer-events-none"
+          >
+            {connectorSelectedIds.includes(obj.id) ? (
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                className="w-12 h-12 rounded-full bg-[var(--accent)] text-white shadow-2xl flex items-center justify-center"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </motion.div>
+            ) : (
+              <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md border-2 border-white/40 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="text-xl">🔗</span>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Explicit Connector Button */}
+      {mode === 'connector' && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleConnectorSelection(obj.id);
+          }}
+          className={`absolute -bottom-10 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${
+            connectorSelectedIds.includes(obj.id)
+              ? 'bg-[var(--accent)] text-white shadow-lg'
+              : 'bg-white/80 backdrop-blur-md text-[var(--text-secondary)] border border-[var(--border)] hover:bg-[var(--accent)] hover:text-white'
+          }`}
+        >
+          {connectorSelectedIds.includes(obj.id) ? 'Selected' : 'Link Card'}
+        </button>
+      )}
+
+      {/* Workflow Custom Floating Contextual Hover Buttons */}
+      {obj.type === 'workflow-node' && !isDragging && isHovered && !isEditing && (
+        <div 
+          className="absolute -top-10 left-1/2 -translate-x-1/2 flex gap-2 z-[101] bg-white/95 backdrop-blur-md px-2.5 py-1 rounded-full border border-[#C97B4B]/30 shadow-lg pointer-events-auto items-center animate-fade-in"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {/* Plus Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const defaultStyle = {
+                workflowId: obj.style?.workflowId,
+                isWorkflowNode: true,
+                nodeShape: obj.style?.nodeShape || 'pill',
+                color: obj.style?.color || '#FAF6F1',
+                borderColor: obj.style?.borderColor || '#C97B4B',
+                textColor: obj.style?.textColor || '#2D2A26',
+                branchColor: obj.style?.branchColor || '#C97B4B',
+                fontSize: 14,
+                fontFamily: "'Inter', sans-serif"
+              };
+              
+              // Spawn child node to the right
+              const newChild = useCanvasStore.getState().addObject({
+                type: 'workflow-node',
+                x: obj.x + 240,
+                y: obj.y,
+                width: 160,
+                height: 60,
+                content: 'New Step',
+                style: defaultStyle
+              });
+
+              // Connect parent to child
+              useCanvasStore.getState().addConnection(obj.id, newChild.id, {
+                isWorkflowConnection: true,
+                workflowId: obj.style?.workflowId,
+                color: defaultStyle.branchColor
+              });
+
+              setSelectedId(newChild.id);
+              setEditingId(newChild.id);
+            }}
+            className="w-7 h-7 flex items-center justify-center rounded-full bg-[var(--accent)] hover:bg-[var(--accent-light)] text-white text-xs font-bold transition-all hover:scale-110 shadow-sm cursor-pointer border-none"
+            title="Extend Node (+)"
+          >
+            ➕
+          </button>
+
+          {/* Delete (Cross) Button with Smart Reconnections */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const connections = useCanvasStore.getState().connections;
+              const parents = connections.filter(c => c.toId === obj.id);
+              const children = connections.filter(c => c.fromId === obj.id);
+
+              parents.forEach(p => {
+                children.forEach(ch => {
+                  useCanvasStore.getState().addConnection(p.fromId, ch.toId, {
+                    isWorkflowConnection: true,
+                    workflowId: obj.style?.workflowId,
+                    color: obj.style?.branchColor || '#C97B4B'
+                  });
+                });
+              });
+
+              removeObject(obj.id);
+              if (editingId === obj.id) setEditingId(null);
+            }}
+            className="w-7 h-7 flex items-center justify-center rounded-full bg-red-500 hover:bg-red-600 text-white text-xs font-bold transition-all hover:scale-110 shadow-sm cursor-pointer border-none"
+            title="Delete & Reconnect (×)"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Mini Action Buttons */}
+      {!isDragging && obj.type !== 'workflow-node' && (
+        <div 
+          className={`absolute -top-8 flex gap-1.5 z-[101] pb-2 px-2 transition-all duration-200 ${
+            (isHovered && !isEditing) 
+              ? 'opacity-100 pointer-events-auto translate-y-0' 
+              : 'opacity-0 pointer-events-none translate-y-1'
+          }`}
+          style={getButtonsPosition()}
+        >
+          {/* Heart Button */}
+          {!obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && (
+            <motion.button
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`w-8 h-8 rounded-full bg-white border border-[var(--border)] flex items-center justify-center transition-all shadow-md ${
+                obj.style?.isFavorite ? 'text-red-500 border-red-200 bg-red-50' : 'text-[var(--text-tertiary)] hover:text-red-500'
+              }`}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                updateObject(obj.id, { 
+                  style: { ...obj.style, isFavorite: !obj.style?.isFavorite } 
+                });
+              }}
+              title="Favorite"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill={obj.style?.isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+              </svg>
+            </motion.button>
+          )}
+
+          {/* Comment Button */}
+          {!obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && (
+            <motion.button
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05 }}
+              className={`w-8 h-8 rounded-full bg-white border border-[var(--border)] flex items-center justify-center transition-all shadow-md ${
+                obj.style?.comment ? 'text-[var(--accent)] border-[var(--accent-light)]' : 'text-[var(--text-tertiary)] hover:text-[var(--accent)]'
+              }`}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (obj.style?.comment !== undefined && obj.style?.comment !== null) {
+                  setEditingCommentId(obj.id);
+                } else {
+                  // Initialize a new empty comment
+                  updateObject(obj.id, { 
+                    style: { 
+                      ...obj.style, 
+                      comment: '',
+                      commentOffset: { x: obj.width + 20, y: -20 }
+                    } 
+                  });
+                  setEditingCommentId(obj.id);
+                }
+              }}
+              title="Add Comment"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+            </motion.button>
+          )}
+
+          {/* Delete Button */}
+          <motion.button
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="w-8 h-8 rounded-full bg-white border border-[var(--border)] flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-500 hover:border-red-500 transition-all shadow-md"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              // Get card center in screen space for trash animation origin
+              const rect = containerRef.current?.getBoundingClientRect();
+              const originX = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+              const originY = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
+              const label = (obj.content || obj.type || 'Card').slice(0, 24);
+              const relatedConns = connections.filter(c => c.fromId === obj.id || c.toId === obj.id);
+              addToTrash({ 
+                id: obj.id, 
+                label, 
+                color: obj.style?.color as string | undefined, 
+                originX, 
+                originY,
+                objectData: obj,
+                connectionsData: relatedConns,
+              });
+              removeObject(obj.id);
+              if (editingId === obj.id) setEditingId(null);
+            }}
+            title="Delete"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </motion.button>
+        </div>
+      )}
+
+      {/* Comment Bubble (Attached & Movable) */}
+      {obj.type !== 'shape' && obj.type !== 'arrow' && (obj.style?.comment !== undefined && obj.style?.comment !== null) && (
+        <CommentBubble 
+          obj={obj} 
+          isEditing={editingCommentId === obj.id}
+          onStartEditing={() => setEditingCommentId(obj.id)}
+          onStopEditing={() => setEditingCommentId(null)}
+        />
+      )}
+
+
+
+      {/* Resize handle */}
+      {isSelected && (
+        <div
+          className="resize-handle"
+          style={{ bottom: -5, right: -5, opacity: 1 }}
+          onMouseDown={handleResizeStart}
+        />
+      )}
+    </motion.div>
+  );
+}
