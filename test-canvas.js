@@ -7,7 +7,7 @@ const puppeteer = require('puppeteer');
   // Listen to console logs
   page.on('console', msg => console.log('BROWSER LOG:', msg.text()));
 
-  await page.goto('http://localhost:3000');
+  await page.goto('http://localhost:3005');
   
   // Wait for the "Create Your First Space" button and click it
   await page.waitForSelector('text/Create Your First Space');
