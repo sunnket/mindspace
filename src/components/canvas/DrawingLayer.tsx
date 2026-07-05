@@ -38,6 +38,29 @@ const STROKE_OPTIONS = {
   },
 };
 
+
+const CanvasStroke = React.memo(({ stroke }: { stroke: DrawingStroke }) => {
+  const pathData = React.useMemo(() => {
+    const renderedStroke = getStroke(stroke.points, {
+      ...STROKE_OPTIONS,
+      size: stroke.size,
+    });
+    return getSvgPathFromStroke(renderedStroke);
+  }, [stroke.points, stroke.size]);
+
+  return (
+    <path
+      d={pathData}
+      fill={stroke.color}
+      opacity={stroke.isHighlighter ? 0.35 : 0.9}
+      style={{
+        pointerEvents: 'none',
+      }}
+    />
+  );
+});
+CanvasStroke.displayName = 'CanvasStroke';
+
 export default function DrawingLayer() {
   const svgRef = useRef<SVGSVGElement>(null);
   const [currentPoints, setCurrentPoints] = useState<number[][] | null>(null);
@@ -225,24 +248,9 @@ export default function DrawingLayer() {
           transform={`translate(${camera.x}, ${camera.y}) scale(${camera.zoom})`}
         >
           {/* Existing strokes */}
-          {strokes.map((stroke) => {
-            const renderedStroke = getStroke(stroke.points, {
-              ...STROKE_OPTIONS,
-              size: stroke.size,
-            });
-            const pathData = getSvgPathFromStroke(renderedStroke);
-            return (
-              <path
-                key={stroke.id}
-                d={pathData}
-                fill={stroke.color}
-                opacity={stroke.isHighlighter ? 0.35 : 0.9}
-                style={{
-                  pointerEvents: 'none',
-                }}
-              />
-            );
-          })}
+          {strokes.map((stroke) => (
+            <CanvasStroke key={stroke.id} stroke={stroke} />
+          ))}
 
           {/* Current drawing stroke */}
           {currentPoints && (

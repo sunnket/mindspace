@@ -30,9 +30,42 @@ import SaveIndicator from '@/components/ui/SaveIndicator';
 import TrashPile from '@/components/ui/TrashPile';
 import VoiceOrb from './VoiceOrb';
 import AuthButton from '@/components/ui/AuthButton';
+import ShortcutsOverlay from './ShortcutsOverlay';
+import CollabBar from '@/components/collab/CollabBar';
+import CollabCursors from '@/components/collab/CollabCursors';
+import CollabModal from '@/components/collab/CollabModal';
+import { useCollabStore } from '@/store/collabStore';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 5;
+
+// Self-contained cursor glow: tracks the mouse via direct style writes so the
+// canvas tree is not re-rendered on every mousemove event.
+function GlowCursor({ isDrawMode }: { isDrawMode: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (ref.current) {
+        ref.current.style.left = `${e.clientX}px`;
+        ref.current.style.top = `${e.clientY}px`;
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    return () => window.removeEventListener('mousemove', onMove);
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      className="glow-cursor"
+      style={{
+        width: isDrawMode ? 30 : 20,
+        height: isDrawMode ? 30 : 20,
+      }}
+    />
+  );
+}
 
 export default function InfiniteCanvas() {
   const searchParams = useSearchParams();
@@ -41,7 +74,6 @@ export default function InfiniteCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const isPanningRef = useRef(false);
   const panStartRef = useRef({ x: 0, y: 0, camX: 0, camY: 0 });
-  const [glowPos, setGlowPos] = useState({ x: 0, y: 0 });
   const [loaded, setLoaded] = useState(false);
 
   const camera = useCanvasStore((s) => s.camera);
@@ -84,6 +116,15 @@ export default function InfiniteCanvas() {
   const updateObject = useCanvasStore((s) => s.updateObject);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [activeArrowId, setActiveArrowId] = useState<string | null>(null);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
+  // Leave any live collaboration session when the canvas unmounts.
+  useEffect(() => {
+    return () => {
+      const c = useCollabStore.getState();
+      if (c.status !== 'idle') c.leave();
+    };
+  }, []);
 
   const truncatedTitle = useMemo(() => {
     if (!workspaceTitle) return 'Untitled';
@@ -339,7 +380,12 @@ export default function InfiniteCanvas() {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      setGlowPos({ x: e.clientX, y: e.clientY });
+      // Broadcast my cursor (in world coords) to collaborators, if in a session.
+      const collab = useCollabStore.getState();
+      if (collab.status === 'connected' && collab._cursorSender) {
+        const world = screenToCanvas(e.clientX, e.clientY, camera);
+        collab._cursorSender(world.x, world.y);
+      }
 
       if (activeArrowId) {
         const worldPos = screenToCanvas(e.clientX, e.clientY, camera);
@@ -475,6 +521,13 @@ export default function InfiniteCanvas() {
           target.blur();
           setFocusedId(null);
         }
+        return;
+      }
+
+      // ? = toggle the keyboard shortcuts cheatsheet
+      if (e.key === '?') {
+        e.preventDefault();
+        setShowShortcuts((s) => !s);
         return;
       }
 
@@ -670,6 +723,28 @@ export default function InfiniteCanvas() {
     return () => window.removeEventListener('paste', handlePaste);
   }, [camera, addObject]);
 
+  // Viewport culling: only mount objects that intersect the visible area (plus a
+  // margin). Without this, a large stored canvas mounts every card at once and can
+  // lock up the browser on load.
+  const visibleObjects = useMemo(() => {
+    const deduped = Array.from(new Map(objects.map((o) => [o.id, o])).values());
+    if (typeof window === 'undefined') return deduped;
+
+    const margin = 400; // screen px of slack around the viewport
+    const minX = (-camera.x - margin) / camera.zoom;
+    const minY = (-camera.y - margin) / camera.zoom;
+    const maxX = (window.innerWidth - camera.x + margin) / camera.zoom;
+    const maxY = (window.innerHeight - camera.y + margin) / camera.zoom;
+
+    return deduped.filter(
+      (o) =>
+        o.id === selectedId ||
+        o.id === editingId ||
+        o.id === focusedId ||
+        (o.x + o.width >= minX && o.x <= maxX && o.y + o.height >= minY && o.y <= maxY)
+    );
+  }, [objects, camera, selectedId, editingId, focusedId]);
+
   // Grid background transform
   const gridStyle = {
     backgroundPosition: `${camera.x % (24 * camera.zoom)}px ${camera.y % (24 * camera.zoom)}px`,
@@ -702,8 +777,8 @@ export default function InfiniteCanvas() {
           {/* Connections Layer (Behind objects) */}
           <ConnectionsLayer />
 
-          {/* Render objects */}
-          {Array.from(new Map(objects.map(o => [o.id, o])).values()).map((obj) => (
+          {/* Render objects (viewport-culled) */}
+          {visibleObjects.map((obj) => (
             <div key={obj.id} data-object-id={obj.id}>
               <CanvasObject
                 obj={obj}
@@ -758,15 +833,7 @@ export default function InfiniteCanvas() {
       </AnimatePresence>
 
       {/* Glow cursor */}
-      <div
-        className="glow-cursor"
-        style={{
-          left: glowPos.x,
-          top: glowPos.y,
-          width: mode === 'draw' ? 30 : 20,
-          height: mode === 'draw' ? 30 : 20,
-        }}
-      />
+      <GlowCursor isDrawMode={mode === 'draw'} />
 
       {/* Zoom indicator removed as requested - moved to Minimap */}
 
@@ -875,6 +942,14 @@ export default function InfiniteCanvas() {
       <TrashPile />
       <VoiceOrb />
       <AuthButton hideGuest={true} />
+
+      {/* Live collaboration */}
+      <CollabBar />
+      <CollabCursors />
+      <CollabModal />
+
+      {/* Keyboard shortcuts help (press ?) */}
+      <ShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
     </>
   );
 }

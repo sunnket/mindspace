@@ -54,12 +54,12 @@ export default function ConnectionsLayer() {
 
   return (
     <div className="absolute top-0 left-0 pointer-events-none overflow-visible">
+      {/* 1x1 SVG with visible overflow: paths render at world coordinates without
+          creating a giant layout box (a 100000x100000 layer can exhaust GPU memory) */}
       <svg
-        className="overflow-visible"
-        width="100000"
-        height="100000"
-        viewBox="-50000 -50000 100000 100000"
-        style={{ pointerEvents: 'none', position: 'absolute', left: '-50000px', top: '-50000px' }}
+        width="1"
+        height="1"
+        style={{ pointerEvents: 'none', position: 'absolute', left: 0, top: 0, overflow: 'visible' }}
       >
         <defs>
           <filter id="line-glow" x="-20%" y="-20%" width="140%" height="140%">
@@ -87,8 +87,9 @@ export default function ConnectionsLayer() {
               }
             }
             .workflow-pulse-path {
+              /* Static dashes at rest: the infinite animation forced a repaint of the
+                 connection layer every frame, which stacks up badly on large canvases */
               stroke-dasharray: 8, 4;
-              animation: workflow-pulse 1.5s linear infinite;
             }
             .workflow-pulse-path-hover {
               stroke-dasharray: 8, 4;

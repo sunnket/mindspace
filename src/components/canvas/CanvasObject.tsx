@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, useCallback, useState, useEffect } from 'react';
+import { useCollabStore } from '@/store/collabStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
@@ -226,7 +227,7 @@ interface CanvasObjectProps {
   isFocused: boolean;
 }
 
-export default function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
+function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const updateObject = useCanvasStore((s) => s.updateObject);
   const setSelectedId = useCanvasStore((s) => s.setSelectedId);
   const setFocusedId = useCanvasStore((s) => s.setFocusedId);
@@ -253,6 +254,14 @@ export default function CanvasObject({ obj, isSelected, isFocused }: CanvasObjec
   const setEditingCommentId = useCanvasStore((s) => s.setEditingCommentId);
   const connectorSelectedIds = useCanvasStore((s) => s.connectorSelectedIds);
   const toggleConnectorSelection = useCanvasStore((s) => s.toggleConnectorSelection);
+
+  // Collaboration: mark objects authored by someone else with their colour dot.
+  // Selectors return primitives, so frequent cursor updates never re-render this.
+  const collabActive = useCollabStore((s) => s.status === 'connected' && Object.keys(s.peers).length > 0);
+  const myPeerId = useCollabStore((s) => s.me?.id);
+  const authorId = obj.style?.authorId as string | undefined;
+  const authorColor = (obj.style?.authorColor as string | undefined) || '#E93D82';
+  const showAuthorDot = collabActive && !!authorId && authorId !== myPeerId;
   
   const isEditing = editingId === obj.id && mode !== 'connector';
   const dragStart = useRef({ x: 0, y: 0, objX: 0, objY: 0 });
@@ -2255,6 +2264,15 @@ export default function CanvasObject({ obj, isSelected, isFocused }: CanvasObjec
     >
       {renderContent()}
 
+      {/* Collaborator attribution dot — only shows during a joined session */}
+      {showAuthorDot && (
+        <span
+          className="absolute -top-1.5 -right-1.5 z-[20] w-3 h-3 rounded-full ring-2 ring-white pointer-events-none shadow-sm"
+          style={{ background: authorColor }}
+          title="Added by a collaborator"
+        />
+      )}
+
       {/* Connector Selection Marker */}
       <AnimatePresence>
         {mode === 'connector' && (
@@ -2503,3 +2521,7 @@ export default function CanvasObject({ obj, isSelected, isFocused }: CanvasObjec
     </motion.div>
   );
 }
+
+// Memoized so that updating one object (drag, resize, typing) does not re-render
+// every other object on the canvas.
+export default React.memo(CanvasObject);

@@ -1,90 +1,187 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { v4 as uuidv4 } from 'uuid';
-import { 
-  getAllCanvasStates, 
-  updateCanvasTheme, 
-  CanvasState, 
-  seedDatabaseIfEmpty, 
-  getAllObjects, 
-  getAllStrokes, 
-  getAllConnections, 
+import {
+  getAllCanvasStates,
+  CanvasState,
+  CanvasObjectData,
+  ConnectionData,
+  seedDatabaseIfEmpty,
+  getAllObjects,
+  getAllStrokes,
+  getAllConnections,
+  getAbsoluteAllObjects,
   saveCanvasState,
-  getCanvasState
+  updateCanvasMeta,
+  updateCanvasTheme,
+  duplicateCanvas,
+  deleteCanvasPermanently,
 } from '@/lib/db';
-
-// We import useRouter from 'next/navigation' as standard in Next.js App router
 import { useRouter } from 'next/navigation';
 import AuthButton from '@/components/ui/AuthButton';
 
-function CanvasMiniPreview({ 
-  objects = [], 
-  connections = [], 
-  width = 240, 
-  height = 140 
-}: { 
-  objects?: any[]; 
-  connections?: any[]; 
-  width?: number; 
-  height?: number; 
+/* ============================================================
+   Types
+   ============================================================ */
+
+type WorkspaceWithStats = CanvasState & {
+  objectCount: number;
+  strokeCount: number;
+  connectionCount: number;
+  objects: CanvasObjectData[];
+  connections: ConnectionData[];
+};
+
+type SidebarTab = 'home' | 'favorites' | 'images' | 'checkpoints' | 'archive' | 'deleted';
+type SortMode = 'recent' | 'name' | 'cards';
+type Category = 'all' | 'work' | 'personal' | 'study';
+
+const CATEGORY_SEQUENCE = ['personal', 'work', 'study'] as const;
+
+const spring = { type: 'spring' as const, stiffness: 260, damping: 26 };
+
+/* ============================================================
+   Small helpers
+   ============================================================ */
+
+function getRelativeTime(time: number) {
+  const diff = Date.now() - time;
+  if (diff < 1000) return 'just now';
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const days = Math.floor(hr / 24);
+  if (days === 1) return 'yesterday';
+  return `${days} days ago`;
+}
+
+function getFormattedDate() {
+  const date = new Date();
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${days[date.getDay()]} · ${date.getDate()} ${months[date.getMonth()]}`;
+}
+
+function pickGreeting(visits: number) {
+  const hours = new Date().getHours();
+  const pool: string[] = [];
+  if (hours >= 5 && hours < 12) {
+    pool.push('good morning', 'rise and shine', 'morning spark', 'fresh start', 'start creating');
+  } else if (hours >= 12 && hours < 17) {
+    pool.push('good afternoon', 'afternoon flow', 'mid-day focus', 'keep going', 'mid-day spark');
+  } else if (hours >= 17 && hours < 22) {
+    pool.push('good evening', 'evening vibes', 'winding down', 'productive evening', 'ideas never sleep');
+  } else {
+    pool.push('burning the midnight oil', 'night owl mode', 'late night thoughts', 'midnight spark', 'ideas in the dark', 'quiet hours');
+  }
+  if (visits > 1) {
+    pool.push('welcome back', 'back to create', 'your digital desk awaits');
+    if (visits > 10) pool.push('back at it', 'make magic happen');
+  } else {
+    pool.push('welcome to mindspace', "let's get started", 'your canvas awaits');
+  }
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+/* ============================================================
+   Icons — one consistent 1.75-stroke outline family
+   ============================================================ */
+
+function Icon({ d, size = 18, filled = false, children }: { d?: string; size?: number; filled?: boolean; children?: React.ReactNode }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill={filled ? 'currentColor' : 'none'}
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {d ? <path d={d} /> : children}
+    </svg>
+  );
+}
+
+const ICONS = {
+  home: <Icon><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></Icon>,
+  heart: <Icon d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />,
+  image: <Icon><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></Icon>,
+  flag: <Icon><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" /></Icon>,
+  docs: <Icon><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></Icon>,
+  archive: <Icon><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" /></Icon>,
+  trash: <Icon><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></Icon>,
+  search: <Icon size={16}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></Icon>,
+  plus: <Icon><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Icon>,
+  pencil: <Icon size={14} d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />,
+  copy: <Icon size={14}><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></Icon>,
+  restore: <Icon size={14}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Icon>,
+  cards: <Icon size={12}><rect x="3" y="3" width="18" height="18" rx="2" /></Icon>,
+  sketch: <Icon size={12} d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />,
+  thread: <Icon size={12}><line x1="6" y1="6" x2="18" y2="18" /><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" /></Icon>,
+  chevron: <Icon size={13}><polyline points="6 9 12 15 18 9" /></Icon>,
+  arrowRight: <Icon size={14}><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></Icon>,
+  palette: <Icon size={14}><circle cx="12" cy="12" r="10" /><circle cx="8" cy="10" r="1" fill="currentColor" /><circle cx="12" cy="7.5" r="1" fill="currentColor" /><circle cx="16" cy="10" r="1" fill="currentColor" /></Icon>,
+  tag: <Icon size={14}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z" /><line x1="7" y1="7" x2="7.01" y2="7" /></Icon>,
+};
+
+/* ============================================================
+   Canvas mini preview (memoized — renders tiny abstract map)
+   ============================================================ */
+
+const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
+  objects = [],
+  connections = [],
+  width = 240,
+  height = 140,
+}: {
+  objects?: CanvasObjectData[];
+  connections?: ConnectionData[];
+  width?: number;
+  height?: number;
 }) {
   if (objects.length === 0) {
     return (
-      <div className="w-full h-full bg-[#FAF6F1]/60 flex items-center justify-center rounded-xl opacity-50 border border-[var(--border)]">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#C4BDB5" strokeWidth="1.5">
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <path d="M9 17V9h6" />
-        </svg>
+      <div className="w-full h-full flex items-center justify-center opacity-40">
+        <Icon size={22}><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 17V9h6" /></Icon>
       </div>
     );
   }
 
-  // Calculate bounding box
-  let minX = Math.min(...objects.map(o => o.x - o.width / 2));
-  let maxX = Math.max(...objects.map(o => o.x + o.width / 2));
-  let minY = Math.min(...objects.map(o => o.y - o.height / 2));
-  let maxY = Math.max(...objects.map(o => o.y + o.height / 2));
-
-  // Add padding
-  const padding = 30;
-  minX -= padding;
-  maxX += padding;
-  minY -= padding;
-  maxY += padding;
+  let minX = Math.min(...objects.map((o) => o.x - o.width / 2));
+  let maxX = Math.max(...objects.map((o) => o.x + o.width / 2));
+  let minY = Math.min(...objects.map((o) => o.y - o.height / 2));
+  let maxY = Math.max(...objects.map((o) => o.y + o.height / 2));
+  const pad = 30;
+  minX -= pad; maxX += pad; minY -= pad; maxY += pad;
 
   const boxW = Math.max(100, maxX - minX);
   const boxH = Math.max(100, maxY - minY);
-
-  // Fit bounding box into width/height preserving aspect ratio
-  const scaleX = width / boxW;
-  const scaleY = height / boxH;
-  const scale = Math.min(scaleX, scaleY, 0.45); // Limit max scale to keep elements nicely proportioned
-
+  const scale = Math.min(width / boxW, height / boxH, 0.45);
   const centerX = (minX + maxX) / 2;
   const centerY = (minY + maxY) / 2;
-
-  const getX = (canvasX: number) => (canvasX - centerX) * scale + width / 2;
-  const getY = (canvasY: number) => (canvasY - centerY) * scale + height / 2;
+  const getX = (cx: number) => (cx - centerX) * scale + width / 2;
+  const getY = (cy: number) => (cy - centerY) * scale + height / 2;
 
   return (
     <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
-      {/* Connections */}
-      {connections.map((conn: any) => {
-        const fromNode = objects.find(o => o.id === conn.fromId);
-        const toNode = objects.find(o => o.id === conn.toId);
-        if (!fromNode || !toNode) return null;
-
-        const fx = getX(fromNode.x);
-        const fy = getY(fromNode.y);
-        const tx = getX(toNode.x);
-        const ty = getY(toNode.y);
-
+      {connections.map((conn) => {
+        const from = objects.find((o) => o.id === conn.fromId);
+        const to = objects.find((o) => o.id === conn.toId);
+        if (!from || !to) return null;
+        const fx = getX(from.x); const fy = getY(from.y);
+        const tx = getX(to.x); const ty = getY(to.y);
         return (
           <path
             key={conn.id}
-            d={`M ${fx} ${fy} Q ${(fx+tx)/2} ${(fy+ty)/2 - 10} ${tx} ${ty}`}
+            d={`M ${fx} ${fy} Q ${(fx + tx) / 2} ${(fy + ty) / 2 - 10} ${tx} ${ty}`}
             stroke="var(--accent)"
             strokeWidth="1.2"
             fill="none"
@@ -93,56 +190,39 @@ function CanvasMiniPreview({
           />
         );
       })}
-
-      {/* Objects */}
-      {objects.slice(0, 15).map((obj: any) => {
-        const rx = getX(obj.x) - (obj.width * scale) / 2;
-        const ry = getY(obj.y) - (obj.height * scale) / 2;
+      {objects.slice(0, 15).map((obj) => {
         const rw = obj.width * scale;
         const rh = obj.height * scale;
-
-        let fill = "#FFFFFF";
-        let stroke = "rgba(45, 42, 38, 0.08)";
+        const rx = getX(obj.x) - rw / 2;
+        const ry = getY(obj.y) - rh / 2;
+        let fill = '#FFFFFF';
+        let stroke = 'rgba(45,42,38,0.08)';
         let radius = 4;
-
         if (obj.type === 'shape') {
-          fill = obj.style?.color || 'var(--accent-light)';
-          stroke = obj.style?.borderColor || 'var(--accent)';
+          fill = (obj.style?.color as string) || 'var(--accent-light)';
+          stroke = (obj.style?.borderColor as string) || 'var(--accent)';
           if (obj.style?.shapeType === 'pill') radius = rh / 2;
           else if (obj.style?.shapeType === 'oval') radius = Math.min(rw, rh) / 2;
         } else if (obj.type === 'sticky') {
-          fill = obj.style?.color || 'var(--sticky-yellow)';
-          stroke = "rgba(45, 42, 38, 0.04)";
+          fill = (obj.style?.color as string) || 'var(--sticky-yellow)';
           radius = 1;
         } else if (obj.type === 'workflow-node') {
-          fill = "var(--bg-primary)";
-          stroke = "var(--accent)";
+          fill = 'var(--bg-primary)';
+          stroke = 'var(--accent)';
           radius = 8;
         }
-
         return (
           <g key={obj.id}>
-            <rect
-              x={rx}
-              y={ry}
-              width={rw}
-              height={rh}
-              rx={radius}
-              ry={radius}
-              fill={fill}
-              stroke={stroke}
-              strokeWidth="0.8"
-            />
+            <rect x={rx} y={ry} width={rw} height={rh} rx={radius} ry={radius} fill={fill} stroke={stroke} strokeWidth="0.8" />
             {rw > 35 && (
               <text
                 x={rx + rw / 2}
                 y={ry + rh / 2 + 1.5}
                 fill={obj.type === 'shape' ? '#FFFFFF' : 'var(--text-primary)'}
-                fontSize="4"
                 fontWeight="500"
                 textAnchor="middle"
                 opacity="0.7"
-                className="select-none pointer-events-none font-sans font-medium"
+                className="select-none pointer-events-none"
                 style={{ fontSize: Math.max(3, Math.min(5, rw / 9)) + 'px' }}
               >
                 {obj.content.split('\n')[0].substring(0, 10)}
@@ -153,34 +233,66 @@ function CanvasMiniPreview({
       })}
     </svg>
   );
-}
+});
+
+/* ============================================================
+   Main component
+   ============================================================ */
 
 export default function LandingPage() {
   const [mounted, setMounted] = useState(false);
-  const [workspaces, setWorkspaces] = useState<(CanvasState & { 
-    objectCount: number; 
-    strokeCount: number; 
-    connectionCount: number;
-    objects: any[];
-    connections: any[];
-  })[]>([]);
-  
+  const [isLoading, setIsLoading] = useState(true);
+  const [workspaces, setWorkspaces] = useState<WorkspaceWithStats[]>([]);
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState<'all' | 'work' | 'personal' | 'study'>('all');
-  const [activeSidebarTab, setActiveSidebarTab] = useState<'home' | 'favorites' | 'docs' | 'images' | 'dictionary' | 'checkpoints' | 'mentions' | 'archive' | 'deleted'>('home');
+  const [activeCategory, setActiveCategory] = useState<Category>('all');
+  const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('home');
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
-  
+  const [sortMode, setSortMode] = useState<SortMode>('recent');
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+
   const [username, setUsername] = useState('Sanket');
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [usernameInput, setUsernameInput] = useState('Sanket');
   const [greeting, setGreeting] = useState('welcome');
 
-  // Renaming canvas state
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState('');
+  const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
+  const [armedEmptyTrash, setArmedEmptyTrash] = useState(false);
+
+  // Lazy-loaded gallery data for images / checkpoints tabs
+  const [galleryObjects, setGalleryObjects] = useState<CanvasObjectData[] | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const reducedMotion = useReducedMotion();
+
+  /* ---------- data ---------- */
+
+  const refresh = useCallback(async () => {
+    const wsStates = await getAllCanvasStates();
+    const wsWithStats = await Promise.all(
+      wsStates.map(async (ws) => {
+        const [objs, strokes, conns] = await Promise.all([
+          getAllObjects(ws.id),
+          getAllStrokes(ws.id),
+          getAllConnections(ws.id),
+        ]);
+        return {
+          ...ws,
+          objectCount: objs.length,
+          strokeCount: strokes.length,
+          connectionCount: conns.length,
+          objects: objs,
+          connections: conns,
+        };
+      })
+    );
+    setWorkspaces(wsWithStats);
+    setIsLoading(false);
+  }, []);
 
   useEffect(() => {
     setMounted(true);
@@ -189,137 +301,48 @@ export default function LandingPage() {
       setUsername(storedUsername);
       setUsernameInput(storedUsername);
     }
-
-    // Track visit count and select greeting
     const storedVisits = localStorage.getItem('mindspace_visit_count');
-    const currentVisits = storedVisits ? parseInt(storedVisits, 10) + 1 : 1;
-    localStorage.setItem('mindspace_visit_count', currentVisits.toString());
+    const visits = storedVisits ? parseInt(storedVisits, 10) + 1 : 1;
+    localStorage.setItem('mindspace_visit_count', visits.toString());
+    setGreeting(pickGreeting(visits));
 
-    // Generate dynamic greeting
-    const hours = new Date().getHours();
-    const greetingsPool: string[] = [];
+    seedDatabaseIfEmpty().then(refresh).catch(console.error);
+  }, [refresh]);
 
-    // 1. Time-of-day greeting pool
-    if (hours >= 5 && hours < 12) {
-      greetingsPool.push(
-        'good morning',
-        'rise and shine',
-        'morning spark',
-        'fresh start',
-        'start creating'
-      );
-      if (currentVisits > 1) {
-        greetingsPool.push('welcome back');
-      }
-    } else if (hours >= 12 && hours < 17) {
-      greetingsPool.push(
-        'good afternoon',
-        'afternoon flow',
-        'mid-day focus',
-        'keep going',
-        'mid-day spark'
-      );
-      if (currentVisits > 1) {
-        greetingsPool.push('welcome back');
-      }
-    } else if (hours >= 17 && hours < 22) {
-      greetingsPool.push(
-        'good evening',
-        'evening vibes',
-        'winding down',
-        'productive evening',
-        'ideas never sleep'
-      );
-      if (currentVisits > 1) {
-        greetingsPool.push('welcome back');
-      }
-    } else {
-      // Late night (22:00 to 05:00)
-      greetingsPool.push(
-        'burning the midnight oil',
-        'night owl mode',
-        'late night thoughts',
-        'midnight spark',
-        'ideas in the dark',
-        'quiet hours',
-        'night mode'
-      );
+  // Lazy-load all objects the first time images/checkpoints tab is opened
+  useEffect(() => {
+    if ((activeSidebarTab === 'images' || activeSidebarTab === 'checkpoints') && galleryObjects === null) {
+      getAbsoluteAllObjects().then(setGalleryObjects).catch(console.error);
     }
+  }, [activeSidebarTab, galleryObjects]);
 
-    // 2. High frequency or visit count based general greetings
-    if (currentVisits > 1) {
-      greetingsPool.push(
-        'welcome back',
-        'great to see you again',
-        'back to create',
-        'ready to brain-dump',
-        'your digital desk awaits'
-      );
-      
-      // If visited many times
-      if (currentVisits > 10) {
-        greetingsPool.push(
-          'welcome back, champion',
-          'back at it',
-          'ready for greatness',
-          'make magic happen'
-        );
-      }
-    } else {
-      greetingsPool.push(
-        'welcome to mindspace',
-        'let\'s get started',
-        'your canvas awaits'
-      );
-    }
-
-    // Choose randomly from the pool
-    const randomIndex = Math.floor(Math.random() * greetingsPool.length);
-    setGreeting(greetingsPool[randomIndex]);
-
-    async function loadData() {
-      // Seed database if it is empty
-      await seedDatabaseIfEmpty();
-      const wsStates = await getAllCanvasStates();
-
-      // Retrieve stats for all workspaces
-      const wsWithStats = await Promise.all(
-        wsStates.map(async (ws) => {
-          const [objs, strokes, conns] = await Promise.all([
-            getAllObjects(ws.id),
-            getAllStrokes(ws.id),
-            getAllConnections(ws.id)
-          ]);
-          return {
-            ...ws,
-            objectCount: objs.length,
-            strokeCount: strokes.length,
-            connectionCount: conns.length,
-            objects: objs,
-            connections: conns
-          };
-        })
-      );
-
-      setWorkspaces(wsWithStats);
-    }
-
-    loadData().catch(console.error);
-  }, []);
-
-  // Keyboard shortcut for Ctrl+K / Cmd+K
+  // Keyboard: Ctrl+K focuses search, Escape clears it
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         searchInputRef.current?.focus();
       }
+      if (e.key === 'Escape' && document.activeElement === searchInputRef.current) {
+        setSearchQuery('');
+        searchInputRef.current?.blur();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  if (!mounted) return null;
+  // Close sort menu on outside click
+  useEffect(() => {
+    if (!sortMenuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) setSortMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [sortMenuOpen]);
+
+  /* ---------- actions ---------- */
 
   const openNewCanvas = async () => {
     const newId = uuidv4();
@@ -332,7 +355,7 @@ export default function LandingPage() {
       category: activeCategory === 'all' ? 'personal' : activeCategory,
       isFavorite: false,
       deleted: false,
-      archived: false
+      archived: false,
     };
     await saveCanvasState(newCanvas);
     router.push(`/canvas?id=${newId}`);
@@ -345,61 +368,69 @@ export default function LandingPage() {
     setIsEditingUsername(false);
   };
 
-  const handleColorCycle = async (e: React.MouseEvent, id: string, currentColor?: string) => {
+  const patchWorkspace = async (id: string, patch: Partial<CanvasState>) => {
+    setWorkspaces((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+    await updateCanvasMeta(id, patch);
+  };
+
+  const toggleFavorite = (e: React.MouseEvent, ws: WorkspaceWithStats) => {
+    e.stopPropagation();
+    patchWorkspace(ws.id, { isFavorite: !ws.isFavorite });
+  };
+  const toggleArchive = (e: React.MouseEvent, ws: WorkspaceWithStats) => {
+    e.stopPropagation();
+    patchWorkspace(ws.id, { archived: !ws.archived });
+  };
+  const toggleDelete = (e: React.MouseEvent, ws: WorkspaceWithStats) => {
+    e.stopPropagation();
+    patchWorkspace(ws.id, { deleted: !ws.deleted });
+  };
+  const cycleCategory = (e: React.MouseEvent, ws: WorkspaceWithStats) => {
+    e.stopPropagation();
+    const current = (ws.category as typeof CATEGORY_SEQUENCE[number]) || 'personal';
+    const idx = CATEGORY_SEQUENCE.indexOf(current);
+    const next = CATEGORY_SEQUENCE[(idx + 1) % CATEGORY_SEQUENCE.length];
+    patchWorkspace(ws.id, { category: next });
+  };
+  const handleColorCycle = async (e: React.MouseEvent, ws: WorkspaceWithStats) => {
     e.stopPropagation();
     const themeColors = ['#FAF6F1', '#FFF8DC', '#FFE4E6', '#E0F2FE', '#DCFCE7'];
-    const current = currentColor || '#FAF6F1';
-    const currentIndex = themeColors.indexOf(current) === -1 ? 0 : themeColors.indexOf(current);
-    const nextIndex = (currentIndex + 1) % themeColors.length;
-    const nextColor = themeColors[nextIndex];
-    
-    setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, themeColor: nextColor } : w));
-    await updateCanvasTheme(id, nextColor);
+    const idx = themeColors.indexOf(ws.themeColor || '#FAF6F1');
+    const next = themeColors[(idx === -1 ? 0 : idx + 1) % themeColors.length];
+    setWorkspaces((prev) => prev.map((w) => (w.id === ws.id ? { ...w, themeColor: next } : w)));
+    await updateCanvasTheme(ws.id, next);
   };
 
-  const toggleFavorite = async (e: React.MouseEvent, id: string) => {
+  const handleDuplicate = async (e: React.MouseEvent, ws: WorkspaceWithStats) => {
     e.stopPropagation();
-    const ws = workspaces.find(w => w.id === id);
-    if (!ws) return;
-    const nextFavorite = !ws.isFavorite;
-
-    setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, isFavorite: nextFavorite } : w));
-
-    const state = await getCanvasState(id);
-    if (state) {
-      state.isFavorite = nextFavorite;
-      await saveCanvasState(state);
-    }
+    await duplicateCanvas(ws.id);
+    await refresh();
   };
 
-  const toggleArchive = async (e: React.MouseEvent, id: string) => {
+  const handleDeleteForever = async (e: React.MouseEvent, ws: WorkspaceWithStats) => {
     e.stopPropagation();
-    const ws = workspaces.find(w => w.id === id);
-    if (!ws) return;
-    const nextArchived = !ws.archived;
-
-    setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, archived: nextArchived } : w));
-
-    const state = await getCanvasState(id);
-    if (state) {
-      state.archived = nextArchived;
-      await saveCanvasState(state);
+    if (armedDeleteId !== ws.id) {
+      setArmedDeleteId(ws.id);
+      setTimeout(() => setArmedDeleteId((cur) => (cur === ws.id ? null : cur)), 4000);
+      return;
     }
+    setArmedDeleteId(null);
+    setWorkspaces((prev) => prev.filter((w) => w.id !== ws.id));
+    await deleteCanvasPermanently(ws.id);
   };
 
-  const toggleDelete = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    const ws = workspaces.find(w => w.id === id);
-    if (!ws) return;
-    const nextDeleted = !ws.deleted;
+  const trashCount = workspaces.filter((w) => w.deleted).length;
 
-    setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, deleted: nextDeleted } : w));
-
-    const state = await getCanvasState(id);
-    if (state) {
-      state.deleted = nextDeleted;
-      await saveCanvasState(state);
+  const handleEmptyTrash = async () => {
+    if (!armedEmptyTrash) {
+      setArmedEmptyTrash(true);
+      setTimeout(() => setArmedEmptyTrash(false), 4000);
+      return;
     }
+    setArmedEmptyTrash(false);
+    const doomed = workspaces.filter((w) => w.deleted);
+    setWorkspaces((prev) => prev.filter((w) => !w.deleted));
+    for (const ws of doomed) await deleteCanvasPermanently(ws.id);
   };
 
   const startRenaming = (e: React.MouseEvent, id: string, currentTitle: string) => {
@@ -407,298 +438,132 @@ export default function LandingPage() {
     setRenamingId(id);
     setRenamingTitle(currentTitle);
   };
-
   const saveRename = async (id: string) => {
-    const finalTitle = renamingTitle.trim() || 'Untitled Space';
-    setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, title: finalTitle } : w));
+    const finalTitle = renamingTitle.trim() || 'untitled canvas';
     setRenamingId(null);
-
-    const state = await getCanvasState(id);
-    if (state) {
-      state.title = finalTitle;
-      await saveCanvasState(state);
-    }
+    await patchWorkspace(id, { title: finalTitle });
   };
 
-  // Helper date generators
+  /* ---------- derived data ---------- */
 
+  const nonDeleted = workspaces.filter((w) => !w.deleted && !w.archived);
+  const totalCanvases = nonDeleted.length;
+  const totalCards = nonDeleted.reduce((s, w) => s + w.objectCount, 0);
+  const totalSketches = nonDeleted.reduce((s, w) => s + w.strokeCount, 0);
+  const totalThreads = nonDeleted.reduce((s, w) => s + w.connectionCount, 0);
 
-  const getFormattedDate = () => {
-    const date = new Date();
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${days[date.getDay()]} · ${date.getDate()} ${months[date.getMonth()]}`;
-  };
-
-  const getRelativeTime = (time: number) => {
-    const diff = Date.now() - time;
-    if (diff < 1000) return 'just now';
-    const sec = Math.floor(diff / 1000);
-    if (sec < 60) return `${sec}s ago`;
-    const min = Math.floor(sec / 60);
-    if (min < 60) return `${min}m ago`;
-    const hr = Math.floor(min / 60);
-    if (hr < 24) return `${hr}h ago`;
-    const days = Math.floor(hr / 24);
-    if (days === 1) return 'yesterday';
-    return `${days} days ago`;
-  };
-
-  // 1. Filter out deleted or archived from counts
-  const nonDeletedWorkspaces = workspaces.filter(w => !w.deleted && !w.archived);
-
-  // Statistics
-  const totalCanvasesCount = nonDeletedWorkspaces.length;
-  const totalCardsCount = nonDeletedWorkspaces.reduce((sum, w) => sum + (w.objectCount || 0), 0);
-
-  // Get continue where you left off
-  const continueWorkspace = nonDeletedWorkspaces.length > 0 
-    ? [...nonDeletedWorkspaces].sort((a, b) => b.lastModified - a.lastModified)[0] 
+  const continueWorkspace = nonDeleted.length > 0
+    ? [...nonDeleted].sort((a, b) => b.lastModified - a.lastModified)[0]
     : null;
 
-  // Filter workspaces list for grid
-  const getFilteredWorkspaces = () => {
+  const filteredList = useMemo(() => {
     let list = [...workspaces];
+    if (activeSidebarTab === 'favorites') list = list.filter((w) => w.isFavorite && !w.deleted && !w.archived);
+    else if (activeSidebarTab === 'archive') list = list.filter((w) => w.archived && !w.deleted);
+    else if (activeSidebarTab === 'deleted') list = list.filter((w) => w.deleted);
+    else list = list.filter((w) => !w.deleted && !w.archived);
 
-    // Sidebar tab filters
-    if (activeSidebarTab === 'favorites') {
-      list = list.filter(w => w.isFavorite && !w.deleted && !w.archived);
-    } else if (activeSidebarTab === 'archive') {
-      list = list.filter(w => w.archived && !w.deleted);
-    } else if (activeSidebarTab === 'deleted') {
-      list = list.filter(w => w.deleted);
-    } else {
-      list = list.filter(w => !w.deleted && !w.archived);
-      
-      if (activeSidebarTab === 'docs') {
-        list = list.filter(w => w.category === 'work' || w.category === 'study');
-      } else if (activeSidebarTab === 'images') {
-        list = list.filter(w => w.category === 'personal');
-      }
+    if (activeSidebarTab === 'home' && activeCategory !== 'all') {
+      list = list.filter((w) => w.category === activeCategory);
     }
 
-    // Category pills filter
-    if (activeSidebarTab !== 'favorites' && activeSidebarTab !== 'archive' && activeSidebarTab !== 'deleted') {
-      if (activeCategory !== 'all') {
-        list = list.filter(w => w.category === activeCategory);
-      }
-    }
-
-    // Search query filter
     if (searchQuery) {
-      list = list.filter(w => 
-        (w.title || 'untitled canvas').toLowerCase().includes(searchQuery.toLowerCase()) || 
-        w.id.toLowerCase().includes(searchQuery.toLowerCase())
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
+        (w) =>
+          (w.title || 'untitled canvas').toLowerCase().includes(q) ||
+          (w.category || '').toLowerCase().includes(q) ||
+          w.objects.some((o) => o.content.toLowerCase().includes(q))
       );
     }
 
+    if (sortMode === 'recent') list.sort((a, b) => b.lastModified - a.lastModified);
+    else if (sortMode === 'name') list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    else list.sort((a, b) => b.objectCount - a.objectCount);
+
     return list;
+  }, [workspaces, activeSidebarTab, activeCategory, searchQuery, sortMode]);
+
+  const counts = {
+    all: nonDeleted.length,
+    work: nonDeleted.filter((w) => w.category === 'work').length,
+    personal: nonDeleted.filter((w) => w.category === 'personal').length,
+    study: nonDeleted.filter((w) => w.category === 'study').length,
   };
 
-  const filteredList = getFilteredWorkspaces();
+  const canvasTitleById = useMemo(() => {
+    const map = new Map<string, string>();
+    workspaces.forEach((w) => map.set(w.id, w.title || 'untitled canvas'));
+    return map;
+  }, [workspaces]);
 
-  // Dynamic filter counts
-  const countAll = nonDeletedWorkspaces.length;
-  const countWork = nonDeletedWorkspaces.filter(w => w.category === 'work').length;
-  const countPersonal = nonDeletedWorkspaces.filter(w => w.category === 'personal').length;
-  const countStudy = nonDeletedWorkspaces.filter(w => w.category === 'study').length;
+  const imageObjects = useMemo(
+    () => (galleryObjects || []).filter((o) => o.type === 'image' && o.content?.startsWith('data:')),
+    [galleryObjects]
+  );
+  const checkpointObjects = useMemo(
+    () => (galleryObjects || []).filter((o) => o.style?.isCheckpoint),
+    [galleryObjects]
+  );
 
-  // Icons resolver helper
-  const getCanvasIconDetails = (title: string, category: string) => {
-    const t = (title || '').toLowerCase();
-    if (t.includes('launch')) {
-      return {
-        bg: 'bg-orange-50 text-orange-500 border border-orange-100/50',
-        icon: (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
-          </svg>
-        )
-      };
-    }
-    if (t.includes('reading')) {
-      return {
-        bg: 'bg-green-50 text-green-600 border border-green-100/50',
-        icon: (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 3.58 0 8a7 7 0 0 1-8 10z" />
-            <path d="M19 2L11 10" />
-          </svg>
-        )
-      };
-    }
-    if (t.includes('thesis') || t.includes('essay')) {
-      return {
-        bg: 'bg-yellow-50 text-amber-700 border border-yellow-100/50',
-        icon: (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-          </svg>
-        )
-      };
-    }
-    if (t.includes('brand')) {
-      return {
-        bg: 'bg-teal-50 text-teal-600 border border-teal-100/50',
-        icon: (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polygon points="12 2 2 7 12 12 22 7 12 2" />
-            <polyline points="2 17 12 22 22 17" />
-            <polyline points="2 12 12 17 22 12" />
-          </svg>
-        )
-      };
-    }
-    if (t.includes('trip') || t.includes('moodboard')) {
-      return {
-        bg: 'bg-red-50 text-red-500 border border-red-100/50',
-        icon: (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" />
-            <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
-          </svg>
-        )
-      };
-    }
-    if (t.includes('lovely')) {
-      return {
-        bg: 'bg-pink-50 text-pink-500 border border-pink-100/50',
-        icon: (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-          </svg>
-        )
-      };
-    }
+  if (!mounted) return null;
 
-    if (category === 'work') {
-      return {
-        bg: 'bg-blue-50 text-blue-500 border border-blue-100/50',
-        icon: (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-          </svg>
-        )
-      };
-    }
-    if (category === 'study') {
-      return {
-        bg: 'bg-purple-50 text-purple-500 border border-purple-100/50',
-        icon: (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-          </svg>
-        )
-      };
-    }
-    return {
-      bg: 'bg-amber-50 text-amber-500 border border-amber-100/50',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-        </svg>
-      )
-    };
+  const isCollectionTab = activeSidebarTab !== 'images' && activeSidebarTab !== 'checkpoints';
+  const sectionTitles: Record<SidebarTab, string> = {
+    home: 'all canvases',
+    favorites: 'favorite canvases',
+    images: 'image library',
+    checkpoints: 'checkpoints',
+    archive: 'archived',
+    deleted: 'trash',
   };
+
+  /* ============================================================
+     Render
+     ============================================================ */
 
   return (
     <div className="min-h-screen bg-[#FAF6F1] text-[var(--text-primary)] flex overflow-x-hidden relative paper-texture">
-      {/* Noise filter */}
       <div className="noise-overlay" />
 
-      {/* Premium Thin Sidebar (80px) */}
-      <aside className="w-20 bg-[#FAF6F1] border-r border-[var(--border)] flex flex-col justify-between items-center py-6 h-screen sticky top-0 z-[100]">
-        <div className="flex flex-col items-center gap-6 w-full">
-          {/* Logo / Brand container - orange tile with 4 squares */}
-          <div 
+      {/* ---------- Floating clay dock ---------- */}
+      <aside className="w-[92px] h-screen sticky top-0 z-40 flex items-center shrink-0">
+        <nav
+          aria-label="Main navigation"
+          className="clay-card ml-4 rounded-[26px] py-5 px-2.5 flex flex-col items-center gap-1.5 max-h-[calc(100vh-48px)]"
+        >
+          <button
             onClick={() => { setActiveSidebarTab('home'); setActiveCategory('all'); }}
-            className="w-12 h-12 rounded-2xl bg-[var(--accent)] flex items-center justify-center text-white shadow-md shadow-[var(--accent-subtle)] cursor-pointer hover:opacity-90 active:scale-95 transition-all"
+            aria-label="mindspace home"
+            className="w-11 h-11 mb-3 rounded-2xl bg-[var(--accent)] flex items-center justify-center text-white shadow-[0_8px_18px_-6px_rgba(201,123,75,0.55),inset_0_1px_0_rgba(255,255,255,0.35)] cursor-pointer hover:brightness-105 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor" />
-              <rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor" />
-              <rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor" />
-              <rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor" />
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="2" />
+              <rect x="14" y="3" width="7" height="7" rx="2" />
+              <rect x="3" y="14" width="7" height="7" rx="2" />
+              <rect x="14" y="14" width="7" height="7" rx="2" />
             </svg>
-          </div>
+          </button>
 
-          {/* Navigation Items */}
-          <div className="flex flex-col items-center gap-3 w-full px-2">
-            <SidebarButton 
-              active={activeSidebarTab === 'home'} 
-              onClick={() => setActiveSidebarTab('home')}
-              title="Home"
-              icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>} 
-            />
-            <SidebarButton 
-              active={activeSidebarTab === 'favorites'} 
-              onClick={() => setActiveSidebarTab('favorites')}
-              title="Favorites"
-              icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>} 
-            />
-            <SidebarButton 
-              active={activeSidebarTab === 'docs'} 
-              onClick={() => setActiveSidebarTab('docs')}
-              title="Documents"
-              icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>} 
-            />
-            <SidebarButton 
-              active={activeSidebarTab === 'images'} 
-              onClick={() => setActiveSidebarTab('images')}
-              title="Images"
-              icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>} 
-            />
-            <SidebarButton 
-              active={activeSidebarTab === 'dictionary'} 
-              onClick={() => setActiveSidebarTab('dictionary')}
-              title="Dictionary"
-              icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>} 
-            />
+          <DockButton label="Home" active={activeSidebarTab === 'home'} onClick={() => setActiveSidebarTab('home')} icon={ICONS.home} />
+          <DockButton label="Favorites" active={activeSidebarTab === 'favorites'} onClick={() => setActiveSidebarTab('favorites')} icon={ICONS.heart} />
+          <DockButton label="Images" active={activeSidebarTab === 'images'} onClick={() => setActiveSidebarTab('images')} icon={ICONS.image} />
+          <DockButton label="Checkpoints" active={activeSidebarTab === 'checkpoints'} onClick={() => setActiveSidebarTab('checkpoints')} icon={ICONS.flag} />
 
-            {/* Subtle Divider */}
-            <div className="w-8 h-px bg-[var(--border-strong)] opacity-40 my-3" />
+          <div className="w-8 h-px bg-[var(--border-strong)] opacity-50 my-2" />
 
-            <SidebarButton 
-              active={activeSidebarTab === 'checkpoints'} 
-              onClick={() => setActiveSidebarTab('checkpoints')}
-              title="Checkpoints"
-              icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" y1="22" x2="4" y2="15" /></svg>} 
-            />
-            <SidebarButton 
-              active={activeSidebarTab === 'mentions'} 
-              onClick={() => setActiveSidebarTab('mentions')}
-              title="Mentions"
-              icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94" /></svg>} 
-            />
-            <SidebarButton 
-              active={activeSidebarTab === 'archive'} 
-              onClick={() => setActiveSidebarTab('archive')}
-              title="Archived"
-              icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" /></svg>} 
-            />
-            <SidebarButton 
-              active={activeSidebarTab === 'deleted'} 
-              onClick={() => setActiveSidebarTab('deleted')}
-              title="Deleted / Trash"
-              icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg>} 
-            />
-          </div>
-        </div>
-
-        {/* Dynamic Theme indicator circle */}
-        <div className="w-3 h-3 rounded-full bg-[var(--accent)] animate-pulse" />
+          <DockButton label="Archive" active={activeSidebarTab === 'archive'} onClick={() => setActiveSidebarTab('archive')} icon={ICONS.archive} />
+          <DockButton label="Trash" active={activeSidebarTab === 'deleted'} onClick={() => setActiveSidebarTab('deleted')} icon={ICONS.trash} badge={trashCount || undefined} />
+        </nav>
       </aside>
 
-      {/* Main Dashboard Space */}
-      <main className="flex-1 min-h-screen px-12 py-10 flex flex-col items-center overflow-y-auto">
-        <div className="w-full max-w-5xl flex flex-col gap-10">
-          
-          {/* Top Header Row */}
-          <header className="flex justify-between items-center w-full">
-            <div>
+      {/* ---------- Main ---------- */}
+      <main className="flex-1 min-h-screen h-screen overflow-y-auto">
+        <div className="w-full max-w-6xl mx-auto px-6 md:px-10 pt-10 pb-28 flex flex-col gap-12">
+
+          {/* Header */}
+          <header className="flex flex-col lg:flex-row lg:justify-between lg:items-end gap-6 w-full">
+            <div className="min-w-0">
               {isEditingUsername ? (
                 <div className="flex items-center gap-2">
                   <input
@@ -707,471 +572,820 @@ export default function LandingPage() {
                     onChange={(e) => setUsernameInput(e.target.value)}
                     onBlur={handleUsernameSave}
                     onKeyDown={(e) => e.key === 'Enter' && handleUsernameSave()}
-                    className="text-4xl italic font-serif bg-transparent border-b border-[var(--accent)] outline-none text-[var(--text-primary)] max-w-[240px]"
+                    aria-label="Your name"
+                    className="text-4xl md:text-5xl italic bg-transparent border-b-2 border-[var(--accent)] outline-none text-[var(--text-primary)] max-w-[300px]"
+                    style={{ fontFamily: "'Instrument Serif', serif" }}
                     autoFocus
                   />
-                  <button 
-                    onClick={handleUsernameSave}
-                    className="p-1 text-xs text-white bg-[var(--accent)] rounded hover:opacity-90"
-                  >
-                    Save
-                  </button>
                 </div>
               ) : (
-                <h1 
+                <h1
                   onClick={() => setIsEditingUsername(true)}
-                  className="text-4xl italic font-serif font-light text-[var(--text-primary)] tracking-wide cursor-pointer hover:opacity-85 transition-opacity"
+                  title="Click to edit your name"
+                  className="text-4xl md:text-5xl italic font-light tracking-tight cursor-pointer leading-none group"
                   style={{ fontFamily: "'Instrument Serif', serif" }}
                 >
-                  {greeting}, <span className="underline decoration-dotted decoration-[var(--border-strong)]">{username}</span>
+                  {greeting},{' '}
+                  <span className="text-[var(--accent)] underline decoration-dotted decoration-2 decoration-[var(--accent)]/30 underline-offset-4 group-hover:decoration-[var(--accent)]/70 transition-all">
+                    {username}
+                  </span>
                 </h1>
               )}
-              <p className="text-xs text-[var(--text-secondary)] font-medium mt-1 select-none">
-                {getFormattedDate()} · <span className="text-[var(--accent)]">{totalCanvasesCount} canvases</span> · {totalCardsCount} cards
-              </p>
+
+              {/* Honest live stats strip */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-[11px] font-medium text-[var(--text-secondary)] select-none tabular-nums">
+                <span>{getFormattedDate()}</span>
+                <span className="w-1 h-1 rounded-full bg-[var(--text-muted)]" />
+                <span><strong className="text-[var(--accent)] font-bold">{totalCanvases}</strong> canvases</span>
+                <span className="w-1 h-1 rounded-full bg-[var(--text-muted)]" />
+                <span><strong className="text-[var(--text-primary)] font-bold">{totalCards}</strong> cards</span>
+                <span className="w-1 h-1 rounded-full bg-[var(--text-muted)]" />
+                <span><strong className="text-[var(--text-primary)] font-bold">{totalSketches}</strong> sketches</span>
+                <span className="w-1 h-1 rounded-full bg-[var(--text-muted)]" />
+                <span><strong className="text-[var(--text-primary)] font-bold">{totalThreads}</strong> threads</span>
+              </div>
             </div>
 
-            <div className="flex items-center gap-4">
-              {/* Pill Search Input */}
-              <div className="relative flex items-center bg-white border border-[var(--border)] rounded-full px-4 py-2 w-72 focus-within:border-[var(--accent)] focus-within:ring-1 focus-within:ring-[var(--accent)] transition-all shadow-sm">
-                <svg className="text-[var(--text-tertiary)] mr-2 flex-shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-                </svg>
+            <div className="flex items-center gap-3 shrink-0">
+              {/* Liquid-glass search */}
+              <div className="glass-bar relative flex items-center rounded-full pl-4 pr-2 py-2.5 w-full sm:w-80 focus-within:ring-2 focus-within:ring-[var(--accent)]/35 transition-shadow">
+                <span className="text-[var(--text-tertiary)] mr-2.5 shrink-0">{ICONS.search}</span>
                 <input
                   ref={searchInputRef}
                   type="text"
-                  placeholder="search anything"
+                  placeholder="search titles & card contents"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-transparent border-none outline-none text-xs w-full placeholder-[var(--text-muted)] text-[var(--text-primary)] font-medium"
+                  aria-label="Search canvases and card contents"
+                  className="bg-transparent border-none outline-none text-[13px] w-full placeholder-[var(--text-muted)] text-[var(--text-primary)] font-medium"
                 />
-                <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[9px] font-semibold text-[var(--text-muted)] bg-[var(--bg-secondary)] px-1.5 py-0.5 rounded border border-[var(--border)] select-none">
-                  <span>⌘</span>K
-                </kbd>
+                {searchQuery ? (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Clear search"
+                    className="p-1.5 rounded-full text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-black/5 transition-colors cursor-pointer"
+                  >
+                    <Icon size={13}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>
+                  </button>
+                ) : (
+                  <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold text-[var(--text-tertiary)] bg-white/70 px-2 py-1 rounded-full border border-[var(--border)] select-none shrink-0">
+                    ⌘K
+                  </kbd>
+                )}
               </div>
-
-              {/* Profile Avatar */}
               <AuthButton isInline={true} />
             </div>
           </header>
 
-          {/* CONTINUE WHERE YOU LEFT OFF SECTION */}
-          {activeSidebarTab === 'home' && continueWorkspace && !searchQuery && (
-            <section className="w-full">
-              <div className="bg-white border border-[var(--border)] rounded-[24px] p-8 flex flex-col md:flex-row justify-between items-center gap-8 shadow-sm relative overflow-hidden group">
-                <div className="flex-1 flex flex-col items-start gap-4">
-                  <span className="text-[10px] text-[var(--accent)] uppercase font-extrabold tracking-widest flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-ping" />
-                    Continue where you left off
-                  </span>
-                  
-                  <div>
-                    <h2 
-                      onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
-                      className="text-3xl font-serif text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors"
-                      style={{ fontFamily: "'Instrument Serif', serif" }}
-                    >
-                      {continueWorkspace.title || 'untitled canvas'}
-                    </h2>
-                    <p className="text-[10px] font-mono text-[var(--text-tertiary)] mt-1">
-                      edited {getRelativeTime(continueWorkspace.lastModified)} · <span className="opacity-80 font-semibold">{continueWorkspace.id.substring(0, 8)}</span>
-                    </p>
-                  </div>
-
-                  {/* Canvas Statistics Pills */}
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    <StatPill label={`${continueWorkspace.objectCount} cards`} icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>} />
-                    <StatPill label={`${continueWorkspace.strokeCount} sketches`} icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>} />
-                    <StatPill label={`${continueWorkspace.connectionCount} threads`} icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="6" y1="6" x2="18" y2="18" /><circle cx="6" cy="6" r="3" fill="currentColor" /><circle cx="18" cy="18" r="3" fill="currentColor" /></svg>} />
-                    <StatPill label="3h 14m" icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>} />
-                  </div>
-                </div>
-
-                {/* Right Mini Preview Card */}
-                <div 
-                  onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
-                  className="w-full md:w-80 h-44 bg-[#F5EFE7]/50 hover:bg-[#F5EFE7] rounded-xl overflow-hidden relative cursor-pointer border border-[var(--border)] transition-colors duration-300"
-                >
-                  <CanvasMiniPreview 
-                    objects={continueWorkspace.objects} 
-                    connections={continueWorkspace.connections} 
-                    width={320} 
-                    height={176} 
-                  />
-                </div>
-              </div>
-            </section>
-          )}
-
-          {/* RECENTLY VISITED SECTION */}
-          {activeSidebarTab === 'home' && !searchQuery && nonDeletedWorkspaces.length > 0 && (
-            <section className="w-full flex flex-col gap-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-[10px] uppercase font-bold tracking-widest text-[var(--text-secondary)]">Recently Visited</h3>
-                <span 
-                  onClick={() => { setActiveSidebarTab('home'); setActiveCategory('all'); }} 
-                  className="text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--accent)] hover:underline cursor-pointer flex items-center gap-1 transition-colors"
-                >
-                  see all <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
-                </span>
-              </div>
-
-              {/* Horizontal List: Top 4 workspaces */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 w-full">
-                {nonDeletedWorkspaces.slice(0, 4).map((ws, index) => {
-                  // Predefined colors for relative dot indicators
-                  const dotColors = ['bg-[#C97B4B]', 'bg-[#4B9C73]', 'bg-[#9E9790]', 'bg-[#C9904B]'];
-                  const dotColor = dotColors[index % dotColors.length];
-
-                  return (
-                    <div 
-                      key={ws.id}
-                      onClick={() => router.push(`/canvas?id=${ws.id}`)}
-                      className="bg-white border border-[var(--border)] rounded-2xl overflow-hidden p-3 flex flex-col gap-3 hover:shadow-md transition-shadow group cursor-pointer"
-                    >
-                      {/* Top Preview Block */}
-                      <div className="h-28 bg-[#F5EFE7]/40 rounded-xl relative overflow-hidden">
-                        <CanvasMiniPreview objects={ws.objects} connections={ws.connections} width={220} height={112} />
-                      </div>
-
-                      {/* Bottom Meta */}
-                      <div className="px-1 flex justify-between items-center">
-                        <div className="overflow-hidden pr-2">
-                          <h4 className="text-xs font-bold text-[var(--text-primary)] truncate">{ws.title || 'untitled canvas'}</h4>
-                          <p className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1.5 mt-0.5">
-                            <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
-                            {getRelativeTime(ws.lastModified)}
-                          </p>
-                        </div>
-                        
-                        {/* Hover Quick Actions */}
-                        <button 
-                          onClick={(e) => toggleFavorite(e, ws.id)}
-                          className={`p-1.5 rounded-full hover:bg-[var(--bg-secondary)] ${ws.isFavorite ? 'text-[var(--accent)]' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'} transition-colors`}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill={ws.isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
-                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* ALL CANVASES SECTION */}
-          <section className="w-full flex flex-col gap-6">
-            <div className="flex justify-between items-center border-b border-[var(--border)] pb-4">
-              <div>
-                <h3 className="text-[10px] uppercase font-bold tracking-widest text-[var(--text-secondary)]">
-                  {activeSidebarTab === 'favorites' ? 'Favorite Canvases' : 
-                   activeSidebarTab === 'archive' ? 'Archived Canvases' :
-                   activeSidebarTab === 'deleted' ? 'Deleted Canvases (Trash)' : 'All Canvases'}
-                </h3>
-              </div>
-
-              {/* View layout modes & sorting */}
-              <div className="flex items-center gap-4 text-xs font-semibold text-[var(--text-secondary)]">
-                {/* Grid vs List view toggle */}
-                <div className="flex bg-[var(--bg-secondary)] p-0.5 rounded-lg border border-[var(--border)]">
-                  <button 
-                    onClick={() => setLayoutMode('grid')}
-                    className={`px-2.5 py-1 rounded-md transition-all ${layoutMode === 'grid' ? 'bg-white shadow-sm text-[var(--text-primary)] font-bold' : 'hover:text-[var(--text-primary)]'}`}
-                  >
-                    grid
-                  </button>
-                  <button 
-                    onClick={() => setLayoutMode('list')}
-                    className={`px-2.5 py-1 rounded-md transition-all ${layoutMode === 'list' ? 'bg-white shadow-sm text-[var(--text-primary)] font-bold' : 'hover:text-[var(--text-primary)]'}`}
-                  >
-                    list
-                  </button>
-                </div>
-                
-                <span className="text-[var(--text-muted)]">·</span>
-                <span className="cursor-pointer hover:text-[var(--text-primary)]">sorted by recent</span>
+          {/* ---------- Loading skeleton ---------- */}
+          {isLoading && (
+            <div className="flex flex-col gap-12" aria-hidden="true">
+              <div className="clay-skeleton rounded-[28px] h-56 w-full" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                {[0, 1, 2, 3].map((i) => <div key={i} className="clay-skeleton rounded-3xl h-44" />)}
               </div>
             </div>
+          )}
 
-            {/* Category pills filters (Only visible in standard sidebar modes) */}
-            {activeSidebarTab !== 'favorites' && activeSidebarTab !== 'archive' && activeSidebarTab !== 'deleted' && (
-              <div className="flex flex-wrap gap-2">
-                <CategoryPill active={activeCategory === 'all'} count={countAll} label="all" onClick={() => setActiveCategory('all')} />
-                <CategoryPill active={activeCategory === 'work'} count={countWork} label="work" onClick={() => setActiveCategory('work')} />
-                <CategoryPill active={activeCategory === 'personal'} count={countPersonal} label="personal" onClick={() => setActiveCategory('personal')} />
-                <CategoryPill active={activeCategory === 'study'} count={countStudy} label="study" onClick={() => setActiveCategory('study')} />
-              </div>
-            )}
+          {/* ---------- HOME: Continue card ---------- */}
+          <AnimatePresence mode="popLayout">
+            {!isLoading && activeSidebarTab === 'home' && continueWorkspace && !searchQuery && (
+              <motion.section
+                key="continue"
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={spring}
+                className="w-full"
+              >
+                <div className="clay-card rounded-[28px] p-7 md:p-9 grid grid-cols-1 md:grid-cols-[3fr_2fr] gap-8 items-center relative overflow-hidden group">
+                  {/* soft accent bloom */}
+                  <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-[radial-gradient(circle,rgba(201,123,75,0.10),transparent_65%)] pointer-events-none" />
 
-            {/* Workspaces Display */}
-            {filteredList.length > 0 ? (
-              layoutMode === 'grid' ? (
-                /* GRID VIEW */
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
-                  {filteredList.map((ws) => {
-                    const iconDetails = getCanvasIconDetails(ws.title || '', ws.category || 'personal');
-                    
-                    return (
-                      <div
-                        key={ws.id}
-                        onClick={() => router.push(`/canvas?id=${ws.id}`)}
-                        className="bg-white border border-[var(--border)] rounded-2xl p-5 hover:shadow-md hover:border-[var(--border-strong)] transition-all flex items-center justify-between group cursor-pointer relative overflow-hidden"
+                  <div className="flex flex-col items-start gap-5 min-w-0">
+                    <span className="inline-flex items-center gap-2 text-[10px] text-[var(--accent)] uppercase font-extrabold tracking-[0.18em]">
+                      <span className="relative flex w-2 h-2">
+                        {!reducedMotion && <span className="absolute inline-flex w-full h-full rounded-full bg-[var(--accent)] opacity-60 animate-ping" />}
+                        <span className="relative inline-flex w-2 h-2 rounded-full bg-[var(--accent)]" />
+                      </span>
+                      Continue where you left off
+                    </span>
+
+                    <div className="min-w-0">
+                      <h2
+                        onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
+                        className="text-3xl md:text-[2.6rem] leading-[1.05] italic text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors truncate"
+                        style={{ fontFamily: "'Instrument Serif', serif" }}
                       >
-                        <div className="flex items-center gap-4 min-w-0 flex-1 pr-4">
-                          {/* Square Rounded Icon Frame */}
-                          <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${iconDetails.bg}`}>
-                            {iconDetails.icon}
-                          </div>
+                        {continueWorkspace.title || 'untitled canvas'}
+                      </h2>
+                      <p className="text-[11px] text-[var(--text-tertiary)] mt-2 font-medium tabular-nums">
+                        edited {getRelativeTime(continueWorkspace.lastModified)} · {continueWorkspace.category || 'personal'}
+                      </p>
+                    </div>
 
-                          <div className="min-w-0 flex-1">
-                            {renamingId === ws.id ? (
-                              <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                    <div className="flex flex-wrap gap-2">
+                      <StatChip icon={ICONS.cards} label={`${continueWorkspace.objectCount} cards`} />
+                      <StatChip icon={ICONS.sketch} label={`${continueWorkspace.strokeCount} sketches`} />
+                      <StatChip icon={ICONS.thread} label={`${continueWorkspace.connectionCount} threads`} />
+                    </div>
+
+                    <motion.button
+                      onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
+                      whileHover={{ y: -1 }}
+                      whileTap={{ scale: 0.97 }}
+                      transition={spring}
+                      className="mt-1 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[var(--accent)] text-white text-xs font-bold tracking-wide shadow-[0_10px_22px_-8px_rgba(201,123,75,0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
+                    >
+                      Open canvas {ICONS.arrowRight}
+                    </motion.button>
+                  </div>
+
+                  {/* Preview recess */}
+                  <motion.div
+                    onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
+                    whileHover={{ scale: 1.015 }}
+                    transition={spring}
+                    className="clay-inset w-full h-48 md:h-56 rounded-2xl overflow-hidden relative cursor-pointer"
+                  >
+                    <CanvasMiniPreview
+                      objects={continueWorkspace.objects}
+                      connections={continueWorkspace.connections}
+                      width={380}
+                      height={220}
+                    />
+                    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-t from-[rgba(90,62,40,0.12)] to-transparent flex items-end justify-end p-3 pointer-events-none">
+                      <span className="glass-bar text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full text-[var(--text-primary)]">
+                        open
+                      </span>
+                    </div>
+                  </motion.div>
+                </div>
+              </motion.section>
+            )}
+          </AnimatePresence>
+
+          {/* ---------- HOME: Recently visited ---------- */}
+          {!isLoading && activeSidebarTab === 'home' && !searchQuery && nonDeleted.length > 0 && (
+            <section className="w-full flex flex-col gap-4">
+              <div className="flex justify-between items-baseline">
+                <h3 className="text-[11px] uppercase font-extrabold tracking-[0.18em] text-[var(--text-secondary)]">Recently visited</h3>
+              </div>
+
+              <motion.div
+                initial="hidden"
+                animate="show"
+                variants={{ hidden: {}, show: { transition: { staggerChildren: reducedMotion ? 0 : 0.06 } } }}
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 w-full"
+              >
+                {[...nonDeleted].sort((a, b) => b.lastModified - a.lastModified).slice(0, 4).map((ws) => (
+                  <motion.div
+                    key={ws.id}
+                    variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: spring } }}
+                    whileHover={{ y: -5 }}
+                    onClick={() => router.push(`/canvas?id=${ws.id}`)}
+                    className="clay-card rounded-3xl overflow-hidden p-3 flex flex-col gap-3 group cursor-pointer"
+                  >
+                    <div className="clay-inset h-32 rounded-2xl relative overflow-hidden">
+                      <CanvasMiniPreview objects={ws.objects} connections={ws.connections} width={220} height={128} />
+                    </div>
+                    <div className="px-1.5 pb-1 flex justify-between items-center gap-2">
+                      <div className="min-w-0">
+                        <h4 className="text-[13px] font-bold text-[var(--text-primary)] truncate group-hover:text-[var(--accent)] transition-colors">
+                          {ws.title || 'untitled canvas'}
+                        </h4>
+                        <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 tabular-nums">
+                          {getRelativeTime(ws.lastModified)} · {ws.objectCount} cards
+                        </p>
+                      </div>
+                      <motion.button
+                        onClick={(e) => toggleFavorite(e, ws)}
+                        whileTap={{ scale: 1.35 }}
+                        transition={spring}
+                        aria-label={ws.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                        className={`p-2 rounded-full shrink-0 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+                          ws.isFavorite ? 'text-[var(--accent)]' : 'text-[var(--text-muted)] hover:text-[var(--accent)]'
+                        }`}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill={ws.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+                          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                        </svg>
+                      </motion.button>
+                    </div>
+                  </motion.div>
+                ))}
+              </motion.div>
+            </section>
+          )}
+
+          {/* ---------- IMAGES TAB ---------- */}
+          {!isLoading && activeSidebarTab === 'images' && (
+            <section className="w-full flex flex-col gap-5">
+              <SectionHeading title={sectionTitles.images} count={imageObjects.length} />
+              {galleryObjects === null ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
+                  {[0, 1, 2, 3].map((i) => <div key={i} className="clay-skeleton rounded-3xl h-40" />)}
+                </div>
+              ) : imageObjects.length === 0 ? (
+                <EmptyState
+                  icon={ICONS.image}
+                  title="No images yet"
+                  body="Drop or paste an image onto any canvas and it will appear here."
+                />
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
+                  {imageObjects.map((img) => (
+                    <motion.button
+                      key={img.id}
+                      whileHover={{ y: -4 }}
+                      transition={spring}
+                      onClick={() => router.push(`/canvas?id=${img.parentId || 'root'}`)}
+                      className="clay-card rounded-3xl overflow-hidden p-2 group cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+                    >
+                      <div className="clay-inset rounded-2xl overflow-hidden aspect-[4/3]">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={img.content} alt="Canvas image" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                      </div>
+                      <p className="text-[10px] font-semibold text-[var(--text-secondary)] px-2 py-2 truncate">
+                        in {canvasTitleById.get(img.parentId || '') || 'home workspace'}
+                      </p>
+                    </motion.button>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* ---------- CHECKPOINTS TAB ---------- */}
+          {!isLoading && activeSidebarTab === 'checkpoints' && (
+            <section className="w-full flex flex-col gap-5">
+              <SectionHeading title={sectionTitles.checkpoints} count={checkpointObjects.length} />
+              {galleryObjects === null ? (
+                <div className="flex flex-col gap-3">
+                  {[0, 1, 2].map((i) => <div key={i} className="clay-skeleton rounded-2xl h-16" />)}
+                </div>
+              ) : checkpointObjects.length === 0 ? (
+                <EmptyState
+                  icon={ICONS.flag}
+                  title="No checkpoints planted"
+                  body="Plant a checkpoint flag on a canvas to bookmark a spot — they all gather here."
+                />
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {checkpointObjects.map((cp) => (
+                    <motion.button
+                      key={cp.id}
+                      whileHover={{ x: 4 }}
+                      transition={spring}
+                      onClick={() => router.push(`/canvas?id=${cp.parentId || 'root'}`)}
+                      className="clay-card rounded-2xl px-5 py-4 flex items-center gap-4 cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+                    >
+                      <span className="w-9 h-9 rounded-xl clay-inset flex items-center justify-center text-[var(--accent)] shrink-0">
+                        {ICONS.flag}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-[13px] font-bold truncate">{cp.content || 'Unnamed checkpoint'}</h4>
+                        <p className="text-[10px] text-[var(--text-tertiary)] truncate">
+                          in {canvasTitleById.get(cp.parentId || '') || 'home workspace'}
+                        </p>
+                      </div>
+                      <span className="text-[var(--text-muted)]">{ICONS.arrowRight}</span>
+                    </motion.button>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* ---------- COLLECTION SECTIONS (home / favorites / archive / trash) ---------- */}
+          {!isLoading && isCollectionTab && (
+            <section className="w-full flex flex-col gap-6">
+              <div className="flex flex-wrap justify-between items-center gap-x-6 gap-y-4 border-b border-[var(--border)] pb-5">
+                <SectionHeading
+                  title={sectionTitles[activeSidebarTab]}
+                  count={filteredList.length}
+                  sub={searchQuery ? `matching "${searchQuery}"` : undefined}
+                />
+
+                <div className="flex items-center gap-3 flex-wrap justify-end">
+                  {/* Trash: empty-trash action */}
+                  {activeSidebarTab === 'deleted' && trashCount > 0 && (
+                    <button
+                      onClick={handleEmptyTrash}
+                      className={`px-4 py-2 rounded-full text-[11px] font-bold tracking-wide transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 ${
+                        armedEmptyTrash
+                          ? 'bg-red-500 text-white shadow-[0_8px_18px_-6px_rgba(239,68,68,0.6)]'
+                          : 'clay-inset text-red-600/80 hover:text-red-600'
+                      }`}
+                    >
+                      {armedEmptyTrash ? `Confirm — erase ${trashCount} forever` : 'Empty trash'}
+                    </button>
+                  )}
+
+                  {/* Sort menu */}
+                  <div className="relative" ref={sortMenuRef}>
+                    <button
+                      onClick={() => setSortMenuOpen((o) => !o)}
+                      aria-haspopup="listbox"
+                      aria-expanded={sortMenuOpen}
+                      className="clay-inset flex items-center gap-1.5 px-4 py-2 rounded-full text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+                    >
+                      {sortMode === 'recent' ? 'recent' : sortMode === 'name' ? 'a → z' : 'most cards'}
+                      {ICONS.chevron}
+                    </button>
+                    <AnimatePresence>
+                      {sortMenuOpen && (
+                        <motion.ul
+                          role="listbox"
+                          initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                          transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                          className="glass-bar absolute right-0 top-full mt-2 rounded-2xl p-1.5 flex flex-col w-36 z-30"
+                        >
+                          {(['recent', 'name', 'cards'] as SortMode[]).map((mode) => (
+                            <li key={mode}>
+                              <button
+                                role="option"
+                                aria-selected={sortMode === mode}
+                                onClick={() => { setSortMode(mode); setSortMenuOpen(false); }}
+                                className={`w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold transition-colors cursor-pointer ${
+                                  sortMode === mode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-secondary)] hover:bg-black/5'
+                                }`}
+                              >
+                                {mode === 'recent' ? 'Most recent' : mode === 'name' ? 'Name a → z' : 'Most cards'}
+                              </button>
+                            </li>
+                          ))}
+                        </motion.ul>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* divider between control groups */}
+                  <span className="w-px h-6 bg-[var(--border)] mx-0.5" aria-hidden="true" />
+
+                  {/* Grid / list segmented toggle with sliding thumb */}
+                  <div className="clay-inset flex p-1 rounded-full" role="tablist" aria-label="Layout mode">
+                    {(['grid', 'list'] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        role="tab"
+                        aria-selected={layoutMode === mode}
+                        onClick={() => setLayoutMode(mode)}
+                        className={`relative px-4 py-1.5 rounded-full text-[11px] font-bold transition-colors cursor-pointer focus-visible:outline-none ${
+                          layoutMode === mode ? 'text-[var(--text-primary)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                        }`}
+                      >
+                        {layoutMode === mode && (
+                          <motion.span
+                            layoutId="layout-thumb"
+                            transition={spring}
+                            className="absolute inset-0 bg-white rounded-full shadow-[0_2px_6px_rgba(90,62,40,0.15),inset_0_1px_0_rgba(255,255,255,1)]"
+                          />
+                        )}
+                        <span className="relative">{mode}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Category pills (home only) */}
+              {activeSidebarTab === 'home' && (
+                <div className="flex flex-wrap gap-2" role="tablist" aria-label="Category filter">
+                  {(['all', 'work', 'personal', 'study'] as Category[]).map((cat) => (
+                    <button
+                      key={cat}
+                      role="tab"
+                      aria-selected={activeCategory === cat}
+                      onClick={() => setActiveCategory(cat)}
+                      className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+                        activeCategory === cat ? 'text-white' : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      {activeCategory === cat && (
+                        <motion.span
+                          layoutId="category-thumb"
+                          transition={spring}
+                          className="absolute inset-0 bg-[#2D2A26] rounded-full shadow-[0_8px_16px_-6px_rgba(45,42,38,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]"
+                        />
+                      )}
+                      <span className="relative">{cat}</span>
+                      <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === cat ? 'bg-white/20' : 'bg-white/70 border border-[var(--border)]'}`}>
+                        {counts[cat]}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Cards */}
+              {filteredList.length > 0 ? (
+                layoutMode === 'grid' ? (
+                  <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 w-full">
+                    <AnimatePresence mode="popLayout">
+                      {filteredList.map((ws) => (
+                        <motion.div
+                          key={ws.id}
+                          layout
+                          initial={{ opacity: 0, scale: 0.94 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.94 }}
+                          transition={spring}
+                          whileHover={{ y: -4 }}
+                          onClick={() => router.push(`/canvas?id=${ws.id}`)}
+                          className="clay-card rounded-3xl p-5 flex items-center justify-between group cursor-pointer relative"
+                        >
+                          <div className="flex items-center gap-4 min-w-0 flex-1 pr-2">
+                            <button
+                              onClick={(e) => cycleCategory(e, ws)}
+                              title={`Category: ${ws.category || 'personal'} — click to change`}
+                              aria-label={`Change category, currently ${ws.category || 'personal'}`}
+                              className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 cursor-pointer transition-transform active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+                                ws.category === 'work'
+                                  ? 'bg-[#E0F2FE] text-[#3B7DA8]'
+                                  : ws.category === 'study'
+                                  ? 'bg-[#F3E8FF] text-[#8B5FBF]'
+                                  : 'bg-[#FDEBD8] text-[var(--accent)]'
+                              } shadow-[inset_0_1px_0_rgba(255,255,255,0.8),0_4px_10px_-4px_rgba(90,62,40,0.2)]`}
+                            >
+                              {ws.category === 'work' ? (
+                                <Icon><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></Icon>
+                              ) : ws.category === 'study' ? (
+                                <Icon><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></Icon>
+                              ) : (
+                                <Icon d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                              )}
+                            </button>
+
+                            <div className="min-w-0 flex-1">
+                              {renamingId === ws.id ? (
                                 <input
                                   type="text"
                                   value={renamingTitle}
+                                  onClick={(e) => e.stopPropagation()}
                                   onChange={(e) => setRenamingTitle(e.target.value)}
                                   onBlur={() => saveRename(ws.id)}
                                   onKeyDown={(e) => e.key === 'Enter' && saveRename(ws.id)}
-                                  className="text-sm font-bold border-b border-[var(--accent)] outline-none bg-transparent w-full"
+                                  aria-label="Canvas title"
+                                  className="text-sm font-bold border-b-2 border-[var(--accent)] outline-none bg-transparent w-full"
                                   autoFocus
                                 />
-                              </div>
-                            ) : (
-                              <h4 className="text-sm font-bold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors truncate">
-                                {ws.title || 'untitled canvas'}
-                              </h4>
-                            )}
-                            <p className="text-[10px] text-[var(--text-secondary)] mt-0.5 truncate">
-                              {ws.objectCount} cards · {getRelativeTime(ws.lastModified)}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Hover settings / menu quick actions */}
-                        <div 
-                          className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" 
-                          onClick={e => e.stopPropagation()}
-                        >
-                          {/* Rename */}
-                          <button 
-                            onClick={(e) => startRenaming(e, ws.id, ws.title || '')}
-                            title="Rename"
-                            className="p-1.5 rounded-full hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
-                          </button>
-                          
-                          {/* Archive toggle */}
-                          <button 
-                            onClick={(e) => toggleArchive(e, ws.id)}
-                            title={ws.archived ? "Unarchive" : "Archive"}
-                            className={`p-1.5 rounded-full hover:bg-[var(--bg-secondary)] ${ws.archived ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /></svg>
-                          </button>
-
-                          {/* Delete toggle */}
-                          <button 
-                            onClick={(e) => toggleDelete(e, ws.id)}
-                            title={ws.deleted ? "Restore" : "Move to Trash"}
-                            className="p-1.5 rounded-full hover:bg-red-50 text-[var(--text-secondary)] hover:text-red-500"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
-                          </button>
-
-                          {/* Cycle Color */}
-                          <button 
-                            onClick={(e) => handleColorCycle(e, ws.id, ws.themeColor)}
-                            title="Cycle background color"
-                            className="p-1.5 rounded-full hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /></svg>
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Add New Canvas card */}
-                  {activeSidebarTab !== 'favorites' && activeSidebarTab !== 'archive' && activeSidebarTab !== 'deleted' && (
-                    <div 
-                      onClick={openNewCanvas}
-                      className="border border-dashed border-[var(--border-strong)] bg-transparent hover:bg-white/50 rounded-2xl p-5 flex items-center justify-center gap-3 cursor-pointer text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all min-h-[85px] group"
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="group-hover:rotate-90 transition-transform duration-300">
-                        <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-                      </svg>
-                      <span className="text-xs font-bold uppercase tracking-wider">new canvas</span>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                /* LIST VIEW */
-                <div className="w-full bg-white border border-[var(--border)] rounded-2xl overflow-hidden shadow-sm">
-                  <table className="w-full border-collapse text-left">
-                    <thead>
-                      <tr className="border-b border-[var(--border)] bg-[#FAF6F1]/50 text-[10px] uppercase font-bold tracking-widest text-[var(--text-secondary)] select-none">
-                        <th className="py-4 px-6">Workspace Title</th>
-                        <th className="py-4 px-6">Category</th>
-                        <th className="py-4 px-6">Stats</th>
-                        <th className="py-4 px-6">Last Edited</th>
-                        <th className="py-4 px-6 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredList.map((ws) => (
-                        <tr 
-                          key={ws.id}
-                          onClick={() => router.push(`/canvas?id=${ws.id}`)}
-                          className="border-b border-[var(--border)] last:border-b-0 hover:bg-[#FAF6F1]/30 cursor-pointer transition-colors group"
-                        >
-                          <td className="py-4 px-6 font-bold text-sm text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">
-                            {ws.title || 'untitled canvas'}
-                          </td>
-                          <td className="py-4 px-6">
-                            <span className="px-2.5 py-0.5 rounded-full text-[9px] uppercase tracking-wider font-extrabold bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-secondary)]">
-                              {ws.category || 'personal'}
-                            </span>
-                          </td>
-                          <td className="py-4 px-6 text-xs text-[var(--text-secondary)]">
-                            {ws.objectCount} cards · {ws.strokeCount} sketches · {ws.connectionCount} threads
-                          </td>
-                          <td className="py-4 px-6 text-xs text-[var(--text-secondary)]">
-                            {getRelativeTime(ws.lastModified)}
-                          </td>
-                          <td className="py-4 px-6 text-right" onClick={e => e.stopPropagation()}>
-                            <div className="flex justify-end gap-1.5">
-                              <button 
-                                onClick={(e) => toggleFavorite(e, ws.id)}
-                                className={`p-1.5 rounded-full hover:bg-[var(--bg-secondary)] ${ws.isFavorite ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}`}
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill={ws.isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
-                              </button>
-                              
-                              <button 
-                                onClick={(e) => toggleArchive(e, ws.id)}
-                                className={`p-1.5 rounded-full hover:bg-[var(--bg-secondary)] ${ws.archived ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /></svg>
-                              </button>
-
-                              <button 
-                                onClick={(e) => toggleDelete(e, ws.id)}
-                                className="p-1.5 rounded-full hover:bg-red-50 text-[var(--text-secondary)] hover:text-red-500"
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
-                              </button>
+                              ) : (
+                                <h4 className="text-sm font-bold truncate group-hover:text-[var(--accent)] transition-colors flex items-center gap-1.5">
+                                  {ws.title || 'untitled canvas'}
+                                  {ws.isFavorite && (
+                                    <span className="text-[var(--accent)] shrink-0" aria-label="Favorite">
+                                      <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                                      </svg>
+                                    </span>
+                                  )}
+                                </h4>
+                              )}
+                              <p className="text-[10px] text-[var(--text-secondary)] mt-1 truncate tabular-nums">
+                                {ws.objectCount} cards · {getRelativeTime(ws.lastModified)}
+                              </p>
                             </div>
-                          </td>
-                        </tr>
+                          </div>
+
+                          {/* Hover actions */}
+                          <div
+                            className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {activeSidebarTab === 'deleted' ? (
+                              <>
+                                <CardAction label="Restore" onClick={(e) => toggleDelete(e, ws)} icon={ICONS.restore} />
+                                <button
+                                  onClick={(e) => handleDeleteForever(e, ws)}
+                                  aria-label={armedDeleteId === ws.id ? 'Confirm permanent delete' : 'Delete forever'}
+                                  className={`px-2.5 py-1.5 rounded-full text-[10px] font-bold transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 ${
+                                    armedDeleteId === ws.id ? 'bg-red-500 text-white' : 'text-red-500/70 hover:text-red-500 hover:bg-red-50'
+                                  }`}
+                                >
+                                  {armedDeleteId === ws.id ? 'sure?' : ICONS.trash}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <CardAction
+                                  label={ws.isFavorite ? 'Unfavorite' : 'Favorite'}
+                                  onClick={(e) => toggleFavorite(e, ws)}
+                                  active={!!ws.isFavorite}
+                                  icon={
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill={ws.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+                                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                                    </svg>
+                                  }
+                                />
+                                <CardAction label="Rename" onClick={(e) => startRenaming(e, ws.id, ws.title || '')} icon={ICONS.pencil} />
+                                <CardAction label="Duplicate" onClick={(e) => handleDuplicate(e, ws)} icon={ICONS.copy} />
+                                <CardAction label="Cycle color" onClick={(e) => handleColorCycle(e, ws)} icon={ICONS.palette} />
+                                <CardAction label={ws.archived ? 'Unarchive' : 'Archive'} onClick={(e) => toggleArchive(e, ws)} active={!!ws.archived} icon={<Icon size={14}><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /></Icon>} />
+                                <CardAction label="Move to trash" onClick={(e) => toggleDelete(e, ws)} danger icon={<Icon size={14}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></Icon>} />
+                              </>
+                            )}
+                          </div>
+                        </motion.div>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            ) : (
-              /* EMPTY FILTER RESULTS */
-              <div className="text-center py-16 border border-dashed border-[var(--border-strong)] rounded-2xl bg-white/40">
-                <span className="text-3xl">🫙</span>
-                <h4 className="text-sm font-bold text-[var(--text-primary)] mt-3">No workspaces found</h4>
-                <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-xs mx-auto">
-                  {searchQuery ? `No matching workspaces for "${searchQuery}"` : 'This category or filter tab is currently empty.'}
-                </p>
-                {!searchQuery && activeSidebarTab === 'home' && (
-                  <button 
-                    onClick={openNewCanvas}
-                    className="mt-4 px-4 py-2 bg-[var(--accent)] text-white text-xs font-semibold rounded-full hover:bg-[#B36738] shadow"
-                  >
-                    Create a Space
-                  </button>
-                )}
-              </div>
-            )}
-          </section>
+                    </AnimatePresence>
+
+                    {activeSidebarTab === 'home' && !searchQuery && (
+                      <motion.button
+                        layout
+                        onClick={openNewCanvas}
+                        whileHover={{ y: -4 }}
+                        whileTap={{ scale: 0.98 }}
+                        transition={spring}
+                        className="border-2 border-dashed border-[var(--border-strong)] hover:border-[var(--accent)]/50 rounded-3xl p-5 flex items-center justify-center gap-3 cursor-pointer text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors min-h-[92px] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+                      >
+                        <span className="group-hover:rotate-90 transition-transform duration-300">{ICONS.plus}</span>
+                        <span className="text-[11px] font-extrabold uppercase tracking-widest">new canvas</span>
+                      </motion.button>
+                    )}
+                  </motion.div>
+                ) : (
+                  /* LIST VIEW */
+                  <div className="clay-card w-full rounded-3xl overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-left min-w-[640px]">
+                        <thead>
+                          <tr className="border-b border-[var(--border)] bg-[#FAF6F1]/60 text-[10px] uppercase font-extrabold tracking-[0.15em] text-[var(--text-secondary)] select-none">
+                            <th className="py-4 px-6">Title</th>
+                            <th className="py-4 px-6">Category</th>
+                            <th className="py-4 px-6">Contents</th>
+                            <th className="py-4 px-6">Edited</th>
+                            <th className="py-4 px-6 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredList.map((ws) => (
+                            <tr
+                              key={ws.id}
+                              onClick={() => router.push(`/canvas?id=${ws.id}`)}
+                              className="border-b border-[var(--border)] last:border-b-0 hover:bg-[#FAF6F1]/50 cursor-pointer transition-colors group"
+                            >
+                              <td className="py-4 px-6 font-bold text-sm group-hover:text-[var(--accent)] transition-colors">
+                                <span className="flex items-center gap-1.5">
+                                  {ws.title || 'untitled canvas'}
+                                  {ws.isFavorite && (
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--accent)" aria-label="Favorite">
+                                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                                    </svg>
+                                  )}
+                                </span>
+                              </td>
+                              <td className="py-4 px-6">
+                                <span className="px-2.5 py-1 rounded-full text-[9px] uppercase tracking-wider font-extrabold clay-inset text-[var(--text-secondary)]">
+                                  {ws.category || 'personal'}
+                                </span>
+                              </td>
+                              <td className="py-4 px-6 text-xs text-[var(--text-secondary)] tabular-nums">
+                                {ws.objectCount} cards · {ws.strokeCount} sketches · {ws.connectionCount} threads
+                              </td>
+                              <td className="py-4 px-6 text-xs text-[var(--text-secondary)] tabular-nums">{getRelativeTime(ws.lastModified)}</td>
+                              <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex justify-end gap-0.5">
+                                  {activeSidebarTab === 'deleted' ? (
+                                    <>
+                                      <CardAction label="Restore" onClick={(e) => toggleDelete(e, ws)} icon={ICONS.restore} />
+                                      <button
+                                        onClick={(e) => handleDeleteForever(e, ws)}
+                                        aria-label="Delete forever"
+                                        className={`px-2.5 py-1.5 rounded-full text-[10px] font-bold transition-all cursor-pointer ${
+                                          armedDeleteId === ws.id ? 'bg-red-500 text-white' : 'text-red-500/70 hover:text-red-500 hover:bg-red-50'
+                                        }`}
+                                      >
+                                        {armedDeleteId === ws.id ? 'sure?' : ICONS.trash}
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CardAction
+                                        label={ws.isFavorite ? 'Unfavorite' : 'Favorite'}
+                                        onClick={(e) => toggleFavorite(e, ws)}
+                                        active={!!ws.isFavorite}
+                                        icon={
+                                          <svg width="14" height="14" viewBox="0 0 24 24" fill={ws.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+                                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                                          </svg>
+                                        }
+                                      />
+                                      <CardAction label="Duplicate" onClick={(e) => handleDuplicate(e, ws)} icon={ICONS.copy} />
+                                      <CardAction label={ws.archived ? 'Unarchive' : 'Archive'} onClick={(e) => toggleArchive(e, ws)} active={!!ws.archived} icon={<Icon size={14}><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /></Icon>} />
+                                      <CardAction label="Move to trash" onClick={(e) => toggleDelete(e, ws)} danger icon={<Icon size={14}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></Icon>} />
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <EmptyState
+                  icon={
+                    activeSidebarTab === 'deleted' ? ICONS.trash :
+                    activeSidebarTab === 'archive' ? ICONS.archive :
+                    activeSidebarTab === 'favorites' ? ICONS.heart :
+                    ICONS.search
+                  }
+                  title={
+                    searchQuery ? 'Nothing matches' :
+                    activeSidebarTab === 'deleted' ? 'Trash is empty' :
+                    activeSidebarTab === 'archive' ? 'Nothing archived' :
+                    activeSidebarTab === 'favorites' ? 'No favorites yet' :
+                    'No canvases here'
+                  }
+                  body={
+                    searchQuery ? `No canvas or card matches "${searchQuery}". Try a different word.` :
+                    activeSidebarTab === 'deleted' ? 'Canvases you trash land here for safekeeping until you erase them.' :
+                    activeSidebarTab === 'archive' ? 'Archive canvases you want out of the way but not gone.' :
+                    activeSidebarTab === 'favorites' ? 'Tap the heart on any canvas to pin it here.' :
+                    'Create your first canvas to get started.'
+                  }
+                  action={
+                    !searchQuery && activeSidebarTab === 'home'
+                      ? { label: 'Create a canvas', onClick: openNewCanvas }
+                      : undefined
+                  }
+                />
+              )}
+            </section>
+          )}
+
+          {/* Footer hint */}
+          <footer className="flex justify-center pt-4 select-none">
+            <p className="text-[10px] font-medium text-[var(--text-muted)] tracking-wide">
+              <kbd className="px-1.5 py-0.5 rounded bg-white/70 border border-[var(--border)] font-mono text-[9px]">⌘K</kbd> search
+              <span className="mx-2">·</span>
+              click your name to edit it
+              <span className="mx-2">·</span>
+              everything saves on this device
+            </p>
+          </footer>
         </div>
       </main>
 
-      {/* Floating Orange Add Action Button */}
+      {/* ---------- FAB ---------- */}
       <motion.button
         onClick={openNewCanvas}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        className="fixed bottom-10 right-10 w-14 h-14 bg-[var(--accent)] hover:bg-[#B36738] text-white rounded-full flex items-center justify-center shadow-xl z-50 border border-[var(--accent-light)] transition-colors duration-200"
-        title="Create New Canvas"
+        whileHover={{ scale: 1.06, y: -2 }}
+        whileTap={{ scale: 0.94 }}
+        transition={spring}
+        aria-label="Create new canvas"
+        className="fixed bottom-8 right-8 h-14 pl-4 pr-5 bg-[var(--accent)] text-white rounded-full flex items-center gap-2 z-50 cursor-pointer shadow-[0_16px_32px_-10px_rgba(201,123,75,0.65),inset_0_1.5px_0_rgba(255,255,255,0.35)] hover:brightness-105 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
       >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
           <line x1="12" y1="5" x2="12" y2="19" />
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
+        <span className="text-xs font-extrabold uppercase tracking-widest max-w-0 overflow-hidden group-hover:max-w-[110px] transition-[max-width] duration-300 whitespace-nowrap">
+          new canvas
+        </span>
       </motion.button>
     </div>
   );
 }
 
-// Sub-components
-function SidebarButton({ 
-  icon, 
-  title, 
-  active, 
-  onClick 
-}: { 
-  icon: React.ReactNode; 
-  title: string; 
-  active: boolean; 
-  onClick: () => void; 
+/* ============================================================
+   Sub-components
+   ============================================================ */
+
+function DockButton({
+  icon,
+  label,
+  active,
+  onClick,
+  badge,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  badge?: number;
 }) {
   return (
     <button
       onClick={onClick}
-      title={title}
-      className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
-        active 
-          ? 'bg-[#F5EFE7] text-[var(--accent)] border border-[var(--border-strong)]' 
-          : 'text-[var(--text-secondary)] hover:bg-[#FAF6F1]/80 hover:text-[var(--text-primary)] border border-transparent'
+      aria-label={label}
+      aria-current={active ? 'page' : undefined}
+      className={`relative w-11 h-11 rounded-2xl flex items-center justify-center transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+        active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
       }`}
     >
-      <span className={active ? 'opacity-100 scale-105' : 'opacity-70 group-hover:opacity-100'}>
-        {icon}
+      {active && (
+        <motion.span
+          layoutId="dock-active"
+          transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+          className="absolute inset-0 rounded-2xl clay-inset"
+        />
+      )}
+      <span className="relative">{icon}</span>
+      {badge !== undefined && badge > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accent)] text-white text-[9px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">
+          {badge}
+        </span>
+      )}
+      {/* Tooltip */}
+      <span className="absolute left-full ml-3 px-2.5 py-1.5 rounded-xl glass-bar text-[10px] font-bold text-[var(--text-primary)] whitespace-nowrap opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all pointer-events-none z-50">
+        {label}
       </span>
     </button>
   );
 }
 
-function StatPill({ label, icon }: { label: string; icon: React.ReactNode }) {
+function SectionHeading({ title, count, sub }: { title: string; count?: number; sub?: string }) {
   return (
-    <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#FAF6F1]/80 border border-[var(--border)] rounded-full text-[10px] text-[var(--text-secondary)] font-semibold select-none shadow-sm">
-      <span className="opacity-70">{icon}</span>
-      <span>{label}</span>
+    <div className="flex items-baseline gap-3 min-w-0">
+      <h3 className="text-[11px] uppercase font-extrabold tracking-[0.18em] text-[var(--text-secondary)]">{title}</h3>
+      {count !== undefined && (
+        <span className="text-[10px] font-extrabold text-[var(--text-muted)] tabular-nums">{count}</span>
+      )}
+      {sub && <span className="text-[10px] text-[var(--text-tertiary)] italic truncate">{sub}</span>}
     </div>
   );
 }
 
-function CategoryPill({ 
-  label, 
-  count, 
-  active, 
-  onClick 
-}: { 
-  label: string; 
-  count: number; 
-  active: boolean; 
-  onClick: () => void; 
+function StatChip({ label, icon }: { label: string; icon: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 clay-inset rounded-full text-[10px] text-[var(--text-secondary)] font-bold select-none tabular-nums">
+      <span className="opacity-70">{icon}</span>
+      {label}
+    </span>
+  );
+}
+
+function CardAction({
+  icon,
+  label,
+  onClick,
+  active = false,
+  danger = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: (e: React.MouseEvent) => void;
+  active?: boolean;
+  danger?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold transition-all border ${
-        active 
-          ? 'bg-[#201E1C] border-[#201E1C] text-white shadow-sm' 
-          : 'bg-[#F5EFE7]/50 hover:bg-[#F5EFE7] border-[var(--border)] text-[var(--text-secondary)]'
+      title={label}
+      aria-label={label}
+      className={`p-2 rounded-full transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+        danger
+          ? 'text-[var(--text-tertiary)] hover:text-red-500 hover:bg-red-50'
+          : active
+          ? 'text-[var(--accent)] hover:bg-[var(--accent-subtle)]'
+          : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-black/5'
       }`}
     >
-      <span className="uppercase tracking-wider">{label}</span>
-      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-extrabold ${active ? 'bg-white/20 text-white' : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border)]'}`}>
-        {count}
-      </span>
+      {icon}
     </button>
+  );
+}
+
+function EmptyState({
+  icon,
+  title,
+  body,
+  action,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  action?: { label: string; onClick: () => void };
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={spring}
+      className="clay-card text-center py-14 px-6 rounded-[28px] flex flex-col items-center"
+    >
+      <span className="w-14 h-14 rounded-3xl clay-inset flex items-center justify-center text-[var(--text-tertiary)] mb-4">
+        {icon}
+      </span>
+      <h4 className="text-sm font-bold text-[var(--text-primary)]">{title}</h4>
+      <p className="text-xs text-[var(--text-secondary)] mt-1.5 max-w-xs mx-auto leading-relaxed">{body}</p>
+      {action && (
+        <motion.button
+          onClick={action.onClick}
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.97 }}
+          transition={spring}
+          className="mt-5 px-5 py-2.5 bg-[var(--accent)] text-white text-xs font-bold rounded-full cursor-pointer shadow-[0_10px_22px_-8px_rgba(201,123,75,0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
+        >
+          {action.label}
+        </motion.button>
+      )}
+    </motion.div>
   );
 }
