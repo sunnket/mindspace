@@ -73,10 +73,25 @@ interface MindSpaceDB extends DBSchema {
 
 let dbInstance: IDBPDatabase<MindSpaceDB> | null = null;
 
+// Fresh database name: the app must never reconnect to legacy stores,
+// which may hold oversized/corrupted canvases that lock up the browser on load.
+const DB_NAME = 'mindspace-db-v3';
+const LEGACY_DB_NAMES = ['mindspace-db'];
+
 export async function getDB(): Promise<IDBPDatabase<MindSpaceDB>> {
   if (dbInstance) return dbInstance;
 
-  dbInstance = await openDB<MindSpaceDB>('mindspace-db', 2, {
+  if (typeof indexedDB !== 'undefined') {
+    for (const legacyName of LEGACY_DB_NAMES) {
+      try {
+        indexedDB.deleteDatabase(legacyName);
+      } catch {
+        // Old data is abandoned either way since we only open DB_NAME below
+      }
+    }
+  }
+
+  dbInstance = await openDB<MindSpaceDB>(DB_NAME, 2, {
     upgrade(db) {
       if (!db.objectStoreNames.contains('objects')) {
         const objectStore = db.createObjectStore('objects', { keyPath: 'id' });
@@ -238,6 +253,98 @@ export async function updateCanvasTheme(id: string, themeColor: string): Promise
     state.themeColor = themeColor;
     await db.put('canvas', state);
   }
+}
+
+/** Merge a partial patch (favorite/archive/delete/category/title/theme) into a canvas state. */
+export async function updateCanvasMeta(id: string, patch: Partial<CanvasState>): Promise<void> {
+  const db = await getDB();
+  const state = await db.get('canvas', id);
+  if (!state) return;
+  await db.put('canvas', { ...state, ...patch, id });
+}
+
+/** Permanently remove a canvas and everything inside it. */
+export async function deleteCanvasPermanently(id: string): Promise<void> {
+  const db = await getDB();
+  const [objs, strokes, conns] = await Promise.all([
+    db.getAllFromIndex('objects', 'by-parent', id),
+    db.getAllFromIndex('strokes', 'by-parent', id),
+    db.getAllFromIndex('connections', 'by-parent', id),
+  ]);
+
+  const objTx = db.transaction('objects', 'readwrite');
+  for (const o of objs) await objTx.store.delete(o.id);
+  await objTx.done;
+
+  const strokeTx = db.transaction('strokes', 'readwrite');
+  for (const s of strokes) await strokeTx.store.delete(s.id);
+  await strokeTx.done;
+
+  const connTx = db.transaction('connections', 'readwrite');
+  for (const c of conns) await connTx.store.delete(c.id);
+  await connTx.done;
+
+  await db.delete('canvas', id);
+
+  try {
+    const { deleteCloudCanvas } = await import('./syncService');
+    await deleteCloudCanvas(id);
+  } catch (err) {
+    console.error('Failed to sync permanent canvas delete to cloud:', err);
+  }
+}
+
+/** Deep-copy a canvas (state + objects + strokes + connections). Returns the new canvas id. */
+export async function duplicateCanvas(id: string): Promise<string | null> {
+  const db = await getDB();
+  const state = await db.get('canvas', id);
+  if (!state) return null;
+
+  const newId = crypto.randomUUID();
+  const now = Date.now();
+
+  await db.put('canvas', {
+    ...state,
+    id: newId,
+    title: `${state.title || 'untitled canvas'} copy`,
+    lastModified: now,
+    isFavorite: false,
+    archived: false,
+    deleted: false,
+  });
+
+  const [objs, strokes, conns] = await Promise.all([
+    db.getAllFromIndex('objects', 'by-parent', id),
+    db.getAllFromIndex('strokes', 'by-parent', id),
+    db.getAllFromIndex('connections', 'by-parent', id),
+  ]);
+
+  // Objects get fresh ids; keep a map so connections can be re-pointed
+  const idMap = new Map<string, string>();
+  const objTx = db.transaction('objects', 'readwrite');
+  for (const o of objs) {
+    const freshId = crypto.randomUUID();
+    idMap.set(o.id, freshId);
+    await objTx.store.put({ ...o, id: freshId, parentId: newId, createdAt: now, updatedAt: now });
+  }
+  await objTx.done;
+
+  const strokeTx = db.transaction('strokes', 'readwrite');
+  for (const s of strokes) {
+    await strokeTx.store.put({ ...s, id: crypto.randomUUID(), parentId: newId, createdAt: now });
+  }
+  await strokeTx.done;
+
+  const connTx = db.transaction('connections', 'readwrite');
+  for (const c of conns) {
+    const fromId = idMap.get(c.fromId);
+    const toId = idMap.get(c.toId);
+    if (!fromId || !toId) continue;
+    await connTx.store.put({ ...c, id: crypto.randomUUID(), parentId: newId, fromId, toId, createdAt: now });
+  }
+  await connTx.done;
+
+  return newId;
 }
 
 export async function clearAll(): Promise<void> {
