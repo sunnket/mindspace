@@ -205,17 +205,18 @@ export default function InfiniteCanvas() {
   useEffect(() => {
     return () => {
       const state = useCanvasStore.getState();
+      const parentId = state.canvasStack.length > 0 ? state.canvasStack[state.canvasStack.length - 1] : urlId;
+      
+      // Always save camera position and canvas state locally on unmount
+      saveCanvasState({
+        id: parentId,
+        title: workspaceTitle,
+        camera: state.camera,
+        checkpoint: checkpoint || undefined,
+        lastModified: Date.now(),
+      }).catch(err => console.error('Failed to save canvas state on unmount:', err));
+
       if (state.isDirty) {
-        const parentId = state.canvasStack.length > 0 ? state.canvasStack[state.canvasStack.length - 1] : urlId;
-        
-        saveCanvasState({
-          id: parentId,
-          title: workspaceTitle,
-          camera: state.camera,
-          checkpoint: checkpoint || undefined,
-          lastModified: Date.now(),
-        }).catch(err => console.error('Failed to save canvas state on unmount:', err));
-        
         saveObjects(state.objects).catch(err => console.error('Failed to save objects on unmount:', err));
         saveStrokes(state.strokes).catch(err => console.error('Failed to save strokes on unmount:', err));
         

@@ -203,7 +203,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   // Camera
   camera: { x: 0, y: 0, zoom: 1 },
-  setCamera: (camera) => set({ camera, isDirty: true }),
+  setCamera: (camera) => set({ camera }),
   animateCamera: (target, duration = 1200) => {
     const start = { ...get().camera };
     const startTime = performance.now();
@@ -222,7 +222,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         zoom: start.zoom + (target.zoom - start.zoom) * eased
       };
       
-      set({ camera: nextCamera, isDirty: true });
+      set({ camera: nextCamera });
       
       if (progress < 1) {
         requestAnimationFrame(step);
