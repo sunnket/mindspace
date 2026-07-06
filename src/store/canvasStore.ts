@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CanvasObjectData, DrawingStroke, ConnectionData } from '@/lib/db';
 import type { CanvasOp } from '@/lib/collab/types';
 
-export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow';
+export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame';
 
 /* ------------------------------------------------------------------
    Collaboration bridge — inert unless a live session sets these.
@@ -31,6 +31,8 @@ function emitCollab(op: CanvasOp) {
  * blocks store their data in style, not content, so "blank" means nothing.
  */
 export function isAutoCleanable(o: CanvasObjectData): boolean {
+  if (o.style?.isMinimized) return false;
+  if (o.type === 'frame') return false;
   if (o.type === 'text' || o.type === 'heading' || o.type === 'sticky') return true;
   if (o.type === 'card') {
     const style = o.style || {};
@@ -72,7 +74,14 @@ interface CanvasStore {
   addObject: (obj: Partial<CanvasObjectData>) => CanvasObjectData;
   updateObject: (id: string, updates: Partial<CanvasObjectData>) => void;
   removeObject: (id: string) => void;
-  
+
+  // Minimize dock — slide any object into the corner shelf, drag it back out anywhere
+  minimizeObject: (id: string) => void;
+  restoreMinimized: (id: string, worldX: number, worldY: number) => void;
+
+  // One-click declutter: reflow every non-minimized, non-frame object into a grid
+  tidyUp: () => void;
+
   // Strokes
   strokes: DrawingStroke[];
   setStrokes: (strokes: DrawingStroke[]) => void;
@@ -392,7 +401,66 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       }
     });
   },
-  
+
+  minimizeObject: (id) => {
+    const obj = get().objects.find((o) => o.id === id);
+    if (!obj) return;
+    get().updateObject(id, {
+      style: {
+        ...obj.style,
+        isMinimized: true,
+        minimizedAt: Date.now(),
+        preMinimizeWidth: obj.width,
+        preMinimizeHeight: obj.height,
+      },
+    });
+    if (get().selectedId === id) set({ selectedId: null });
+    if (get().editingId === id) set({ editingId: null });
+  },
+
+  restoreMinimized: (id, worldX, worldY) => {
+    const obj = get().objects.find((o) => o.id === id);
+    if (!obj) return;
+    const width = (obj.style?.preMinimizeWidth as number) || obj.width;
+    const height = (obj.style?.preMinimizeHeight as number) || obj.height;
+    get().updateObject(id, {
+      x: worldX - width / 2,
+      y: worldY - height / 2,
+      width,
+      height,
+      zIndex: get().getNextZIndex(),
+      style: { ...obj.style, isMinimized: false },
+    });
+  },
+
+  tidyUp: () => {
+    const state = get();
+    const targets = state.objects.filter(
+      (o) => !o.style?.isMinimized && o.type !== 'frame' && o.type !== 'workflow-node'
+    );
+    if (targets.length === 0) return;
+
+    // Reading-order pack: sort top-to-bottom/left-to-right, then lay out in
+    // fixed-width columns with each row as tall as its tallest card.
+    const sorted = [...targets].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    const GAP = 32;
+    const COL_WIDTH = 260;
+    const cols = Math.max(1, Math.min(6, Math.ceil(Math.sqrt(sorted.length * (COL_WIDTH / 200)))));
+
+    const startX = Math.min(...sorted.map((o) => o.x));
+    const startY = Math.min(...sorted.map((o) => o.y));
+    const colX = Array.from({ length: cols }, (_, i) => startX + i * (COL_WIDTH + GAP));
+    const colY = Array.from({ length: cols }, () => startY);
+
+    sorted.forEach((o) => {
+      const col = colY.indexOf(Math.min(...colY));
+      const x = colX[col] + (COL_WIDTH - Math.min(o.width, COL_WIDTH)) / 2;
+      const y = colY[col];
+      state.updateObject(o.id, { x, y });
+      colY[col] = y + o.height + GAP;
+    });
+  },
+
   // Strokes
   strokes: [],
   setStrokes: (strokes) => set({ strokes }),

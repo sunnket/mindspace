@@ -319,7 +319,27 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
       setIsDragging(true);
 
+      // Minimize shelf: dropping an object in the top-left corner slides it
+      // into the dock instead of leaving it there. Tracked as a plain closure
+      // variable (not React state) so the frequent mousemove never re-renders.
+      let overMinimizeZone = false;
+      let draggedFar = false;
+      const HOTZONE_W = 200;
+      const HOTZONE_H = 300;
+
       const handleMouseMove = (moveE: MouseEvent) => {
+        if (Math.abs(moveE.clientX - dragStart.current.x) > 8 || Math.abs(moveE.clientY - dragStart.current.y) > 8) {
+          draggedFar = true;
+        }
+        overMinimizeZone = draggedFar && moveE.clientX < HOTZONE_W && moveE.clientY < HOTZONE_H;
+        const zone = document.getElementById('minimize-hotzone');
+        const label = document.getElementById('minimize-hotzone-label');
+        if (zone) {
+          zone.style.borderColor = overMinimizeZone ? 'var(--accent)' : 'transparent';
+          zone.style.background = overMinimizeZone ? 'rgba(201,123,75,0.08)' : 'transparent';
+        }
+        if (label) label.style.opacity = overMinimizeZone ? '1' : '0';
+
         const dx = (moveE.clientX - dragStart.current.x) / camera.zoom;
         const dy = (moveE.clientY - dragStart.current.y) / camera.zoom;
 
@@ -356,14 +376,25 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
       const handleMouseUp = () => {
         setIsDragging(false);
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+
+        const zone = document.getElementById('minimize-hotzone');
+        const label = document.getElementById('minimize-hotzone-label');
+        if (zone) { zone.style.borderColor = 'transparent'; zone.style.background = 'transparent'; }
+        if (label) label.style.opacity = '0';
+
+        if (overMinimizeZone) {
+          useCanvasStore.getState().minimizeObject(obj.id);
+          return;
+        }
+
         pushUndo({
           type: 'move',
           objectId: obj.id,
           before,
           after: { x: obj.x, y: obj.y },
         });
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
       };
 
       window.addEventListener('mousemove', handleMouseMove);
@@ -820,6 +851,36 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                 )}
               </div>
             )}
+          </div>
+        );
+      }
+
+      case 'frame': {
+        const frameColor = (obj.style?.frameColor as string) || '#C97B4B';
+        return (
+          <div
+            className="w-full h-full rounded-[22px] relative"
+            style={{
+              border: `2px dashed ${frameColor}66`,
+              background: `${frameColor}0C`,
+            }}
+          >
+            <div
+              className="absolute -top-[13px] left-4 px-3 py-1 rounded-full text-[11px] font-bold shadow-sm max-w-[85%]"
+              style={{ background: frameColor, color: '#fff' }}
+            >
+              {isEditing ? (
+                <div
+                  ref={contentRef}
+                  contentEditable={isEditing}
+                  suppressContentEditableWarning
+                  onBlur={handleBlur}
+                  className="outline-none whitespace-nowrap"
+                />
+              ) : (
+                <span className="whitespace-nowrap">{obj.content || 'Frame'}</span>
+              )}
+            </div>
           </div>
         );
       }

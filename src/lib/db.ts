@@ -2,7 +2,7 @@ import { openDB, DBSchema, IDBPDatabase } from 'idb';
 
 export interface CanvasObjectData {
   id: string;
-  type: 'text' | 'sticky' | 'image' | 'drawing' | 'card' | 'heading' | 'shape' | 'arrow' | 'workflow-node';
+  type: 'text' | 'sticky' | 'image' | 'drawing' | 'card' | 'heading' | 'shape' | 'arrow' | 'workflow-node' | 'frame';
   x: number;
   y: number;
   width: number;

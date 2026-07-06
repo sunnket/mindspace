@@ -14,7 +14,7 @@ export default function ConnectionsLayer() {
 
   const getObjectVisualRect = (id: string) => {
     const obj = objects.find((o) => o.id === id);
-    if (!obj) return null;
+    if (!obj || obj.style?.isMinimized) return null;
 
     return {
       x: obj.x,

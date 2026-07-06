@@ -31,6 +31,7 @@ import TrashPile from '@/components/ui/TrashPile';
 import VoiceOrb from './VoiceOrb';
 import AuthButton from '@/components/ui/AuthButton';
 import ShortcutsOverlay from './ShortcutsOverlay';
+import MinimizeDock from './MinimizeDock';
 import CollabBar from '@/components/collab/CollabBar';
 import CollabCursors from '@/components/collab/CollabCursors';
 import CollabModal from '@/components/collab/CollabModal';
@@ -362,7 +363,7 @@ export default function InfiniteCanvas() {
         return;
       }
 
-      if (mode === 'text' || mode === 'select' || mode === 'shape' || mode === 'arrow') {
+      if (mode === 'text' || mode === 'select' || mode === 'shape' || mode === 'arrow' || mode === 'frame') {
         // If they click empty space, we record pan start just in case it's a tiny drag
         isPanningRef.current = true;
         panStartRef.current = {
@@ -438,7 +439,7 @@ export default function InfiniteCanvas() {
         isPanningRef.current = false;
         
         // If it was a click (not a drag) on empty space in select/text/shape/arrow mode, create element!
-        if (mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow') {
+        if (mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame') {
           const dx = Math.abs(e.clientX - panStartRef.current.x);
           const dy = Math.abs(e.clientY - panStartRef.current.y);
           if (dx < 5 && dy < 5) {
@@ -489,6 +490,20 @@ export default function InfiniteCanvas() {
                   color: 'rgba(255, 252, 248, 0.75)',
                   borderColor: 'var(--accent-light)',
                 }
+              });
+              setSelectedId(obj.id);
+              setEditingId(obj.id);
+              setMode('select');
+            } else if (mode === 'frame') {
+              const obj = addObject({
+                type: 'frame',
+                x: worldPos.x - 240,
+                y: worldPos.y - 160,
+                width: 480,
+                height: 320,
+                content: 'Frame',
+                zIndex: 0,
+                style: { frameColor: '#C97B4B' },
               });
               setSelectedId(obj.id);
               setEditingId(obj.id);
@@ -585,6 +600,12 @@ export default function InfiniteCanvas() {
       // A = arrow mode
       if (e.key === 'a' || e.key === 'A') {
         setMode('arrow');
+        return;
+      }
+
+      // R = frame/region mode
+      if (e.key === 'r' || e.key === 'R') {
+        setMode('frame');
         return;
       }
 
@@ -749,7 +770,9 @@ export default function InfiniteCanvas() {
   // margin). Without this, a large stored canvas mounts every card at once and can
   // lock up the browser on load.
   const visibleObjects = useMemo(() => {
-    const deduped = Array.from(new Map(objects.map((o) => [o.id, o])).values());
+    const deduped = Array.from(new Map(objects.map((o) => [o.id, o])).values()).filter(
+      (o) => !o.style?.isMinimized
+    );
     if (typeof window === 'undefined') return deduped;
 
     const margin = 400; // screen px of slack around the viewport
@@ -972,6 +995,9 @@ export default function InfiniteCanvas() {
 
       {/* Keyboard shortcuts help (press ?) */}
       <ShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
+
+      {/* Minimize shelf: drag any object into the top-left corner to dock it */}
+      <MinimizeDock />
     </>
   );
 }
