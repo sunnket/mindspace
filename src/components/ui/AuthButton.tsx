@@ -15,7 +15,7 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
   const { user, signOut, loading } = useAuthStore();
   const isDirty = useCanvasStore((s) => s.isDirty);
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
+  const [modalMode, setModalMode] = useState<'signin' | 'signup' | 'forgot' | 'update-password'>('signin');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -104,7 +104,9 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
                   <button
                     onClick={() => {
                       setDropdownOpen(false);
-                      setModalMode('signin'); // Switch triggers recovery checks internally
+                      // Already signed in — go straight to the new-password
+                      // form instead of asking for credentials all over again.
+                      setModalMode('update-password');
                       setModalOpen(true);
                     }}
                     className="w-full text-left px-3 py-2 text-xs font-light hover:bg-white/60 hover:text-[var(--accent)] rounded-lg transition-colors flex items-center justify-between group cursor-pointer"

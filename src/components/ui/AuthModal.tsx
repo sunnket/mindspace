@@ -7,7 +7,7 @@ import { useAuthStore } from '@/store/authStore';
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialMode?: 'signin' | 'signup' | 'forgot';
+  initialMode?: 'signin' | 'signup' | 'forgot' | 'update-password';
 }
 
 export default function AuthModal({ isOpen, onClose, initialMode = 'signin' }: AuthModalProps) {
