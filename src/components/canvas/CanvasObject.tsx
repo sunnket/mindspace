@@ -679,6 +679,27 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     [mode, isEditing, isSelected, obj, setEditingId]
   );
 
+  // Handle unified content saving
+  const saveContent = useCallback((finalContent: string) => {
+    if (obj.style?.isCheckpoint) return;
+    if (finalContent === obj.content) return;
+
+    const updates: any = { content: finalContent };
+    
+    // Auto-adjust height for text elements
+    if (obj.type === 'text' || obj.type === 'heading' || obj.type === 'workflow-node') {
+      if (contentRef.current) {
+        const padding = obj.type === 'workflow-node' ? 30 : 10;
+        const minHeight = obj.type === 'workflow-node' ? 60 : 30;
+        const calculatedHeight = contentRef.current.scrollHeight + padding;
+        const baseHeight = obj.style?.isResized ? obj.height : minHeight;
+        updates.height = Math.max(baseHeight, calculatedHeight);
+      }
+    }
+
+    updateObject(obj.id, updates);
+  }, [obj.id, obj.type, obj.content, updateObject, obj.style?.isCheckpoint]);
+
   useEffect(() => {
     if (isEditing && contentRef.current) {
       contentRef.current.innerText = obj.content || '';
@@ -795,6 +816,21 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       if (ref) {
         ref.removeEventListener('input', handleNativeInput);
         ref.removeEventListener('keydown', handleNativeKeyDown);
+
+        // Save the content on edit end / unmount!
+        if (!obj.style?.isCheckpoint) {
+          const finalContent = ref.innerText;
+          saveContent(finalContent);
+
+          // Auto-remove empty text/heading blocks when editing actually ends
+          const isStillEditing = useCanvasStore.getState().editingId === obj.id;
+          if (!isStillEditing) {
+            const shouldDelete = finalContent.trim() === '' && isAutoCleanable(obj);
+            if (shouldDelete) {
+              removeObject(obj.id);
+            }
+          }
+        }
       }
       // Cleanup the slash menu if it was opened by this object
       const currentMenu = useCanvasStore.getState().slashMenu;
@@ -802,66 +838,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         setSlashMenu(null);
       }
     };
-  }, [isEditing, obj.id, obj.type, removeObject, editingId, setEditingId, obj.height, updateObject, setSlashMenu]);
-
-  // Handle unified content saving and URL detection/conversion
-  // Handle unified content saving
-  const saveContent = useCallback((finalContent: string) => {
-    if (obj.style?.isCheckpoint) return;
-    if (finalContent === obj.content) return;
-
-    const updates: any = { content: finalContent };
-    
-    // Auto-adjust height for text elements
-    if (obj.type === 'text' || obj.type === 'heading' || obj.type === 'workflow-node') {
-      if (contentRef.current) {
-        const padding = obj.type === 'workflow-node' ? 30 : 10;
-        const minHeight = obj.type === 'workflow-node' ? 60 : 30;
-        const calculatedHeight = contentRef.current.scrollHeight + padding;
-        const baseHeight = obj.style?.isResized ? obj.height : minHeight;
-        updates.height = Math.max(baseHeight, calculatedHeight);
-      }
-    }
-
-    updateObject(obj.id, updates);
-  }, [obj.id, obj.type, obj.content, updateObject, obj.style?.isCheckpoint]);
-
-  // Handle saving when editing ends
-  const wasEditing = useRef(isEditing);
-  useEffect(() => {
-    if (obj.style?.isCheckpoint) {
-      wasEditing.current = isEditing;
-      return;
-    }
-    if (wasEditing.current && !isEditing) {
-      // Editing just ended!
-      const finalContent = contentRef.current ? contentRef.current.innerText : latestContent.current;
-      saveContent(finalContent);
-
-      // Only plain text-like objects auto-delete when left empty; functional
-      // blocks (poll, countdown, metric, quote, …) must always survive.
-      const shouldDelete = finalContent.trim() === '' && isAutoCleanable(obj);
-      if (shouldDelete) {
-        removeObject(obj.id);
-      }
-    }
-    wasEditing.current = isEditing;
-  }, [isEditing, obj, removeObject, saveContent]);
+  }, [isEditing, obj.id, obj.type, removeObject, editingId, setEditingId, obj.height, updateObject, setSlashMenu, saveContent]);
 
   const handleBlur = useCallback(() => {
     if (editingId === obj.id) {
       setEditingId(null);
     }
-    if (obj.style?.isCheckpoint) return;
-    
-    const finalContent = contentRef.current ? contentRef.current.innerText : latestContent.current;
-    saveContent(finalContent);
-
-    const shouldDelete = finalContent.trim() === '' && isAutoCleanable(obj);
-    if (shouldDelete) {
-      removeObject(obj.id);
-    }
-  }, [obj, removeObject, editingId, setEditingId, saveContent]);
+  }, [obj.id, editingId, setEditingId]);
 
 
 

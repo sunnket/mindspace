@@ -28,6 +28,23 @@ export default function TourPlayer({
   const tokenRef = useRef(0);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [laserActive, setLaserActive] = useState(false);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [hasMoved, setHasMoved] = useState(false);
+
+  useEffect(() => {
+    if (!laserActive) {
+      setHasMoved(false);
+      return;
+    }
+    const handleMouseMove = (e: MouseEvent) => {
+      setMousePos({ x: e.clientX, y: e.clientY });
+      setHasMoved(true);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [laserActive]);
+
   const ordered = scenes;
   const total = ordered.length;
 
@@ -138,6 +155,7 @@ export default function TourPlayer({
       else if (e.key === 'ArrowRight') { e.preventDefault(); stepTo(index + 1); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); stepTo(index - 1); }
       else if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+      else if (e.key.toLowerCase() === 'l') { e.preventDefault(); setLaserActive(prev => !prev); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -149,6 +167,48 @@ export default function TourPlayer({
     <>
       {/* soft cinematic vignette */}
       <div className="fixed inset-0 z-[240] pointer-events-none" style={{ boxShadow: 'inset 0 0 220px 40px rgba(45,42,38,0.28)' }} />
+
+      {/* Hide native cursor when laser is active */}
+      {laserActive && (
+        <style dangerouslySetInnerHTML={{ __html: `
+          .tour-mode, .tour-mode *, html, body, #root, #__next {
+            cursor: none !important;
+          }
+        `}} />
+      )}
+
+      {/* Glowing red laser pointer dot */}
+      {laserActive && hasMoved && (
+        <div
+          style={{
+            position: 'fixed',
+            left: mousePos.x,
+            top: mousePos.y,
+            width: 14,
+            height: 14,
+            background: '#ff0000',
+            borderRadius: '50%',
+            pointerEvents: 'none',
+            zIndex: 999999,
+            transform: 'translate(-50%, -50%)',
+            boxShadow: '0 0 0 2px rgba(255, 255, 255, 0.85), 0 0 10px 4px #ff0000, 0 0 22px 8px rgba(255, 0, 0, 0.65)',
+            transition: 'left 0.05s ease-out, top 0.05s ease-out',
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              left: '50%',
+              top: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: 4,
+              height: 4,
+              background: '#ffffff',
+              borderRadius: '50%',
+            }}
+          />
+        </div>
+      )}
 
       {/* control bar */}
       <motion.div
@@ -194,6 +254,22 @@ export default function TourPlayer({
         </div>
 
         <span className="text-[10px] font-bold text-[var(--text-tertiary)] tabular-nums shrink-0">{index + 1}/{total}</span>
+
+        <button 
+          onClick={() => setLaserActive(prev => !prev)} 
+          aria-label="Toggle laser pointer"
+          title="Laser Pointer (L)"
+          className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+            laserActive 
+              ? 'bg-red-500 text-white shadow-[0_4px_12px_rgba(239,68,68,0.5)]' 
+              : 'text-[var(--text-tertiary)] hover:text-red-500 hover:bg-red-50'
+          }`}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="8" strokeDasharray="3 3" />
+            <circle cx="12" cy="12" r="3" fill="currentColor" />
+          </svg>
+        </button>
 
         <button onClick={exit} aria-label="Exit tour"
           className="w-9 h-9 rounded-full flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer">
