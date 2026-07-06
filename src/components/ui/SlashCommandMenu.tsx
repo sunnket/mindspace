@@ -225,6 +225,33 @@ const ITEMS: SlashItem[] = [
       });
       setEditingId(null);
     }
+  },
+  {
+    id: 'agent',
+    label: 'AI Canvas Agent',
+    sublabel: 'Deploy AI agents to build flows',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+      </svg>
+    ),
+    keywords: ['ai', 'agent', 'nvidia', 'llama', 'copilot', 'generate', 'build', 'create'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'card',
+        width: 380,
+        height: 480,
+        content: '',
+        style: {
+          isAgent: true,
+          agentPrompt: '',
+          agentLogs: ['[Ready] Agent waiting for task...'],
+          agentStatus: 'idle',
+          apiKeyIndex: 0
+        }
+      });
+      setEditingId(null);
+    }
   }
 ];
 

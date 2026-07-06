@@ -11,6 +11,7 @@ import VoiceNoteBlock from './VoiceNoteBlock';
 import CodeSandboxBlock from './CodeSandboxBlock';
 import QuoteBlock from './QuoteBlock';
 import TodoBlock from './TodoBlock';
+import AgentBlock from './AgentBlock';
 import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock } from './ExtensionBlocks';
 
 interface CommentBubbleProps {
@@ -1196,6 +1197,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <ProgressBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isAgent) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <AgentBlock obj={obj} />
             </div>
           );
         }
