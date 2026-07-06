@@ -121,6 +121,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ loading: false });
         return { error };
       }
+
+      // Anti-enumeration quirk: signing up with an email that's already
+      // registered AND confirmed returns a fake "success" with an empty
+      // identities array instead of an error — no email is actually sent.
+      // Surface this honestly instead of claiming a verification email went out.
+      if (data.user && data.user.identities && data.user.identities.length === 0) {
+        set({ loading: false });
+        return {
+          error: {
+            message: 'This email is already registered. Try signing in instead, or use "Forgot password" if you don\'t remember your credentials.',
+          },
+        };
+      }
+
       set({
         session: data.session,
         user: data.user,
