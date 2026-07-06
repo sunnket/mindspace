@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCollabStore } from '@/store/collabStore';
+import { useCanvasStore } from '@/store/canvasStore';
 import { initialsOf } from '@/lib/collab/palette';
 
 const spring = { type: 'spring' as const, stiffness: 300, damping: 26 };
@@ -12,6 +13,7 @@ export default function CollabBar() {
   const code = useCollabStore((s) => s.code);
   const me = useCollabStore((s) => s.me);
   const peers = useCollabStore((s) => s.peers);
+  const presenter = useCollabStore((s) => s.presenter);
   const transportKind = useCollabStore((s) => s.transportKind);
   const openModal = useCollabStore((s) => s.openModal);
   const leave = useCollabStore((s) => s.leave);
@@ -20,6 +22,20 @@ export default function CollabBar() {
 
   const peerList = Object.values(peers);
   const active = status === 'connected';
+  const amPresenting = !!me && presenter?.id === me.id;
+
+  const togglePresent = () => {
+    const collab = useCollabStore.getState();
+    if (!collab.me || !collab._pulse) return;
+    if (amPresenting) {
+      collab._setPresenter(null);
+      collab._pulse.presenter(null);
+    } else {
+      const cam = useCanvasStore.getState().camera;
+      collab._setPresenter({ id: collab.me.id, name: collab.me.name, camera: cam });
+      collab._pulse.presenter(cam);
+    }
+  };
 
   const copyCode = () => {
     if (!code) return;
@@ -108,6 +124,20 @@ export default function CollabBar() {
             <span className="text-[10px] font-bold text-[var(--text-tertiary)] tabular-nums shrink-0">
               {peerList.length > 0 ? `${peerList.length + 1} here` : 'waiting…'}
             </span>
+
+            {/* present / follow-me */}
+            <button
+              onClick={togglePresent}
+              title={amPresenting ? 'Stop presenting' : 'Present — everyone follows your view'}
+              className={`h-7 px-3 rounded-full flex items-center gap-1.5 text-[10px] font-bold shrink-0 transition-all cursor-pointer ${
+                amPresenting ? 'bg-[var(--accent)] text-white shadow-[0_4px_10px_-4px_rgba(201,123,75,0.6)]' : 'text-[var(--text-secondary)] hover:bg-white/60'
+              }`}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M2 4h20v12H2z" /><path d="M8 20h8M12 16v4" />
+              </svg>
+              {amPresenting ? 'Presenting' : 'Present'}
+            </button>
 
             {/* leave */}
             <button

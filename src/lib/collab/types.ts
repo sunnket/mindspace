@@ -32,7 +32,11 @@ export type WireMessage =
       objects: CanvasObjectData[];
       strokes: DrawingStroke[];
       connections: ConnectionData[];
-    };
+    }
+  // Pulse — ephemeral awareness (never persisted or added to undo history)
+  | { t: 'reaction'; from: string; emoji: string; x: number; y: number }
+  | { t: 'laser'; from: string; x: number; y: number; active: boolean }
+  | { t: 'presenter'; from: string; name: string; camera: { x: number; y: number; zoom: number } | null };
 
 export type TransportKind = 'supabase' | 'local';
 

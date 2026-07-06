@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { CanvasObjectData, DrawingStroke, ConnectionData, Scene } from '@/lib/db';
+import { CanvasObjectData, DrawingStroke, ConnectionData, Scene, CommentThread } from '@/lib/db';
 import type { CanvasOp } from '@/lib/collab/types';
 
 export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame';
@@ -45,13 +45,15 @@ export function isAutoCleanable(o: CanvasObjectData): boolean {
 }
 
 export interface UndoAction {
-  type: 'add' | 'delete' | 'move' | 'edit' | 'stroke-add' | 'stroke-delete';
+  type: 'add' | 'delete' | 'move' | 'edit' | 'stroke-add' | 'stroke-delete' | 'bulk-move';
   objectId?: string;
   strokeId?: string;
   before?: Partial<CanvasObjectData> | null;
   after?: Partial<CanvasObjectData> | null;
   strokeData?: DrawingStroke;
   objectData?: CanvasObjectData;
+  // A single reversible step covering many objects (Gravity auto-cluster).
+  bulk?: { id: string; before: { x: number; y: number }; after: { x: number; y: number } }[];
 }
 
 interface CanvasStore {
@@ -68,6 +70,10 @@ interface CanvasStore {
   checkpoint: { x: number; y: number; zoom: number } | null;
   setCheckpoint: (checkpoint: { x: number; y: number; zoom: number } | null) => void;
 
+  // Gravity (physics)
+  gravityMode: 'off' | 'momentum' | 'magnet';
+  setGravityMode: (m: 'off' | 'momentum' | 'magnet') => void;
+
   // Scenes (cinematic tours)
   scenes: Scene[];
   setScenes: (scenes: Scene[]) => void;
@@ -78,6 +84,19 @@ interface CanvasStore {
   setSceneDuration: (id: string, durationMs: number) => void;
   isTouring: boolean;
   setTouring: (v: boolean) => void;
+
+  // Margins (spatial comment threads)
+  threads: CommentThread[];
+  setThreads: (threads: CommentThread[]) => void;
+  addThread: (anchor: CommentThread['anchor'], firstReply: { author: string; text: string }) => string;
+  addReply: (threadId: string, reply: { author: string; text: string }) => void;
+  resolveThread: (threadId: string, resolved: boolean) => void;
+  deleteThread: (threadId: string) => void;
+  moveThread: (threadId: string, x: number, y: number) => void;
+  activeThreadId: string | null;
+  setActiveThreadId: (id: string | null) => void;
+  commentMode: boolean;
+  setCommentMode: (v: boolean) => void;
 
   // Objects
   objects: CanvasObjectData[];
@@ -275,6 +294,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   checkpoint: null,
   setCheckpoint: (checkpoint) => set({ checkpoint, isDirty: true }),
 
+  // Gravity (physics)
+  gravityMode: 'off',
+  setGravityMode: (gravityMode) => set({ gravityMode }),
+
   // Scenes (cinematic tours) — persisted with the canvas state, sync via cloud
   scenes: [],
   setScenes: (scenes) => set({ scenes }),
@@ -315,6 +338,53 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     })),
   isTouring: false,
   setTouring: (isTouring) => set({ isTouring }),
+
+  // Margins (spatial comment threads) — persisted with the canvas state
+  threads: [],
+  setThreads: (threads) => set({ threads }),
+  addThread: (anchor, firstReply) => {
+    const id = uuidv4();
+    const thread: CommentThread = {
+      id,
+      anchor,
+      resolved: false,
+      createdAt: Date.now(),
+      replies: [{ id: uuidv4(), author: firstReply.author, text: firstReply.text, ts: Date.now() }],
+    };
+    set((state) => ({ threads: [...state.threads, thread], isDirty: true, activeThreadId: id }));
+    return id;
+  },
+  addReply: (threadId, reply) =>
+    set((state) => ({
+      threads: state.threads.map((t) =>
+        t.id === threadId
+          ? { ...t, replies: [...t.replies, { id: uuidv4(), author: reply.author, text: reply.text, ts: Date.now() }] }
+          : t
+      ),
+      isDirty: true,
+    })),
+  resolveThread: (threadId, resolved) =>
+    set((state) => ({
+      threads: state.threads.map((t) => (t.id === threadId ? { ...t, resolved } : t)),
+      isDirty: true,
+    })),
+  deleteThread: (threadId) =>
+    set((state) => ({
+      threads: state.threads.filter((t) => t.id !== threadId),
+      activeThreadId: state.activeThreadId === threadId ? null : state.activeThreadId,
+      isDirty: true,
+    })),
+  moveThread: (threadId, x, y) =>
+    set((state) => ({
+      threads: state.threads.map((t) =>
+        t.id === threadId && t.anchor.type === 'point' ? { ...t, anchor: { type: 'point', x, y } } : t
+      ),
+      isDirty: true,
+    })),
+  activeThreadId: null,
+  setActiveThreadId: (activeThreadId) => set({ activeThreadId }),
+  commentMode: false,
+  setCommentMode: (commentMode) => set({ commentMode }),
 
   // Objects
   objects: [],
@@ -763,6 +833,19 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           });
         }
         break;
+      case 'bulk-move':
+        if (action.bulk) {
+          const beforeMap = new Map(action.bulk.map(b => [b.id, b.before]));
+          set({
+            objects: state.objects.map(o =>
+              beforeMap.has(o.id) ? { ...o, ...beforeMap.get(o.id)!, updatedAt: Date.now() } : o
+            ),
+            undoStack: newUndoStack,
+            redoStack: [...state.redoStack, action],
+            isDirty: true,
+          });
+        }
+        break;
       case 'stroke-add':
         if (action.strokeId) {
           set({
@@ -819,6 +902,19 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           set({
             objects: state.objects.map(o =>
               o.id === action.objectId ? { ...o, ...action.after, updatedAt: Date.now() } : o
+            ),
+            undoStack: [...state.undoStack, action],
+            redoStack: newRedoStack,
+            isDirty: true,
+          });
+        }
+        break;
+      case 'bulk-move':
+        if (action.bulk) {
+          const afterMap = new Map(action.bulk.map(b => [b.id, b.after]));
+          set({
+            objects: state.objects.map(o =>
+              afterMap.has(o.id) ? { ...o, ...afterMap.get(o.id)!, updatedAt: Date.now() } : o
             ),
             undoStack: [...state.undoStack, action],
             redoStack: newRedoStack,

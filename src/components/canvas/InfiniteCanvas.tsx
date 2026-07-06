@@ -34,6 +34,7 @@ import ShortcutsOverlay from './ShortcutsOverlay';
 import MinimizeDock from './MinimizeDock';
 import SemanticCard from './SemanticCard';
 import ScenesPanel from './ScenesPanel';
+import MarginsLayer from './MarginsLayer';
 import { useZoomTier } from '@/hooks/useZoomTier';
 
 // Object types heavy enough to be worth simplifying when zoomed out (Fathom).
@@ -41,6 +42,7 @@ const SEMANTIC_TYPES = new Set(['text', 'sticky', 'card', 'heading', 'image', 'w
 import CollabBar from '@/components/collab/CollabBar';
 import CollabCursors from '@/components/collab/CollabCursors';
 import CollabModal from '@/components/collab/CollabModal';
+import PulseLayer from '@/components/collab/PulseLayer';
 import { useCollabStore } from '@/store/collabStore';
 
 const MIN_ZOOM = 0.1;
@@ -200,8 +202,9 @@ export default function InfiniteCanvas() {
             setWorkspaceTitle(savedCamera.title);
           }
         }
-        // Load this canvas's saved scenes (reset when switching canvases)
+        // Load this canvas's saved scenes + comment threads (reset when switching canvases)
         useCanvasStore.getState().setScenes(savedCamera?.scenes || []);
+        useCanvasStore.getState().setThreads(savedCamera?.threads || []);
         setLoaded(true);
       } catch (err) {
         console.error('Failed to load canvas data:', err);
@@ -224,6 +227,7 @@ export default function InfiniteCanvas() {
         camera: state.camera,
         checkpoint: checkpoint || undefined,
         scenes: state.scenes,
+        threads: state.threads,
         lastModified: Date.now(),
       }).catch(err => console.error('Failed to save canvas state on unmount:', err));
 
@@ -274,6 +278,7 @@ export default function InfiniteCanvas() {
             camera,
             checkpoint: checkpoint || undefined,
             scenes: useCanvasStore.getState().scenes,
+            threads: useCanvasStore.getState().threads,
             lastModified: Date.now(),
           }),
         ]);
@@ -1014,6 +1019,7 @@ export default function InfiniteCanvas() {
       <CollabBar />
       <CollabCursors />
       <CollabModal />
+      <PulseLayer />
 
       {/* Keyboard shortcuts help (press ?) */}
       <ShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
@@ -1023,6 +1029,9 @@ export default function InfiniteCanvas() {
 
       {/* Scenes: cinematic camera tours */}
       <ScenesPanel />
+
+      {/* Margins: spatial comment threads */}
+      <MarginsLayer />
     </>
   );
 }

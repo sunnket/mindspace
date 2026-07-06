@@ -149,6 +149,36 @@ export function sendCursor(x: number, y: number) {
   transport.send({ t: 'cursor', id: myId, x, y });
 }
 
+/* ---------------- Pulse (ephemeral awareness) ---------------- */
+
+let laserThrottleTs = 0;
+let presenterThrottleTs = 0;
+
+const pulseSenders = {
+  reaction: (emoji: string, x: number, y: number) => {
+    transport?.send({ t: 'reaction', from: myId, emoji, x, y });
+  },
+  laser: (x: number, y: number, active: boolean) => {
+    if (!transport) return;
+    if (active) {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (now - laserThrottleTs < 40) return;
+      laserThrottleTs = now;
+    }
+    transport.send({ t: 'laser', from: myId, x, y, active });
+  },
+  presenter: (camera: { x: number; y: number; zoom: number } | null) => {
+    if (!transport) return;
+    if (camera) {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (now - presenterThrottleTs < 60) return;
+      presenterThrottleTs = now;
+    }
+    const me = useCollabStore.getState().me;
+    transport.send({ t: 'presenter', from: myId, name: me?.name || 'Presenter', camera });
+  },
+};
+
 function sendSnapshot(toPeerId: string) {
   if (!transport) return;
   const state = useCanvasStore.getState();
@@ -198,6 +228,17 @@ function handleMessage(msg: WireMessage) {
         useCanvasStore.getState().applyRemoteSnapshot(msg.objects, msg.strokes, msg.connections);
       }
       break;
+    case 'reaction':
+      collab._addReaction({ id: `${msg.from}-${Date.now()}-${Math.random()}`, emoji: msg.emoji, x: msg.x, y: msg.y });
+      break;
+    case 'laser':
+      if (msg.active) collab._setLaser(msg.from, msg.x, msg.y);
+      else collab._clearLaser(msg.from);
+      break;
+    case 'presenter':
+      if (msg.camera) collab._setPresenter({ id: msg.from, name: msg.name, camera: msg.camera });
+      else collab._setPresenter(null);
+      break;
   }
 }
 
@@ -230,6 +271,7 @@ export async function startSession(opts: { code: string; isHost: boolean; name: 
   collab._setTransportKind(t.kind);
   collab._setStatus('connected');
   collab._setCursorSender(sendCursor);
+  collab._setPulse(pulseSenders);
 
   // Wire the canvas store so local edits broadcast and objects get author-stamped.
   setCollabEmitter(outgoingOp);

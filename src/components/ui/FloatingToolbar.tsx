@@ -7,6 +7,7 @@ import { useVoiceStore } from '@/store/voiceStore';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import WorkflowMenu from './WorkflowMenu';
 import ShapePreview from '@/components/canvas/ShapePreview';
+import { runAutoCluster } from '@/lib/gravity';
 
 const FRAME_COLORS = [
   { name: 'Terracotta', hex: '#C97B4B' },
@@ -65,7 +66,10 @@ export default function FloatingToolbar() {
   const [showArrowOptions, setShowArrowOptions] = useState(false);
   const [showFrameOptions, setShowFrameOptions] = useState(false);
   const [showWorkflowMenu, setShowWorkflowMenu] = useState(false);
+  const [showGravity, setShowGravity] = useState(false);
   const tidyUp = useCanvasStore((s) => s.tidyUp);
+  const gravityMode = useCanvasStore((s) => s.gravityMode);
+  const setGravityMode = useCanvasStore((s) => s.setGravityMode);
 
   const [selectedShapeDomain, setSelectedShapeDomain] = useState<'all' | 'brainstorm' | 'code' | 'love' | 'usecase' | 'story' | 'system'>('all');
   const selectedShapeType = useCanvasStore((s) => s.selectedShapeType);
@@ -358,7 +362,73 @@ export default function FloatingToolbar() {
             <rect x="14" y="14" width="7" height="7" rx="1.5" />
           </svg>
         </motion.button>
+
+        {/* Gravity — physics: momentum, magnetism, auto-organize */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setShowGravity((v) => !v)}
+          className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
+            gravityMode !== 'off' || showGravity ? 'bg-[var(--accent)] text-white shadow-md' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+          }`}
+          title="Gravity — physics"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" />
+          </svg>
+        </motion.button>
       </motion.div>
+
+      {/* Gravity panel */}
+      <AnimatePresence>
+        {showGravity && (
+          <motion.div
+            className="glass-panel absolute bottom-14 right-0 p-4 flex flex-col gap-2.5 min-w-[230px]"
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider px-1">Physics</span>
+            <button
+              onClick={() => { runAutoCluster(); setShowGravity(false); }}
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-white bg-[var(--accent)] hover:brightness-105 transition-all shadow-[0_8px_16px_-8px_rgba(201,123,75,0.6)]"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="2" /><circle cx="5" cy="6" r="1.6" /><circle cx="19" cy="7" r="1.6" /><circle cx="6" cy="18" r="1.6" /><circle cx="18" cy="17" r="1.6" />
+                <path d="M10.5 11L6.2 7M13.5 11l4-3.4M11 13.5l-4 3.3M13 13.5l4 3" />
+              </svg>
+              Auto-organize
+            </button>
+
+            <div className="w-full h-px bg-[var(--border)] my-0.5" />
+
+            {([
+              { id: 'momentum', label: 'Momentum', hint: 'Flick cards; they glide & settle' },
+              { id: 'magnet', label: 'Magnetism', hint: 'Cards snap into tidy rows' },
+            ] as const).map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setGravityMode(gravityMode === m.id ? 'off' : m.id)}
+                className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-left transition-all border ${
+                  gravityMode === m.id
+                    ? 'border-[var(--accent)] bg-[var(--accent-subtle)]'
+                    : 'border-[var(--border)] hover:bg-[var(--bg-tertiary)]'
+                }`}
+              >
+                <span className="flex flex-col">
+                  <span className="text-xs font-bold text-[var(--text-primary)]">{m.label}</span>
+                  <span className="text-[9px] text-[var(--text-muted)]">{m.hint}</span>
+                </span>
+                <span className={`w-8 h-4.5 rounded-full flex items-center transition-colors shrink-0 ${gravityMode === m.id ? 'bg-[var(--accent)] justify-end' : 'bg-[var(--border-strong)] justify-start'}`} style={{ padding: 2 }}>
+                  <span className="w-3.5 h-3.5 rounded-full bg-white shadow-sm" />
+                </span>
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Draw options panel */}
       <AnimatePresence>

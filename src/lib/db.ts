@@ -36,6 +36,21 @@ export interface Scene {
   durationMs?: number;
 }
 
+export interface CommentReply {
+  id: string;
+  author: string;
+  text: string;
+  ts: number;
+}
+
+export interface CommentThread {
+  id: string;
+  anchor: { type: 'object'; objectId: string } | { type: 'point'; x: number; y: number };
+  replies: CommentReply[];
+  resolved: boolean;
+  createdAt: number;
+}
+
 export interface CanvasState {
   id: string;
   title?: string;
@@ -43,6 +58,7 @@ export interface CanvasState {
   camera: { x: number; y: number; zoom: number };
   checkpoint?: { x: number; y: number; zoom: number };
   scenes?: Scene[];
+  threads?: CommentThread[];
   lastModified: number;
   category?: string;
   isFavorite?: boolean;
