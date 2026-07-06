@@ -20,6 +20,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
     items: [
       ['Scroll', 'Pan around'],
       ['⌘ / Ctrl + Scroll', 'Zoom'],
+      ['F', 'Zoom to fit everything'],
       ['⌘ / Ctrl + F', 'Spatial search'],
       ['⌘ / Ctrl + K', 'Command palette'],
       ['Double-click', 'Enter a heading'],

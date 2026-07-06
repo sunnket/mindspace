@@ -533,6 +533,26 @@ export default function InfiniteCanvas() {
         return;
       }
 
+      // F = zoom to fit everything on screen
+      if (e.key === 'f' || e.key === 'F') {
+        const objs = useCanvasStore.getState().objects;
+        if (objs.length === 0) return;
+        const minX = Math.min(...objs.map((o) => o.x));
+        const minY = Math.min(...objs.map((o) => o.y));
+        const maxX = Math.max(...objs.map((o) => o.x + o.width));
+        const maxY = Math.max(...objs.map((o) => o.y + o.height));
+        const pad = 120;
+        const w = maxX - minX + pad * 2;
+        const h = maxY - minY + pad * 2;
+        const zoom = Math.min(window.innerWidth / w, window.innerHeight / h, 1.2);
+        useCanvasStore.getState().animateCamera({
+          x: window.innerWidth / 2 - (minX + (maxX - minX) / 2) * zoom,
+          y: window.innerHeight / 2 - (minY + (maxY - minY) / 2) * zoom,
+          zoom,
+        }, 700);
+        return;
+      }
+
       // Space = temporary pan
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();

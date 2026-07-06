@@ -10,7 +10,7 @@ import VoiceNoteBlock from './VoiceNoteBlock';
 import CodeSandboxBlock from './CodeSandboxBlock';
 import QuoteBlock from './QuoteBlock';
 import TodoBlock from './TodoBlock';
-import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock } from './ExtensionBlocks';
+import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock } from './ExtensionBlocks';
 
 interface CommentBubbleProps {
   obj: CanvasObjectData;
@@ -513,8 +513,14 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         return;
       }
 
-      // If it's a pure click (no drag) and already selected, enter edit mode
-      if (isSelected && obj.type !== 'image') {
+      // If it's a pure click (no drag) and already selected, enter edit mode.
+      // Functional blocks (poll, timer, …) edit through their own inline
+      // inputs, so the contentEditable edit mode never applies to them.
+      const isFunctionalBlock =
+        obj.type === 'card' &&
+        Object.entries(obj.style || {}).some(([k, v]) => /^is[A-Z]/.test(k) && Boolean(v)) &&
+        !obj.style?.isQuote;
+      if (isSelected && obj.type !== 'image' && !isFunctionalBlock) {
         setEditingId(obj.id);
       }
     },
@@ -1004,6 +1010,27 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <QuickDataBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isTimer) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <FocusTimerBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isDecision) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <DecisionBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isProgress) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <ProgressBlock obj={obj} />
             </div>
           );
         }

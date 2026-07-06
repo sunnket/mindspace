@@ -67,6 +67,34 @@ export default function Minimap() {
           {Math.round(camera.zoom * 100)}%
         </div>
 
+        {/* Zoom-to-fit (also on the F key) */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (objects.length === 0) return;
+            const minX = Math.min(...objects.map((o) => o.x));
+            const minY = Math.min(...objects.map((o) => o.y));
+            const maxX = Math.max(...objects.map((o) => o.x + o.width));
+            const maxY = Math.max(...objects.map((o) => o.y + o.height));
+            const pad = 120;
+            const w = maxX - minX + pad * 2;
+            const h = maxY - minY + pad * 2;
+            const zoom = Math.min(window.innerWidth / w, window.innerHeight / h, 1.2);
+            useCanvasStore.getState().animateCamera({
+              x: window.innerWidth / 2 - (minX + (maxX - minX) / 2) * zoom,
+              y: window.innerHeight / 2 - (minY + (maxY - minY) / 2) * zoom,
+              zoom,
+            }, 700);
+          }}
+          title="Zoom to fit everything (F)"
+          aria-label="Zoom to fit everything"
+          className="absolute top-1 right-1 z-10 w-5 h-5 rounded bg-white/40 backdrop-blur-md border border-white/40 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-white/70 transition-colors cursor-pointer"
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+          </svg>
+        </button>
+
         <svg width={MINIMAP_W} height={MINIMAP_H} className="w-full h-full">
           {/* Objects as dots/rects */}
           {Array.from(new Map(objects.map(o => [o.id, o])).values()).map((obj) => (

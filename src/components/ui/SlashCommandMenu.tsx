@@ -60,6 +60,57 @@ const ITEMS: SlashItem[] = [
     }
   },
   {
+    id: 'timer',
+    label: 'Focus Timer',
+    sublabel: 'Stopwatch for deep work',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2 2M9 2h6" /></svg>),
+    keywords: ['timer', 'focus', 'stopwatch', 'pomodoro', 'work'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'card',
+        width: 250,
+        height: 190,
+        content: '',
+        style: { isTimer: true, timerLabel: '' }
+      });
+      setEditingId(null);
+    }
+  },
+  {
+    id: 'decision',
+    label: 'Decision Spinner',
+    sublabel: 'Let fate pick for you',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" /></svg>),
+    keywords: ['decision', 'spinner', 'random', 'pick', 'choose', 'dice'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'card',
+        width: 300,
+        height: 240,
+        content: '',
+        style: { isDecision: true, decisionTitle: '', decisionOptions: ['Option A', 'Option B', 'Option C'] }
+      });
+      setEditingId(null);
+    }
+  },
+  {
+    id: 'progress',
+    label: 'Progress Goal',
+    sublabel: 'Draggable percent tracker',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4.5" /></svg>),
+    keywords: ['progress', 'goal', 'percent', 'tracker', 'bar'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'card',
+        width: 280,
+        height: 190,
+        content: '',
+        style: { isProgress: true, progressLabel: '', progressValue: 30 }
+      });
+      setEditingId(null);
+    }
+  },
+  {
     id: 'poll',
     label: 'Interactive Poll',
     sublabel: 'Team vote and choices',

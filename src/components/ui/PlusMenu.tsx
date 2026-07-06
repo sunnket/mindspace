@@ -260,6 +260,62 @@ export default function PlusMenu() {
       }
     },
     {
+      icon: (<MenuIcon><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2 2M9 2h6" /></MenuIcon>),
+      label: 'Focus Timer',
+      action: () => {
+        addObject({
+          type: 'card',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 250,
+          height: 190,
+          content: '',
+          style: {
+            isTimer: true,
+            timerLabel: '',
+          }
+        });
+      }
+    },
+    {
+      icon: (<MenuIcon><polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" /></MenuIcon>),
+      label: 'Decision Spinner',
+      action: () => {
+        addObject({
+          type: 'card',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 300,
+          height: 240,
+          content: '',
+          style: {
+            isDecision: true,
+            decisionTitle: '',
+            decisionOptions: ['Pizza', 'Sushi', 'Tacos'],
+          }
+        });
+      }
+    },
+    {
+      icon: (<MenuIcon><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4.5" /></MenuIcon>),
+      label: 'Progress Goal',
+      action: () => {
+        addObject({
+          type: 'card',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 280,
+          height: 190,
+          content: '',
+          style: {
+            isProgress: true,
+            progressLabel: '',
+            progressValue: 30,
+          }
+        });
+      }
+    },
+    {
       icon: (<MenuIcon><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="3" y1="14" x2="21" y2="14" /><line x1="10" y1="9" x2="10" y2="20" /></MenuIcon>),
       label: 'Quick Data Table',
       action: () => {
