@@ -819,7 +819,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
         // Save the content on edit end / unmount!
         if (!obj.style?.isCheckpoint) {
-          const finalContent = ref.innerText;
+          const finalContent = latestContent.current;
           saveContent(finalContent);
 
           // Auto-remove empty text/heading blocks when editing actually ends

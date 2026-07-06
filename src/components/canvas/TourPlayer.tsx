@@ -182,17 +182,17 @@ export default function TourPlayer({
         <div
           style={{
             position: 'fixed',
-            left: mousePos.x,
-            top: mousePos.y,
+            left: 0,
+            top: 0,
+            transform: `translate3d(${mousePos.x}px, ${mousePos.y}px, 0) translate(-50%, -50%)`,
             width: 14,
             height: 14,
             background: '#ff0000',
             borderRadius: '50%',
             pointerEvents: 'none',
             zIndex: 999999,
-            transform: 'translate(-50%, -50%)',
             boxShadow: '0 0 0 2px rgba(255, 255, 255, 0.85), 0 0 10px 4px #ff0000, 0 0 22px 8px rgba(255, 0, 0, 0.65)',
-            transition: 'left 0.05s ease-out, top 0.05s ease-out',
+            willChange: 'transform',
           }}
         >
           <div
