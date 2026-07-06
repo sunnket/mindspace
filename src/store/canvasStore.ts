@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { CanvasObjectData, DrawingStroke, ConnectionData } from '@/lib/db';
+import { CanvasObjectData, DrawingStroke, ConnectionData, Scene } from '@/lib/db';
 import type { CanvasOp } from '@/lib/collab/types';
 
 export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame';
@@ -67,7 +67,18 @@ interface CanvasStore {
   animateCamera: (target: { x: number; y: number; zoom: number }, duration?: number) => void;
   checkpoint: { x: number; y: number; zoom: number } | null;
   setCheckpoint: (checkpoint: { x: number; y: number; zoom: number } | null) => void;
-  
+
+  // Scenes (cinematic tours)
+  scenes: Scene[];
+  setScenes: (scenes: Scene[]) => void;
+  addScene: (name?: string) => void;
+  removeScene: (id: string) => void;
+  renameScene: (id: string, name: string) => void;
+  moveScene: (id: string, dir: -1 | 1) => void;
+  setSceneDuration: (id: string, durationMs: number) => void;
+  isTouring: boolean;
+  setTouring: (v: boolean) => void;
+
   // Objects
   objects: CanvasObjectData[];
   setObjects: (objects: CanvasObjectData[]) => void;
@@ -263,7 +274,48 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Checkpoint
   checkpoint: null,
   setCheckpoint: (checkpoint) => set({ checkpoint, isDirty: true }),
-  
+
+  // Scenes (cinematic tours) — persisted with the canvas state, sync via cloud
+  scenes: [],
+  setScenes: (scenes) => set({ scenes }),
+  addScene: (name) => {
+    const scenes = get().scenes;
+    const scene: Scene = {
+      id: uuidv4(),
+      name: name?.trim() || `Scene ${scenes.length + 1}`,
+      camera: { ...get().camera },
+      order: scenes.length,
+      durationMs: 1400,
+    };
+    set({ scenes: [...scenes, scene], isDirty: true });
+  },
+  removeScene: (id) =>
+    set((state) => ({
+      scenes: state.scenes.filter((s) => s.id !== id).map((s, i) => ({ ...s, order: i })),
+      isDirty: true,
+    })),
+  renameScene: (id, name) =>
+    set((state) => ({
+      scenes: state.scenes.map((s) => (s.id === id ? { ...s, name } : s)),
+      isDirty: true,
+    })),
+  moveScene: (id, dir) =>
+    set((state) => {
+      const ordered = [...state.scenes].sort((a, b) => a.order - b.order);
+      const idx = ordered.findIndex((s) => s.id === id);
+      const swap = idx + dir;
+      if (idx < 0 || swap < 0 || swap >= ordered.length) return {};
+      [ordered[idx], ordered[swap]] = [ordered[swap], ordered[idx]];
+      return { scenes: ordered.map((s, i) => ({ ...s, order: i })), isDirty: true };
+    }),
+  setSceneDuration: (id, durationMs) =>
+    set((state) => ({
+      scenes: state.scenes.map((s) => (s.id === id ? { ...s, durationMs } : s)),
+      isDirty: true,
+    })),
+  isTouring: false,
+  setTouring: (isTouring) => set({ isTouring }),
+
   // Objects
   objects: [],
   setObjects: (objects) => {

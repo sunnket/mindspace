@@ -9,6 +9,7 @@ export interface CanvasObjectData {
   height: number;
   content: string;
   style?: Record<string, unknown>;
+  summary?: string; // optional short summary shown at mid/far zoom (Fathom)
   zIndex: number;
   parentId?: string; // for nested canvases
   rotation?: number;
@@ -27,12 +28,21 @@ export interface DrawingStroke {
   createdAt: number;
 }
 
+export interface Scene {
+  id: string;
+  name: string;
+  camera: { x: number; y: number; zoom: number };
+  order: number;
+  durationMs?: number;
+}
+
 export interface CanvasState {
   id: string;
   title?: string;
   themeColor?: string;
   camera: { x: number; y: number; zoom: number };
   checkpoint?: { x: number; y: number; zoom: number };
+  scenes?: Scene[];
   lastModified: number;
   category?: string;
   isFavorite?: boolean;

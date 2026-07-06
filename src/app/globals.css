@@ -108,6 +108,28 @@ html, body {
   .clay-skeleton { animation: none; }
 }
 
+/* Fathom semantic-zoom cross-fade: soft-in when a tier representation mounts */
+@keyframes semanticFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.semantic-fade {
+  animation: semanticFade 0.15s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .semantic-fade { animation: none; }
+}
+
+/* Scenes: distraction-free "tour mode" fades the canvas chrome out of the way */
+.tour-mode .floating-toolbar,
+.tour-mode .minimap-container,
+.tour-mode .scenes-launcher,
+.tour-mode .glow-cursor {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.4s ease;
+}
+
 /* Noise texture overlay */
 /* Custom Scrollbar for Code Editor */
 .custom-scrollbar::-webkit-scrollbar {

@@ -32,6 +32,12 @@ import VoiceOrb from './VoiceOrb';
 import AuthButton from '@/components/ui/AuthButton';
 import ShortcutsOverlay from './ShortcutsOverlay';
 import MinimizeDock from './MinimizeDock';
+import SemanticCard from './SemanticCard';
+import ScenesPanel from './ScenesPanel';
+import { useZoomTier } from '@/hooks/useZoomTier';
+
+// Object types heavy enough to be worth simplifying when zoomed out (Fathom).
+const SEMANTIC_TYPES = new Set(['text', 'sticky', 'card', 'heading', 'image', 'workflow-node']);
 import CollabBar from '@/components/collab/CollabBar';
 import CollabCursors from '@/components/collab/CollabCursors';
 import CollabModal from '@/components/collab/CollabModal';
@@ -118,6 +124,7 @@ export default function InfiniteCanvas() {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [activeArrowId, setActiveArrowId] = useState<string | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const zoomTier = useZoomTier();
 
   // Leave any live collaboration session when the canvas unmounts.
   useEffect(() => {
@@ -193,6 +200,8 @@ export default function InfiniteCanvas() {
             setWorkspaceTitle(savedCamera.title);
           }
         }
+        // Load this canvas's saved scenes (reset when switching canvases)
+        useCanvasStore.getState().setScenes(savedCamera?.scenes || []);
         setLoaded(true);
       } catch (err) {
         console.error('Failed to load canvas data:', err);
@@ -214,6 +223,7 @@ export default function InfiniteCanvas() {
         title: workspaceTitle,
         camera: state.camera,
         checkpoint: checkpoint || undefined,
+        scenes: state.scenes,
         lastModified: Date.now(),
       }).catch(err => console.error('Failed to save canvas state on unmount:', err));
 
@@ -263,6 +273,7 @@ export default function InfiniteCanvas() {
             title: workspaceTitle,
             camera,
             checkpoint: checkpoint || undefined,
+            scenes: useCanvasStore.getState().scenes,
             lastModified: Date.now(),
           }),
         ]);
@@ -822,16 +833,27 @@ export default function InfiniteCanvas() {
           {/* Connections Layer (Behind objects) */}
           <ConnectionsLayer />
 
-          {/* Render objects (viewport-culled) */}
-          {visibleObjects.map((obj) => (
-            <div key={obj.id} data-object-id={obj.id}>
-              <CanvasObject
-                obj={obj}
-                isSelected={selectedId === obj.id}
-                isFocused={focusedId === obj.id}
-              />
-            </div>
-          ))}
+          {/* Render objects (viewport-culled). Fathom: swap heavy objects for a
+              lightweight semantic card at far/mid zoom, unless the object is
+              being interacted with (selected/editing/focused), which promotes it
+              back to the full render so nothing degrades under your hands. */}
+          {visibleObjects.map((obj) => {
+            const promoted = obj.id === selectedId || obj.id === editingId || obj.id === focusedId;
+            const useSemantic = zoomTier !== 'near' && !promoted && SEMANTIC_TYPES.has(obj.type);
+            return (
+              <div key={obj.id} data-object-id={obj.id}>
+                {useSemantic ? (
+                  <SemanticCard obj={obj} tier={zoomTier} />
+                ) : (
+                  <CanvasObject
+                    obj={obj}
+                    isSelected={selectedId === obj.id}
+                    isFocused={focusedId === obj.id}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Drawing layer (SVG overlay) */}
@@ -998,6 +1020,9 @@ export default function InfiniteCanvas() {
 
       {/* Minimize shelf: drag any object into the top-left corner to dock it */}
       <MinimizeDock />
+
+      {/* Scenes: cinematic camera tours */}
+      <ScenesPanel />
     </>
   );
 }

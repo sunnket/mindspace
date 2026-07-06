@@ -29,12 +29,13 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
     ],
   },
   {
-    title: 'Editing',
+    title: 'Editing & tours',
     items: [
       ['⌘ / Ctrl + Z', 'Undo'],
       ['⌘ / Ctrl + Shift + Z', 'Redo'],
       ['Delete', 'Remove selected'],
-      ['Esc', 'Deselect / go back'],
+      ['← / → , Space', 'Step / play tour'],
+      ['Esc', 'Deselect / exit tour'],
       ['?', 'Toggle this help'],
     ],
   },
