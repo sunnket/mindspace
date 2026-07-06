@@ -348,21 +348,7 @@ export default function PlusMenu() {
       ),
       label: 'AI Canvas Agent',
       action: () => {
-        addObject({
-          type: 'card',
-          x: canvasPos.x,
-          y: canvasPos.y,
-          width: 380,
-          height: 480,
-          content: '',
-          style: {
-            isAgent: true,
-            agentPrompt: '',
-            agentLogs: ['[Ready] Agent waiting for task...'],
-            agentStatus: 'idle',
-            apiKeyIndex: 0
-          }
-        });
+        useCanvasStore.getState().setAgentPromptOpen(true);
       }
     },
   ];

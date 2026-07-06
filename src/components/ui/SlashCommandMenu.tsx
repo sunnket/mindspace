@@ -237,19 +237,8 @@ const ITEMS: SlashItem[] = [
     ),
     keywords: ['ai', 'agent', 'nvidia', 'llama', 'copilot', 'generate', 'build', 'create'],
     action: (objectId, updateObject, setEditingId) => {
-      updateObject(objectId, {
-        type: 'card',
-        width: 380,
-        height: 480,
-        content: '',
-        style: {
-          isAgent: true,
-          agentPrompt: '',
-          agentLogs: ['[Ready] Agent waiting for task...'],
-          agentStatus: 'idle',
-          apiKeyIndex: 0
-        }
-      });
+      useCanvasStore.getState().setAgentPromptOpen(true);
+      updateObject(objectId, { content: '' });
       setEditingId(null);
     }
   }

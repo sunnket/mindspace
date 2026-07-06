@@ -24,6 +24,7 @@ import SpatialSearch from '@/components/ui/SpatialSearch';
 import CommandPalette from '@/components/ui/CommandPalette';
 import PlusMenu from '@/components/ui/PlusMenu';
 import SlashCommandMenu from '@/components/ui/SlashCommandMenu';
+import AgentOverlay from '@/components/ui/AgentOverlay';
 import Minimap from '@/components/ui/Minimap';
 import CheckpointIndex from '@/components/ui/CheckpointIndex';
 import SaveIndicator from '@/components/ui/SaveIndicator';
@@ -1008,6 +1009,7 @@ export default function InfiniteCanvas() {
       <CommandPalette />
       <PlusMenu />
       <SlashCommandMenu />
+      <AgentOverlay />
       <Minimap />
       <CheckpointIndex />
       <SaveIndicator />

@@ -146,6 +146,9 @@ export async function POST(req: NextRequest) {
     // Try keys sequentially until one succeeds
     for (const idx of keyIndexesToTry) {
       const apiKey = apiKeys[idx];
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6500); // 6.5s timeout per key
+      
       try {
         const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
           method: 'POST',
@@ -162,8 +165,11 @@ export async function POST(req: NextRequest) {
             temperature: 0.2,
             max_tokens: 4096,
             response_format: { type: 'json_object' }
-          })
+          }),
+          signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           const errText = await response.text();
@@ -174,6 +180,7 @@ export async function POST(req: NextRequest) {
         responseText = data.choices?.[0]?.message?.content || '';
         break; // Success! Break the loop
       } catch (err: any) {
+        clearTimeout(timeoutId);
         console.warn(`NVIDIA API Key index ${idx} failed:`, err.message);
         lastError = err;
       }

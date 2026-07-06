@@ -161,6 +161,14 @@ interface CanvasStore {
   // Command palette
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
+
+  // AI Agent state
+  agentPromptOpen: boolean;
+  setAgentPromptOpen: (open: boolean) => void;
+  agentRunning: boolean;
+  agentLogs: string[];
+  agentStatus: 'idle' | 'running' | 'success' | 'failed';
+  setAgentState: (state: Partial<{ agentRunning: boolean; agentLogs: string[]; agentStatus: 'idle' | 'running' | 'success' | 'failed' }>) => void;
   
   // Drawing settings
   drawColor: string;
@@ -768,6 +776,14 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Command palette
   commandPaletteOpen: false,
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+
+  // AI Agent state
+  agentPromptOpen: false,
+  setAgentPromptOpen: (open) => set({ agentPromptOpen: open }),
+  agentRunning: false,
+  agentLogs: [],
+  agentStatus: 'idle',
+  setAgentState: (state) => set((prev) => ({ ...prev, ...state })),
   
   // Drawing settings
   drawColor: '#2d2d2d',
