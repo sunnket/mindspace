@@ -106,9 +106,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signUp: async (email, password) => {
     set({ loading: true });
     try {
+      // Without this, Supabase falls back to the "Site URL" saved in the
+      // dashboard, which drifts stale the moment the dev port changes —
+      // confirmation links then land on whatever old localhost port that
+      // was. Pointing at the current origin keeps the link always correct.
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/canvas`,
+        },
       });
       if (error) {
         set({ loading: false });
