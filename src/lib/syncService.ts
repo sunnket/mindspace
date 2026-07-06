@@ -16,7 +16,19 @@ import {
 } from './db';
 
 /**
+ * Cloud-save discipline: saves go to Supabase ONLY when a user is signed in,
+ * never overlap, and are spaced at least CLOUD_SYNC_MIN_INTERVAL_MS apart.
+ * Local IndexedDB persistence is untouched by this — it always happens.
+ * This throttle exists so autosave can never flood the network with
+ * full-canvas upserts (the lag/freeze failure mode).
+ */
+const CLOUD_SYNC_MIN_INTERVAL_MS = 8_000;
+let cloudSyncInFlight = false;
+let lastCloudSyncAt = 0;
+
+/**
  * Pushes the active canvas state and all its items to the cloud.
+ * Pass { force: true } for must-not-skip moments (leaving the canvas).
  */
 export async function syncCanvasToCloud(
   canvasId: string,
@@ -24,8 +36,18 @@ export async function syncCanvasToCloud(
   state: Partial<CanvasState>,
   objects: CanvasObjectData[],
   strokes: DrawingStroke[],
-  connections: ConnectionData[]
+  connections: ConnectionData[],
+  opts?: { force?: boolean }
 ) {
+  // Cloud saves happen only in the signed-in scenario — guests stay 100% local.
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return;
+
+  if (cloudSyncInFlight) return;
+  if (!opts?.force && Date.now() - lastCloudSyncAt < CLOUD_SYNC_MIN_INTERVAL_MS) return;
+
+  cloudSyncInFlight = true;
+  lastCloudSyncAt = Date.now();
   try {
     // 1. Sync canvas state
     const { error: canvasErr } = await supabase.from('canvases').upsert({
@@ -108,6 +130,8 @@ export async function syncCanvasToCloud(
     }
   } catch (err) {
     console.error('Error syncing canvas to cloud:', err);
+  } finally {
+    cloudSyncInFlight = false;
   }
 }
 

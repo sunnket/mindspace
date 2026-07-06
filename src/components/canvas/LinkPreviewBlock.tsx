@@ -77,7 +77,13 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
         style={{ fontFamily: "'Outfit', sans-serif" }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-lg">⚠️</span>
+          <span className="text-red-500/80 flex items-center">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </span>
           <span className="text-xs font-mono opacity-60 truncate">{domain || 'invalid link'}</span>
         </div>
         <div className="my-2">
@@ -151,7 +157,13 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
           {favicon ? (
             <img src={favicon} alt="Favicon" className="w-4 h-4 object-contain shrink-0 rounded-sm" />
           ) : (
-            <span className="text-xs">🌐</span>
+            <span className="text-[var(--text-tertiary)] flex items-center">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+            </span>
           )}
           <span 
             className="text-[10px] font-semibold text-[var(--text-secondary)] tracking-wider uppercase truncate"

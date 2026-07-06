@@ -463,9 +463,9 @@ export default function TrashPile() {
         className="w-10 h-7 rounded flex items-center justify-center shadow-sm border border-black/5 shrink-0"
         style={{ background: bg }}
       >
-        {type === 'voice-note' && <span className="text-[11px]">🎙️</span>}
-        {type === 'code-sandbox' && <span className="text-[11px]">💻</span>}
-        {type === 'todo-list' && <span className="text-[11px]">☑️</span>}
+        {type === 'voice-note' && <span className="text-[11px] flex items-center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /></svg></span>}
+        {type === 'code-sandbox' && <span className="text-[11px] flex items-center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="8 7 3 12 8 17" /><polyline points="16 7 21 12 16 17" /></svg></span>}
+        {type === 'todo-list' && <span className="text-[11px] flex items-center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4" /><polyline points="8 12 11 15 16 9" /></svg></span>}
         {type === 'quote' && <span className="text-[11px]">“</span>}
         {type === 'shape' && (
           <div 
@@ -477,7 +477,7 @@ export default function TrashPile() {
           />
         )}
         {type === 'arrow' && <span className="text-[11px] rotate-45 inline-block">→</span>}
-        {type === 'workflow-node' && <span className="text-[11px]">🌿</span>}
+        {type === 'workflow-node' && <span className="text-[11px] flex items-center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 3v12a6 6 0 0 0 6 6h0" /><circle cx="6" cy="3" r="2" /><circle cx="18" cy="9" r="2" /></svg></span>}
         {type === 'text' && <span className="text-[9px] font-mono font-bold opacity-30">Ab</span>}
         {type === 'heading' && <span className="text-[9px] font-mono font-bold opacity-45">H1</span>}
       </div>

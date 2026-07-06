@@ -22,7 +22,7 @@ interface WorkflowTemplate {
   name: string;
   description: string;
   category: 'Business' | 'Academic' | 'Creative' | 'Productivity';
-  icon: string;
+  icon: React.ReactNode;
   nodes: TemplateNode[];
   connections: TemplateConnection[];
 }
@@ -33,7 +33,7 @@ const PRESET_TEMPLATES: WorkflowTemplate[] = [
     name: 'Startup Flow',
     description: 'Pitch to MVP scale journey roadmap.',
     category: 'Business',
-    icon: '🚀',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" /><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" /></svg>),
     nodes: [
       { tempId: 'n1', content: 'Idea Pitch', shape: 'pill', offsetX: -350, offsetY: 0 },
       { tempId: 'n2', content: 'Team Assembly', shape: 'square', offsetX: -180, offsetY: 0 },
@@ -56,7 +56,7 @@ const PRESET_TEMPLATES: WorkflowTemplate[] = [
     name: 'Study Roadmap',
     description: 'Foundations to advanced mastery path.',
     category: 'Academic',
-    icon: '📚',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>),
     nodes: [
       { tempId: 'n1', content: 'Goal Setup', shape: 'pill', offsetX: -300, offsetY: 0 },
       { tempId: 'n2', content: 'Foundations', shape: 'square', offsetX: -150, offsetY: 0 },
@@ -78,7 +78,7 @@ const PRESET_TEMPLATES: WorkflowTemplate[] = [
     name: 'Design Process',
     description: 'Double diamond product design sequence.',
     category: 'Creative',
-    icon: '🎨',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><circle cx="8" cy="10" r="1" fill="currentColor" /><circle cx="12" cy="7.5" r="1" fill="currentColor" /><circle cx="16" cy="10" r="1" fill="currentColor" /><path d="M12 22a10 10 0 0 0 0-20" /></svg>),
     nodes: [
       { tempId: 'n1', content: 'Empathize', shape: 'circle', offsetX: -300, offsetY: 0 },
       { tempId: 'n2', content: 'Define', shape: 'diamond', offsetX: -150, offsetY: 0 },
@@ -101,7 +101,7 @@ const PRESET_TEMPLATES: WorkflowTemplate[] = [
     name: 'Content Pipeline',
     description: 'Workflow for video, writing, or design.',
     category: 'Creative',
-    icon: '🎬',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="14" rx="2" /><path d="M2 10h20M7 6l2 4M13 6l2 4" /></svg>),
     nodes: [
       { tempId: 'n1', content: 'Brainstorm Ideas', shape: 'pill', offsetX: -300, offsetY: -80 },
       { tempId: 'n2', content: 'Research / Outline', shape: 'square', offsetX: -150, offsetY: -80 },
@@ -125,7 +125,7 @@ const PRESET_TEMPLATES: WorkflowTemplate[] = [
     name: 'Product Launch Flow',
     description: 'Cross-functional dev & launch pipeline.',
     category: 'Productivity',
-    icon: '⚡',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>),
     nodes: [
       { tempId: 'n1', content: 'PRD Drafted', shape: 'pill', offsetX: -300, offsetY: 0 },
       { tempId: 'n2', content: 'Specs Review', shape: 'diamond', offsetX: -150, offsetY: 0 },
@@ -148,7 +148,7 @@ const PRESET_TEMPLATES: WorkflowTemplate[] = [
     name: 'Brainstorm Network',
     description: 'Creative hub-and-spoke thinking web.',
     category: 'Creative',
-    icon: '🧠',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 3v18M12 8c-2.5 0-4 1-4 4M12 8c2.5 0 4 1 4 4" /></svg>),
     nodes: [
       { tempId: 'n1', content: 'Core Concept', shape: 'circle', offsetX: 0, offsetY: 0 },
       { tempId: 'n2', content: 'Aesthetic / Visuals', shape: 'square', offsetX: -180, offsetY: -120 },
@@ -168,7 +168,7 @@ const PRESET_TEMPLATES: WorkflowTemplate[] = [
     name: 'Research Mapping',
     description: 'Academics hypothesis experimental chart.',
     category: 'Academic',
-    icon: '🔬',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 18h8M3 22h18M14 22a7 7 0 1 0 0-14h-1M9 14h2M9 12a2 2 0 0 1-2-2V6h6v4a2 2 0 0 1-2 2zM12 6V3a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v3" /></svg>),
     nodes: [
       { tempId: 'n1', content: 'Hypothesis Stated', shape: 'diamond', offsetX: -300, offsetY: 0 },
       { tempId: 'n2', content: 'Literature Review', shape: 'square', offsetX: -150, offsetY: -80 },
@@ -189,7 +189,7 @@ const PRESET_TEMPLATES: WorkflowTemplate[] = [
     name: 'Habit Tracker System',
     description: 'Weekly goal setting and feedback tracker.',
     category: 'Productivity',
-    icon: '🎯',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.5" fill="currentColor" /></svg>),
     nodes: [
       { tempId: 'n1', content: 'Weekly Habit Target', shape: 'pill', offsetX: -240, offsetY: 0 },
       { tempId: 'n2', content: 'Daily Action Cue', shape: 'circle', offsetX: -80, offsetY: 0 },
@@ -207,7 +207,7 @@ const PRESET_TEMPLATES: WorkflowTemplate[] = [
     name: 'Mindmap Tree',
     description: 'Classic hierarchical left-right tree structure.',
     category: 'Academic',
-    icon: '🌿',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 3v12a6 6 0 0 0 6 6h0" /><circle cx="6" cy="3" r="2" /><circle cx="18" cy="9" r="2" /><path d="M6 9c6 0 8 0 12 0" /></svg>),
     nodes: [
       { tempId: 'n1', content: 'Core Subject', shape: 'circle', offsetX: 0, offsetY: 0 },
       { tempId: 'n2', content: 'Subtopic Alpha', shape: 'square', offsetX: -180, offsetY: 0 },
@@ -231,7 +231,7 @@ const PRESET_TEMPLATES: WorkflowTemplate[] = [
     name: 'Daily Planning Workflow',
     description: 'Sequenced daily planning checklist pipeline.',
     category: 'Productivity',
-    icon: '📅',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>),
     nodes: [
       { tempId: 'n1', content: 'Morning Review', shape: 'pill', offsetX: 0, offsetY: -180 },
       { tempId: 'n2', content: 'Deep Work Block', shape: 'square', offsetX: 0, offsetY: -90 },

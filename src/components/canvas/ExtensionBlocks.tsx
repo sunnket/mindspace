@@ -54,7 +54,7 @@ export function CountdownBlock({ obj }: { obj: CanvasObjectData }) {
     <div className="flex flex-col h-full bg-[#18181b]/90 border border-white/5 rounded-2xl p-4 text-white justify-between select-none">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className="text-orange-500 text-sm">🕒</span>
+          <span className="text-orange-500 flex items-center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15.5 14" /></svg></span>
           <span className="text-xs font-semibold tracking-wide text-white/80">{title}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -66,7 +66,7 @@ export function CountdownBlock({ obj }: { obj: CanvasObjectData }) {
               onClick={() => setShowSettings(!showSettings)} 
               className="text-white/40 hover:text-white text-xs p-1 rounded hover:bg-white/5 transition"
             >
-              ⚙️
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
             </button>
           )}
         </div>
@@ -203,7 +203,7 @@ export function PollBlock({ obj }: { obj: CanvasObjectData }) {
     <div className="flex flex-col h-full bg-[#18181b]/90 border border-white/5 rounded-2xl p-4 text-white justify-between select-none">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
-          <span className="text-violet-500 text-sm">📊</span>
+          <span className="text-violet-500 flex items-center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><line x1="6" y1="20" x2="6" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="18" y1="20" x2="18" y2="14" /></svg></span>
           <span className="text-xs font-semibold tracking-wide text-white/80">Team vote</span>
         </div>
         <div className="flex items-center gap-2">
@@ -215,7 +215,7 @@ export function PollBlock({ obj }: { obj: CanvasObjectData }) {
               onClick={() => setShowSettings(!showSettings)} 
               className="text-white/40 hover:text-white text-xs p-1 rounded hover:bg-white/5 transition pointer-events-auto"
             >
-              ⚙️
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
             </button>
           )}
         </div>
@@ -304,7 +304,7 @@ export function PollBlock({ obj }: { obj: CanvasObjectData }) {
 
       <div className="flex justify-between items-center text-[9px] text-white/40 border-t border-white/5 pt-2.5 mt-2 font-medium">
         <span>{totalVotes} team members voted</span>
-        <span>Closes in 2d</span>
+        <span>tap an option to vote</span>
       </div>
     </div>
   );
@@ -361,7 +361,7 @@ export function LiveMetricBlock({ obj }: { obj: CanvasObjectData }) {
     <div className="flex flex-col h-full bg-[#18181b]/90 border border-white/5 rounded-2xl p-4 text-white justify-between select-none">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className="text-emerald-500 text-sm">📈</span>
+          <span className="text-emerald-500 flex items-center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 17 9 11 13 15 21 7" /><polyline points="15 7 21 7 21 13" /></svg></span>
           <span className="text-xs font-semibold tracking-wide text-white/80">Live metric</span>
         </div>
         <div className="flex items-center gap-2">
@@ -376,7 +376,7 @@ export function LiveMetricBlock({ obj }: { obj: CanvasObjectData }) {
               }} 
               className="text-white/40 hover:text-white text-xs p-1 rounded hover:bg-white/5 transition pointer-events-auto"
             >
-              ⚙️
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
             </button>
           )}
         </div>
@@ -513,7 +513,7 @@ export function QuickDataBlock({ obj }: { obj: CanvasObjectData }) {
     <div className="flex flex-col h-full bg-[#18181b]/90 border border-white/5 rounded-2xl p-4 text-white justify-between select-none">
       <div className="flex items-center justify-between mb-2.5">
         <div className="flex items-center gap-1.5">
-          <span className="text-amber-500 text-sm">📁</span>
+          <span className="text-amber-500 flex items-center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="3" y1="14" x2="21" y2="14" /><line x1="10" y1="9" x2="10" y2="20" /></svg></span>
           <span className="text-xs font-semibold tracking-wide text-white/80">Quick data</span>
         </div>
         <div className="flex items-center gap-2">
@@ -525,7 +525,7 @@ export function QuickDataBlock({ obj }: { obj: CanvasObjectData }) {
               onClick={() => setShowSettings(!showSettings)} 
               className="text-white/40 hover:text-white text-xs p-1 rounded hover:bg-white/5 transition pointer-events-auto"
             >
-              ⚙️
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
             </button>
           )}
         </div>

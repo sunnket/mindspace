@@ -46,13 +46,15 @@ function createLocalTransport(code: string, onMsg: (m: WireMessage) => void): Tr
 
 async function supabaseReachable(): Promise<boolean> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!url) return false;
+  if (!url || url.includes('placeholder')) return false;
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), SUPABASE_HEALTH_TIMEOUT_MS);
-    const res = await fetch(`${url.replace(/\/$/, '')}/auth/v1/health`, { signal: ctrl.signal });
+    // Any HTTP response (even 401 without an apikey) proves the project is
+    // alive; only network errors / timeouts mean unreachable.
+    await fetch(`${url.replace(/\/$/, '')}/auth/v1/health`, { signal: ctrl.signal });
     clearTimeout(timer);
-    return res.ok;
+    return true;
   } catch {
     return false;
   }

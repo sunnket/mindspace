@@ -23,6 +23,25 @@ function emitCollab(op: CanvasOp) {
   if (collabEmitter) collabEmitter(op);
 }
 
+/**
+ * Whether an object may be auto-removed when its text content is blank.
+ * Only plain text/heading/sticky and featureless cards qualify. A card with
+ * ANY `is*` feature flag (isTodo, isPoll, isCountdown, isQuote, isLiveMetric,
+ * future flags…) is a functional block and must never be auto-cleaned —
+ * blocks store their data in style, not content, so "blank" means nothing.
+ */
+export function isAutoCleanable(o: CanvasObjectData): boolean {
+  if (o.type === 'text' || o.type === 'heading' || o.type === 'sticky') return true;
+  if (o.type === 'card') {
+    const style = o.style || {};
+    const hasFeatureFlag = Object.entries(style).some(
+      ([k, v]) => /^is[A-Z]/.test(k) && Boolean(v)
+    );
+    return !hasFeatureFlag;
+  }
+  return false;
+}
+
 export interface UndoAction {
   type: 'add' | 'delete' | 'move' | 'edit' | 'stroke-add' | 'stroke-delete';
   objectId?: string;
@@ -250,13 +269,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     const currentEditingId = state.editingId;
     const blankObjects = state.objects.filter(o => {
       if (o.id === currentSelectedId || o.id === currentEditingId) return false;
-      const isPlainCardOrQuote = o.type === 'card' && !o.style?.isVoiceNote && !o.style?.isCheckpoint && !o.style?.isTodo && !o.style?.isCode;
-      return o.content.trim() === '' && (
-        o.type === 'text' ||
-        o.type === 'heading' ||
-        o.type === 'sticky' ||
-        isPlainCardOrQuote
-      );
+      return o.content.trim() === '' && isAutoCleanable(o);
     });
     blankObjects.forEach(o => state.removeObject(o.id));
 
@@ -512,15 +525,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     const currentSelectedId = state.selectedId;
     const blankObjects = state.objects.filter(o => {
       if (o.id === id || o.id === currentEditingId || o.id === currentSelectedId) return false;
-      const isPlainCardOrQuote = o.type === 'card' && !o.style?.isVoiceNote && !o.style?.isCheckpoint && !o.style?.isTodo && !o.style?.isCode;
-      return o.content.trim() === '' && (
-        o.type === 'text' ||
-        o.type === 'heading' ||
-        o.type === 'sticky' ||
-        isPlainCardOrQuote
-      );
+      return o.content.trim() === '' && isAutoCleanable(o);
     });
-    
+
     blankObjects.forEach(o => state.removeObject(o.id));
     set({ selectedId: id });
   },
@@ -544,15 +551,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     const currentEditingId = state.editingId;
     const blankObjects = state.objects.filter(o => {
       if (o.id === id || o.id === currentSelectedId || o.id === currentEditingId) return false;
-      const isPlainCardOrQuote = o.type === 'card' && !o.style?.isVoiceNote && !o.style?.isCheckpoint && !o.style?.isTodo && !o.style?.isCode;
-      return o.content.trim() === '' && (
-        o.type === 'text' ||
-        o.type === 'heading' ||
-        o.type === 'sticky' ||
-        isPlainCardOrQuote
-      );
+      return o.content.trim() === '' && isAutoCleanable(o);
     });
-    
+
     blankObjects.forEach(o => state.removeObject(o.id));
     set({ editingId: id });
   },

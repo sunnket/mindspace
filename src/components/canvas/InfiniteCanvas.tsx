@@ -162,12 +162,12 @@ export default function InfiniteCanvas() {
           import('uuid').then(({ v4: uuidv4 }) => {
             const defaultObjects = [
               { id: uuidv4(), type: 'heading', x: -300, y: -250, width: 600, height: 100, content: 'A space that thinks with you', zIndex: 1, createdAt: Date.now(), updatedAt: Date.now() },
-              { id: uuidv4(), type: 'card', x: -350, y: -100, width: 220, height: 160, content: '✎ Draw Anywhere\nHold D and start drawing. Natural, pressure-sensitive strokes.', zIndex: 2, createdAt: Date.now(), updatedAt: Date.now() },
-              { id: uuidv4(), type: 'card', x: -100, y: -100, width: 220, height: 160, content: '∞ Infinite Canvas\nZoom infinitely. Pan endlessly. Your thoughts have no boundaries.', zIndex: 3, createdAt: Date.now(), updatedAt: Date.now() },
-              { id: uuidv4(), type: 'card', x: 150, y: -100, width: 220, height: 160, content: '📝 Type Anywhere\nClick any empty space and start writing. Headings, lists.', zIndex: 4, createdAt: Date.now(), updatedAt: Date.now() },
-              { id: uuidv4(), type: 'card', x: -350, y: 100, width: 220, height: 160, content: '🔍 Spatial Search\nSearch and fly to your thoughts. Cinematically animate to the result.', zIndex: 5, createdAt: Date.now(), updatedAt: Date.now() },
-              { id: uuidv4(), type: 'card', x: -100, y: 100, width: 220, height: 160, content: '🌀 Nested Spaces\nDouble-click any heading to zoom into a sub-space.', zIndex: 6, createdAt: Date.now(), updatedAt: Date.now() },
-              { id: uuidv4(), type: 'card', x: 150, y: 100, width: 220, height: 160, content: '💾 Offline First\nEverything saves automatically to your device.', zIndex: 7, createdAt: Date.now(), updatedAt: Date.now() },
+              { id: uuidv4(), type: 'card', x: -350, y: -100, width: 220, height: 160, content: 'Draw Anywhere\nHold D and start drawing. Natural, pressure-sensitive strokes.', zIndex: 2, createdAt: Date.now(), updatedAt: Date.now() },
+              { id: uuidv4(), type: 'card', x: -100, y: -100, width: 220, height: 160, content: 'Infinite Canvas\nZoom infinitely. Pan endlessly. Your thoughts have no boundaries.', zIndex: 3, createdAt: Date.now(), updatedAt: Date.now() },
+              { id: uuidv4(), type: 'card', x: 150, y: -100, width: 220, height: 160, content: 'Type Anywhere\nClick any empty space and start writing. Headings, lists.', zIndex: 4, createdAt: Date.now(), updatedAt: Date.now() },
+              { id: uuidv4(), type: 'card', x: -350, y: 100, width: 220, height: 160, content: 'Spatial Search\nSearch and fly to your thoughts. Cinematically animate to the result.', zIndex: 5, createdAt: Date.now(), updatedAt: Date.now() },
+              { id: uuidv4(), type: 'card', x: -100, y: 100, width: 220, height: 160, content: 'Nested Spaces\nDouble-click any heading to zoom into a sub-space.', zIndex: 6, createdAt: Date.now(), updatedAt: Date.now() },
+              { id: uuidv4(), type: 'card', x: 150, y: 100, width: 220, height: 160, content: 'Offline First\nEverything saves automatically to your device.', zIndex: 7, createdAt: Date.now(), updatedAt: Date.now() },
             ];
             // @ts-ignore
             setObjects(defaultObjects);
@@ -235,7 +235,8 @@ export default function InfiniteCanvas() {
                 },
                 state.objects,
                 state.strokes,
-                state.connections
+                state.connections,
+                { force: true }
               ).catch(err => console.error('Failed to sync canvas on unmount:', err));
             });
           }

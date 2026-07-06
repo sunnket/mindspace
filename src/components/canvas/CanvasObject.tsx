@@ -3,7 +3,7 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { useCollabStore } from '@/store/collabStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useCanvasStore } from '@/store/canvasStore';
+import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import { getSnapPoints } from '@/lib/utils';
 import VoiceNoteBlock from './VoiceNoteBlock';
@@ -280,7 +280,19 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (mode === 'draw' || isEditing) return;
-      
+
+      // Clicks on embedded controls (poll options, settings inputs, checkpoint
+      // name, todo checkboxes…) must keep their native behaviour — a
+      // preventDefault here would block text-field focus entirely.
+      const interactive = (e.target as HTMLElement).closest(
+        'input, textarea, select, button, a, [contenteditable="true"]'
+      );
+      if (interactive) {
+        e.stopPropagation();
+        if (mode !== 'connector') setSelectedId(obj.id);
+        return;
+      }
+
       e.stopPropagation();
       e.preventDefault();
 
@@ -667,20 +679,16 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       // Editing just ended!
       const finalContent = contentRef.current ? contentRef.current.innerText : latestContent.current;
       saveContent(finalContent);
-      
-      const isPlainCardOrQuote = obj.type === 'card' && !obj.style?.isVoiceNote && !obj.style?.isCheckpoint && !obj.style?.isTodo && !obj.style?.isCode;
-      const shouldDelete = finalContent.trim() === '' && (
-        obj.type === 'text' || 
-        obj.type === 'heading' || 
-        obj.type === 'sticky' || 
-        isPlainCardOrQuote
-      );
+
+      // Only plain text-like objects auto-delete when left empty; functional
+      // blocks (poll, countdown, metric, quote, …) must always survive.
+      const shouldDelete = finalContent.trim() === '' && isAutoCleanable(obj);
       if (shouldDelete) {
         removeObject(obj.id);
       }
     }
     wasEditing.current = isEditing;
-  }, [isEditing, obj.id, obj.type, removeObject, saveContent, obj.style?.isCheckpoint, obj.style?.isVoiceNote, obj.style?.isTodo, obj.style?.isCode]);
+  }, [isEditing, obj, removeObject, saveContent]);
 
   const handleBlur = useCallback(() => {
     if (editingId === obj.id) {
@@ -690,18 +698,12 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     
     const finalContent = contentRef.current ? contentRef.current.innerText : latestContent.current;
     saveContent(finalContent);
-    
-    const isPlainCardOrQuote = obj.type === 'card' && !obj.style?.isVoiceNote && !obj.style?.isCheckpoint && !obj.style?.isTodo && !obj.style?.isCode;
-    const shouldDelete = finalContent.trim() === '' && (
-      obj.type === 'text' || 
-      obj.type === 'heading' || 
-      obj.type === 'sticky' || 
-      isPlainCardOrQuote
-    );
+
+    const shouldDelete = finalContent.trim() === '' && isAutoCleanable(obj);
     if (shouldDelete) {
       removeObject(obj.id);
     }
-  }, [obj.id, obj.type, removeObject, editingId, setEditingId, saveContent, obj.style?.isCheckpoint, obj.style?.isVoiceNote, obj.style?.isTodo, obj.style?.isCode]);
+  }, [obj, removeObject, editingId, setEditingId, saveContent]);
 
 
 
@@ -2294,7 +2296,10 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               </motion.div>
             ) : (
               <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md border-2 border-white/40 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <span className="text-xl">🔗</span>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
               </div>
             )}
           </motion.div>
@@ -2364,7 +2369,10 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             className="w-7 h-7 flex items-center justify-center rounded-full bg-[var(--accent)] hover:bg-[var(--accent-light)] text-white text-xs font-bold transition-all hover:scale-110 shadow-sm cursor-pointer border-none"
             title="Extend Node (+)"
           >
-            ➕
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
           </button>
 
           {/* Delete (Cross) Button with Smart Reconnections */}

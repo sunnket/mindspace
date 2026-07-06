@@ -8,7 +8,7 @@ interface SlashItem {
   id: string;
   label: string;
   sublabel: string;
-  icon: string;
+  icon: React.ReactNode;
   keywords: string[];
   action: (objectId: string, updateObject: any, setEditingId: any) => void;
 }
@@ -18,7 +18,7 @@ const ITEMS: SlashItem[] = [
     id: 'countdown',
     label: 'Countdown',
     sublabel: 'Live timer to a date',
-    icon: '⏳',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15.5 14" /></svg>),
     keywords: ['countdown', 'timer', 'date', 'launch', 'time'],
     action: (objectId, updateObject, setEditingId) => {
       // Default to 15 days in the future
@@ -44,7 +44,7 @@ const ITEMS: SlashItem[] = [
     id: 'checklist',
     label: 'Checklist',
     sublabel: 'Trackable todo list',
-    icon: '☑️',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4" /><polyline points="8 12 11 15 16 9" /></svg>),
     keywords: ['checklist', 'todo', 'tasks', 'progress', 'list'],
     action: (objectId, updateObject, setEditingId) => {
       updateObject(objectId, {
@@ -63,7 +63,7 @@ const ITEMS: SlashItem[] = [
     id: 'poll',
     label: 'Interactive Poll',
     sublabel: 'Team vote and choices',
-    icon: '📊',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="6" y1="20" x2="6" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="18" y1="20" x2="18" y2="14" /></svg>),
     keywords: ['poll', 'vote', 'choices', 'survey', 'question'],
     action: (objectId, updateObject, setEditingId) => {
       updateObject(objectId, {
@@ -88,7 +88,7 @@ const ITEMS: SlashItem[] = [
     id: 'metric',
     label: 'Live Metric',
     sublabel: 'Analytics sparkline chart',
-    icon: '📈',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 17 9 11 13 15 21 7" /><polyline points="15 7 21 7 21 13" /></svg>),
     keywords: ['metric', 'graph', 'chart', 'analytics', 'live', 'sparkline'],
     action: (objectId, updateObject, setEditingId) => {
       updateObject(objectId, {
@@ -111,7 +111,7 @@ const ITEMS: SlashItem[] = [
     id: 'quickdata',
     label: 'Quick Data Table',
     sublabel: 'Key-value properties list',
-    icon: '📁',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="3" y1="14" x2="21" y2="14" /><line x1="10" y1="9" x2="10" y2="20" /></svg>),
     keywords: ['quick', 'data', 'table', 'properties', 'grid', 'values'],
     action: (objectId, updateObject, setEditingId) => {
       updateObject(objectId, {
@@ -138,7 +138,7 @@ const ITEMS: SlashItem[] = [
     id: 'reference',
     label: 'Reference Embed',
     sublabel: 'Beautiful link card preview',
-    icon: '🔗',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>),
     keywords: ['reference', 'embed', 'link', 'preview', 'url', 'web'],
     action: (objectId, updateObject, setEditingId) => {
       updateObject(objectId, {
@@ -160,7 +160,7 @@ const ITEMS: SlashItem[] = [
     id: 'code',
     label: 'Code Sandbox',
     sublabel: 'Interactive code editor block',
-    icon: '💻',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="8 7 3 12 8 17" /><polyline points="16 7 21 12 16 17" /></svg>),
     keywords: ['code', 'sandbox', 'editor', 'coding', 'html', 'javascript'],
     action: (objectId, updateObject, setEditingId) => {
       updateObject(objectId, {

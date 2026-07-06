@@ -6,6 +6,7 @@ import { useCanvasStore, InteractionMode } from '@/store/canvasStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import WorkflowMenu from './WorkflowMenu';
+import ShapePreview from '@/components/canvas/ShapePreview';
 
 const DRAW_COLORS = [
   '#2D2A26', '#0B57D0', '#D93025', '#188038', // Classics
@@ -86,15 +87,83 @@ export default function FloatingToolbar() {
     }
   };
 
-  const tools: { id: InteractionMode | 'workflow'; icon: string; label: string }[] = [
-    { id: 'select', icon: '↗', label: 'Select (V)' },
-    { id: 'text', icon: 'Aa', label: 'Text (T)' },
-    { id: 'voice' as any, icon: '🎤', label: 'Voice Typing' },
-    { id: 'draw', icon: '✎', label: 'Draw (D)' },
-    { id: 'workflow' as any, icon: '🔀', label: 'Workflow' },
-    { id: 'pan', icon: '✋', label: 'Pan (Space)' },
-    { id: 'arrow', icon: '➔', label: 'Arrow (A)' },
-    { id: 'shape', icon: 'shape_mixture', label: 'Shape (S)' },
+  const tools: { id: InteractionMode | 'workflow'; icon: React.ReactNode; label: string }[] = [
+    {
+      id: 'select',
+      label: 'Select (V)',
+      icon: (
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 3l7.5 18 2.6-7.4L21.5 11 4 3z" fill="currentColor" stroke="none" />
+        </svg>
+      ),
+    },
+    { id: 'text', icon: <span className="text-sm font-bold">Aa</span>, label: 'Text (T)' },
+    {
+      id: 'voice' as any,
+      label: 'Voice Typing',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+          <line x1="12" y1="19" x2="12" y2="22" />
+        </svg>
+      ),
+    },
+    {
+      id: 'draw',
+      label: 'Draw (D)',
+      icon: (
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+        </svg>
+      ),
+    },
+    {
+      id: 'workflow' as any,
+      label: 'Workflow',
+      icon: (
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="5" cy="6" r="2.5" />
+          <circle cx="19" cy="6" r="2.5" />
+          <circle cx="12" cy="18" r="2.5" />
+          <path d="M7 7.5L10.5 16M17 7.5L13.5 16" />
+        </svg>
+      ),
+    },
+    {
+      id: 'pan',
+      label: 'Pan (Space)',
+      icon: (
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 11V6a2 2 0 0 0-4 0v5" />
+          <path d="M14 10V4a2 2 0 0 0-4 0v6" />
+          <path d="M10 10.5V6a2 2 0 0 0-4 0v8" />
+          <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
+        </svg>
+      ),
+    },
+    {
+      id: 'arrow',
+      label: 'Arrow (A)',
+      icon: (
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="5" y1="19" x2="19" y2="5" />
+          <polyline points="9 5 19 5 19 15" />
+        </svg>
+      ),
+    },
+    {
+      id: 'shape',
+      label: 'Shape (S)',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="11" width="9" height="9" rx="1.5" />
+          <circle cx="17" cy="16" r="4.5" />
+          <polygon points="12,2 21,11 3,11" />
+        </svg>
+      ),
+    },
   ];
 
   const { isListening } = useVoiceStore();
@@ -198,21 +267,7 @@ export default function FloatingToolbar() {
             }`}
             title={tool.label}
           >
-            {tool.id === 'voice' as any ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                <line x1="12" y1="19" x2="12" y2="22"></line>
-              </svg>
-            ) : tool.id === 'shape' ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="11" width="9" height="9" rx="1.5" stroke="currentColor" fill="none" strokeWidth="2" />
-                <circle cx="17" cy="16" r="4.5" stroke="currentColor" fill="none" strokeWidth="2" />
-                <polygon points="12,2 21,11 3,11" stroke="currentColor" fill="none" strokeWidth="2" />
-              </svg>
-            ) : (
-              <span className="text-sm font-bold">{tool.icon}</span>
-            )}
+            <span className="flex items-center justify-center">{tool.icon}</span>
           </motion.button>
         ))}
 
@@ -273,7 +328,11 @@ export default function FloatingToolbar() {
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                <span>✎</span> Pen
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+                Pen
               </button>
               <button
                 onClick={() => {
@@ -286,7 +345,11 @@ export default function FloatingToolbar() {
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                <span>🖍</span> Highlighter
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 11l-6 6v3h9l3-3" />
+                  <path d="M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+                </svg>
+                Highlighter
               </button>
               <button
                 onClick={() => {
@@ -509,110 +572,110 @@ export default function FloatingToolbar() {
             <div className="grid grid-cols-4 gap-2 justify-center max-h-60 overflow-y-auto pr-1">
               {[
                 // Brainstorm
-                { id: 'lightbulb', icon: '💡', label: 'Lightbulb', domain: 'brainstorm' },
-                { id: 'sticky', icon: '📝', label: 'Sticky', domain: 'brainstorm' },
-                { id: 'cloud', icon: '☁️', label: 'Cloud', domain: 'brainstorm' },
-                { id: 'star', icon: '⭐', label: 'Star', domain: 'brainstorm' },
-                { id: 'sun', icon: '☀️', label: 'Sun', domain: 'brainstorm' },
-                { id: 'moon', icon: '🌙', label: 'Moon', domain: 'brainstorm' },
-                { id: 'target', icon: '🎯', label: 'Target', domain: 'brainstorm' },
-                { id: 'puzzle', icon: '🧩', label: 'Puzzle', domain: 'brainstorm' },
-                { id: 'gear', icon: '⚙️', label: 'Gear', domain: 'brainstorm' },
-                { id: 'funnel', icon: '⏳', label: 'Funnel', domain: 'brainstorm' },
-                { id: 'magnet', icon: '🧲', label: 'Magnet', domain: 'brainstorm' },
-                { id: 'square', icon: '⬜', label: 'Square', domain: 'brainstorm' },
-                { id: 'circle', icon: '⚪', label: 'Circle', domain: 'brainstorm' },
-                { id: 'triangle', icon: '▲', label: 'Triangle', domain: 'brainstorm' },
-                { id: 'diamond', icon: '❖', label: 'Diamond', domain: 'brainstorm' },
-                { id: 'octagon', icon: '🛑', label: 'Stop', domain: 'brainstorm' },
+                { id: 'lightbulb', label: 'Lightbulb', domain: 'brainstorm' },
+                { id: 'sticky', label: 'Sticky', domain: 'brainstorm' },
+                { id: 'cloud', label: 'Cloud', domain: 'brainstorm' },
+                { id: 'star', label: 'Star', domain: 'brainstorm' },
+                { id: 'sun', label: 'Sun', domain: 'brainstorm' },
+                { id: 'moon', label: 'Moon', domain: 'brainstorm' },
+                { id: 'target', label: 'Target', domain: 'brainstorm' },
+                { id: 'puzzle', label: 'Puzzle', domain: 'brainstorm' },
+                { id: 'gear', label: 'Gear', domain: 'brainstorm' },
+                { id: 'funnel', label: 'Funnel', domain: 'brainstorm' },
+                { id: 'magnet', label: 'Magnet', domain: 'brainstorm' },
+                { id: 'square', label: 'Square', domain: 'brainstorm' },
+                { id: 'circle', label: 'Circle', domain: 'brainstorm' },
+                { id: 'triangle', label: 'Triangle', domain: 'brainstorm' },
+                { id: 'diamond', label: 'Diamond', domain: 'brainstorm' },
+                { id: 'octagon', label: 'Stop', domain: 'brainstorm' },
 
                 // Code
-                { id: 'terminal', icon: '💻', label: 'Terminal', domain: 'code' },
-                { id: 'brackets', icon: '{}', label: 'Brackets', domain: 'code' },
-                { id: 'api', icon: '🔌', label: 'API', domain: 'code' },
-                { id: 'server', icon: '🛢️', label: 'Server', domain: 'code' },
-                { id: 'cube', icon: '🧊', label: 'Cube', domain: 'code' },
-                { id: 'branch', icon: '🌱', label: 'Branch', domain: 'code' },
-                { id: 'terminal-prompt', icon: '🐚', label: 'Prompt', domain: 'code' },
-                { id: 'cpu', icon: '🧠', label: 'CPU', domain: 'code' },
-                { id: 'globe', icon: '🌐', label: 'Globe', domain: 'code' },
-                { id: 'key', icon: '🔑', label: 'Key', domain: 'code' },
-                { id: 'database', icon: '🗄️', label: 'Database', domain: 'code' },
-                { id: 'document', icon: '📄', label: 'Doc', domain: 'code' },
-                { id: 'folder', icon: '📁', label: 'Folder', domain: 'code' },
-                { id: 'queue', icon: '🥞', label: 'Queue', domain: 'code' },
-                { id: 'webhook', icon: '🪝', label: 'Webhook', domain: 'code' },
-                { id: 'cache', icon: '🗄️', label: 'Cache', domain: 'code' },
-                { id: 'event', icon: '🔔', label: 'Event', domain: 'code' },
-                { id: 'pipeline', icon: '⛓️', label: 'Pipeline', domain: 'code' },
-                { id: 'auth', icon: '🔒', label: 'Auth', domain: 'code' },
-                { id: 'diff', icon: '⚖️', label: 'Diff', domain: 'code' },
-                { id: 'hash', icon: '#', label: 'Hash', domain: 'code' },
-                { id: 'branch-merge', icon: '🔱', label: 'Git Merge', domain: 'code' },
-                { id: 'token', icon: '🪙', label: 'Token', domain: 'code' },
+                { id: 'terminal', label: 'Terminal', domain: 'code' },
+                { id: 'brackets', label: 'Brackets', domain: 'code' },
+                { id: 'api', label: 'API', domain: 'code' },
+                { id: 'server', label: 'Server', domain: 'code' },
+                { id: 'cube', label: 'Cube', domain: 'code' },
+                { id: 'branch', label: 'Branch', domain: 'code' },
+                { id: 'terminal-prompt', label: 'Prompt', domain: 'code' },
+                { id: 'cpu', label: 'CPU', domain: 'code' },
+                { id: 'globe', label: 'Globe', domain: 'code' },
+                { id: 'key', label: 'Key', domain: 'code' },
+                { id: 'database', label: 'Database', domain: 'code' },
+                { id: 'document', label: 'Doc', domain: 'code' },
+                { id: 'folder', label: 'Folder', domain: 'code' },
+                { id: 'queue', label: 'Queue', domain: 'code' },
+                { id: 'webhook', label: 'Webhook', domain: 'code' },
+                { id: 'cache', label: 'Cache', domain: 'code' },
+                { id: 'event', label: 'Event', domain: 'code' },
+                { id: 'pipeline', label: 'Pipeline', domain: 'code' },
+                { id: 'auth', label: 'Auth', domain: 'code' },
+                { id: 'diff', label: 'Diff', domain: 'code' },
+                { id: 'hash', label: 'Hash', domain: 'code' },
+                { id: 'branch-merge', label: 'Git Merge', domain: 'code' },
+                { id: 'token', label: 'Token', domain: 'code' },
 
                 // Love
-                { id: 'heart', icon: '❤️', label: 'Heart', domain: 'love' },
-                { id: 'smile', icon: '😊', label: 'Smile', domain: 'love' },
-                { id: 'thumbs-up', icon: '👍', label: 'Up', domain: 'love' },
-                { id: 'thumbs-down', icon: '👎', label: 'Down', domain: 'love' },
-                { id: 'flower', icon: '🌸', label: 'Flower', domain: 'love' },
-                { id: 'sparkles', icon: '✨', label: 'Sparkles', domain: 'love' },
-                { id: 'trophy', icon: '🏆', label: 'Trophy', domain: 'love' },
-                { id: 'medal', icon: '🏅', label: 'Medal', domain: 'love' },
-                { id: 'gift', icon: '🎁', label: 'Gift', domain: 'love' },
-                { id: 'balloon', icon: '🎈', label: 'Balloon', domain: 'love' },
-                { id: 'clapping', icon: '👏', label: 'Clap', domain: 'love' },
-                { id: 'coffee', icon: '☕', label: 'Coffee', domain: 'love' },
-                { id: 'check-circle', icon: '✅', label: 'Check', domain: 'love' },
-                { id: 'cross-circle', icon: '❌', label: 'Cross', domain: 'love' },
+                { id: 'heart', label: 'Heart', domain: 'love' },
+                { id: 'smile', label: 'Smile', domain: 'love' },
+                { id: 'thumbs-up', label: 'Up', domain: 'love' },
+                { id: 'thumbs-down', label: 'Down', domain: 'love' },
+                { id: 'flower', label: 'Flower', domain: 'love' },
+                { id: 'sparkles', label: 'Sparkles', domain: 'love' },
+                { id: 'trophy', label: 'Trophy', domain: 'love' },
+                { id: 'medal', label: 'Medal', domain: 'love' },
+                { id: 'gift', label: 'Gift', domain: 'love' },
+                { id: 'balloon', label: 'Balloon', domain: 'love' },
+                { id: 'clapping', label: 'Clap', domain: 'love' },
+                { id: 'coffee', label: 'Coffee', domain: 'love' },
+                { id: 'check-circle', label: 'Check', domain: 'love' },
+                { id: 'cross-circle', label: 'Cross', domain: 'love' },
 
                 // Usecase
-                { id: 'speech', icon: '💬', label: 'Speech', domain: 'usecase' },
-                { id: 'message', icon: '✉️', label: 'Mail', domain: 'usecase' },
-                { id: 'cross', icon: '➕', label: 'Cross', domain: 'usecase' },
-                { id: 'lightning', icon: '⚡', label: 'Flash', domain: 'usecase' },
-                { id: 'shield', icon: '🛡️', label: 'Shield', domain: 'usecase' },
-                { id: 'arrow-left', icon: '⬅️', label: 'Left', domain: 'usecase' },
-                { id: 'arrow-right', icon: '➡️', label: 'Right', domain: 'usecase' },
-                { id: 'arrow-up', icon: '⬆️', label: 'Up', domain: 'usecase' },
-                { id: 'arrow-down', icon: '⬇️', label: 'Down', domain: 'usecase' },
-                { id: 'tag', icon: '🏷️', label: 'Tag', domain: 'usecase' },
-                { id: 'banner', icon: '🔖', label: 'Banner', domain: 'usecase' },
-                { id: 'user', icon: '👤', label: 'User', domain: 'usecase' },
-                { id: 'clock', icon: '🕒', label: 'Clock', domain: 'usecase' },
-                { id: 'calendar', icon: '📅', label: 'Calendar', domain: 'usecase' },
-                { id: 'card', icon: '💳', label: 'Card', domain: 'usecase' },
-                { id: 'chart', icon: '📊', label: 'Chart', domain: 'usecase' },
-                { id: 'cart', icon: '🛒', label: 'Cart', domain: 'usecase' },
-                { id: 'play', icon: '▶️', label: 'Play', domain: 'usecase' },
-                { id: 'pause', icon: '⏸️', label: 'Pause', domain: 'usecase' },
-                { id: 'stop', icon: '⏹️', label: 'Stop', domain: 'usecase' },
-                { id: 'infinity', icon: '∞', label: 'Infinity', domain: 'usecase' },
+                { id: 'speech', label: 'Speech', domain: 'usecase' },
+                { id: 'message', label: 'Mail', domain: 'usecase' },
+                { id: 'cross', label: 'Cross', domain: 'usecase' },
+                { id: 'lightning', label: 'Flash', domain: 'usecase' },
+                { id: 'shield', label: 'Shield', domain: 'usecase' },
+                { id: 'arrow-left', label: 'Left', domain: 'usecase' },
+                { id: 'arrow-right', label: 'Right', domain: 'usecase' },
+                { id: 'arrow-up', label: 'Up', domain: 'usecase' },
+                { id: 'arrow-down', label: 'Down', domain: 'usecase' },
+                { id: 'tag', label: 'Tag', domain: 'usecase' },
+                { id: 'banner', label: 'Banner', domain: 'usecase' },
+                { id: 'user', label: 'User', domain: 'usecase' },
+                { id: 'clock', label: 'Clock', domain: 'usecase' },
+                { id: 'calendar', label: 'Calendar', domain: 'usecase' },
+                { id: 'card', label: 'Card', domain: 'usecase' },
+                { id: 'chart', label: 'Chart', domain: 'usecase' },
+                { id: 'cart', label: 'Cart', domain: 'usecase' },
+                { id: 'play', label: 'Play', domain: 'usecase' },
+                { id: 'pause', label: 'Pause', domain: 'usecase' },
+                { id: 'stop', label: 'Stop', domain: 'usecase' },
+                { id: 'infinity', label: 'Infinity', domain: 'usecase' },
 
                 // Story
-                { id: 'beat', icon: '〰️', label: 'Beat', domain: 'story' },
-                { id: 'scene', icon: '🎬', label: 'Scene', domain: 'story' },
-                { id: 'arc', icon: '⏜', label: 'Arc', domain: 'story' },
-                { id: 'twist', icon: '🔀', label: 'Twist', domain: 'story' },
-                { id: 'stakes', icon: '🔺', label: 'Stakes', domain: 'story' },
-                { id: 'character', icon: '🎭', label: 'Character', domain: 'story' },
-                { id: 'whisper', icon: '🤫', label: 'Whisper', domain: 'story' },
-                { id: 'foreshadow', icon: '🔮', label: 'Foreshadow', domain: 'story' },
-                { id: 'world', icon: '🌍', label: 'World', domain: 'story' },
-                { id: 'voice', icon: '🗣️', label: 'Voice', domain: 'story' },
+                { id: 'beat', label: 'Beat', domain: 'story' },
+                { id: 'scene', label: 'Scene', domain: 'story' },
+                { id: 'arc', label: 'Arc', domain: 'story' },
+                { id: 'twist', label: 'Twist', domain: 'story' },
+                { id: 'stakes', label: 'Stakes', domain: 'story' },
+                { id: 'character', label: 'Character', domain: 'story' },
+                { id: 'whisper', label: 'Whisper', domain: 'story' },
+                { id: 'foreshadow', label: 'Foreshadow', domain: 'story' },
+                { id: 'world', label: 'World', domain: 'story' },
+                { id: 'voice', label: 'Voice', domain: 'story' },
 
                 // System
-                { id: 'feedback', icon: '🔄', label: 'Feedback', domain: 'system' },
-                { id: 'bottleneck', icon: '⏳', label: 'Bottleneck', domain: 'system' },
-                { id: 'cascade', icon: '📉', label: 'Cascade', domain: 'system' },
-                { id: 'threshold', icon: '🎚️', label: 'Threshold', domain: 'system' },
-                { id: 'trade-off', icon: '⚖️', label: 'Trade-off', domain: 'system' },
-                { id: 'pareto', icon: '📊', label: 'Pareto', domain: 'system' },
-                { id: 'pivot', icon: '🗼', label: 'Pivot', domain: 'system' },
-                { id: 'lever', icon: '⚖️', label: 'Lever', domain: 'system' },
-                { id: 'compound', icon: '📈', label: 'Compound', domain: 'system' },
-                { id: 'risk', icon: '⚠️', label: 'Risk', domain: 'system' }
+                { id: 'feedback', label: 'Feedback', domain: 'system' },
+                { id: 'bottleneck', label: 'Bottleneck', domain: 'system' },
+                { id: 'cascade', label: 'Cascade', domain: 'system' },
+                { id: 'threshold', label: 'Threshold', domain: 'system' },
+                { id: 'trade-off', label: 'Trade-off', domain: 'system' },
+                { id: 'pareto', label: 'Pareto', domain: 'system' },
+                { id: 'pivot', label: 'Pivot', domain: 'system' },
+                { id: 'lever', label: 'Lever', domain: 'system' },
+                { id: 'compound', label: 'Compound', domain: 'system' },
+                { id: 'risk', label: 'Risk', domain: 'system' }
               ].filter((sOption) => selectedShapeDomain === 'all' || sOption.domain === selectedShapeDomain)
                .map((sOption) => (
                 <button
@@ -656,7 +719,15 @@ export default function FloatingToolbar() {
                   }`}
                   title={sOption.label}
                 >
-                  <span className="text-xl mb-1">{sOption.icon}</span>
+                  {/* Real shape preview — identical geometry to the canvas renderer */}
+                  <span className="mb-1 flex items-center justify-center">
+                    <ShapePreview
+                      type={sOption.id}
+                      size={24}
+                      fill={selectedShapeType === sOption.id ? 'var(--accent-subtle)' : 'rgba(255, 252, 248, 0.9)'}
+                      stroke={selectedShapeType === sOption.id ? 'var(--accent)' : 'currentColor'}
+                    />
+                  </span>
                   <span className="text-[8px] uppercase tracking-wider font-medium">{sOption.label}</span>
                 </button>
               ))}
@@ -712,10 +783,45 @@ export default function FloatingToolbar() {
             <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider px-1">Pointer Type</span>
             <div className="grid grid-cols-4 gap-2 justify-center">
               {[
-                { id: 'line', icon: '⎯', label: 'Line' },
-                { id: 'arrow', icon: '➔', label: 'Arrow' },
-                { id: 'dot', icon: '●', label: 'Dot' },
-                { id: 'diamond', icon: '◆', label: 'Diamond' }
+                {
+                  id: 'line',
+                  label: 'Line',
+                  icon: (
+                    <svg width="22" height="14" viewBox="0 0 24 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                      <line x1="2" y1="7" x2="22" y2="7" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: 'arrow',
+                  label: 'Arrow',
+                  icon: (
+                    <svg width="22" height="14" viewBox="0 0 24 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <line x1="2" y1="7" x2="19" y2="7" />
+                      <polyline points="14 2 20 7 14 12" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: 'dot',
+                  label: 'Dot',
+                  icon: (
+                    <svg width="22" height="14" viewBox="0 0 24 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                      <line x1="2" y1="7" x2="16" y2="7" />
+                      <circle cx="19.5" cy="7" r="3" fill="currentColor" stroke="none" />
+                    </svg>
+                  ),
+                },
+                {
+                  id: 'diamond',
+                  label: 'Diamond',
+                  icon: (
+                    <svg width="22" height="14" viewBox="0 0 24 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <line x1="2" y1="7" x2="15" y2="7" />
+                      <polygon points="18.5 3.5 22 7 18.5 10.5 15 7" fill="currentColor" stroke="none" />
+                    </svg>
+                  ),
+                },
               ].map((aOption) => (
                 <button
                   key={aOption.id}
@@ -738,7 +844,7 @@ export default function FloatingToolbar() {
                   }`}
                   title={aOption.label}
                 >
-                  <span className="text-lg mb-0.5">{aOption.icon}</span>
+                  <span className="mb-0.5 flex items-center justify-center">{aOption.icon}</span>
                   <span className="text-[7.5px] uppercase tracking-wider font-semibold">{aOption.label}</span>
                 </button>
               ))}
