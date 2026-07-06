@@ -7,8 +7,6 @@ import { useVoiceStore } from '@/store/voiceStore';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import WorkflowMenu from './WorkflowMenu';
 import ShapePreview from '@/components/canvas/ShapePreview';
-import { playAmbient, AmbientHandle, AmbientKind } from '@/lib/ambientSound';
-import { exportBoard, importBoard } from '@/lib/boardIO';
 
 const FRAME_COLORS = [
   { name: 'Terracotta', hex: '#C97B4B' },
@@ -17,37 +15,6 @@ const FRAME_COLORS = [
   { name: 'Amethyst', hex: '#9B59B6' },
   { name: 'Rose', hex: '#E93D82' },
   { name: 'Charcoal', hex: '#2D2A26' },
-];
-
-const AMBIENT_SOUNDS: { id: AmbientKind; label: string; icon: React.ReactNode }[] = [
-  {
-    id: 'rain',
-    label: 'Rain',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M8 19v2M12 19v2M16 19v2" />
-        <path d="M17 13a5 5 0 0 0-9.9-1A4.5 4.5 0 0 0 8 21h8a4 4 0 0 0 1-7.87" />
-      </svg>
-    ),
-  },
-  {
-    id: 'brown',
-    label: 'Deep Focus',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M2 12c2-4 4 4 6 0s4 4 6 0 4 4 6 0" />
-      </svg>
-    ),
-  },
-  {
-    id: 'white',
-    label: 'White Noise',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M3 12h2l2-6 3 14 3-11 2 3h6" />
-      </svg>
-    ),
-  },
 ];
 
 const DRAW_COLORS = [
@@ -98,43 +65,8 @@ export default function FloatingToolbar() {
   const [showArrowOptions, setShowArrowOptions] = useState(false);
   const [showFrameOptions, setShowFrameOptions] = useState(false);
   const [showWorkflowMenu, setShowWorkflowMenu] = useState(false);
-  const [showSoundsPanel, setShowSoundsPanel] = useState(false);
-  const [showIOPanel, setShowIOPanel] = useState(false);
   const tidyUp = useCanvasStore((s) => s.tidyUp);
 
-  const [activeSound, setActiveSound] = useState<AmbientKind | null>(null);
-  const [soundVolume, setSoundVolume] = useState(0.35);
-  const ambientHandleRef = useRef<AmbientHandle | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [importStatus, setImportStatus] = useState<string | null>(null);
-
-  useEffect(() => () => ambientHandleRef.current?.stop(), []);
-
-  const toggleAmbient = (kind: AmbientKind) => {
-    if (activeSound === kind) {
-      ambientHandleRef.current?.stop();
-      ambientHandleRef.current = null;
-      setActiveSound(null);
-      return;
-    }
-    ambientHandleRef.current?.stop();
-    ambientHandleRef.current = playAmbient(kind, soundVolume);
-    setActiveSound(kind);
-  };
-
-  const handleVolumeChange = (v: number) => {
-    setSoundVolume(v);
-    ambientHandleRef.current?.setVolume(v);
-  };
-
-  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    const result = await importBoard(file);
-    setImportStatus(result.ok ? `Imported ${result.count} item${result.count === 1 ? '' : 's'}` : 'Could not read that file');
-    setTimeout(() => setImportStatus(null), 3500);
-  };
   const [selectedShapeDomain, setSelectedShapeDomain] = useState<'all' | 'brainstorm' | 'code' | 'love' | 'usecase' | 'story' | 'system'>('all');
   const selectedShapeType = useCanvasStore((s) => s.selectedShapeType);
   const setSelectedShapeType = useCanvasStore((s) => s.setSelectedShapeType);
@@ -256,27 +188,6 @@ export default function FloatingToolbar() {
         </svg>
       ),
     },
-    {
-      id: 'sounds' as any,
-      label: 'Focus Sounds',
-      icon: (
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 10v4h4l5 5V5L7 10H3z" />
-          <path d="M16 8a5 5 0 0 1 0 8" />
-        </svg>
-      ),
-    },
-    {
-      id: 'io' as any,
-      label: 'Export / Import board',
-      icon: (
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" y1="15" x2="12" y2="3" />
-        </svg>
-      ),
-    },
   ];
 
   const { isListening } = useVoiceStore();
@@ -345,20 +256,8 @@ export default function FloatingToolbar() {
                 setMode('select');
                 return;
               }
-              if (tool.id === 'sounds' as any) {
-                setShowSoundsPanel(!showSoundsPanel);
-                setShowIOPanel(false);
-                return;
-              }
-              if (tool.id === 'io' as any) {
-                setShowIOPanel(!showIOPanel);
-                setShowSoundsPanel(false);
-                return;
-              }
               setMode(tool.id as InteractionMode);
               setShowWorkflowMenu(false);
-              setShowSoundsPanel(false);
-              setShowIOPanel(false);
               if (tool.id === 'draw') {
                 setShowDrawOptions(true);
                 setShowTextOptions(false);
@@ -398,7 +297,7 @@ export default function FloatingToolbar() {
               }
             }}
             className={`relative w-9 h-9 rounded-lg flex items-center justify-center text-sm font-medium transition-all ${
-              mode === tool.id || (tool.id === 'voice' as any && isListening) || (tool.id === 'workflow' as any && showWorkflowMenu) || (tool.id === 'sounds' as any && (showSoundsPanel || activeSound)) || (tool.id === 'io' as any && showIOPanel)
+              mode === tool.id || (tool.id === 'voice' as any && isListening) || (tool.id === 'workflow' as any && showWorkflowMenu)
                 ? 'bg-[var(--accent)] text-white shadow-md'
                 : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
             }`}
@@ -1091,106 +990,6 @@ export default function FloatingToolbar() {
         )}
       </AnimatePresence>
 
-      {/* Focus Sounds panel */}
-      <AnimatePresence>
-        {showSoundsPanel && (
-          <motion.div
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[240px]"
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider px-1">
-              Focus sounds
-            </span>
-            <div className="grid grid-cols-3 gap-1.5">
-              {AMBIENT_SOUNDS.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => toggleAmbient(s.id)}
-                  className={`flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl border transition-all ${
-                    activeSound === s.id
-                      ? 'border-[var(--accent)] bg-[var(--accent-subtle)] text-[var(--accent)] shadow-sm'
-                      : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                  }`}
-                >
-                  {s.icon}
-                  <span className="text-[9px] font-semibold">{s.label}</span>
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-2 px-1">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--text-muted)] shrink-0">
-                <path d="M11 5 6 9H2v6h4l5 4V5z" />
-              </svg>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={soundVolume}
-                onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                className="w-full accent-[var(--accent)]"
-              />
-            </div>
-            {activeSound && (
-              <p className="text-[10px] text-[var(--text-tertiary)] text-center">
-                Playing on loop — pick a sound again to stop it.
-              </p>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Export / Import board panel */}
-      <AnimatePresence>
-        {showIOPanel && (
-          <motion.div
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-2.5 min-w-[240px]"
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider px-1">
-              Board backup
-            </span>
-            <button
-              onClick={() => exportBoard()}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-all"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              Export board (.json)
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-all"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
-              Import board
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/json"
-              className="hidden"
-              onChange={handleImportFile}
-            />
-            {importStatus && (
-              <p className="text-[10px] text-[var(--accent)] text-center font-semibold">{importStatus}</p>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

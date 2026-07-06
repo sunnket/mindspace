@@ -501,7 +501,7 @@ export default function InfiniteCanvas() {
                 y: worldPos.y - 160,
                 width: 480,
                 height: 320,
-                content: 'Frame',
+                content: '',
                 zIndex: 0,
                 style: { frameColor: '#C97B4B' },
               });

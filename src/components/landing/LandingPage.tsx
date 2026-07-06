@@ -21,6 +21,7 @@ import {
 } from '@/lib/db';
 import { useRouter } from 'next/navigation';
 import AuthButton from '@/components/ui/AuthButton';
+import { exportBoardById } from '@/lib/boardIO';
 
 /* ============================================================
    Types
@@ -122,6 +123,7 @@ const ICONS = {
   plus: <Icon><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Icon>,
   pencil: <Icon size={14} d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />,
   copy: <Icon size={14}><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></Icon>,
+  download: <Icon size={14}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></Icon>,
   restore: <Icon size={14}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Icon>,
   cards: <Icon size={12}><rect x="3" y="3" width="18" height="18" rx="2" /></Icon>,
   sketch: <Icon size={12} d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />,
@@ -405,6 +407,11 @@ export default function LandingPage() {
     e.stopPropagation();
     await duplicateCanvas(ws.id);
     await refresh();
+  };
+
+  const handleDownload = (e: React.MouseEvent, ws: WorkspaceWithStats) => {
+    e.stopPropagation();
+    exportBoardById(ws.id, ws.title || 'untitled canvas');
   };
 
   const handleDeleteForever = async (e: React.MouseEvent, ws: WorkspaceWithStats) => {
@@ -1082,6 +1089,7 @@ export default function LandingPage() {
                                 />
                                 <CardAction label="Rename" onClick={(e) => startRenaming(e, ws.id, ws.title || '')} icon={ICONS.pencil} />
                                 <CardAction label="Duplicate" onClick={(e) => handleDuplicate(e, ws)} icon={ICONS.copy} />
+                                <CardAction label="Download (.json)" onClick={(e) => handleDownload(e, ws)} icon={ICONS.download} />
                                 <CardAction label="Cycle color" onClick={(e) => handleColorCycle(e, ws)} icon={ICONS.palette} />
                                 <CardAction label={ws.archived ? 'Unarchive' : 'Archive'} onClick={(e) => toggleArchive(e, ws)} active={!!ws.archived} icon={<Icon size={14}><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /></Icon>} />
                                 <CardAction label="Move to trash" onClick={(e) => toggleDelete(e, ws)} danger icon={<Icon size={14}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></Icon>} />
@@ -1174,6 +1182,7 @@ export default function LandingPage() {
                                         }
                                       />
                                       <CardAction label="Duplicate" onClick={(e) => handleDuplicate(e, ws)} icon={ICONS.copy} />
+                                      <CardAction label="Download (.json)" onClick={(e) => handleDownload(e, ws)} icon={ICONS.download} />
                                       <CardAction label={ws.archived ? 'Unarchive' : 'Archive'} onClick={(e) => toggleArchive(e, ws)} active={!!ws.archived} icon={<Icon size={14}><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /></Icon>} />
                                       <CardAction label="Move to trash" onClick={(e) => toggleDelete(e, ws)} danger icon={<Icon size={14}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></Icon>} />
                                     </>

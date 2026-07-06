@@ -239,6 +239,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const pushCanvas = useCanvasStore((s) => s.pushCanvas);
   const setPlusMenuPos = useCanvasStore((s) => s.setPlusMenuPos);
 
+  const addObject = useCanvasStore((s) => s.addObject);
   const removeObject = useCanvasStore((s) => s.removeObject);
   const editingId = useCanvasStore((s) => s.editingId);
   const setEditingId = useCanvasStore((s) => s.setEditingId);
@@ -296,25 +297,38 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       e.stopPropagation();
       e.preventDefault();
 
-      // Only select if not in connector mode
-      if (mode !== 'connector') {
-        setSelectedId(obj.id);
+      // Alt+drag clones the object in place and drags the clone, leaving the
+      // original untouched — a fast way to duplicate cards, shapes, and frames.
+      let dragObj = obj;
+      if (e.altKey && mode !== 'connector' && obj.type !== 'arrow') {
+        dragObj = addObject({ ...obj, zIndex: getNextZIndex(), createdAt: Date.now(), updatedAt: Date.now() });
       }
 
-      const newZ = getNextZIndex();
-      updateObject(obj.id, { zIndex: newZ });
+      // Only select if not in connector mode
+      if (mode !== 'connector') {
+        setSelectedId(dragObj.id);
+      }
 
-      const before = { x: obj.x, y: obj.y };
+      if (dragObj.id === obj.id) {
+        updateObject(dragObj.id, { zIndex: getNextZIndex() });
+      }
+
+      // Dragging a frame carries along whatever was grouped into it.
+      const frameChildren = dragObj.type === 'frame'
+        ? objects.filter((o) => o.style?.frameParentId === dragObj.id).map((o) => ({ id: o.id, x: o.x, y: o.y }))
+        : [];
+
+      const before = { x: dragObj.x, y: dragObj.y };
       dragStart.current = {
         x: e.clientX,
         y: e.clientY,
-        objX: obj.x,
-        objY: obj.y,
+        objX: dragObj.x,
+        objY: dragObj.y,
         // For arrows:
-        objStartX: obj.style?.startX as number || 0,
-        objStartY: obj.style?.startY as number || 0,
-        objEndX: obj.style?.endX as number || 0,
-        objEndY: obj.style?.endY as number || 0,
+        objStartX: dragObj.style?.startX as number || 0,
+        objStartY: dragObj.style?.startY as number || 0,
+        objEndX: dragObj.style?.endX as number || 0,
+        objEndY: dragObj.style?.endY as number || 0,
       } as any;
 
       setIsDragging(true);
@@ -349,20 +363,20 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         // Skip snapping in connector mode for a more fluid feel
         if (mode !== 'connector') {
           const others = objects
-            .filter((o) => o.id !== obj.id)
+            .filter((o) => o.id !== dragObj.id)
             .map((o) => ({ x: o.x, y: o.y, width: o.width, height: o.height }));
 
-          const snap = getSnapPoints(newX, newY, obj.width, obj.height, others);
+          const snap = getSnapPoints(newX, newY, dragObj.width, dragObj.height, others);
           if (snap.x !== null) newX = snap.x;
           if (snap.y !== null) newY = snap.y;
         }
 
-        if (obj.type === 'arrow') {
-          updateObject(obj.id, {
+        if (dragObj.type === 'arrow') {
+          updateObject(dragObj.id, {
             x: newX,
             y: newY,
             style: {
-              ...obj.style,
+              ...dragObj.style,
               startX: (dragStart.current as any).objStartX + dx,
               startY: (dragStart.current as any).objStartY + dy,
               endX: (dragStart.current as any).objEndX + dx,
@@ -370,7 +384,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             }
           });
         } else {
-          updateObject(obj.id, { x: newX, y: newY });
+          updateObject(dragObj.id, { x: newX, y: newY });
+        }
+
+        if (frameChildren.length > 0) {
+          frameChildren.forEach((c) => {
+            useCanvasStore.getState().updateObject(c.id, { x: c.x + dx, y: c.y + dy });
+          });
         }
       };
 
@@ -385,22 +405,40 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         if (label) label.style.opacity = '0';
 
         if (overMinimizeZone) {
-          useCanvasStore.getState().minimizeObject(obj.id);
+          useCanvasStore.getState().minimizeObject(dragObj.id);
           return;
+        }
+
+        // Dropping a non-frame object inside a frame's bounds groups it —
+        // move the frame later and this comes along for the ride.
+        if (dragObj.type !== 'frame' && dragObj.type !== 'arrow') {
+          const state = useCanvasStore.getState();
+          const live = state.objects.find((o) => o.id === dragObj.id);
+          if (live) {
+            const cx = live.x + live.width / 2;
+            const cy = live.y + live.height / 2;
+            const host = state.objects.find(
+              (o) => o.type === 'frame' && cx >= o.x && cx <= o.x + o.width && cy >= o.y && cy <= o.y + o.height
+            );
+            const newFrameId = host?.id;
+            if (live.style?.frameParentId !== newFrameId) {
+              state.updateObject(dragObj.id, { style: { ...live.style, frameParentId: newFrameId } });
+            }
+          }
         }
 
         pushUndo({
           type: 'move',
-          objectId: obj.id,
+          objectId: dragObj.id,
           before,
-          after: { x: obj.x, y: obj.y },
+          after: { x: dragObj.x, y: dragObj.y },
         });
       };
 
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
     },
-    [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex]
+    [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex, addObject]
   );
 
   const handleResizeStart = useCallback(
@@ -474,6 +512,52 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     [obj, camera.zoom, updateObject]
   );
 
+  // Frames resize from any corner or edge, not just the bottom-right —
+  // sections need to grow leftward/upward to wrap content already placed there.
+  const handleDotResizeStart = useCallback(
+    (e: React.MouseEvent, dir: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw') => {
+      e.stopPropagation();
+      e.preventDefault();
+      setIsResizing(true);
+
+      const startClientX = e.clientX;
+      const startClientY = e.clientY;
+      const start = { x: obj.x, y: obj.y, w: obj.width, h: obj.height };
+
+      const handleMouseMove = (moveE: MouseEvent) => {
+        const dx = (moveE.clientX - startClientX) / camera.zoom;
+        const dy = (moveE.clientY - startClientY) / camera.zoom;
+
+        let { x, y, w, h } = start;
+        const MIN_W = 160;
+        const MIN_H = 120;
+
+        if (dir.includes('e')) w = Math.max(MIN_W, start.w + dx);
+        if (dir.includes('s')) h = Math.max(MIN_H, start.h + dy);
+        if (dir.includes('w')) {
+          w = Math.max(MIN_W, start.w - dx);
+          x = start.x + (start.w - w);
+        }
+        if (dir.includes('n')) {
+          h = Math.max(MIN_H, start.h - dy);
+          y = start.y + (start.h - h);
+        }
+
+        updateObject(obj.id, { x, y, width: w, height: h, style: { ...obj.style, isResized: true } });
+      };
+
+      const handleMouseUp = () => {
+        setIsResizing(false);
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    },
+    [obj, camera.zoom, updateObject]
+  );
+
   const handleRotateStart = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -521,6 +605,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       if (obj.type === 'heading') {
         // Navigate into nested canvas
         pushCanvas(obj.id);
+        return;
+      }
+
+      if (obj.type === 'frame') {
+        // Frames organize other content — dimming the whole canvas to
+        // "focus" on a section doesn't help, so double-click renames instead.
+        setEditingId(obj.id);
         return;
       }
 
@@ -2606,13 +2697,35 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
 
 
-      {/* Resize handle */}
-      {isSelected && (
-        <div
-          className="resize-handle"
-          style={{ bottom: -5, right: -5, opacity: 1 }}
-          onMouseDown={handleResizeStart}
-        />
+      {/* Resize handle(s) */}
+      {isSelected && obj.type === 'frame' ? (
+        <>
+          {([
+            ['nw', { top: -5, left: -5, cursor: 'nwse-resize' }],
+            ['n', { top: -5, left: '50%', marginLeft: -5, cursor: 'ns-resize' }],
+            ['ne', { top: -5, right: -5, cursor: 'nesw-resize' }],
+            ['e', { top: '50%', right: -5, marginTop: -5, cursor: 'ew-resize' }],
+            ['se', { bottom: -5, right: -5, cursor: 'nwse-resize' }],
+            ['s', { bottom: -5, left: '50%', marginLeft: -5, cursor: 'ns-resize' }],
+            ['sw', { bottom: -5, left: -5, cursor: 'nesw-resize' }],
+            ['w', { top: '50%', left: -5, marginTop: -5, cursor: 'ew-resize' }],
+          ] as const).map(([dir, pos]) => (
+            <div
+              key={dir}
+              className="resize-handle"
+              style={{ ...pos, opacity: 1 }}
+              onMouseDown={(e) => handleDotResizeStart(e, dir)}
+            />
+          ))}
+        </>
+      ) : (
+        isSelected && (
+          <div
+            className="resize-handle"
+            style={{ bottom: -5, right: -5, opacity: 1 }}
+            onMouseDown={handleResizeStart}
+          />
+        )
       )}
     </motion.div>
   );
