@@ -33,13 +33,8 @@ import VoiceOrb from './VoiceOrb';
 import AuthButton from '@/components/ui/AuthButton';
 import ShortcutsOverlay from './ShortcutsOverlay';
 import MinimizeDock from './MinimizeDock';
-import SemanticCard from './SemanticCard';
 import ScenesPanel from './ScenesPanel';
 import MarginsLayer from './MarginsLayer';
-import { useZoomTier } from '@/hooks/useZoomTier';
-
-// Object types heavy enough to be worth simplifying when zoomed out (Fathom).
-const SEMANTIC_TYPES = new Set(['text', 'sticky', 'card', 'heading', 'image', 'workflow-node']);
 import CollabBar from '@/components/collab/CollabBar';
 import CollabCursors from '@/components/collab/CollabCursors';
 import CollabModal from '@/components/collab/CollabModal';
@@ -127,7 +122,6 @@ export default function InfiniteCanvas() {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [activeArrowId, setActiveArrowId] = useState<string | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const zoomTier = useZoomTier();
 
   // Leave any live collaboration session when the canvas unmounts.
   useEffect(() => {
@@ -839,27 +833,17 @@ export default function InfiniteCanvas() {
           {/* Connections Layer (Behind objects) */}
           <ConnectionsLayer />
 
-          {/* Render objects (viewport-culled). Fathom: swap heavy objects for a
-              lightweight semantic card at far/mid zoom, unless the object is
-              being interacted with (selected/editing/focused), which promotes it
-              back to the full render so nothing degrades under your hands. */}
-          {visibleObjects.map((obj) => {
-            const promoted = obj.id === selectedId || obj.id === editingId || obj.id === focusedId;
-            const useSemantic = zoomTier !== 'near' && !promoted && SEMANTIC_TYPES.has(obj.type);
-            return (
-              <div key={obj.id} data-object-id={obj.id}>
-                {useSemantic ? (
-                  <SemanticCard obj={obj} tier={zoomTier} />
-                ) : (
-                  <CanvasObject
-                    obj={obj}
-                    isSelected={selectedId === obj.id}
-                    isFocused={focusedId === obj.id}
-                  />
-                )}
-              </div>
-            );
-          })}
+          {/* Render objects (viewport-culled). Objects always render as their
+              full real component at every zoom level. */}
+          {visibleObjects.map((obj) => (
+            <div key={obj.id} data-object-id={obj.id}>
+              <CanvasObject
+                obj={obj}
+                isSelected={selectedId === obj.id}
+                isFocused={focusedId === obj.id}
+              />
+            </div>
+          ))}
         </div>
 
         {/* Drawing layer (SVG overlay) */}
