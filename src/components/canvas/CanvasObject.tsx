@@ -775,11 +775,28 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       }
     };
 
+    // The slash menu's "AI Agent" item seeds "/agent " into this block so the
+    // user types the task inline and Enter launches it — no modal.
+    const handleSeedAgent = (e: Event) => {
+      const detail = (e as CustomEvent<{ objectId: string }>).detail;
+      if (detail?.objectId !== obj.id || !contentRef.current) return;
+      contentRef.current.innerText = '/agent ';
+      latestContent.current = '/agent ';
+      contentRef.current.focus();
+      const range = document.createRange();
+      const sel = window.getSelection();
+      range.selectNodeContents(contentRef.current);
+      range.collapse(false);
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    };
+    window.addEventListener('seed-agent-prompt', handleSeedAgent);
+
     const handleNativeKeyDown = (e: KeyboardEvent) => {
       // Intercept Enter key for on-the-spot /agent commands
       if (e.key === 'Enter' && !e.shiftKey) {
         const text = latestContent.current.trim();
-        const match = text.match(/^\/agent\s+(.+)$/i);
+        const match = text.match(/^\/agent\s+([\s\S]+)$/i);
         if (match) {
           e.preventDefault();
           e.stopPropagation();
@@ -843,6 +860,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
     return () => {
       clearTimeout(timeoutId);
+      window.removeEventListener('seed-agent-prompt', handleSeedAgent);
       if (ref) {
         ref.removeEventListener('input', handleNativeInput);
         ref.removeEventListener('keydown', handleNativeKeyDown);

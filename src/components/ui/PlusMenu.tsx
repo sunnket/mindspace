@@ -346,9 +346,18 @@ export default function PlusMenu() {
           <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
         </svg>
       ),
-      label: 'AI Canvas Agent',
+      label: 'AI Agent',
       action: () => {
-        useCanvasStore.getState().setAgentPromptOpen(true);
+        // Inline agent prompt: a seeded text block — type the task, Enter runs it
+        const block = addObject({
+          type: 'text',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 460,
+          height: 44,
+          content: '/agent ',
+        });
+        useCanvasStore.getState().setEditingId(block.id);
       }
     },
   ];

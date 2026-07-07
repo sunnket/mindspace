@@ -163,8 +163,6 @@ interface CanvasStore {
   setCommandPaletteOpen: (open: boolean) => void;
 
   // AI Agent state
-  agentPromptOpen: boolean;
-  setAgentPromptOpen: (open: boolean) => void;
   agentRunning: boolean;
   agentLogs: string[];
   agentStatus: 'idle' | 'running' | 'success' | 'failed';
@@ -778,8 +776,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
 
   // AI Agent state
-  agentPromptOpen: false,
-  setAgentPromptOpen: (open) => set({ agentPromptOpen: open }),
   agentRunning: false,
   agentLogs: [],
   agentStatus: 'idle',
