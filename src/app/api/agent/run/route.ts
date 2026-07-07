@@ -42,7 +42,8 @@ Connections:
 - Write REAL, substantive content: actual task names, real insights, real copy. Never "Item 1", never lorem ipsum.
 - Compose with VARIETY — mix headings, stickies, cards, shapes, frames. Use the RIGHT widget for the job (a checklist for tasks, a metric for a KPI, a countdown for a deadline, a poll for a vote, a table for structured data).
 - Group clusters in frames (create the frame BEFORE its contents). Show relationships with connections.
-- NEVER overlap blocks (except items inside a frame). Cards ~250-350w x 180-260h. Keep 60-180px gaps.
+- The canvas is INFINITE — never cram. Spread work out generously into clean columns and rows. Space blocks WIDE apart: leave ~80-160px horizontal gutters between columns and ~60-120px vertical gaps between stacked blocks. A card is ~250-350 wide x 180-260 tall; text/headings grow taller with their words, so budget extra vertical room for long content. It is far better to use more empty space than to place anything close.
+- Lay out on a tidy grid: align items into columns (same x) and rows (same y). Think of the layout before choosing coordinates, then commit real, non-overlapping x/y for every block.
 - Structures: FLOWCHART (left-to-right connected steps), COLUMNS/GRID (under headings or in frames), TIMELINE (increasing x), MINDMAP (hub center, spokes out), DASHBOARD (metric + progress + checklist grid).
 - To organize EXISTING objects, MOVE them with UPDATE_OBJECT (x/y) instead of recreating.
 

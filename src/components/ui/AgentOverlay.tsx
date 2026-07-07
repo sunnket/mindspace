@@ -78,6 +78,38 @@ function makeActionScanner(onAction: (a: Action) => void) {
   };
 }
 
+interface Rect { x: number; y: number; w: number; h: number; }
+
+// Relocation breathing room. Only applied when a block is actually moved to
+// clear a genuine overlap — near-but-not-touching layouts are left untouched.
+const PACK_GAP = 40;
+
+/** True only on a genuine overlap (a few px of real intersection), so the
+ *  model's intended spacing between adjacent cards is preserved. */
+function rectsOverlap(a: Rect, b: Rect): boolean {
+  const tol = 6;
+  return (
+    a.x + tol < b.x + b.w && b.x + tol < a.x + a.w &&
+    a.y + tol < b.y + b.h && b.y + tol < a.y + a.h
+  );
+}
+
+/** The model reports a nominal height, but text/heading/sticky blocks auto-grow
+ *  to fit their content when rendered. Estimate the real height so neighbours
+ *  reserve enough vertical room and don't get written over. */
+function packHeight(objData: Partial<CanvasObjectData>): number {
+  const base = Number(objData.height) || 100;
+  const t = objData.type;
+  if (t === 'heading' || t === 'text' || t === 'sticky') {
+    const content = String(objData.content || '');
+    const perLine = Math.max(8, Math.floor((Number(objData.width) || 200) / (t === 'heading' ? 15 : 8)));
+    const lines = content.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / perLine)), 0);
+    const lineH = t === 'heading' ? 30 : 24;
+    return Math.max(base, lines * lineH + 26);
+  }
+  return base;
+}
+
 /**
  * Guaranteed local build. When every model is unreachable we still put something
  * useful on the canvas from the prompt alone, so the agent NEVER produces nothing.
@@ -180,6 +212,49 @@ export default function AgentOverlay() {
     const idMap: Record<string, string> = {};
     const resolveId = (id?: string) => (id ? (idMap[id] || id) : '');
     let executed = 0;
+
+    /* --- collision-free layout ---------------------------------------------
+       The model supplies layout INTENT (columns, rows, structure); the client
+       guarantees nothing overlaps. Existing content counts as occupied, so new
+       work lands in free space beside it. The whole build is shifted as one
+       block (preserving the model's relative structure) via `placeOffset`, then
+       any genuine residual overlap is resolved by pushing the block down. Frames
+       are backdrops — they neither block nor get pushed, so framed items stay
+       inside them. */
+    const occupied: Rect[] = visibleObjects
+      .filter((o) => o.type !== 'frame')
+      .map((o) => ({ x: o.x, y: o.y, w: o.width, h: o.height }));
+    let placeOffset: { dx: number; dy: number } | null = null;
+
+    const resolveDown = (r: Rect): Rect => {
+      const out = { ...r };
+      let guard = 0;
+      while (guard++ < 600) {
+        const hit = occupied.find((o) => rectsOverlap(out, o));
+        if (!hit) break;
+        out.y = hit.y + hit.h + PACK_GAP;
+      }
+      return out;
+    };
+
+    // Returns the collision-free position for a new object and reserves its space.
+    const placeFor = (objData: Partial<CanvasObjectData>): { x: number; y: number } => {
+      const w = Number(objData.width) || 200;
+      const h = packHeight(objData);
+      const ix = Math.round(Number(objData.x) || 0);
+      const iy = Math.round(Number(objData.y) || 0);
+      if (placeOffset === null) {
+        const anchor = resolveDown({ x: ix, y: iy, w, h });
+        placeOffset = { dx: anchor.x - ix, dy: anchor.y - iy };
+      }
+      let r: Rect = { x: ix + placeOffset.dx, y: iy + placeOffset.dy, w, h };
+      if (objData.type !== 'frame') {
+        r = resolveDown(r);
+        occupied.push(r);
+      }
+      return { x: r.x, y: r.y };
+    };
+
     let panned = false;
     const gentlePan = (o: { x: number; y: number; width: number; height: number }) => {
       // Bring the work into view WITHOUT changing zoom (no zoom in/out).
@@ -201,16 +276,17 @@ export default function AgentOverlay() {
         switch (action.type) {
           case 'CREATE_OBJECT': {
             if (!action.objData) break;
+            const pos = placeFor(action.objData);
             const spawned = live().addObject({
               type: action.objData.type,
-              x: action.objData.x, y: action.objData.y,
+              x: pos.x, y: pos.y,
               width: action.objData.width, height: action.objData.height,
               content: action.objData.content || '',
               style: action.objData.style || {},
             });
             if (action.tempId) idMap[action.tempId] = spawned.id;
             executed++;
-            gentlePan(spawned);
+            gentlePan({ x: pos.x, y: pos.y, width: Number(action.objData.width) || 200, height: Number(action.objData.height) || 100 });
             break;
           }
           case 'UPDATE_OBJECT': {
