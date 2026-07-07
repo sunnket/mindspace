@@ -52,7 +52,7 @@ export default function AgentOverlay() {
     });
   };
 
-  const runAgent = useCallback(async (promptText: string, keyIdx: number, customX?: number, customY?: number) => {
+  const runAgent = useCallback(async (promptText: string, keyIdx: number, customX?: number, customY?: number, refContext?: string) => {
     if (!promptText.trim() || runningRef.current) return;
 
     const store = useCanvasStore.getState();
@@ -74,6 +74,8 @@ export default function AgentOverlay() {
       setAgentState({ agentLogs: [...useCanvasStore.getState().agentLogs, `[${ts}] ${line}`] });
     };
 
+    const live = () => useCanvasStore.getState();
+
     // Snapshot only the canvas level the user is looking at
     const stack = store.canvasStack;
     const activeParent = stack.length > 0
@@ -87,55 +89,49 @@ export default function AgentOverlay() {
       (c) => visibleIds.has(c.fromId) && visibleIds.has(c.toId)
     );
 
-    addLog('[Agent] Thinking through your request...');
+    const basePayload = {
+      prompt: promptText,
+      agentX: startX,
+      agentY: startY,
+      context: refContext,
+      canvas: {
+        objects: visibleObjects.map((o) => ({
+          id: o.id, type: o.type, x: o.x, y: o.y,
+          width: o.width, height: o.height,
+          content: o.content, style: o.style,
+        })),
+        connections: visibleConnections.map((c) => ({ id: c.id, fromId: c.fromId, toId: c.toId })),
+      },
+    };
 
-    try {
+    const callApi = async (payload: Record<string, unknown>) => {
       const response = await fetch('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: promptText,
-          apiKeyIndex: keyIdx,
-          agentX: startX,
-          agentY: startY,
-          canvas: {
-            objects: visibleObjects.map((o) => ({
-              id: o.id, type: o.type, x: o.x, y: o.y,
-              width: o.width, height: o.height,
-              content: o.content, style: o.style,
-            })),
-            connections: visibleConnections.map((c) => ({ id: c.id, fromId: c.fromId, toId: c.toId })),
-          },
-        }),
+        body: JSON.stringify({ ...basePayload, ...payload }),
       });
+      return response.json();
+    };
 
-      if (!runningRef.current) return;
+    // Track everything the squad creates so the camera can settle on it at the end
+    const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    const growBounds = (o: { x: number; y: number; width: number; height: number }) => {
+      bounds.minX = Math.min(bounds.minX, o.x);
+      bounds.minY = Math.min(bounds.minY, o.y);
+      bounds.maxX = Math.max(bounds.maxX, o.x + o.width);
+      bounds.maxY = Math.max(bounds.maxY, o.y + o.height);
+    };
 
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to construct plan');
-      }
-
-      const plan = data.plan;
-      addLog(`[Plan] ${plan.planDescription || 'Building on the canvas'}`);
-
-      const actions: Action[] = Array.isArray(plan.actions) ? plan.actions : [];
-      if (actions.length === 0) {
-        addLog('[Agent] Nothing to do for this request.');
-        setAgentState({ agentStatus: 'success', agentRunning: false });
-        runningRef.current = false;
-        return;
-      }
-
+    // Executes one builder's action list. Streams run concurrently, so tempIds
+    // are namespaced per stream while real canvas ids resolve globally.
+    const executeActions = async (actions: Action[], streamTag: string) => {
       const idMap: Record<string, string> = {};
       const resolveId = (id?: string) => (id ? (idMap[id] || id) : '');
-      const live = () => useCanvasStore.getState();
 
       for (let i = 0; i < actions.length; i++) {
         if (!runningRef.current) return;
-
         const action = actions[i];
-        addLog(action.log || `[Agent] Step ${i + 1}/${actions.length}`);
+        if (action.log) addLog(`${streamTag}${action.log}`);
 
         try {
           switch (action.type) {
@@ -151,14 +147,7 @@ export default function AgentOverlay() {
                 style: action.objData.style || {},
               });
               if (action.tempId) idMap[action.tempId] = spawned.id;
-
-              // Gently keep the build in view
-              const cam = live().camera;
-              live().animateCamera({
-                x: window.innerWidth / 2 - (spawned.x + spawned.width / 2) * cam.zoom,
-                y: window.innerHeight / 2 - (spawned.y + spawned.height / 2) * cam.zoom,
-                zoom: cam.zoom,
-              }, 350);
+              growBounds(spawned);
               break;
             }
             case 'UPDATE_OBJECT': {
@@ -171,6 +160,7 @@ export default function AgentOverlay() {
                 ...updates,
                 style: updates.style ? { ...existing.style, ...updates.style } : existing.style,
               });
+              growBounds({ ...existing, ...updates } as { x: number; y: number; width: number; height: number });
               break;
             }
             case 'DELETE_OBJECT': {
@@ -199,28 +189,167 @@ export default function AgentOverlay() {
           addLog(`[Error] Step failed: ${actionErr instanceof Error ? actionErr.message : actionErr}`);
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 350));
+        // Just enough delay to read as "being built" without feeling slow
+        await new Promise((resolve) => setTimeout(resolve, 60));
       }
+    };
 
-      if (runningRef.current) {
+    try {
+      /* ------------------------------------------------------------------
+         Speculative race: a solo builder starts immediately while the
+         Director analyzes intent and (maybe) splits the job for a squad.
+         Whichever path commits first wins — simple asks never wait for
+         the director; big asks get parallel agents.
+         ------------------------------------------------------------------ */
+      addLog('[Agent] Understanding your intent...');
+
+      interface Subtask { id?: string; title?: string; brief: string; region?: { x: number; y: number; width: number; height: number } }
+
+      let directCommitted = false;
+      let squadCommitted = false;
+
+      const directAttempt = (async () => {
+        const d = await callApi({ phase: 'build', apiKeyIndex: keyIdx + 4, chainOffset: 1 });
+        if (squadCommitted || !runningRef.current) return false;
+        if (!d.success || !Array.isArray(d.plan?.actions) || d.plan.actions.length === 0) {
+          throw new Error(d.error || 'no executable plan');
+        }
+        directCommitted = true;
+        addLog(`[Plan] ${d.plan.planDescription || 'Building on the canvas'}`);
+        await executeActions(d.plan.actions as Action[], '');
+        return true;
+      })();
+      directAttempt.catch(() => { /* judged below — never unhandled */ });
+
+      let director: { intent?: string; designNotes?: string; subtasks: Subtask[] } | null = null;
+      try {
+        const d = await callApi({ phase: 'plan', apiKeyIndex: keyIdx });
+        if (d.success && Array.isArray(d.plan?.subtasks) && d.plan.subtasks.length > 0) {
+          director = d.plan;
+        }
+      } catch { /* director is an optimization — the solo builder still runs */ }
+
+      if (!runningRef.current) return;
+
+      const subtasks: Subtask[] = director?.subtasks?.slice(0, 4) || [];
+
+      /* -------- Solo path: small job, or director unavailable -------- */
+      if (directCommitted || subtasks.length <= 1) {
+        try {
+          const ok = await directAttempt;
+          if (!ok && !directCommitted) throw new Error('solo build skipped');
+        } catch (soloErr) {
+          // Solo failed — if the director produced a refined brief, try once more with it
+          if (subtasks.length === 1) {
+            const st = subtasks[0];
+            if (director?.intent) addLog(`[Plan] ${director.intent}`);
+            const d = await callApi({
+              phase: 'build', apiKeyIndex: keyIdx + 1, chainOffset: 0,
+              brief: st.brief || undefined, region: st.region,
+              designNotes: director?.designNotes, intent: director?.intent,
+            });
+            if (!d.success || !Array.isArray(d.plan?.actions) || d.plan.actions.length === 0) {
+              throw new Error(d.error || (soloErr instanceof Error ? soloErr.message : 'no executable plan'));
+            }
+            addLog(`[Plan] ${d.plan.planDescription || 'Building on the canvas'}`);
+            await executeActions(d.plan.actions as Action[], '');
+          } else {
+            throw soloErr;
+          }
+        }
+
+        if (!runningRef.current) return;
         addLog('[Success] Done.');
         setAgentState({ agentStatus: 'success', agentRunning: false });
         runningRef.current = false;
 
-        // Settle the camera on the work area
-        const cam = live().camera;
-        live().animateCamera({
-          x: window.innerWidth / 2 - startX * cam.zoom,
-          y: window.innerHeight / 2 - startY * cam.zoom,
-          zoom: cam.zoom,
-        }, 600);
-
+        if (bounds.minX !== Infinity) {
+          const cam = live().camera;
+          live().animateCamera({
+            x: window.innerWidth / 2 - ((bounds.minX + bounds.maxX) / 2) * cam.zoom,
+            y: window.innerHeight / 2 - ((bounds.minY + bounds.maxY) / 2) * cam.zoom,
+            zoom: cam.zoom,
+          }, 600);
+        }
         setTimeout(() => {
           if (useCanvasStore.getState().agentStatus === 'success') {
             setAgentState({ agentStatus: 'idle', agentLogs: [] });
           }
         }, 2500);
+        return;
       }
+
+      /* -------- Squad path: director split the job — deploy parallel agents -------- */
+      squadCommitted = true;
+      if (director?.intent) addLog(`[Plan] ${director.intent}`);
+      {
+        addLog(`[Agent] Deploying ${subtasks.length} agents in parallel: ${subtasks.map((s) => s.title || s.id).filter(Boolean).join(', ')}`);
+        // Point the camera at the combined work area while the squad builds
+        const regions = subtasks.map((s) => s.region).filter(Boolean) as { x: number; y: number; width: number; height: number }[];
+        if (regions.length > 0) {
+          const cx = (Math.min(...regions.map((r) => r.x)) + Math.max(...regions.map((r) => r.x + r.width))) / 2;
+          const cy = (Math.min(...regions.map((r) => r.y)) + Math.max(...regions.map((r) => r.y + r.height))) / 2;
+          const cam = live().camera;
+          live().animateCamera({
+            x: window.innerWidth / 2 - cx * cam.zoom,
+            y: window.innerHeight / 2 - cy * cam.zoom,
+            zoom: cam.zoom,
+          }, 500);
+        }
+      }
+
+      /* -------- Phase 2: builders run in parallel, executing as they land -------- */
+      let succeeded = 0;
+      let firstError: Error | null = null;
+
+      await Promise.allSettled(subtasks.map((st, i) => (async () => {
+        const tag = subtasks.length > 1 ? `[Agent ${i + 1}] ` : '';
+        const d = await callApi({
+          phase: 'build',
+          apiKeyIndex: keyIdx + i + 1, // director used keyIdx — spread workers across keys
+          chainOffset: i,
+          brief: st.brief || undefined,
+          region: st.region,
+          designNotes: director?.designNotes,
+          intent: director?.intent,
+        });
+        if (!runningRef.current) return;
+        if (!d.success || !Array.isArray(d.plan?.actions) || d.plan.actions.length === 0) {
+          throw new Error(d.error || 'no executable plan');
+        }
+        if (subtasks.length > 1) addLog(`${tag}${st.title || 'Ready'} — ${d.plan.actions.length} steps`);
+        else addLog(`[Plan] ${d.plan.planDescription || 'Building on the canvas'}`);
+        await executeActions(d.plan.actions as Action[], tag);
+        succeeded++;
+      })().catch((err: Error) => {
+        firstError = firstError || err;
+        addLog(`[Error] ${subtasks.length > 1 ? `Agent ${i + 1}` : 'Agent'} failed: ${err.message}`);
+      })));
+
+      if (!runningRef.current) return;
+      if (succeeded === 0) {
+        throw firstError || new Error('All agents failed');
+      }
+
+      addLog('[Success] Done.');
+      setAgentState({ agentStatus: 'success', agentRunning: false });
+      runningRef.current = false;
+
+      // Settle the camera on everything that was built
+      if (bounds.minX !== Infinity) {
+        const cam = live().camera;
+        live().animateCamera({
+          x: window.innerWidth / 2 - ((bounds.minX + bounds.maxX) / 2) * cam.zoom,
+          y: window.innerHeight / 2 - ((bounds.minY + bounds.maxY) / 2) * cam.zoom,
+          zoom: cam.zoom,
+        }, 600);
+      }
+
+      setTimeout(() => {
+        if (useCanvasStore.getState().agentStatus === 'success') {
+          setAgentState({ agentStatus: 'idle', agentLogs: [] });
+        }
+      }, 2500);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error('[Agent]', err);
@@ -239,9 +368,9 @@ export default function AgentOverlay() {
   // Inline "/agent <task>" launches arrive as run-agent window events
   useEffect(() => {
     const handleRunEvent = (e: Event) => {
-      const customEvent = e as CustomEvent<{ prompt: string; apiKeyIndex?: number; x?: number; y?: number }>;
-      const { prompt: p, apiKeyIndex: ki, x, y } = customEvent.detail;
-      runAgent(p, ki ?? 0, x, y);
+      const customEvent = e as CustomEvent<{ prompt: string; apiKeyIndex?: number; x?: number; y?: number; context?: string }>;
+      const { prompt: p, apiKeyIndex: ki, x, y, context } = customEvent.detail;
+      runAgent(p, ki ?? 0, x, y, context);
     };
 
     window.addEventListener('run-agent', handleRunEvent);

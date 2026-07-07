@@ -780,8 +780,12 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     const handleSeedAgent = (e: Event) => {
       const detail = (e as CustomEvent<{ objectId: string }>).detail;
       if (detail?.objectId !== obj.id || !contentRef.current) return;
-      contentRef.current.innerText = '/agent ';
-      latestContent.current = '/agent ';
+      // Swap the trailing "/query" for "/agent " but keep any text the user
+      // already wrote — it becomes reference context when the agent runs.
+      let base = contentRef.current.innerText.replace(/(^|\s)\/[a-zA-Z]*\s*$/, '$1');
+      if (base && !/\s$/.test(base)) base += ' ';
+      contentRef.current.innerText = base + '/agent ';
+      latestContent.current = base + '/agent ';
       contentRef.current.focus();
       const range = document.createRange();
       const sel = window.getSelection();
@@ -793,21 +797,24 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     window.addEventListener('seed-agent-prompt', handleSeedAgent);
 
     const handleNativeKeyDown = (e: KeyboardEvent) => {
-      // Intercept Enter key for on-the-spot /agent commands
+      // Intercept Enter for inline /agent (or /ai) commands. The command may sit
+      // mid-text: everything before it becomes reference context the agent works
+      // on, and the block keeps that original text.
       if (e.key === 'Enter' && !e.shiftKey) {
-        const text = latestContent.current.trim();
-        const match = text.match(/^\/agent\s+([\s\S]+)$/i);
-        if (match) {
+        const text = latestContent.current;
+        const match = text.match(/(^|\s)\/(?:agent|ai)\s+([\s\S]+)$/i);
+        if (match && match[2].trim()) {
           e.preventDefault();
           e.stopPropagation();
 
-          const prompt = match[1].trim();
+          const prompt = match[2].trim();
+          const before = text.slice(0, match.index ?? 0).trimEnd();
 
-          // Clear text block content
+          // Strip the command, keep whatever the user was writing
           if (contentRef.current) {
-            contentRef.current.innerText = '';
+            contentRef.current.innerText = before;
           }
-          latestContent.current = '';
+          latestContent.current = before;
           setEditingId(null);
 
           // Dispatch custom window event to trigger background AI agent
@@ -816,7 +823,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               prompt,
               apiKeyIndex: 0, // Default to first Nvidia key
               x: obj.x,
-              y: obj.y
+              y: obj.y,
+              context: before || undefined,
             }
           }));
           return;
