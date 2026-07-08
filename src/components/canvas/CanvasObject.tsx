@@ -335,19 +335,24 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
       setIsDragging(true);
 
-      // Minimize shelf: dropping an object in the top-left corner slides it
-      // into the dock instead of leaving it there. Tracked as a plain closure
-      // variable (not React state) so the frequent mousemove never re-renders.
+      // Top-left drop dock: the upper zone MINIMIZES the object into the shelf;
+      // the zone just below WARPS it to another canvas. Tracked as plain closure
+      // variables (not React state) so the frequent mousemove never re-renders.
       let overMinimizeZone = false;
+      let overWarpZone = false;
       let draggedFar = false;
-      const HOTZONE_W = 200;
-      const HOTZONE_H = 300;
+      const HOTZONE_W = 210;
 
       const handleMouseMove = (moveE: MouseEvent) => {
         if (Math.abs(moveE.clientX - dragStart.current.x) > 8 || Math.abs(moveE.clientY - dragStart.current.y) > 8) {
           draggedFar = true;
         }
-        overMinimizeZone = draggedFar && moveE.clientX < HOTZONE_W && moveE.clientY < HOTZONE_H;
+        const inLeftCol = draggedFar && moveE.clientX < HOTZONE_W;
+        // Frames/arrows can't be warped into another canvas meaningfully.
+        const warpable = dragObj.type !== 'frame' && dragObj.type !== 'arrow';
+        overMinimizeZone = inLeftCol && moveE.clientY >= 72 && moveE.clientY < 232;
+        overWarpZone = warpable && inLeftCol && moveE.clientY >= 240 && moveE.clientY < 404;
+
         const zone = document.getElementById('minimize-hotzone');
         const label = document.getElementById('minimize-hotzone-label');
         if (zone) {
@@ -355,6 +360,15 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           zone.style.background = overMinimizeZone ? 'rgba(201,123,75,0.08)' : 'transparent';
         }
         if (label) label.style.opacity = overMinimizeZone ? '1' : '0';
+
+        const wzone = document.getElementById('warp-hotzone');
+        const wlabel = document.getElementById('warp-hotzone-label');
+        if (wzone) {
+          wzone.style.opacity = draggedFar && warpable ? '1' : '0';
+          wzone.style.borderColor = overWarpZone ? 'var(--accent)' : 'rgba(201,123,75,0.28)';
+          wzone.style.background = overWarpZone ? 'rgba(201,123,75,0.12)' : 'transparent';
+        }
+        if (wlabel) wlabel.style.opacity = overWarpZone ? '1' : '0.55';
 
         const dx = (moveE.clientX - dragStart.current.x) / camera.zoom;
         const dy = (moveE.clientY - dragStart.current.y) / camera.zoom;
@@ -405,9 +419,22 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const label = document.getElementById('minimize-hotzone-label');
         if (zone) { zone.style.borderColor = 'transparent'; zone.style.background = 'transparent'; }
         if (label) label.style.opacity = '0';
+        const wzone = document.getElementById('warp-hotzone');
+        const wlabel = document.getElementById('warp-hotzone-label');
+        if (wzone) { wzone.style.opacity = '0'; wzone.style.borderColor = 'rgba(201,123,75,0.28)'; wzone.style.background = 'transparent'; }
+        if (wlabel) wlabel.style.opacity = '0.55';
 
         if (overMinimizeZone) {
           useCanvasStore.getState().minimizeObject(dragObj.id);
+          return;
+        }
+
+        // Warp: hand off to the portal picker to teleport this object to
+        // another canvas. Snap it back to where the drag started first so it
+        // doesn't linger over the dock if the user cancels.
+        if (overWarpZone) {
+          updateObject(dragObj.id, { x: before.x, y: before.y });
+          window.dispatchEvent(new CustomEvent('open-warp', { detail: { objectId: dragObj.id } }));
           return;
         }
 

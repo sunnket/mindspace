@@ -208,6 +208,23 @@ const ITEMS: SlashItem[] = [
     }
   },
   {
+    id: 'braindump',
+    label: 'Braindump',
+    sublabel: 'Talk — AI turns it into cards, checklists & connectors',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" /></svg>),
+    keywords: ['braindump', 'brain', 'dump', 'voice', 'talk', 'speak', 'record', 'structure', 'transcribe'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'card',
+        width: 360,
+        height: 240,
+        content: '',
+        style: { isVoiceNote: true, braindump: true, autoRecord: true },
+      });
+      setEditingId(null);
+    }
+  },
+  {
     id: 'code',
     label: 'Code Sandbox',
     sublabel: 'Interactive code editor block',

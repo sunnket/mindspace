@@ -2,11 +2,19 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { v4 as uuidv4 } from 'uuid';
 import { useCanvasStore } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 
 interface Action {
-  type: 'CREATE_OBJECT' | 'UPDATE_OBJECT' | 'DELETE_OBJECT' | 'CREATE_CONNECTION' | 'DELETE_CONNECTION';
+  type:
+    | 'CREATE_OBJECT'
+    | 'UPDATE_OBJECT'
+    | 'DELETE_OBJECT'
+    | 'CREATE_CONNECTION'
+    | 'DELETE_CONNECTION'
+    | 'CREATE_STROKE'
+    | 'CREATE_SCENE';
   tempId?: string;
   id?: string;
   fromId?: string;
@@ -15,7 +23,55 @@ interface Action {
   objData?: Partial<CanvasObjectData>;
   updates?: Partial<CanvasObjectData>;
   style?: Record<string, unknown>;
+  // CREATE_STROKE
+  points?: number[][];
+  color?: string;
+  size?: number;
+  isHighlighter?: boolean;
+  // CREATE_SCENE
+  name?: string;
+  x?: number;
+  y?: number;
+  zoom?: number;
   log?: string;
+}
+
+/** Downscale an image data URL for the vision model (keeps payload small so the
+ *  NIM inline-image limit is respected). Falls back to the original on failure. */
+function downscaleImage(dataUrl: string, max = 768, quality = 0.6): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(dataUrl);
+        ctx.drawImage(img, 0, 0, w, h);
+        try {
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    } catch {
+      resolve(dataUrl);
+    }
+  });
+}
+
+const IMAGE_TASK_RE =
+  /\b(caption|captions|describe|description|alt[\s-]?text|title|analy[sz]e|summari[sz]e|transcribe|what(?:'s| is| does)?[^.]*\b(image|picture|photo|pic|screenshot))\b|\b(this|the|my)\s+(image|picture|photo|pic|screenshot)\b/i;
+
+/** Is this task about an image the user placed? */
+function isImageTask(text: string): boolean {
+  return IMAGE_TASK_RE.test(text || '');
 }
 
 const StopIcon = ({ size = 9 }: { size?: number }) => (
@@ -82,7 +138,7 @@ interface Rect { x: number; y: number; w: number; h: number; }
 
 // Relocation breathing room. Only applied when a block is actually moved to
 // clear a genuine overlap — near-but-not-touching layouts are left untouched.
-const PACK_GAP = 40;
+const PACK_GAP = 52;
 
 /** True only on a genuine overlap (a few px of real intersection), so the
  *  model's intended spacing between adjacent cards is preserved. */
@@ -102,10 +158,16 @@ function packHeight(objData: Partial<CanvasObjectData>): number {
   const t = objData.type;
   if (t === 'heading' || t === 'text' || t === 'sticky') {
     const content = String(objData.content || '');
-    const perLine = Math.max(8, Math.floor((Number(objData.width) || 200) / (t === 'heading' ? 15 : 8)));
+    const w = Number(objData.width) || 200;
+    // Estimate rendered height GENEROUSLY (over-reserve) — headings render at
+    // ~2.2rem and everything auto-grows, so under-reserving is what caused the
+    // agent to write blocks over its own text. Better to leave a gap than overlap.
+    const charPx = t === 'heading' ? 20 : 8.6; // avg glyph advance
+    const lineH = t === 'heading' ? 46 : 26;
+    const perLine = Math.max(6, Math.floor((w - 24) / charPx));
     const lines = content.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / perLine)), 0);
-    const lineH = t === 'heading' ? 30 : 24;
-    return Math.max(base, lines * lineH + 26);
+    const pad = t === 'sticky' ? 40 : 30;
+    return Math.max(base, lines * lineH + pad);
   }
   return base;
 }
@@ -322,6 +384,42 @@ export default function AgentOverlay() {
             if (connId) { live().removeConnection(connId); executed++; }
             break;
           }
+          case 'CREATE_STROKE': {
+            const raw = Array.isArray(action.points) ? action.points : [];
+            const dx = placeOffset?.dx || 0;
+            const dy = placeOffset?.dy || 0;
+            const pts = raw
+              .filter((p) => Array.isArray(p) && p.length >= 2 && isFinite(Number(p[0])) && isFinite(Number(p[1])))
+              .map((p) => [Number(p[0]) + dx, Number(p[1]) + dy, 0.5]);
+            if (pts.length >= 2) {
+              live().addStroke({
+                id: uuidv4(),
+                points: pts,
+                color: (action.color as string) || '#2D2A26',
+                size: Math.max(1, Number(action.size) || 4),
+                isHighlighter: Boolean(action.isHighlighter),
+                createdAt: Date.now(),
+              });
+              executed++;
+              const xs = pts.map((p) => p[0]);
+              const ys = pts.map((p) => p[1]);
+              const minX = Math.min(...xs), minY = Math.min(...ys);
+              gentlePan({ x: minX, y: minY, width: Math.max(...xs) - minX, height: Math.max(...ys) - minY });
+            }
+            break;
+          }
+          case 'CREATE_SCENE': {
+            const zoom = Math.min(2, Math.max(0.15, Number(action.zoom) || 0.8));
+            const cx = isFinite(Number(action.x)) ? Number(action.x) : startX;
+            const cy = isFinite(Number(action.y)) ? Number(action.y) : startY;
+            live().addSceneWithCamera(action.name || `Scene ${live().scenes.length + 1}`, {
+              x: window.innerWidth / 2 - cx * zoom,
+              y: window.innerHeight / 2 - cy * zoom,
+              zoom,
+            });
+            executed++;
+            break;
+          }
         }
         if (action.log) addLog(action.log);
       } catch (e) {
@@ -348,6 +446,43 @@ export default function AgentOverlay() {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      // If the task is about an image the user placed, LOOK at it first so any
+      // caption/description is grounded in what the picture actually shows.
+      let visionContext: string | undefined;
+      if (isImageTask(promptText)) {
+        const isImg = (o?: CanvasObjectData) =>
+          !!o && (o.type === 'image' || (typeof o.content === 'string' && o.content.startsWith('data:image')));
+        const selected = store.selectedId ? live().objects.find((o) => o.id === store.selectedId) : undefined;
+        let target: CanvasObjectData | undefined = isImg(selected) ? selected : undefined;
+        if (!target) {
+          const imgs = visibleObjects.filter(isImg);
+          if (imgs.length) {
+            target = imgs.reduce((best, o) =>
+              Math.hypot(o.x - startX, o.y - startY) < Math.hypot(best.x - startX, best.y - startY) ? o : best
+            );
+          }
+        }
+        if (target && typeof target.content === 'string' && target.content.startsWith('data:image')) {
+          addLog('[Agent] Looking at your image...');
+          try {
+            const small = await downscaleImage(target.content);
+            const vres = await fetch('/api/vision', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ image: small }),
+              signal: controller.signal,
+            });
+            if (vres.ok) {
+              const vjson = await vres.json();
+              if (vjson?.description) {
+                visionContext = `Image at (x:${Math.round(target.x)}, y:${Math.round(target.y)}, ${Math.round(target.width)}x${Math.round(target.height)}) shows: ${vjson.description}`;
+              }
+            }
+          } catch { /* vision is best-effort — proceed without it */ }
+        }
+        if (!runningRef.current) return;
+      }
+
       const res = await fetch('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -356,6 +491,7 @@ export default function AgentOverlay() {
           apiKeyIndex: keyIdx,
           agentX: startX, agentY: startY,
           context: refContext,
+          visionContext,
           canvas: {
             objects: visibleObjects.map((o) => ({
               id: o.id, type: o.type, x: o.x, y: o.y,

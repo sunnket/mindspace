@@ -72,6 +72,7 @@ interface CanvasStore {
   scenes: Scene[];
   setScenes: (scenes: Scene[]) => void;
   addScene: (name?: string) => void;
+  addSceneWithCamera: (name: string, camera: { x: number; y: number; zoom: number }, durationMs?: number) => void;
   removeScene: (id: string) => void;
   renameScene: (id: string, name: string) => void;
   moveScene: (id: string, dir: -1 | 1) => void;
@@ -102,6 +103,10 @@ interface CanvasStore {
   // Minimize dock — slide any object into the corner shelf, drag it back out anywhere
   minimizeObject: (id: string) => void;
   restoreMinimized: (id: string, worldX: number, worldY: number) => void;
+
+  // Warp — teleport an object to another canvas/board (changes its parentId,
+  // persists under the new parent, and removes it from the current canvas).
+  teleportObject: (id: string, targetParentId: string) => void;
 
   // Strokes
   strokes: DrawingStroke[];
@@ -302,6 +307,17 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       camera: { ...get().camera },
       order: scenes.length,
       durationMs: 1400,
+    };
+    set({ scenes: [...scenes, scene], isDirty: true });
+  },
+  addSceneWithCamera: (name, camera, durationMs) => {
+    const scenes = get().scenes;
+    const scene: Scene = {
+      id: uuidv4(),
+      name: name?.trim() || `Scene ${scenes.length + 1}`,
+      camera: { x: camera.x, y: camera.y, zoom: camera.zoom },
+      order: scenes.length,
+      durationMs: durationMs && durationMs > 0 ? durationMs : 1400,
     };
     set({ scenes: [...scenes, scene], isDirty: true });
   },
@@ -545,6 +561,41 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       height,
       zIndex: get().getNextZIndex(),
       style: { ...obj.style, isMinimized: false },
+    });
+  },
+
+  teleportObject: (id, targetParentId) => {
+    const obj = get().objects.find((o) => o.id === id);
+    if (!obj) return;
+
+    // 'root' means the top-level board (objects there carry no parentId).
+    const newParent = targetParentId === 'root' ? undefined : targetParentId;
+    const relatedConns = get().connections.filter((c) => c.fromId === id || c.toId === id);
+
+    // The object keeps its id; only its parentId changes, so the single DB
+    // record is re-homed under the target canvas (no duplication). It reappears
+    // when that canvas is opened.
+    const moved: CanvasObjectData = {
+      ...obj,
+      parentId: newParent,
+      style: { ...obj.style, frameParentId: undefined, isMinimized: false },
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      objects: state.objects.filter((o) => o.id !== id),
+      connections: state.connections.filter((c) => c.fromId !== id && c.toId !== id),
+      selectedId: state.selectedId === id ? null : state.selectedId,
+      editingId: state.editingId === id ? null : state.editingId,
+      isDirty: true,
+    }));
+    emitCollab({ kind: 'remove', id });
+
+    import('@/lib/db').then(({ saveObject, deleteConnection }) => {
+      saveObject(moved).catch((err) => console.error('Failed to persist teleported object:', err));
+      relatedConns.forEach((c) =>
+        deleteConnection(c.id).catch((err) => console.error('Failed to delete connection:', err))
+      );
     });
   },
 

@@ -43,16 +43,38 @@ Connections:
 - DELETE_OBJECT: remove by real id or tempId.
 - CREATE_CONNECTION: connector between two objects (real ids and/or tempIds).
 - DELETE_CONNECTION: remove by real connection id.
+- CREATE_STROKE: DRAW freehand ink on the canvas (pen or highlighter). Use when the user says "draw", "sketch", "circle it", "underline", "cross out", "annotate".
+- CREATE_SCENE: add a cinematic tour stop (a saved camera framing). Use when the user asks for a tour, a walkthrough, or "scenes".
 
 ### CRAFT — this is what makes you exceptional
 - Write REAL, substantive content: actual task names, real insights, real copy. Never "Item 1", never lorem ipsum.
 - Compose with VARIETY — mix headings, stickies, cards, shapes, frames. Use the RIGHT widget for the job (a checklist for tasks, a metric for a KPI, a countdown for a deadline, a poll for a vote, a table for structured data).
 - Group clusters in frames (create the frame BEFORE its contents). Show relationships with connections.
-- The canvas is INFINITE — never cram. Spread work out generously into clean columns and rows. Space blocks WIDE apart: leave ~80-160px horizontal gutters between columns and ~60-120px vertical gaps between stacked blocks. A card is ~250-350 wide x 180-260 tall; text/headings grow taller with their words, so budget extra vertical room for long content. It is far better to use more empty space than to place anything close.
-- Lay out on a tidy grid: align items into columns (same x) and rows (same y). Think of the layout before choosing coordinates, then commit real, non-overlapping x/y for every block.
+- FONTS: when the user names a font ("make it Playfair", "use a handwritten font", "bold display heading"), set style.fontFamily on the text/heading/sticky. Valid values (use the exact string): "'Inter', sans-serif", "'Outfit', sans-serif", "'Playfair Display', serif", "'Lora', serif", "'Merriweather', serif", "'JetBrains Mono', monospace", "'Caveat', cursive", "'Pacifico', cursive", "'Dancing Script', cursive", "'Bebas Neue', sans-serif", "'Anton', sans-serif", "'Lobster', cursive", "'Space Grotesk', sans-serif". You can also set style.fontSize (px number).
+
+### LAYOUT — NON-NEGOTIABLE, this is where past attempts failed
+- Decide a grid BEFORE choosing coordinates. Pick a column width and a generous cell size, then place every block on that grid. Never eyeball overlapping positions.
+- Columns are ≥ 380px apart (x step). Rows are ≥ 220px apart (y step) — MORE when a block holds lots of text, because text/heading/sticky blocks AUTO-GROW taller than their nominal height. When in doubt, add vertical space.
+- NEVER put two blocks at the same x within 200px of each other vertically, or the same y within 360px horizontally. Two blocks must never share screen space.
+- A heading owns the column/section below it: leave ≥ 90px between a heading and the first block under it.
+- Frames are backdrops sized to fully contain their children with ≥ 40px padding on every side; place children INSIDE the frame's bounds.
+- The canvas is INFINITE — err on the side of too much whitespace. Spreading out always beats cramming.
 - Structures: FLOWCHART (left-to-right connected steps), COLUMNS/GRID (under headings or in frames), TIMELINE (increasing x), MINDMAP (hub center, spokes out), DASHBOARD (metric + progress + checklist grid).
 - To organize/tidy EXISTING objects, MOVE them with UPDATE_OBJECT (x/y) into aligned columns and rows — never recreate them. To improve wording, UPDATE_OBJECT the "content". Preserve every real id; the client maps ids for you.
 - BRING LINKS: when the user wants a resource, reference, video, song, article, or tool ("add the React docs", "drop a lofi playlist", "link the pricing page"), CREATE a Link Card with a REAL, valid, working URL you know (e.g. https://react.dev, a real youtube.com/watch?v=… or open.spotify.com/… link). The canvas fetches a live thumbnail automatically — just give the true linkUrl; do not invent fake domains.
+
+### IMAGES — you CAN see them
+- Image objects appear in the snapshot as type "image". When a description is provided in the REFERENCE/VISION section above, that is what the image actually shows — use it. To caption/describe/title an image, place a "text" or "heading" block DIRECTLY BELOW that image (same x, y = image.y + image.height + 24) with a real caption grounded in the description. Never invent unrelated content for an image you've been shown.
+
+### DRAWING (CREATE_STROKE) — real ink, like the pen tool
+- Shape: { "type":"CREATE_STROKE", "points":[[x,y],[x,y], …], "color":"#hex", "size":4, "isHighlighter":false, "log":"Sketching…" }
+- points are ABSOLUTE world coordinates (same space as object x/y). Give ENOUGH points to render the shape smoothly (a circle ≈ 24 points around a center; a line/underline = 2 points; an arrow = a shaft plus two short head strokes as SEPARATE strokes; a checkmark = 3 points; a box = 5 points closing back to start).
+- Use color from the drawing palette (#2D2A26 ink, #D64545 red, #4A90D9 blue, #45B761 green, #E8A97B accent). Set isHighlighter:true with a bright color (#FFE066, #A5D6FF) and size ≥ 14 to highlight over something.
+- To "circle this" / "underline that" / "cross out", draw the stroke over the target object's bounds (read its x/y/width/height from the snapshot).
+
+### SCENES (CREATE_SCENE) — cinematic tour stops
+- Shape: { "type":"CREATE_SCENE", "name":"Overview", "x":<center x>, "y":<center y>, "zoom":0.8, "log":"Adding a tour stop…" }
+- x,y are the WORLD point to center; zoom ~0.5 (wide) to 1.4 (close). Create one scene per key area, in viewing order, so the user can play a guided tour.
 
 ### OBJECT SCHEMAS (objData for CREATE_OBJECT; also valid as UPDATE_OBJECT updates)
 - "heading": { content, width 300-500, height 60 }
@@ -91,7 +113,8 @@ function compactSnapshot(objects: SnapshotObject[], agentX: number, agentY: numb
     Math.hypot(a.x - agentX, a.y - agentY) - Math.hypot(b.x - agentX, b.y - agentY)
   );
   return byDistance.slice(0, 100).map((o) => {
-    const isBinary = o.type === 'image' || o.type === 'drawing' || (o.content || '').startsWith('data:');
+    const isImage = o.type === 'image' || (o.content || '').startsWith('data:image');
+    const isBinary = isImage || o.type === 'drawing' || (o.content || '').startsWith('data:');
     const style: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(o.style || {})) {
       if (typeof v === 'string' && v.length > 160) continue;
@@ -101,7 +124,9 @@ function compactSnapshot(objects: SnapshotObject[], agentX: number, agentY: numb
       id: o.id, type: o.type,
       x: Math.round(o.x), y: Math.round(o.y),
       width: Math.round(o.width), height: Math.round(o.height),
-      content: isBinary ? '[media]' : (o.content || '').slice(0, 240),
+      // Label images distinctly so the model knows a picture lives here (and
+      // can caption/annotate it near its position) even though it can't see bytes.
+      content: isImage ? '[IMAGE — a picture the user placed here]' : isBinary ? '[media]' : (o.content || '').slice(0, 240),
       style,
     };
   });
@@ -202,7 +227,7 @@ async function openModelStream(
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief } = await req.json();
+    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext } = await req.json();
     if (!prompt) {
       return NextResponse.json({ success: false, error: 'Prompt is required' }, { status: 400 });
     }
@@ -231,6 +256,9 @@ export async function POST(req: NextRequest) {
     const parts: string[] = [];
     if (typeof context === 'string' && context.trim()) {
       parts.push(`### REFERENCE TEXT — the user invoked you directly on this text; it is your primary source material to complete, transform, or build from exactly as asked:\n"""${context.trim().slice(0, 2000)}"""`);
+    }
+    if (typeof visionContext === 'string' && visionContext.trim()) {
+      parts.push(`### VISION — what the image(s) on the canvas actually show (produced by an image model looking at the picture). Ground any caption/description/title on THIS, not guesses:\n"""${visionContext.trim().slice(0, 2000)}"""`);
     }
     if (typeof brief === 'string' && brief.trim()) {
       parts.push(`### FOCUS\n${brief.trim()}`);

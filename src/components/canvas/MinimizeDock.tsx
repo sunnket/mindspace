@@ -87,11 +87,12 @@ export default function MinimizeDock() {
         {ghostLabel}
       </div>
 
-      {/* Drop-target highlight — toggled directly by CanvasObject's drag handler
-          via DOM writes (no store subscription) to avoid re-rendering on drag. */}
+      {/* Drop-target highlights — toggled directly by CanvasObject's drag handler
+          via DOM writes (no store subscription) to avoid re-rendering on drag.
+          Top zone minimizes; the zone below WARPS to another canvas. */}
       <div
         id="minimize-hotzone"
-        className="fixed top-24 left-4 w-48 h-64 z-[100] pointer-events-none rounded-[28px] border-2 border-dashed flex items-center justify-center transition-colors duration-150"
+        className="fixed top-[76px] left-4 w-[196px] h-[152px] z-[100] pointer-events-none rounded-[28px] border-2 border-dashed flex items-center justify-center transition-colors duration-150"
         style={{ borderColor: 'transparent', background: 'transparent' }}
       >
         <div
@@ -104,6 +105,25 @@ export default function MinimizeDock() {
             <path d="M9 9h6v6H9z" />
           </svg>
           <span className="text-[10px] font-bold uppercase tracking-wider text-center">Drop to minimize</span>
+        </div>
+      </div>
+
+      <div
+        id="warp-hotzone"
+        className="fixed top-[238px] left-4 w-[196px] h-[156px] z-[100] pointer-events-none rounded-[28px] border-2 border-dashed flex items-center justify-center transition-all duration-150"
+        style={{ borderColor: 'rgba(201,123,75,0.28)', background: 'transparent', opacity: 0 }}
+      >
+        <div
+          id="warp-hotzone-label"
+          className="flex flex-col items-center gap-1.5 text-[var(--accent)] transition-opacity duration-150"
+          style={{ opacity: 0.55 }}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <ellipse cx="12" cy="12" rx="3.5" ry="9" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+          </svg>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-center">Warp to canvas</span>
         </div>
       </div>
 

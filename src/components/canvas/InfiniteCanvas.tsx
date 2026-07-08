@@ -34,6 +34,7 @@ import VoiceOrb from './VoiceOrb';
 import AuthButton from '@/components/ui/AuthButton';
 import ShortcutsOverlay from './ShortcutsOverlay';
 import MinimizeDock from './MinimizeDock';
+import WarpPortal from './WarpPortal';
 import ScenesPanel from './ScenesPanel';
 import MarginsLayer from './MarginsLayer';
 import CollabBar from '@/components/collab/CollabBar';
@@ -1032,6 +1033,9 @@ export default function InfiniteCanvas() {
 
       {/* Minimize shelf: drag any object into the top-left corner to dock it */}
       <MinimizeDock />
+
+      {/* Warp: teleport objects to other canvases via portals */}
+      <WarpPortal />
 
       {/* Scenes: cinematic camera tours */}
       <ScenesPanel />

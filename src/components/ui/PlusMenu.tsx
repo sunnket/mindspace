@@ -115,10 +115,27 @@ export default function PlusMenu() {
           type: 'card',
           x: canvasPos.x,
           y: canvasPos.y,
-          width: 320,
-          height: 80,
+          width: 340,
+          height: 150,
           content: '',
           style: { isVoiceNote: true },
+        });
+      },
+    },
+    {
+      icon: (<MenuIcon><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" /></MenuIcon>),
+      label: 'Braindump',
+      action: () => {
+        // Voice-to-Structure: auto-records, transcribes, then the AI lays the
+        // whole thing out as cards, checklists, and connectors when you finish.
+        addObject({
+          type: 'card',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 360,
+          height: 240,
+          content: '',
+          style: { isVoiceNote: true, braindump: true, autoRecord: true },
         });
       },
     },
