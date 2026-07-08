@@ -6,11 +6,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import { getSnapPoints } from '@/lib/utils';
-import { momentumGlide } from '@/lib/gravity';
+import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import VoiceNoteBlock from './VoiceNoteBlock';
 import CodeSandboxBlock from './CodeSandboxBlock';
 import QuoteBlock from './QuoteBlock';
 import TodoBlock from './TodoBlock';
+import LinkPreviewBlock from './LinkPreviewBlock';
 import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock } from './ExtensionBlocks';
 
 interface CommentBubbleProps {
@@ -342,11 +343,6 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       const HOTZONE_W = 200;
       const HOTZONE_H = 300;
 
-      // Gravity: track world-space velocity so a flick can glide on release.
-      let lastVel = { x: 0, y: 0 };
-      let prevX = dragStart.current.objX;
-      let prevY = dragStart.current.objY;
-
       const handleMouseMove = (moveE: MouseEvent) => {
         if (Math.abs(moveE.clientX - dragStart.current.x) > 8 || Math.abs(moveE.clientY - dragStart.current.y) > 8) {
           draggedFar = true;
@@ -376,25 +372,6 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           if (snap.x !== null) newX = snap.x;
           if (snap.y !== null) newY = snap.y;
         }
-
-        // Gravity magnetism: stronger pull to align edges/centers into tidy rows.
-        if (useCanvasStore.getState().gravityMode === 'magnet' && mode !== 'connector') {
-          const T = 28;
-          let snapX = newX, dX = T, snapY = newY, dY = T;
-          for (const o of objects) {
-            if (o.id === dragObj.id) continue;
-            for (const target of [o.x, o.x + o.width - dragObj.width, o.x + o.width / 2 - dragObj.width / 2]) {
-              const d = Math.abs(target - newX); if (d < dX) { dX = d; snapX = target; }
-            }
-            for (const target of [o.y, o.y + o.height - dragObj.height, o.y + o.height / 2 - dragObj.height / 2]) {
-              const d = Math.abs(target - newY); if (d < dY) { dY = d; snapY = target; }
-            }
-          }
-          newX = snapX; newY = snapY;
-        }
-
-        lastVel = { x: newX - prevX, y: newY - prevY };
-        prevX = newX; prevY = newY;
 
         if (dragObj.type === 'arrow') {
           updateObject(dragObj.id, {
@@ -458,11 +435,6 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           before,
           after: { x: dragObj.x, y: dragObj.y },
         });
-
-        // Gravity momentum: a fast release flings the card into a physics glide.
-        if (useCanvasStore.getState().gravityMode === 'momentum' && draggedFar && dragObj.type !== 'arrow') {
-          momentumGlide(dragObj.id, lastVel.x, lastVel.y);
-        }
       };
 
       window.addEventListener('mousemove', handleMouseMove);
@@ -827,6 +799,21 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               context: before || undefined,
             }
           }));
+          return;
+        }
+
+        // A bare URL typed into a text/heading block becomes a rich link
+        // preview: blank this block (it auto-cleans) and drop a loading link
+        // card in its place, which then hydrates its own thumbnail.
+        if ((obj.type === 'text' || obj.type === 'heading') && isUrl(latestContent.current.trim())) {
+          e.preventDefault();
+          e.stopPropagation();
+          const link = latestContent.current.trim();
+          setSlashMenu(null);
+          if (contentRef.current) contentRef.current.innerText = '';
+          latestContent.current = '';
+          setEditingId(null);
+          useCanvasStore.getState().addObject(newLinkCard(link, obj.x, obj.y));
           return;
         }
       }
@@ -1266,6 +1253,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <CodeSandboxBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isLinkPreview) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <LinkPreviewBlock obj={obj} />
             </div>
           );
         }

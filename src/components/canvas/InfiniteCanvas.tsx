@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import { screenToCanvas, clamp } from '@/lib/utils';
+import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import {
   saveObjects,
   saveStrokes,
@@ -746,18 +747,21 @@ export default function InfiniteCanvas() {
     e.dataTransfer.dropEffect = 'copy';
   }, []);
 
-  // Paste images
+  // Paste images and links
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
+      const centerX = (window.innerWidth / 2 - camera.x) / camera.zoom;
+      const centerY = (window.innerHeight / 2 - camera.y) / camera.zoom;
+
       const items = Array.from(e.clipboardData?.items || []);
+      let handledImage = false;
       items.forEach((item) => {
         if (item.type.startsWith('image/')) {
           const file = item.getAsFile();
           if (file) {
+            handledImage = true;
             const reader = new FileReader();
             reader.onload = (ev) => {
-              const centerX = (window.innerWidth / 2 - camera.x) / camera.zoom;
-              const centerY = (window.innerHeight / 2 - camera.y) / camera.zoom;
               addObject({
                 type: 'image',
                 x: centerX,
@@ -771,6 +775,22 @@ export default function InfiniteCanvas() {
           }
         }
       });
+      if (handledImage) return;
+
+      // Don't hijack pastes into a text field — only turn a URL pasted onto the
+      // bare canvas into a link-preview card (typing a URL into a block + Enter
+      // is handled separately in CanvasObject).
+      const active = document.activeElement as HTMLElement | null;
+      const inField =
+        !!active &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+      if (inField) return;
+
+      const text = (e.clipboardData?.getData('text') || '').trim();
+      if (isUrl(text)) {
+        e.preventDefault();
+        addObject(newLinkCard(text, centerX - 150, centerY - 130));
+      }
     };
 
     window.addEventListener('paste', handlePaste);

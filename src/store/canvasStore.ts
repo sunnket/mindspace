@@ -45,15 +45,13 @@ export function isAutoCleanable(o: CanvasObjectData): boolean {
 }
 
 export interface UndoAction {
-  type: 'add' | 'delete' | 'move' | 'edit' | 'stroke-add' | 'stroke-delete' | 'bulk-move';
+  type: 'add' | 'delete' | 'move' | 'edit' | 'stroke-add' | 'stroke-delete';
   objectId?: string;
   strokeId?: string;
   before?: Partial<CanvasObjectData> | null;
   after?: Partial<CanvasObjectData> | null;
   strokeData?: DrawingStroke;
   objectData?: CanvasObjectData;
-  // A single reversible step covering many objects (Gravity auto-cluster).
-  bulk?: { id: string; before: { x: number; y: number }; after: { x: number; y: number } }[];
 }
 
 interface CanvasStore {
@@ -69,10 +67,6 @@ interface CanvasStore {
   animateCamera: (target: { x: number; y: number; zoom: number }, duration?: number) => void;
   checkpoint: { x: number; y: number; zoom: number } | null;
   setCheckpoint: (checkpoint: { x: number; y: number; zoom: number } | null) => void;
-
-  // Gravity (physics)
-  gravityMode: 'off' | 'momentum' | 'magnet';
-  setGravityMode: (m: 'off' | 'momentum' | 'magnet') => void;
 
   // Scenes (cinematic tours)
   scenes: Scene[];
@@ -108,9 +102,6 @@ interface CanvasStore {
   // Minimize dock — slide any object into the corner shelf, drag it back out anywhere
   minimizeObject: (id: string) => void;
   restoreMinimized: (id: string, worldX: number, worldY: number) => void;
-
-  // One-click declutter: reflow every non-minimized, non-frame object into a grid
-  tidyUp: () => void;
 
   // Strokes
   strokes: DrawingStroke[];
@@ -299,10 +290,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Checkpoint
   checkpoint: null,
   setCheckpoint: (checkpoint) => set({ checkpoint, isDirty: true }),
-
-  // Gravity (physics)
-  gravityMode: 'off',
-  setGravityMode: (gravityMode) => set({ gravityMode }),
 
   // Scenes (cinematic tours) — persisted with the canvas state, sync via cloud
   scenes: [],
@@ -558,34 +545,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       height,
       zIndex: get().getNextZIndex(),
       style: { ...obj.style, isMinimized: false },
-    });
-  },
-
-  tidyUp: () => {
-    const state = get();
-    const targets = state.objects.filter(
-      (o) => !o.style?.isMinimized && o.type !== 'frame' && o.type !== 'workflow-node'
-    );
-    if (targets.length === 0) return;
-
-    // Reading-order pack: sort top-to-bottom/left-to-right, then lay out in
-    // fixed-width columns with each row as tall as its tallest card.
-    const sorted = [...targets].sort((a, b) => (a.y - b.y) || (a.x - b.x));
-    const GAP = 32;
-    const COL_WIDTH = 260;
-    const cols = Math.max(1, Math.min(6, Math.ceil(Math.sqrt(sorted.length * (COL_WIDTH / 200)))));
-
-    const startX = Math.min(...sorted.map((o) => o.x));
-    const startY = Math.min(...sorted.map((o) => o.y));
-    const colX = Array.from({ length: cols }, (_, i) => startX + i * (COL_WIDTH + GAP));
-    const colY = Array.from({ length: cols }, () => startY);
-
-    sorted.forEach((o) => {
-      const col = colY.indexOf(Math.min(...colY));
-      const x = colX[col] + (COL_WIDTH - Math.min(o.width, COL_WIDTH)) / 2;
-      const y = colY[col];
-      state.updateObject(o.id, { x, y });
-      colY[col] = y + o.height + GAP;
     });
   },
 
@@ -845,19 +804,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           });
         }
         break;
-      case 'bulk-move':
-        if (action.bulk) {
-          const beforeMap = new Map(action.bulk.map(b => [b.id, b.before]));
-          set({
-            objects: state.objects.map(o =>
-              beforeMap.has(o.id) ? { ...o, ...beforeMap.get(o.id)!, updatedAt: Date.now() } : o
-            ),
-            undoStack: newUndoStack,
-            redoStack: [...state.redoStack, action],
-            isDirty: true,
-          });
-        }
-        break;
       case 'stroke-add':
         if (action.strokeId) {
           set({
@@ -914,19 +860,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           set({
             objects: state.objects.map(o =>
               o.id === action.objectId ? { ...o, ...action.after, updatedAt: Date.now() } : o
-            ),
-            undoStack: [...state.undoStack, action],
-            redoStack: newRedoStack,
-            isDirty: true,
-          });
-        }
-        break;
-      case 'bulk-move':
-        if (action.bulk) {
-          const afterMap = new Map(action.bulk.map(b => [b.id, b.after]));
-          set({
-            objects: state.objects.map(o =>
-              afterMap.has(o.id) ? { ...o, ...afterMap.get(o.id)!, updatedAt: Date.now() } : o
             ),
             undoStack: [...state.undoStack, action],
             redoStack: newRedoStack,

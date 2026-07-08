@@ -190,18 +190,18 @@ const ITEMS: SlashItem[] = [
     label: 'Reference Embed',
     sublabel: 'Beautiful link card preview',
     icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>),
-    keywords: ['reference', 'embed', 'link', 'preview', 'url', 'web'],
+    keywords: ['reference', 'embed', 'link', 'preview', 'url', 'web', 'youtube', 'spotify'],
     action: (objectId, updateObject, setEditingId) => {
+      // Start empty — the block shows a URL input; paste any link (YouTube,
+      // Spotify, article…) and it fetches a live thumbnail preview.
       updateObject(objectId, {
         type: 'card',
-        width: 280,
-        height: 280,
+        width: 300,
+        height: 260,
         content: '',
         style: {
           isLinkPreview: true,
-          linkUrl: 'https://medium.com',
-          linkTitle: 'The psychology of onboarding',
-          linkDescription: 'Why the first 60 seconds determine if a user stays or leaves...'
+          linkResolved: false,
         }
       });
       setEditingId(null);

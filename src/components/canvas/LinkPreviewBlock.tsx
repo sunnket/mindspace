@@ -1,14 +1,23 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { CanvasObjectData } from '@/lib/db';
 import { useCanvasStore } from '@/store/canvasStore';
+import { linkPreviewStyle, isUrl } from '@/lib/linkPreview';
 import { motion } from 'framer-motion';
+
+// Dedupes concurrent hydration requests across mounts (viewport culling can
+// remount the same card mid-fetch). One in-flight request per object id.
+const inFlight = new Set<string>();
 
 export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   const { style } = obj;
-  const isLinkLoading = style?.linkLoading ?? false;
-  const isLinkError = style?.linkError ?? false;
+  const updateObject = useCanvasStore((s) => s.updateObject);
+
+  const url = (style?.linkUrl as string) || '';
+  const isLinkLoading = (style?.linkLoading as boolean) ?? false;
+  const isLinkError = (style?.linkError as boolean) ?? false;
+  const isResolved = (style?.linkResolved as boolean) ?? false;
   const title = (style?.linkTitle as string) || obj.content || 'Link Preview';
   const description = (style?.linkDescription as string) || '';
   const image = (style?.linkImage as string) || '';
@@ -16,11 +25,87 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   const domain = (style?.linkDomain as string) || '';
   const platform = (style?.linkPlatform as string) || '';
   const embedUrl = (style?.linkEmbedUrl as string) || '';
-  const url = (style?.linkUrl as string) || obj.content || '';
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
+  const [draftUrl, setDraftUrl] = useState('');
   const cardRef = useRef<HTMLDivElement>(null);
+
+  /* --- Self-hydration: fetch metadata whenever a URL is set but unresolved --- */
+  useEffect(() => {
+    if (!url || isResolved || isLinkError) return;
+    if (inFlight.has(obj.id)) return;
+    inFlight.add(obj.id);
+    let cancelled = false;
+
+    const current = () => useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+
+    // Guarantee the shimmer is showing while we work.
+    const now = current();
+    if (now && !now.style?.linkLoading) {
+      updateObject(obj.id, { style: { ...now.style, linkLoading: true } });
+    }
+
+    fetch(`/api/link-preview?url=${encodeURIComponent(url)}`)
+      .then(async (r) => {
+        const data = await r.json().catch(() => null);
+        if (!data || data.error) throw new Error(data?.error || 'no metadata');
+        return data as Record<string, string>;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        const cur = current();
+        if (!cur) return;
+        updateObject(obj.id, {
+          style: {
+            ...cur.style,
+            isLinkPreview: true,
+            linkLoading: false,
+            linkError: false,
+            linkResolved: true,
+            linkUrl: data.url || url,
+            linkTitle: data.title || (cur.style?.linkTitle as string) || url,
+            linkDescription: data.description ?? (cur.style?.linkDescription as string) ?? '',
+            linkImage: data.image || '',
+            linkFavicon: data.favicon || '',
+            linkDomain: data.domain || (cur.style?.linkDomain as string) || '',
+            linkPlatform: data.platform || '',
+            linkEmbedUrl: data.embedUrl || '',
+          },
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        const cur = current();
+        if (!cur) return;
+        updateObject(obj.id, {
+          style: { ...cur.style, linkLoading: false, linkError: true, linkResolved: true },
+        });
+      })
+      .finally(() => {
+        inFlight.delete(obj.id);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // Re-run only when the target url or resolution state changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obj.id, url, isResolved, isLinkError]);
+
+  const submitUrl = (value: string) => {
+    const v = value.trim();
+    if (!isUrl(v)) return;
+    const cur = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+    updateObject(obj.id, { style: { ...cur?.style, ...linkPreviewStyle(v) } });
+  };
+
+  const retry = () => {
+    const cur = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+    updateObject(obj.id, {
+      style: { ...cur?.style, linkLoading: true, linkError: false, linkResolved: false },
+    });
+  };
 
   // Magnetic 3D Tilt Effect
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -28,22 +113,63 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
     const rect = cardRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left - rect.width / 2;
     const y = e.clientY - rect.top - rect.height / 2;
-    
-    // Smooth angle computation
-    const tiltX = (y / (rect.height / 2)) * -6; // max 6 deg
-    const tiltY = (x / (rect.width / 2)) * 6;  // max 6 deg
-    
+    const tiltX = (y / (rect.height / 2)) * -6;
+    const tiltY = (x / (rect.width / 2)) * 6;
     setTilt({ x: tiltX, y: tiltY });
   };
 
-  const handleMouseLeave = () => {
-    setTilt({ x: 0, y: 0 });
-  };
+  const handleMouseLeave = () => setTilt({ x: 0, y: 0 });
+
+  /* --- Awaiting-URL state: no url yet (e.g. from the slash command) --- */
+  if (!url) {
+    return (
+      <div
+        className="w-full h-full p-4 rounded-2xl bg-[rgba(255,252,248,0.4)] dark:bg-black/15 backdrop-blur-2xl border border-white/25 dark:border-white/5 flex flex-col justify-center gap-3 pointer-events-auto"
+        style={{ fontFamily: "'Outfit', sans-serif" }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 text-[var(--text-secondary)]">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+          </svg>
+          <span className="text-[11px] font-bold tracking-wider uppercase">Paste a link</span>
+        </div>
+        <input
+          autoFocus
+          value={draftUrl}
+          onChange={(e) => setDraftUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              submitUrl(draftUrl);
+            }
+          }}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData('text');
+            if (isUrl(text)) {
+              e.preventDefault();
+              submitUrl(text);
+            }
+          }}
+          placeholder="https://youtube.com/…, spotify, any link"
+          className="w-full px-3 py-2 rounded-xl bg-white/70 dark:bg-white/5 border border-[var(--border)] outline-none text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-light)] transition-colors"
+        />
+        <button
+          onClick={() => submitUrl(draftUrl)}
+          disabled={!isUrl(draftUrl.trim())}
+          className="self-start px-3.5 py-1.5 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold tracking-wider uppercase hover:opacity-90 active:scale-95 transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+        >
+          Preview
+        </button>
+      </div>
+    );
+  }
 
   // Shimmer Loader Component
-  if (isLinkLoading) {
+  if (isLinkLoading && !isLinkError) {
     return (
-      <div 
+      <div
         className="w-full h-full p-4 rounded-2xl bg-white/20 dark:bg-black/10 backdrop-blur-xl border border-white/20 flex flex-col justify-between select-none"
         style={{ fontFamily: "'Outfit', sans-serif" }}
       >
@@ -72,7 +198,7 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   // Fallback Error Component
   if (isLinkError) {
     return (
-      <div 
+      <div
         className="w-full h-full p-4 rounded-2xl bg-white/10 dark:bg-black/10 backdrop-blur-xl border border-red-500/20 flex flex-col justify-between"
         style={{ fontFamily: "'Outfit', sans-serif" }}
       >
@@ -84,20 +210,28 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
           </span>
-          <span className="text-xs font-mono opacity-60 truncate">{domain || 'invalid link'}</span>
+          <span className="text-xs font-mono opacity-60 truncate">{domain || 'link'}</span>
         </div>
         <div className="my-2">
           <h4 className="text-xs font-semibold truncate text-[var(--text-primary)]">{title}</h4>
-          <p className="text-[10px] text-red-500/80 mt-1">Failed to resolve web page metadata</p>
+          <p className="text-[10px] text-red-500/80 mt-1">Couldn&apos;t load a preview</p>
         </div>
-        <a 
-          href={url} 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="self-start px-3.5 py-1.5 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold tracking-wider uppercase hover:opacity-90 active:scale-95 transition-all shadow-md pointer-events-auto"
-        >
-          Open URL
-        </a>
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3.5 py-1.5 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold tracking-wider uppercase hover:opacity-90 active:scale-95 transition-all shadow-md cursor-pointer"
+          >
+            Open URL
+          </a>
+          <button
+            onClick={retry}
+            className="px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/5 border border-[var(--border)] text-[var(--text-secondary)] text-[10px] font-bold tracking-wider uppercase hover:text-[var(--accent)] transition-all cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
@@ -105,17 +239,17 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   // Render Rich Embed Players
   if (embedUrl && isPlaying) {
     return (
-      <div 
+      <div
         className="w-full h-full p-1.5 rounded-2xl bg-white/20 dark:bg-black/20 backdrop-blur-2xl border border-white/25 flex flex-col pointer-events-auto"
         style={{ fontFamily: "'Outfit', sans-serif" }}
       >
         {/* Compact Close Player Header */}
         <div className="flex items-center justify-between px-2 py-1 mb-1 select-none">
           <div className="flex items-center gap-1.5">
-            {favicon && <img src={favicon} alt="Favicon" className="w-3.5 h-3.5 object-contain shrink-0" />}
+            {favicon && <img src={favicon} alt="" className="w-3.5 h-3.5 object-contain shrink-0" />}
             <span className="text-[10px] font-medium text-[var(--text-secondary)]">{domain}</span>
           </div>
-          <button 
+          <button
             onClick={() => setIsPlaying(false)}
             className="text-[10px] font-bold text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/20 px-2 py-0.5 rounded-full transition-colors cursor-pointer"
           >
@@ -125,7 +259,7 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
 
         {/* Embedded Iframe Player */}
         <div className="flex-1 w-full rounded-xl overflow-hidden bg-black/5 shadow-inner relative">
-          <iframe 
+          <iframe
             src={embedUrl}
             className="w-full h-full border-none"
             allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
@@ -155,7 +289,7 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
       <div className="flex items-center justify-between select-none">
         <div className="flex items-center gap-2 overflow-hidden">
           {favicon ? (
-            <img src={favicon} alt="Favicon" className="w-4 h-4 object-contain shrink-0 rounded-sm" />
+            <img src={favicon} alt="" className="w-4 h-4 object-contain shrink-0 rounded-sm" />
           ) : (
             <span className="text-[var(--text-tertiary)] flex items-center">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
@@ -165,7 +299,7 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
               </svg>
             </span>
           )}
-          <span 
+          <span
             className="text-[10px] font-semibold text-[var(--text-secondary)] tracking-wider uppercase truncate"
             style={{ fontFamily: "'Outfit', sans-serif" }}
           >
@@ -184,14 +318,14 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
       {/* Main Content Row */}
       <div className="flex gap-4 my-2.5 items-start flex-1 overflow-hidden">
         <div className="flex-1 flex flex-col justify-center min-w-0">
-          <h3 
+          <h3
             className="text-xs font-bold text-[var(--text-primary)] leading-snug line-clamp-2 select-text group-hover:text-[var(--accent)] transition-colors"
             style={{ fontFamily: "'Outfit', sans-serif" }}
           >
             {title}
           </h3>
           {description && (
-            <p 
+            <p
               className="text-[10px] text-[var(--text-secondary)] leading-relaxed mt-1 line-clamp-3 select-text"
               style={{ fontFamily: "'Outfit', sans-serif" }}
             >
@@ -203,11 +337,15 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
         {/* High-Resolution Thumbnail Image */}
         {image && !isPlaying && (
           <div className="w-[84px] h-[84px] rounded-xl overflow-hidden bg-black/5 border border-white/20 dark:border-white/5 shrink-0 relative self-center group-hover:scale-103 transition-transform">
-            <img 
-              src={image} 
-              alt="Thumbnail" 
-              className="w-full h-full object-cover" 
+            <img
+              src={image}
+              alt=""
+              className="w-full h-full object-cover"
               draggable={false}
+              onError={(e) => {
+                // A dead thumbnail shouldn't leave a broken-image icon.
+                (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
+              }}
             />
           </div>
         )}
@@ -216,9 +354,9 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
       {/* Footer Navigation CTAs */}
       <div className="flex items-center gap-2 pointer-events-auto">
         {/* Open Direct Link */}
-        <a 
-          href={url} 
-          target="_blank" 
+        <a
+          href={url}
+          target="_blank"
           rel="noopener noreferrer"
           className="px-3.5 py-1.5 rounded-full bg-white/60 dark:bg-white/5 border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent-light)] hover:bg-white/90 text-[10px] font-bold tracking-wider uppercase transition-all shadow-sm active:scale-95 flex items-center gap-1 cursor-pointer"
           style={{ fontFamily: "'Outfit', sans-serif" }}
@@ -231,9 +369,9 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
           </svg>
         </a>
 
-        {/* Play Embed Player Option (YouTube, Spotify, Figma etc.) */}
+        {/* Play Embed Player Option (YouTube, Spotify, Vimeo etc.) */}
         {embedUrl && (
-          <button 
+          <button
             onClick={() => setIsPlaying(true)}
             className="px-3.5 py-1.5 rounded-full bg-[var(--accent)] text-white hover:bg-[var(--accent-light)] text-[10px] font-bold tracking-wider uppercase transition-all shadow-md active:scale-95 flex items-center gap-1 cursor-pointer"
             style={{ fontFamily: "'Outfit', sans-serif" }}
