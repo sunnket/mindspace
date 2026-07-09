@@ -63,6 +63,12 @@ Connections:
 - To organize/tidy EXISTING objects, MOVE them with UPDATE_OBJECT (x/y) into aligned columns and rows — never recreate them. To improve wording, UPDATE_OBJECT the "content". Preserve every real id; the client maps ids for you.
 - BRING LINKS: when the user wants a resource, reference, video, song, article, or tool ("add the React docs", "drop a lofi playlist", "link the pricing page"), CREATE a Link Card with a REAL, valid, working URL you know (e.g. https://react.dev, a real youtube.com/watch?v=… or open.spotify.com/… link). The canvas fetches a live thumbnail automatically — just give the true linkUrl; do not invent fake domains.
 
+### MATH — write real, beautifully typeset mathematics
+- The canvas renders LaTeX with KaTeX. ALWAYS express math, formulas, equations, symbols, fractions, powers, roots, sums, integrals, matrices and Greek letters in LaTeX — never as broken ASCII like "x^2" alone, "sqrt(x)", "1/2", or "sum from i". Put the LaTeX INSIDE text/heading/sticky/card content.
+- Inline math: wrap in single dollars — e.g. "The area of a circle is $A = \\pi r^2$." Display (centered, its own line): wrap in double dollars — e.g. "$$\\int_0^1 x^2\\,dx = \\tfrac{1}{3}$$".
+- Use proper commands: powers $x^2$, $e^{i\\pi}$; subscripts $a_n$; fractions $\\frac{a}{b}$; roots $\\sqrt{x}$, $\\sqrt[3]{x}$; sums $\\sum_{i=1}^{n} i$; integrals $\\int_a^b f(x)\\,dx$; Greek $\\alpha,\\beta,\\theta,\\pi,\\sigma$; operators $\\times,\\cdot,\\pm,\\le,\\ge,\\ne,\\approx,\\to,\\infty$; vectors $\\vec{v}$; matrices $\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}$.
+- In JSON string content, every backslash MUST be escaped as \\\\ (e.g. content:"Pythagoras: $a^2 + b^2 = c^2$" and "$$\\\\frac{-b\\\\pm\\\\sqrt{b^2-4ac}}{2a}$$"). When asked for a formula, derivation, or math notes, lay them out cleanly with a heading and display equations.
+
 ### IMAGES — you CAN see them
 - Image objects appear in the snapshot as type "image". When a description is provided in the REFERENCE/VISION section above, that is what the image actually shows — use it. To caption/describe/title an image, place a "text" or "heading" block DIRECTLY BELOW that image (same x, y = image.y + image.height + 24) with a real caption grounded in the description. Never invent unrelated content for an image you've been shown.
 
@@ -114,19 +120,33 @@ function compactSnapshot(objects: SnapshotObject[], agentX: number, agentY: numb
   );
   return byDistance.slice(0, 100).map((o) => {
     const isImage = o.type === 'image' || (o.content || '').startsWith('data:image');
+    const isFile = Boolean(o.style?.isFile);
     const isBinary = isImage || o.type === 'drawing' || (o.content || '').startsWith('data:');
     const style: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(o.style || {})) {
+      // The full extracted file text is supplied separately in ATTACHED FILE(S);
+      // never inline it into the snapshot (it's huge and already stripped by len).
+      if (k === 'fileText') continue;
       if (typeof v === 'string' && v.length > 160) continue;
       style[k] = v;
+    }
+    let content: string;
+    if (isFile) {
+      const meta = (o.style?.fileMeta as Record<string, unknown>) || {};
+      const shape = [meta.pages && `${meta.pages}p`, meta.slides && `${meta.slides} slides`, meta.words && `${meta.words} words`].filter(Boolean).join(', ');
+      content = `[FILE: ${(o.style?.fileName as string) || 'file'}${shape ? ` — ${shape}` : ''} — full text provided in ATTACHED FILE(S)]`;
+    } else if (isImage) {
+      content = '[IMAGE — a picture the user placed here]';
+    } else if (isBinary) {
+      content = '[media]';
+    } else {
+      content = (o.content || '').slice(0, 240);
     }
     return {
       id: o.id, type: o.type,
       x: Math.round(o.x), y: Math.round(o.y),
       width: Math.round(o.width), height: Math.round(o.height),
-      // Label images distinctly so the model knows a picture lives here (and
-      // can caption/annotate it near its position) even though it can't see bytes.
-      content: isImage ? '[IMAGE — a picture the user placed here]' : isBinary ? '[media]' : (o.content || '').slice(0, 240),
+      content,
       style,
     };
   });
@@ -227,7 +247,7 @@ async function openModelStream(
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext } = await req.json();
+    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext } = await req.json();
     if (!prompt) {
       return NextResponse.json({ success: false, error: 'Prompt is required' }, { status: 400 });
     }
@@ -256,6 +276,9 @@ export async function POST(req: NextRequest) {
     const parts: string[] = [];
     if (typeof context === 'string' && context.trim()) {
       parts.push(`### REFERENCE TEXT — the user invoked you directly on this text; it is your primary source material to complete, transform, or build from exactly as asked:\n"""${context.trim().slice(0, 2000)}"""`);
+    }
+    if (typeof filesContext === 'string' && filesContext.trim()) {
+      parts.push(`### ATTACHED FILE(S) — the FULL extracted text of file(s) the user dropped on the canvas (pdf / docx / pptx / xlsx / zip / code / …). This is real source material: read it thoroughly and answer questions or build from it using ONLY what it actually contains. Quote or cite specifics; never invent facts, numbers, or links that aren't in it. If it contains formulas, reproduce them in proper LaTeX math:\n"""${filesContext.trim().slice(0, 28000)}"""`);
     }
     if (typeof visionContext === 'string' && visionContext.trim()) {
       parts.push(`### VISION — what the image(s) on the canvas actually show (produced by an image model looking at the picture). Ground any caption/description/title on THIS, not guesses:\n"""${visionContext.trim().slice(0, 2000)}"""`);

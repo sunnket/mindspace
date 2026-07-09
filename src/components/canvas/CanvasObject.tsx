@@ -8,6 +8,8 @@ import { CanvasObjectData } from '@/lib/db';
 import { getSnapPoints } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import VoiceNoteBlock from './VoiceNoteBlock';
+import FileBlock from './FileBlock';
+import RichText from './RichText';
 import CodeSandboxBlock from './CodeSandboxBlock';
 import QuoteBlock from './QuoteBlock';
 import TodoBlock from './TodoBlock';
@@ -1085,7 +1087,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               wordBreak: 'break-word',
             }}
           >
-            {obj.content || ''}
+            <RichText content={obj.content || ''} />
           </div>
         );
 
@@ -1120,7 +1122,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   wordBreak: 'break-word',
                 }}
               >
-                {obj.content || ''}
+                <RichText content={obj.content || ''} />
               </div>
             )}
             <div
@@ -1167,7 +1169,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   padding: '12px',
                 }}
               >
-                {obj.content || ''}
+                <RichText content={obj.content || ''} />
               </div>
             )}
           </div>
@@ -1178,6 +1180,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <VoiceNoteBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isFile) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <FileBlock obj={obj} />
             </div>
           );
         }
@@ -1327,7 +1336,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   wordBreak: 'break-word',
                 }}
               >
-                {obj.content || ''}
+                <RichText content={obj.content || ''} />
               </div>
             )}
           </div>
