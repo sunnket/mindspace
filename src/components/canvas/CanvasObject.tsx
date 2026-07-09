@@ -13,6 +13,7 @@ import MapBlock from './MapBlock';
 import RichText from './RichText';
 import CodeSandboxBlock from './CodeSandboxBlock';
 import QuoteBlock from './QuoteBlock';
+import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
 import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock } from './ExtensionBlocks';
@@ -708,7 +709,12 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
   useEffect(() => {
     if (isEditing && contentRef.current) {
-      contentRef.current.innerText = obj.content || '';
+      const target = contentRef.current as any;
+      if ('value' in target) {
+        target.value = obj.content || '';
+      } else {
+        target.innerText = obj.content || '';
+      }
       latestContent.current = obj.content || '';
       contentRef.current.focus();
       
@@ -732,7 +738,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     
     const handleNativeInput = () => {
       if (contentRef.current) {
-        const text = contentRef.current.innerText;
+        const target = contentRef.current as any;
+        const text = 'value' in target ? target.value : target.innerText;
         latestContent.current = text;
         
         // Slash Command Detection: matches a forward slash optionally followed by search query, e.g. "/coun"
@@ -1245,6 +1252,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <MapBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isMermaid) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <MermaidBlock obj={obj} isEditing={isEditing} onBlur={handleBlur} innerRef={contentRef as any} />
             </div>
           );
         }
