@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { useCanvasStore } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import { imageDataToPolylines } from '@/lib/sketchVectorize';
+import { isDarkColor } from '@/lib/canvasTheme';
 
 interface Action {
   type:
@@ -406,9 +407,18 @@ export default function AgentOverlay() {
     // (with a touch of hand-drawn jitter) — the drawing appears stroke by stroke.
     const resolveSketch = async (prompt: string, ox: number, oy: number, targetW: number, color: string, size: number) => {
       try {
+        // Ink must contrast with the canvas paper — dark ink is invisible on a
+        // dark theme, so flip to a light ink there (and vice-versa).
+        const bg = live().canvasBackground;
+        const darkCanvas = bg?.dark ?? isDarkColor(bg?.color || '#FAF6F1');
+        let ink = color || (darkCanvas ? '#EDE6DA' : '#2D2A26');
+        if (darkCanvas && isDarkColor(ink)) ink = '#EDE6DA';
+        if (!darkCanvas && !isDarkColor(ink)) ink = '#2D2A26';
+
         const r = await fetch(`/api/image-generate?q=${encodeURIComponent(prompt)}`, { signal: abortRef.current?.signal });
         if (!r.ok) { addLog('[Agent] Sketch source unavailable.'); return; }
         const blob = await r.blob();
+        if (!/^image\//i.test(blob.type)) { addLog('[Agent] Sketch source unavailable.'); return; }
         const url = URL.createObjectURL(blob);
         const img = await new Promise<HTMLImageElement | null>((res) => {
           const im = new Image();
@@ -418,7 +428,7 @@ export default function AgentOverlay() {
         });
         if (!img || !runningRef.current) { URL.revokeObjectURL(url); return; }
 
-        const maxDim = 200;
+        const maxDim = 240;
         const dscale = Math.min(1, maxDim / Math.max(img.width, img.height));
         const w = Math.max(1, Math.round(img.width * dscale));
         const h = Math.max(1, Math.round(img.height * dscale));
@@ -432,21 +442,21 @@ export default function AgentOverlay() {
         const data = ctx.getImageData(0, 0, w, h);
         URL.revokeObjectURL(url);
 
-        const polys = imageDataToPolylines(data).slice(0, 200);
-        if (!polys.length || !runningRef.current) return;
+        const polys = imageDataToPolylines(data).slice(0, 240);
+        if (!polys.length || !runningRef.current) { addLog('[Agent] Could not trace the sketch.'); return; }
 
         const s = targetW / w; // image-space → world-space
         let inked = 0;
         for (let p = 0; p < polys.length; p++) {
           if (!runningRef.current) return;
-          const poly = polys[p].slice(0, 400);
+          const poly = polys[p].slice(0, 500);
           const pts = poly.map(([ix, iy]) => [
-            ox + ix * s + (Math.random() - 0.5) * 1.3,
-            oy + iy * s + (Math.random() - 0.5) * 1.3,
+            ox + ix * s + (Math.random() - 0.5) * 0.9,
+            oy + iy * s + (Math.random() - 0.5) * 0.9,
             0.5,
           ]);
           if (pts.length >= 2) {
-            live().addStroke({ id: uuidv4(), points: pts, color, size, isHighlighter: false, createdAt: Date.now() });
+            live().addStroke({ id: uuidv4(), points: pts, color: ink, size, isHighlighter: false, createdAt: Date.now() });
             inked++;
           }
           // stagger so it visibly "draws in" rather than popping all at once

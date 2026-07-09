@@ -116,9 +116,10 @@ export default function TourPlayer({
         await flyTo(ordered[i].camera, ordered[i].durationMs || 1400);
         if (!playingRef.current) break;
         if (i < total - 1) {
-          // Linger long enough to read the narration aloud before flying on.
+          // Linger a bit longer when narrating so speech isn't cut off — but
+          // capped so it never feels frozen.
           const notes = ordered[i]?.notes;
-          const holdMs = narrateRef.current && notes ? Math.min(11000, 1400 + notes.length * 55) : 800;
+          const holdMs = narrateRef.current && notes ? Math.min(4800, 1200 + notes.length * 38) : 800;
           await new Promise<void>((r) => {
             holdTimer.current = setTimeout(r, holdMs);
           });

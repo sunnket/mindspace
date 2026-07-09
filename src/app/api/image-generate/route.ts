@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
 const UA = 'MindspaceCanvas/1.0 (sketch generator)';
 
 function sketchPrompt(q: string): string {
-  return `${q}, black and white line art, clean thin single-weight ink outline drawing, minimal continuous lines, coloring book style, no shading, no hatching, no grayscale fill, pure white background`;
+  return `${q}, minimalist single-line icon, simple bold black outline drawing, few clean continuous lines, flat 2D, centered, thick uniform stroke, no shading, no hatching, no grayscale, no background, pure solid white background`;
 }
 
 async function fetchBytes(url: string, timeoutMs: number): Promise<{ buf: ArrayBuffer; type: string } | null> {
@@ -43,16 +43,19 @@ export async function GET(req: NextRequest) {
   const prompt = asSketch ? sketchPrompt(q) : q;
   const seed = Math.abs([...q].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)) % 100000;
 
-  // 1. Pollinations generative model (free).
-  try {
-    const gen = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=640&height=640&nologo=true&model=flux&seed=${seed}`;
-    const hit = await fetchBytes(gen, 40_000);
-    if (hit && hit.buf.byteLength > 800) {
-      return new NextResponse(hit.buf, {
-        headers: { 'Content-Type': hit.type, 'Cache-Control': 'public, max-age=86400', 'X-Sketch-Source': 'pollinations' },
-      });
-    }
-  } catch { /* fall through */ }
+  // 1. Pollinations generative model (free). Try flux then turbo; each with a
+  //    short deadline so a blocked/slow endpoint fails over fast to the search.
+  for (const model of ['flux', 'turbo']) {
+    try {
+      const gen = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=640&height=640&nologo=true&model=${model}&seed=${seed}`;
+      const hit = await fetchBytes(gen, 13_000);
+      if (hit && hit.buf.byteLength > 800) {
+        return new NextResponse(hit.buf, {
+          headers: { 'Content-Type': hit.type, 'Cache-Control': 'public, max-age=86400', 'X-Sketch-Source': `pollinations-${model}` },
+        });
+      }
+    } catch { /* try next model / fall through */ }
+  }
 
   // 2. Fallback — a real line drawing / coloring page from Wikimedia/Openverse,
   //    which vectorizes into pen strokes just as well. (Pollinations is often

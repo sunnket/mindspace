@@ -16,11 +16,17 @@ export default function VoiceCommand() {
   const [supported, setSupported] = useState(true);
   const recRef = useRef<any>(null);
   const finalRef = useRef('');
+  const wantRef = useRef(false);       // does the user still want to be listening?
+  const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) setSupported(false);
-    return () => { try { recRef.current?.stop(); } catch {} };
+    return () => {
+      wantRef.current = false;
+      if (restartTimer.current) clearTimeout(restartTimer.current);
+      try { recRef.current?.stop(); } catch {}
+    };
   }, []);
 
   const dispatchAgent = useCallback((text: string) => {
@@ -35,29 +41,46 @@ export default function VoiceCommand() {
   const start = useCallback(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return;
-    const rec = new SR();
-    rec.continuous = false;
-    rec.interimResults = true;
-    rec.lang = 'en-US';
+    // Reuse one recognizer instance; (re)configure it each time.
+    let rec = recRef.current;
+    if (!rec) {
+      rec = new SR();
+      recRef.current = rec;
+      rec.continuous = true;      // KEEP listening — don't die after one phrase
+      rec.interimResults = true;
+      rec.lang = 'en-US';
+      rec.onresult = (e: any) => {
+        let interimStr = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const chunk = e.results[i][0].transcript;
+          if (e.results[i].isFinal) finalRef.current += chunk + ' ';
+          else interimStr += chunk;
+        }
+        setInterim((finalRef.current + interimStr).trim());
+      };
+      rec.onerror = (e: any) => {
+        if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed' || e?.error === 'audio-capture') {
+          wantRef.current = false;
+          setListening(false);
+          setInterim('');
+        }
+      };
+      rec.onend = () => {
+        // Chrome auto-stops on a pause / ~60s. Restart if the user hasn't tapped stop.
+        if (wantRef.current) {
+          restartTimer.current = setTimeout(() => {
+            if (wantRef.current) { try { rec.start(); } catch {} }
+          }, 250);
+        } else {
+          setListening(false);
+          const said = finalRef.current.trim();
+          setInterim('');
+          if (said) dispatchAgent(said);
+        }
+      };
+    }
     finalRef.current = '';
-    rec.onresult = (e: any) => {
-      let interimStr = '';
-      let finalStr = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalStr += e.results[i][0].transcript;
-        else interimStr += e.results[i][0].transcript;
-      }
-      if (finalStr) finalRef.current += finalStr;
-      setInterim(interimStr || finalRef.current);
-    };
-    rec.onerror = () => {};
-    rec.onend = () => {
-      setListening(false);
-      const said = finalRef.current;
-      setInterim('');
-      if (said.trim()) dispatchAgent(said);
-    };
-    recRef.current = rec;
+    wantRef.current = true;
     try {
       rec.start();
       setListening(true);
@@ -66,6 +89,8 @@ export default function VoiceCommand() {
   }, [dispatchAgent]);
 
   const stop = useCallback(() => {
+    wantRef.current = false;
+    if (restartTimer.current) clearTimeout(restartTimer.current);
     try { recRef.current?.stop(); } catch {}
   }, []);
 
