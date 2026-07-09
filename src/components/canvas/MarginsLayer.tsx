@@ -143,7 +143,7 @@ export default function MarginsLayer() {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitDraft(); } if (e.key === 'Escape') setDraft(null); }}
               placeholder="Leave a note…"
               rows={3}
-              className="w-full resize-none clay-inset rounded-xl px-3 py-2 text-[12px] outline-none focus:ring-2 focus:ring-[var(--accent)]/35"
+              className="w-full resize-none clay-inset rounded-xl px-4 py-2.5 text-[12px] leading-relaxed outline-none focus:ring-2 focus:ring-[var(--accent)]/35"
             />
             <div className="flex justify-end gap-2">
               <button onClick={() => setDraft(null)} className="px-3 py-1.5 rounded-full text-[11px] font-bold text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer">Cancel</button>
@@ -193,7 +193,7 @@ export default function MarginsLayer() {
                 onChange={(e) => setReplyText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && replyText.trim()) { addReply(activeThread.id, { author: authorName(), text: replyText.trim() }); setReplyText(''); } }}
                 placeholder="Reply…"
-                className="flex-1 min-w-0 clay-inset rounded-full px-3 py-1.5 text-[12px] outline-none focus:ring-2 focus:ring-[var(--accent)]/35"
+                className="flex-1 min-w-0 clay-inset rounded-full px-4 py-1.5 text-[12px] outline-none focus:ring-2 focus:ring-[var(--accent)]/35"
               />
               <button
                 onClick={() => { if (replyText.trim()) { addReply(activeThread.id, { author: authorName(), text: replyText.trim() }); setReplyText(''); } }}
