@@ -188,13 +188,13 @@ export default function MapBlock({ obj }: { obj: CanvasObjectData }) {
       </div>
 
       {/* Map */}
-      <div className="relative flex-1 min-h-0 mt-2">
+      <div className="relative flex-1 min-h-0 mt-2 overflow-hidden">
         {hasLocation ? (
           <iframe
             key={`${lat}-${lng}-${mapStyle}`}
             title={name || 'Map'}
             src={embedUrl(lat as number, lng as number, bbox, mapStyle)}
-            className="absolute inset-0 w-full h-full border-0"
+            className="absolute top-0 left-0 w-full h-[calc(100%+40px)] border-0"
             loading="lazy"
             referrerPolicy="no-referrer-when-downgrade"
           />
