@@ -77,7 +77,7 @@ interface CanvasStore {
   scenes: Scene[];
   setScenes: (scenes: Scene[]) => void;
   addScene: (name?: string) => void;
-  addSceneWithCamera: (name: string, camera: { x: number; y: number; zoom: number }, durationMs?: number) => void;
+  addSceneWithCamera: (name: string, camera: { x: number; y: number; zoom: number }, durationMs?: number, notes?: string) => void;
   removeScene: (id: string) => void;
   renameScene: (id: string, name: string) => void;
   moveScene: (id: string, dir: -1 | 1) => void;
@@ -319,7 +319,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     };
     set({ scenes: [...scenes, scene], isDirty: true });
   },
-  addSceneWithCamera: (name, camera, durationMs) => {
+  addSceneWithCamera: (name, camera, durationMs, notes) => {
     const scenes = get().scenes;
     const scene: Scene = {
       id: uuidv4(),
@@ -327,6 +327,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       camera: { x: camera.x, y: camera.y, zoom: camera.zoom },
       order: scenes.length,
       durationMs: durationMs && durationMs > 0 ? durationMs : 1400,
+      notes: notes?.trim() || undefined,
     };
     set({ scenes: [...scenes, scene], isDirty: true });
   },

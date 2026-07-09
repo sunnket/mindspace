@@ -34,6 +34,8 @@ export interface Scene {
   camera: { x: number; y: number; zoom: number };
   order: number;
   durationMs?: number;
+  /** Optional narration read aloud in present mode. */
+  notes?: string;
 }
 
 export interface CommentReply {

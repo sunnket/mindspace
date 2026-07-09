@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { v4 as uuidv4 } from 'uuid';
 import { useCanvasStore } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
+import { imageDataToPolylines } from '@/lib/sketchVectorize';
 
 interface Action {
   type:
@@ -14,7 +15,8 @@ interface Action {
     | 'CREATE_CONNECTION'
     | 'DELETE_CONNECTION'
     | 'CREATE_STROKE'
-    | 'CREATE_SCENE';
+    | 'CREATE_SCENE'
+    | 'CREATE_SKETCH';
   tempId?: string;
   id?: string;
   fromId?: string;
@@ -30,9 +32,13 @@ interface Action {
   isHighlighter?: boolean;
   // CREATE_SCENE
   name?: string;
+  notes?: string;
   x?: number;
   y?: number;
   zoom?: number;
+  // CREATE_SKETCH (AI line drawing → real pen strokes)
+  prompt?: string;
+  width?: number;
   log?: string;
 }
 
@@ -395,6 +401,61 @@ export default function AgentOverlay() {
       } catch { /* leave the block as-is */ }
     };
 
+    // AI SKETCH: generate a line-art image for a prompt, trace it into vector
+    // polylines, and ink them onto the canvas as REAL, editable pen strokes
+    // (with a touch of hand-drawn jitter) — the drawing appears stroke by stroke.
+    const resolveSketch = async (prompt: string, ox: number, oy: number, targetW: number, color: string, size: number) => {
+      try {
+        const r = await fetch(`/api/image-generate?q=${encodeURIComponent(prompt)}`, { signal: abortRef.current?.signal });
+        if (!r.ok) { addLog('[Agent] Sketch source unavailable.'); return; }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const img = await new Promise<HTMLImageElement | null>((res) => {
+          const im = new Image();
+          im.onload = () => res(im);
+          im.onerror = () => res(null);
+          im.src = url;
+        });
+        if (!img || !runningRef.current) { URL.revokeObjectURL(url); return; }
+
+        const maxDim = 200;
+        const dscale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * dscale));
+        const h = Math.max(1, Math.round(img.height * dscale));
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d', { willReadFrequently: true });
+        if (!ctx) { URL.revokeObjectURL(url); return; }
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h); // flatten transparency to white paper
+        ctx.drawImage(img, 0, 0, w, h);
+        const data = ctx.getImageData(0, 0, w, h);
+        URL.revokeObjectURL(url);
+
+        const polys = imageDataToPolylines(data).slice(0, 200);
+        if (!polys.length || !runningRef.current) return;
+
+        const s = targetW / w; // image-space → world-space
+        let inked = 0;
+        for (let p = 0; p < polys.length; p++) {
+          if (!runningRef.current) return;
+          const poly = polys[p].slice(0, 400);
+          const pts = poly.map(([ix, iy]) => [
+            ox + ix * s + (Math.random() - 0.5) * 1.3,
+            oy + iy * s + (Math.random() - 0.5) * 1.3,
+            0.5,
+          ]);
+          if (pts.length >= 2) {
+            live().addStroke({ id: uuidv4(), points: pts, color, size, isHighlighter: false, createdAt: Date.now() });
+            inked++;
+          }
+          // stagger so it visibly "draws in" rather than popping all at once
+          if (p % 5 === 4) await new Promise((res) => setTimeout(res, 16));
+        }
+        addLog(`[Success] Sketched "${prompt.slice(0, 40)}" (${inked} strokes).`);
+      } catch { /* best-effort; leave whatever inked so far */ }
+    };
+
     const runAction = (action: Action) => {
       try {
         switch (action.type) {
@@ -492,8 +553,18 @@ export default function AgentOverlay() {
               x: window.innerWidth / 2 - cx * zoom,
               y: window.innerHeight / 2 - cy * zoom,
               zoom,
-            });
+            }, undefined, action.notes);
             executed++;
+            break;
+          }
+          case 'CREATE_SKETCH': {
+            const w = Math.max(120, Math.min(900, Number(action.width) || 320));
+            const anchor = placeFor({ type: 'image', x: Number(action.x) || startX, y: Number(action.y) || startY, width: w, height: w });
+            const color = (action.color as string) || '#2D2A26';
+            const size = Math.max(1, Number(action.size) || 2.4);
+            executed++;
+            gentlePan({ x: anchor.x, y: anchor.y, width: w, height: w });
+            void resolveSketch(action.prompt || 'a quick sketch', anchor.x, anchor.y, w, color, size);
             break;
           }
         }
