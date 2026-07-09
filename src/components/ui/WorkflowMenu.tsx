@@ -415,6 +415,23 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recents, setRecents] = useState<string[]>([]);
+  const [aiPrompt, setAiPrompt] = useState('');
+
+  // AI Workflow: hand the prompt to the streaming canvas agent in "workflow"
+  // mode. It builds a full, end-to-end, richly-styled workflow live on the
+  // canvas (varied fonts/colors, phases, connections, widgets), so we close the
+  // menu and let the user watch it come together.
+  const handleGenerateAI = () => {
+    const text = aiPrompt.trim();
+    if (!text) return;
+    const cx = (window.innerWidth / 2 - camera.x) / camera.zoom;
+    const cy = (window.innerHeight / 2 - camera.y) / camera.zoom;
+    window.dispatchEvent(
+      new CustomEvent('run-agent', { detail: { prompt: text, mode: 'workflow', x: cx, y: cy } })
+    );
+    setAiPrompt('');
+    onClose();
+  };
 
   // Load favorites & recents from localStorage
   useEffect(() => {
@@ -536,12 +553,71 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
             Workflow Engine
           </h3>
         </div>
-        <button 
-          onClick={onClose} 
+        <button
+          onClick={onClose}
           className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-[var(--bg-tertiary)] transition text-[var(--text-secondary)] cursor-pointer"
         >
           ✕
         </button>
+      </div>
+
+      {/* AI Workflow generator — describe anything, get a full end-to-end build */}
+      <div className="relative overflow-hidden rounded-xl border p-3 flex flex-col gap-2.5"
+        style={{
+          borderColor: 'rgba(var(--accent-rgb), 0.35)',
+          background: 'linear-gradient(135deg, var(--accent-subtle) 0%, rgba(var(--accent-rgb),0.02) 60%, transparent 100%)',
+        }}
+      >
+        <div className="flex items-start gap-2">
+          <span className="mt-0.5 shrink-0 w-7 h-7 rounded-lg flex items-center justify-center bg-[var(--accent)] text-white shadow-sm">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z" />
+              <path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2z" />
+            </svg>
+          </span>
+          <div className="flex flex-col">
+            <h4 className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
+              AI Workflow
+              <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-[var(--accent)] text-white">New</span>
+            </h4>
+            <p className="text-[10px] text-[var(--text-secondary)] leading-snug">Describe anything — get a complete, end-to-end workflow, styled and explained.</p>
+          </div>
+        </div>
+
+        <textarea
+          value={aiPrompt}
+          onChange={(e) => setAiPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              e.preventDefault();
+              handleGenerateAI();
+            }
+          }}
+          rows={3}
+          placeholder="e.g. A full go-to-market plan for a B2B SaaS launch — research, build, beta, marketing, launch, and post-launch loops…"
+          className="w-full resize-none text-xs leading-relaxed p-2.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent)] transition"
+        />
+
+        <button
+          onClick={handleGenerateAI}
+          disabled={!aiPrompt.trim()}
+          className={`w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+            aiPrompt.trim()
+              ? 'bg-[var(--accent)] text-white shadow-sm hover:shadow-md hover:brightness-105 cursor-pointer'
+              : 'bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] cursor-not-allowed'
+          }`}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z" />
+          </svg>
+          Generate workflow
+        </button>
+      </div>
+
+      {/* Blueprint library divider */}
+      <div className="flex items-center gap-2 -mb-1">
+        <span className="text-[9px] uppercase tracking-widest font-semibold text-[var(--text-tertiary)]">Or start from a blueprint</span>
+        <div className="flex-1 h-px bg-[var(--border)]" />
       </div>
 
       {/* Categories */}

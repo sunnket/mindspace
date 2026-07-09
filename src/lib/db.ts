@@ -55,6 +55,8 @@ export interface CanvasState {
   id: string;
   title?: string;
   themeColor?: string;
+  /** Per-canvas background / color mode (paper color + intensity). */
+  background?: import('./canvasTheme').CanvasBackground;
   camera: { x: number; y: number; zoom: number };
   checkpoint?: { x: number; y: number; zoom: number };
   scenes?: Scene[];

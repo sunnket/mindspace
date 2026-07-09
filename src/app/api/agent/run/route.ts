@@ -114,6 +114,39 @@ Connections:
 { "actions": [ { "type":"CREATE_OBJECT", "tempId":"a1", "objData":{ "type":"heading", "x":0, "y":0, "width":400, "height":60, "content":"Title", "style":{} }, "log":"Adding title..." } ], "planDescription":"one short sentence" }
 The "actions" array is REQUIRED and must be non-empty. Order actions logically (frames first, then contents, then connections). Deliver a complete, polished result.`;
 
+// AI Workflow mode. Reuses the SAME action schema / layout / output rules (the
+// whole "### ACTIONS …" tail is sliced verbatim from SYSTEM_PROMPT so the client
+// parser and object schemas stay identical) but swaps the mission for a
+// comprehensive, end-to-end, richly-styled workflow designer.
+const WORKFLOW_SYSTEM_PROMPT =
+`You are the Mindspace Workflow Architect — a world-class systems & information designer who turns ANY request into a complete, breathtaking, END-TO-END workflow on this infinite canvas. You have instant hands and impeccable taste. You plan AND build in a single pass — no chatter.
+The user invoked you at coordinates (x: {agentX}, y: {agentY}). Build the whole workflow starting there, growing right and down with generous spacing.
+
+### YOUR MISSION — build a DOPE, end-to-end workflow, NEVER a mini stub
+- READ THE USER'S REQUEST LIKE A DESIGNER. Extract the real goal, the domain, the actors, the inputs and outputs, the phases, the decision points, the tools, and the deliverables. If the request is long or complex, honor ALL of it — cover every part they mentioned. If it is short, interpret generously and still design a rich, genuinely useful workflow.
+- SCALE THE DEPTH TO THE ASK. A big or broad request → 5–9 named PHASES, each with 3–6 concrete steps, plus branches, parallel tracks, decision gates and feedback loops. A simple request → still a generous 10–20+ step flow. NEVER ship a thin 3-node diagram.
+- EXPLAIN EVERYTHING. Alongside the diagram, write real explanatory notes so the user actually understands the process: what each phase does, why it matters, and how to do it. Use structured markdown (headings, bullets, numbered steps, "> " callouts). Real, specific, expert content — never "Step 1", never lorem ipsum.
+
+### COMPOSE IT LIKE A MASTERPIECE (this is what "goated" means)
+1. TITLE: a big bold heading at the very top naming the workflow, in a distinctive DISPLAY font (e.g. "'Bebas Neue', sans-serif", "'Anton', sans-serif", "'Playfair Display', serif" or "'Space Grotesk', sans-serif") with a large style.fontSize (40–64).
+2. OVERVIEW: a text or card just under the title summarizing the workflow in structured markdown (a "# Overview", 2–4 bullets, and one "> " key takeaway).
+3. PHASES AS CONNECTED DIAGRAMS: each phase is a cluster of "workflow-node" steps joined by workflow CONNECTIONS (style.isWorkflowConnection:true), wrapped in its own labeled "frame". Lay the phases out as a clear flow (left-to-right or top-to-bottom) with BIG gaps so nothing overlaps.
+4. GIVE EVERY PHASE ITS OWN LOOK — different colors AND different fonts. Vary each phase's workflow-node color / borderColor / branchColor and its frame frameColor, and vary style.fontFamily on the phase headings, so every phase is visually distinct and the whole board pops. Use the full color range, not one hue.
+5. USE VARIED NODE SHAPES to encode meaning: nodeShape "pill" for actions, "circle" for start / end / milestones, "square" for processes, "diamond" for decisions. Show decision branches (two outgoing connections) and feedback loops (a connection back to an earlier node) where they belong.
+6. WIRE IN LIVE WIDGETS where they help: a To-Do card for a phase checklist, a Countdown or Timer for deadlines, a Decision or Poll card for choices, a Progress or Live Metric card for KPIs. Place each beside the phase it belongs to.
+7. Give the WHOLE workflow ONE shared style.workflowId (a single id string reused on every workflow-node) so it stays one manageable group; still color the nodes per-phase.
+8. Optionally add a small legend card and a few CREATE_SCENE tour stops (one per phase, in order) so the user can play a guided walkthrough.
+
+Use the RIGHT widget for each job, keep spacing generous (the canvas is infinite), cover the user's whole request, and make it genuinely beautiful and complete.
+
+{assignmentSection}### CURRENT CANVAS SNAPSHOT
+Objects (real ids — reference, update, delete or connect these):
+{canvasObjects}
+Connections:
+{canvasConnections}
+
+` + SYSTEM_PROMPT.slice(SYSTEM_PROMPT.indexOf('### ACTIONS'));
+
 interface SnapshotObject {
   id: string; type: string; x: number; y: number;
   width: number; height: number; content: string; style?: Record<string, unknown>;
@@ -165,6 +198,7 @@ function compactSnapshot(objects: SnapshotObject[], agentX: number, agentY: numb
  */
 async function openModelStream(
   apiKey: string, model: string, systemPrompt: string, userPrompt: string,
+  opts?: { maxTokens?: number; temperature?: number },
 ): Promise<ReadableStream<Uint8Array>> {
   const controller = new AbortController();
   const ttftTimer = setTimeout(() => controller.abort(), TTFT_DEADLINE_MS);
@@ -178,8 +212,8 @@ async function openModelStream(
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      temperature: 0.4,
-      max_tokens: 4096,
+      temperature: opts?.temperature ?? 0.4,
+      max_tokens: opts?.maxTokens ?? 4096,
       stream: true,
     }),
     signal: controller.signal,
@@ -253,7 +287,7 @@ async function openModelStream(
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext } = await req.json();
+    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext, mode } = await req.json();
     if (!prompt) {
       return NextResponse.json({ success: false, error: 'Prompt is required' }, { status: 400 });
     }
@@ -294,12 +328,19 @@ export async function POST(req: NextRequest) {
     }
     const assignmentSection = parts.length > 0 ? parts.join('\n\n') + '\n\n' : '';
 
-    const systemPrompt = SYSTEM_PROMPT
+    const isWorkflow = mode === 'workflow';
+    const basePrompt = isWorkflow ? WORKFLOW_SYSTEM_PROMPT : SYSTEM_PROMPT;
+    const systemPrompt = basePrompt
       .replace(/{agentX}/g, String(x))
       .replace(/{agentY}/g, String(y))
       .replace('{assignmentSection}', assignmentSection)
       .replace('{canvasObjects}', snapObjects.length ? JSON.stringify(snapObjects) : '(empty)')
       .replace('{canvasConnections}', snapConns.length ? JSON.stringify(snapConns) : '(none)');
+
+    // Workflows are big, end-to-end builds — give them room and a little more spark.
+    const modelOpts = isWorkflow
+      ? { maxTokens: 8000, temperature: 0.55 }
+      : { maxTokens: 4096, temperature: 0.4 };
 
     // Try models in order, rotating keys; stream the first that produces tokens.
     let lastError: Error | null = null;
@@ -307,7 +348,7 @@ export async function POST(req: NextRequest) {
       const model = MODEL_CHAIN[m];
       const apiKey = apiKeys[(startKey + m) % apiKeys.length];
       try {
-        const stream = await openModelStream(apiKey, model, systemPrompt, prompt);
+        const stream = await openModelStream(apiKey, model, systemPrompt, prompt, modelOpts);
         return new NextResponse(stream, {
           headers: {
             'Content-Type': 'text/plain; charset=utf-8',

@@ -7,6 +7,7 @@ import { useCanvasStore } from '@/store/canvasStore';
 import { screenToCanvas, clamp } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import { ingestFile } from '@/lib/fileIngest';
+import { applyCanvasTheme, resetCanvasTheme, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 import {
   saveObjects,
   saveStrokes,
@@ -86,6 +87,8 @@ export default function InfiniteCanvas() {
 
   const camera = useCanvasStore((s) => s.camera);
   const setCamera = useCanvasStore((s) => s.setCamera);
+  const canvasBackground = useCanvasStore((s) => s.canvasBackground);
+  const setCanvasBackground = useCanvasStore((s) => s.setCanvasBackground);
   const objects = useCanvasStore((s) => s.objects);
   const setObjects = useCanvasStore((s) => s.setObjects);
   const strokes = useCanvasStore((s) => s.strokes);
@@ -133,6 +136,14 @@ export default function InfiniteCanvas() {
       if (c.status !== 'idle') c.leave();
     };
   }, []);
+
+  // Paint the chosen canvas color mode across the whole workspace (canvas paper,
+  // grid, cards, glass chrome, text). Restore the default palette on unmount so
+  // other routes (landing) are unaffected.
+  useEffect(() => {
+    applyCanvasTheme(canvasBackground);
+  }, [canvasBackground]);
+  useEffect(() => () => resetCanvasTheme(), []);
 
   const truncatedTitle = useMemo(() => {
     if (!workspaceTitle) return 'Untitled';
@@ -200,6 +211,8 @@ export default function InfiniteCanvas() {
             setWorkspaceTitle(savedCamera.title);
           }
         }
+        // Restore this canvas's color mode (fall back to the default cream paper)
+        setCanvasBackground(savedCamera?.background || DEFAULT_BACKGROUND);
         // Load this canvas's saved scenes + comment threads (reset when switching canvases)
         useCanvasStore.getState().setScenes(savedCamera?.scenes || []);
         useCanvasStore.getState().setThreads(savedCamera?.threads || []);
@@ -210,7 +223,7 @@ export default function InfiniteCanvas() {
       }
     }
     load();
-  }, [canvasStack, setObjects, setStrokes, setCamera, setWorkspaceTitle, urlId]);
+  }, [canvasStack, setObjects, setStrokes, setCamera, setWorkspaceTitle, urlId, setCanvasBackground]);
 
   // Save on unmount to prevent losing last-second pans or edits
   useEffect(() => {
@@ -224,6 +237,7 @@ export default function InfiniteCanvas() {
         title: workspaceTitle,
         camera: state.camera,
         checkpoint: checkpoint || undefined,
+        background: state.canvasBackground,
         scenes: state.scenes,
         threads: state.threads,
         lastModified: Date.now(),
@@ -275,6 +289,7 @@ export default function InfiniteCanvas() {
             title: workspaceTitle,
             camera,
             checkpoint: checkpoint || undefined,
+            background: canvasBackground,
             scenes: useCanvasStore.getState().scenes,
             threads: useCanvasStore.getState().threads,
             lastModified: Date.now(),
@@ -309,7 +324,7 @@ export default function InfiniteCanvas() {
     }, 500);
 
     return () => clearTimeout(timeout);
-  }, [isDirty, objects, strokes, camera, checkpoint, loaded, canvasStack, urlId, workspaceTitle, setDirty, setLastSaved, connections]);
+  }, [isDirty, objects, strokes, camera, checkpoint, loaded, canvasStack, urlId, workspaceTitle, setDirty, setLastSaved, connections, canvasBackground]);
 
 
   // Wheel zoom

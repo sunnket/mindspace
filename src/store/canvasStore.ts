@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { CanvasObjectData, DrawingStroke, ConnectionData, Scene, CommentThread } from '@/lib/db';
 import type { CanvasOp } from '@/lib/collab/types';
+import { CanvasBackground, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 
 export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame';
 
@@ -61,6 +62,10 @@ interface CanvasStore {
   urlCanvasId: string;
   setUrlCanvasId: (id: string) => void;
   
+  // Canvas background / color mode (paper color + intensity, drives the theme)
+  canvasBackground: CanvasBackground;
+  setCanvasBackground: (bg: CanvasBackground) => void;
+
   // Camera state
   camera: { x: number; y: number; zoom: number };
   setCamera: (camera: { x: number; y: number; zoom: number }) => void;
@@ -260,6 +265,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   setWorkspaceTitle: (workspaceTitle) => set({ workspaceTitle, isDirty: true }),
   urlCanvasId: 'root',
   setUrlCanvasId: (urlCanvasId) => set({ urlCanvasId }),
+
+  // Canvas background / color mode
+  canvasBackground: DEFAULT_BACKGROUND,
+  setCanvasBackground: (canvasBackground) => set({ canvasBackground, isDirty: true }),
 
   // Camera
   camera: { x: 0, y: 0, zoom: 1 },
