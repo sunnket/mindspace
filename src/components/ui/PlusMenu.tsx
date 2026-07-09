@@ -126,6 +126,21 @@ export default function PlusMenu() {
       },
     },
     {
+      icon: (<MenuIcon><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0Z" /><circle cx="12" cy="10" r="3" /></MenuIcon>),
+      label: 'Map',
+      action: () => {
+        addObject({
+          type: 'card',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 340,
+          height: 300,
+          content: '',
+          style: { isMap: true },
+        });
+      },
+    },
+    {
       icon: (<MenuIcon><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="22" /></MenuIcon>),
       label: 'Voice Note',
       action: () => {
@@ -137,23 +152,6 @@ export default function PlusMenu() {
           height: 150,
           content: '',
           style: { isVoiceNote: true },
-        });
-      },
-    },
-    {
-      icon: (<MenuIcon><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" /></MenuIcon>),
-      label: 'Braindump',
-      action: () => {
-        // Voice-to-Structure: auto-records, transcribes, then the AI lays the
-        // whole thing out as cards, checklists, and connectors when you finish.
-        addObject({
-          type: 'card',
-          x: canvasPos.x,
-          y: canvasPos.y,
-          width: 360,
-          height: 240,
-          content: '',
-          style: { isVoiceNote: true, braindump: true, autoRecord: true },
         });
       },
     },

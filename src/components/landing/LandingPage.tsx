@@ -758,7 +758,7 @@ export default function LandingPage() {
                     </div>
                     <div className="px-1.5 pb-1 flex justify-between items-center gap-2">
                       <div className="min-w-0">
-                        <h4 className="text-[13px] font-bold text-[var(--text-primary)] truncate group-hover:text-[var(--accent)] transition-colors">
+                        <h4 className="text-[15px] font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent)] transition-colors tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
                           {ws.title || 'untitled canvas'}
                         </h4>
                         <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 tabular-nums">
@@ -1040,7 +1040,7 @@ export default function LandingPage() {
                                   autoFocus
                                 />
                               ) : (
-                                <h4 className="text-sm font-bold truncate group-hover:text-[var(--accent)] transition-colors flex items-center gap-1.5">
+                                <h4 className="text-[16px] font-semibold truncate group-hover:text-[var(--accent)] transition-colors flex items-center gap-1.5 tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
                                   {ws.title || 'untitled canvas'}
                                   {ws.isFavorite && (
                                     <span className="text-[var(--accent)] shrink-0" aria-label="Favorite">
@@ -1135,7 +1135,7 @@ export default function LandingPage() {
                               onClick={() => router.push(`/canvas?id=${ws.id}`)}
                               className="border-b border-[var(--border)] last:border-b-0 hover:bg-[#FAF6F1]/50 cursor-pointer transition-colors group"
                             >
-                              <td className="py-4 px-6 font-bold text-sm group-hover:text-[var(--accent)] transition-colors">
+                              <td className="py-4 px-6 font-semibold text-[16px] tracking-tight group-hover:text-[var(--accent)] transition-colors" style={{ fontFamily: "'Playfair Display', serif" }}>
                                 <span className="flex items-center gap-1.5">
                                   {ws.title || 'untitled canvas'}
                                   {ws.isFavorite && (

@@ -9,6 +9,7 @@ import { getSnapPoints } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import VoiceNoteBlock from './VoiceNoteBlock';
 import FileBlock from './FileBlock';
+import MapBlock from './MapBlock';
 import RichText from './RichText';
 import CodeSandboxBlock from './CodeSandboxBlock';
 import QuoteBlock from './QuoteBlock';
@@ -680,26 +681,30 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     [mode, isEditing, isSelected, obj, setEditingId]
   );
 
-  // Handle unified content saving
+  // Handle unified content saving. Compares against the LIVE stored content
+  // (not a captured closure) so a repeat save — StrictMode remount, height
+  // churn, blur + unmount both firing — is idempotent and can never write the
+  // text on top of itself (the "typing gets doubled" bug).
   const saveContent = useCallback((finalContent: string) => {
     if (obj.style?.isCheckpoint) return;
-    if (finalContent === obj.content) return;
+    const live = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+    if (!live || finalContent === live.content) return;
 
     const updates: any = { content: finalContent };
-    
+
     // Auto-adjust height for text elements
     if (obj.type === 'text' || obj.type === 'heading' || obj.type === 'workflow-node') {
       if (contentRef.current) {
         const padding = obj.type === 'workflow-node' ? 30 : 10;
         const minHeight = obj.type === 'workflow-node' ? 60 : 30;
         const calculatedHeight = contentRef.current.scrollHeight + padding;
-        const baseHeight = obj.style?.isResized ? obj.height : minHeight;
+        const baseHeight = obj.style?.isResized ? live.height : minHeight;
         updates.height = Math.max(baseHeight, calculatedHeight);
       }
     }
 
     updateObject(obj.id, updates);
-  }, [obj.id, obj.type, obj.content, updateObject, obj.style?.isCheckpoint]);
+  }, [obj.id, obj.type, updateObject, obj.style?.isCheckpoint, obj.style?.isResized]);
 
   useEffect(() => {
     if (isEditing && contentRef.current) {
@@ -829,6 +834,46 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             }
           }));
           return;
+        }
+
+        // Notion-style list continuation: pressing Enter inside a bullet /
+        // numbered / to-do / callout line starts the next item automatically;
+        // pressing Enter on an EMPTY item exits the list. Applies when the caret
+        // is at the end of the text (the normal list-typing flow).
+        if (obj.type === 'text' || obj.type === 'card' || obj.type === 'sticky') {
+          const el = contentRef.current;
+          if (el) {
+            const full = el.innerText;
+            const sel = window.getSelection();
+            const caretAtEnd = (() => {
+              if (!sel || sel.rangeCount === 0) return true;
+              const r = sel.getRangeAt(0);
+              const tail = r.cloneRange();
+              tail.selectNodeContents(el);
+              try { tail.setStart(r.endContainer, r.endOffset); } catch { return true; }
+              return tail.toString().trim() === '';
+            })();
+            const curLine = full.slice(full.lastIndexOf('\n') + 1);
+            const lm = curLine.match(/^(\s*)([-*•]|\d+\.|\[[ xX]?\]|>)\s(.*)$/);
+            if (caretAtEnd && lm) {
+              e.preventDefault();
+              e.stopPropagation();
+              const [, indent, marker, rest] = lm;
+              if (rest.trim() === '') {
+                // Empty item → drop the marker and leave the list.
+                for (let d = 0; d < curLine.length; d++) document.execCommand('delete', false);
+              } else {
+                let next: string;
+                if (/^\d+\.$/.test(marker)) next = `${parseInt(marker, 10) + 1}. `;
+                else if (marker.startsWith('[')) next = '[] ';
+                else if (marker === '>') next = '> ';
+                else next = `${marker} `;
+                document.execCommand('insertText', false, '\n' + indent + next);
+              }
+              latestContent.current = el.innerText;
+              return;
+            }
+          }
         }
 
         // A bare URL typed into a text/heading block becomes a rich link
@@ -1190,6 +1235,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             </div>
           );
         }
+        if (obj.style?.isMap) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <MapBlock obj={obj} />
+            </div>
+          );
+        }
         if (obj.style?.isCheckpoint) {
           return (
             <div className="flex items-center gap-2.5 w-full h-full px-3 py-1.5 bg-[var(--bg-glass)] backdrop-blur-xl rounded-full border border-white/20 shadow-sm pointer-events-auto transition-all hover:bg-white/30 hover:border-white/40">
@@ -1312,7 +1364,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           );
         }
         return (
-          <div className="floating-card animate-fade-in" style={{ width: '100%', height: '100%', padding: '12px' }}>
+          <div className="floating-card animate-fade-in" style={{ width: '100%', height: '100%', padding: '16px 18px' }}>
             {isEditing ? (
               <div
                 ref={contentRef}
