@@ -37,6 +37,9 @@
   --radius-lg: 16px;
   --radius-xl: 24px;
   
+  /* Recessed sub-surface inside cards (poll tracks, progress bars, wells) */
+  --well: #F5EFE7;
+
   --sticky-yellow: #FFF8DC;
   --sticky-pink: #FFE4E6;
   --sticky-blue: #E0F2FE;
@@ -564,6 +567,9 @@ html, body {
    hardcoded-cream scrims legible on dark paper.
    (data-canvas-theme is stamped by canvasTheme.ts)
    ============================================ */
+:root[data-canvas-theme="dark"] {
+  --well: rgba(255, 255, 255, 0.07);
+}
 :root[data-canvas-theme="dark"] .focus-overlay {
   background: rgba(10, 10, 12, 0.72);
 }

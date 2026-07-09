@@ -2672,7 +2672,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           className={`absolute -bottom-10 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${
             connectorSelectedIds.includes(obj.id)
               ? 'bg-[var(--accent)] text-white shadow-lg'
-              : 'bg-white/80 backdrop-blur-md text-[var(--text-secondary)] border border-[var(--border)] hover:bg-[var(--accent)] hover:text-white'
+              : 'bg-white/80 dark:bg-white/10 backdrop-blur-md text-[var(--text-secondary)] border border-[var(--border)] hover:bg-[var(--accent)] hover:text-white'
           }`}
         >
           {connectorSelectedIds.includes(obj.id) ? 'Selected' : 'Link Card'}
@@ -2682,7 +2682,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       {/* Workflow Custom Floating Contextual Hover Buttons */}
       {obj.type === 'workflow-node' && !isDragging && isHovered && !isEditing && (
         <div 
-          className="absolute -top-10 left-1/2 -translate-x-1/2 flex gap-2 z-[101] bg-white/95 backdrop-blur-md px-2.5 py-1 rounded-full border border-[#C97B4B]/30 shadow-lg pointer-events-auto items-center animate-fade-in"
+          className="absolute -top-10 left-1/2 -translate-x-1/2 flex gap-2 z-[101] bg-white/95 dark:bg-[var(--bg-secondary)] backdrop-blur-md px-2.5 py-1 rounded-full border border-[#C97B4B]/30 dark:border-white/10 shadow-lg pointer-events-auto items-center animate-fade-in"
           onMouseDown={(e) => e.stopPropagation()}
         >
           {/* Plus Button */}
@@ -2775,8 +2775,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             <motion.button
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
-              className={`w-8 h-8 rounded-full bg-white border border-[var(--border)] flex items-center justify-center transition-all shadow-md ${
-                obj.style?.isFavorite ? 'text-red-500 border-red-200 bg-red-50' : 'text-[var(--text-tertiary)] hover:text-red-500'
+              className={`w-8 h-8 rounded-full bg-white dark:bg-white/10 border border-[var(--border)] flex items-center justify-center transition-all shadow-md ${
+                obj.style?.isFavorite ? 'text-red-500 border-red-200 bg-red-50 dark:bg-red-500/20 dark:border-red-500/40' : 'text-[var(--text-tertiary)] hover:text-red-500'
               }`}
               onMouseDown={(e) => {
                 e.stopPropagation();
@@ -2798,7 +2798,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.05 }}
-              className={`w-8 h-8 rounded-full bg-white border border-[var(--border)] flex items-center justify-center transition-all shadow-md ${
+              className={`w-8 h-8 rounded-full bg-white dark:bg-white/10 border border-[var(--border)] flex items-center justify-center transition-all shadow-md ${
                 obj.style?.comment ? 'text-[var(--accent)] border-[var(--accent-light)]' : 'text-[var(--text-tertiary)] hover:text-[var(--accent)]'
               }`}
               onMouseDown={(e) => {
@@ -2831,7 +2831,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="w-8 h-8 rounded-full bg-white border border-[var(--border)] flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-500 hover:border-red-500 transition-all shadow-md"
+            className="w-8 h-8 rounded-full bg-white dark:bg-white/10 border border-[var(--border)] flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-500 hover:border-red-500 transition-all shadow-md"
             onMouseDown={(e) => {
               e.stopPropagation();
               // Get card center in screen space for trash animation origin

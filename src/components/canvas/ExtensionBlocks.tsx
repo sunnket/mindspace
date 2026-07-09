@@ -57,12 +57,8 @@ function BlockShell({
 }) {
   return (
     <div
-      className="flex flex-col h-full w-full rounded-2xl p-4 pointer-events-auto"
+      className="flex flex-col h-full w-full rounded-2xl p-4 pointer-events-auto bg-[#FFFDFA] dark:bg-[var(--bg-secondary)] border border-[rgba(201,123,75,0.16)] dark:border-white/10 shadow-[inset_0_1.5px_0_rgba(255,255,255,0.95),0_14px_28px_-14px_rgba(90,62,40,0.22),0_3px_8px_-4px_rgba(90,62,40,0.08)] dark:shadow-[0_14px_28px_-14px_rgba(0,0,0,0.6),0_3px_8px_-4px_rgba(0,0,0,0.5)]"
       style={{
-        background: '#FFFDFA',
-        border: '1px solid rgba(201,123,75,0.16)',
-        boxShadow:
-          'inset 0 1.5px 0 rgba(255,255,255,0.95), 0 14px 28px -14px rgba(90,62,40,0.22), 0 3px 8px -4px rgba(90,62,40,0.08)',
         color: 'var(--text-primary)',
         fontFamily: "'Outfit', sans-serif",
       }}
@@ -186,7 +182,7 @@ export function CountdownBlock({ obj }: { obj: CanvasObjectData }) {
           { val: timeLeft.minutes, label: 'min' },
           { val: timeLeft.seconds, label: 'sec' },
         ].map((digit, i) => (
-          <div key={i} className="rounded-xl py-1.5" style={{ background: '#F5EFE7', boxShadow: 'inset 0 1.5px 4px rgba(90,62,40,0.08)' }}>
+          <div key={i} className="rounded-xl py-1.5" style={{ background: 'var(--well)', boxShadow: 'inset 0 1.5px 4px rgba(90,62,40,0.08)' }}>
             <span className="block text-base font-extrabold tabular-nums leading-tight">{String(digit.val).padStart(2, '0')}</span>
             <span className="block text-[8px] text-[var(--text-tertiary)] uppercase tracking-widest font-bold">{digit.label}</span>
           </div>
@@ -253,7 +249,7 @@ export function PollBlock({ obj }: { obj: CanvasObjectData }) {
         {options.map((opt) => {
           const pct = totalVotes > 0 ? Math.round((opt.votes / totalVotes) * 100) : 0;
           return (
-            <div key={opt.id} className="relative group/opt rounded-xl overflow-hidden" style={{ background: '#F5EFE7' }}>
+            <div key={opt.id} className="relative group/opt rounded-xl overflow-hidden" style={{ background: 'var(--well)' }}>
               {/* fill */}
               <div
                 className="absolute inset-y-0 left-0 transition-all duration-500 ease-out"
@@ -530,7 +526,7 @@ export function FocusTimerBlock({ obj }: { obj: CanvasObjectData }) {
       className="h-8 px-4 rounded-full text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
       style={primary
         ? { background: tint, color: '#fff', boxShadow: `0 6px 14px -6px ${tint}AA, inset 0 1px 0 rgba(255,255,255,0.3)` }
-        : { background: '#F5EFE7', color: 'var(--text-secondary)', boxShadow: 'inset 0 1.5px 4px rgba(90,62,40,0.08)' }}
+        : { background: 'var(--well)', color: 'var(--text-secondary)', boxShadow: 'inset 0 1.5px 4px rgba(90,62,40,0.08)' }}
     >
       {children}
     </button>
@@ -649,7 +645,7 @@ export function DecisionBlock({ obj }: { obj: CanvasObjectData }) {
               key={idx}
               className="group/chip inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full transition-all duration-150"
               style={{
-                background: won ? tint : active ? `${tint}33` : '#F5EFE7',
+                background: won ? tint : active ? `${tint}33` : 'var(--well)',
                 color: won ? '#fff' : 'var(--text-primary)',
                 transform: active || won ? 'scale(1.06)' : 'scale(1)',
                 boxShadow: won ? `0 6px 14px -6px ${tint}AA` : 'inset 0 1px 3px rgba(90,62,40,0.07)',
@@ -776,7 +772,7 @@ export function ProgressBlock({ obj }: { obj: CanvasObjectData }) {
           aria-valuemax={100}
           aria-label="Progress"
           className="relative h-6 rounded-full cursor-ew-resize touch-none"
-          style={{ background: '#F5EFE7', boxShadow: 'inset 0 2px 5px rgba(90,62,40,0.12)' }}
+          style={{ background: 'var(--well)', boxShadow: 'inset 0 2px 5px rgba(90,62,40,0.12)' }}
         >
           <div
             className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-150"
@@ -807,7 +803,7 @@ export function ProgressBlock({ obj }: { obj: CanvasObjectData }) {
               onClick={(e) => { stop(e); patch({ progressValue: Math.max(0, Math.min(100, value + step)) }); }}
               onMouseDown={stop} onPointerDown={stop}
               className="px-2 py-1 rounded-lg text-[9.5px] font-extrabold tabular-nums text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
-              style={{ background: '#F5EFE7', boxShadow: 'inset 0 1px 3px rgba(90,62,40,0.07)' }}
+              style={{ background: 'var(--well)', boxShadow: 'inset 0 1px 3px rgba(90,62,40,0.07)' }}
             >
               {step > 0 ? `+${step}` : step}
             </button>
