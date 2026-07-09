@@ -6,6 +6,7 @@ import { useCanvasStore, InteractionMode } from '@/store/canvasStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import WorkflowMenu from './WorkflowMenu';
+import CanvasBackgroundPanel from './CanvasBackgroundPanel';
 import ShapePreview from '@/components/canvas/ShapePreview';
 
 const FRAME_COLORS = [
@@ -65,6 +66,7 @@ export default function FloatingToolbar() {
   const [showArrowOptions, setShowArrowOptions] = useState(false);
   const [showFrameOptions, setShowFrameOptions] = useState(false);
   const [showWorkflowMenu, setShowWorkflowMenu] = useState(false);
+  const [showBgOptions, setShowBgOptions] = useState(false);
 
   const [selectedShapeDomain, setSelectedShapeDomain] = useState<'all' | 'brainstorm' | 'code' | 'love' | 'usecase' | 'story' | 'system'>('all');
   const selectedShapeType = useCanvasStore((s) => s.selectedShapeType);
@@ -252,11 +254,13 @@ export default function FloatingToolbar() {
                 setShowShapeOptions(false);
                 setShowArrowOptions(false);
                 setShowFrameOptions(false);
+                setShowBgOptions(false);
                 setMode('select');
                 return;
               }
               setMode(tool.id as InteractionMode);
               setShowWorkflowMenu(false);
+              setShowBgOptions(false);
               if (tool.id === 'draw') {
                 setShowDrawOptions(true);
                 setShowTextOptions(false);
@@ -305,6 +309,32 @@ export default function FloatingToolbar() {
             <span className="flex items-center justify-center">{tool.icon}</span>
           </motion.button>
         ))}
+
+        {/* Canvas background / color mode — sits right beside Frame */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => {
+            setShowBgOptions((v) => !v);
+            setShowWorkflowMenu(false);
+            setShowDrawOptions(false);
+            setShowTextOptions(false);
+            setShowShapeOptions(false);
+            setShowArrowOptions(false);
+            setShowFrameOptions(false);
+          }}
+          className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
+            showBgOptions
+              ? 'bg-[var(--accent)] text-white shadow-md'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+          }`}
+          title="Canvas background & color modes"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+          </svg>
+        </motion.button>
 
         {/* Separator */}
         <div className="w-px h-6 bg-[var(--border)] mx-1" />
@@ -966,6 +996,21 @@ export default function FloatingToolbar() {
             <p className="text-[10px] text-[var(--text-muted)] text-center leading-relaxed">
               Click to place a frame, then drag its title tab to move it. Great for grouping related cards.
             </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Canvas background / color-mode panel */}
+      <AnimatePresence>
+        {showBgOptions && (
+          <motion.div
+            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4"
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <CanvasBackgroundPanel />
           </motion.div>
         )}
       </AnimatePresence>

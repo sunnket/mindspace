@@ -243,7 +243,7 @@ export default function AgentOverlay() {
 
   const runAgent = useCallback(async (
     promptText: string, keyIdx: number, customX?: number, customY?: number, refContext?: string,
-    filesContextArg?: string,
+    filesContextArg?: string, briefArg?: string, modeArg?: string,
   ) => {
     if (!promptText.trim() || runningRef.current) return;
 
@@ -523,6 +523,8 @@ export default function AgentOverlay() {
           apiKeyIndex: keyIdx,
           agentX: startX, agentY: startY,
           context: refContext,
+          brief: briefArg,
+          mode: modeArg,
           visionContext,
           filesContext: filesContext || undefined,
           canvas: {
@@ -579,9 +581,9 @@ export default function AgentOverlay() {
   // Inline "/agent <task>" launches arrive as run-agent window events
   useEffect(() => {
     const handleRunEvent = (e: Event) => {
-      const ce = e as CustomEvent<{ prompt: string; apiKeyIndex?: number; x?: number; y?: number; context?: string; filesContext?: string }>;
-      const { prompt: p, apiKeyIndex: ki, x, y, context, filesContext } = ce.detail;
-      runAgent(p, ki ?? 0, x, y, context, filesContext);
+      const ce = e as CustomEvent<{ prompt: string; apiKeyIndex?: number; x?: number; y?: number; context?: string; filesContext?: string; brief?: string; mode?: string }>;
+      const { prompt: p, apiKeyIndex: ki, x, y, context, filesContext, brief, mode } = ce.detail;
+      runAgent(p, ki ?? 0, x, y, context, filesContext, brief, mode);
     };
     window.addEventListener('run-agent', handleRunEvent);
     return () => window.removeEventListener('run-agent', handleRunEvent);
