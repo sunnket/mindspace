@@ -1109,6 +1109,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       case 'text':
         return isEditing ? (
           <div
+            key="edit"
             ref={contentRef}
             className="text-block-editable animate-fade-in"
             contentEditable={isEditing}
@@ -1123,6 +1124,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           />
         ) : (
           <div
+            key="display"
             className="text-block-display break-words select-none"
             style={{
               fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '15px',
@@ -1141,6 +1143,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           <div className="relative group">
             {isEditing ? (
               <div
+                key="edit"
                 ref={contentRef}
                 contentEditable={isEditing}
                 suppressContentEditableWarning
@@ -1156,6 +1159,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               />
             ) : (
               <div
+                key="display"
                 className="text-block-display select-none"
                 style={{
                   fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
@@ -1192,6 +1196,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           >
             {isEditing ? (
               <div
+                key="edit"
                 ref={contentRef}
                 contentEditable={isEditing}
                 suppressContentEditableWarning
@@ -1205,6 +1210,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               />
             ) : (
               <div
+                key="display"
                 className="text-block-display select-none"
                 style={{
                   fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
@@ -1367,6 +1373,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           <div className="floating-card animate-fade-in" style={{ width: '100%', height: '100%', padding: '16px 18px' }}>
             {isEditing ? (
               <div
+                key="edit"
                 ref={contentRef}
                 contentEditable={isEditing}
                 suppressContentEditableWarning
@@ -1380,6 +1387,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               />
             ) : (
               <div
+                key="display"
                 className="text-block-display select-none"
                 style={{
                   fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
@@ -2361,6 +2369,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               >
                 {isShapeEditing ? (
                   <div
+                    key="edit"
                     ref={contentRef}
                     contentEditable={isShapeEditing}
                     suppressContentEditableWarning
@@ -2378,6 +2387,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   />
                 ) : (
                   <div
+                    key="display"
                     className="text-block-display select-none w-full max-h-full overflow-hidden text-ellipsis text-center"
                     style={{
                       fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '14px',
@@ -2451,6 +2461,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             >
               {isEditing ? (
                 <div
+                  key="edit"
                   ref={contentRef}
                   contentEditable={isEditing}
                   suppressContentEditableWarning
@@ -2469,6 +2480,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                 />
               ) : (
                 <div
+                  key="display"
                   className="text-block-display select-none w-full max-h-full overflow-hidden text-ellipsis text-center font-medium"
                   style={{
                     fontSize: `${fontSize}px`,
