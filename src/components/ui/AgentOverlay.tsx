@@ -365,22 +365,66 @@ export default function AgentOverlay() {
       }
     };
 
+    const isHttpUrl = (s: unknown): s is string => typeof s === 'string' && /^https?:\/\//i.test(s);
+
+    // Fetch a real photo for an image block and drop it in once it resolves, so
+    // the agent can actually SHOW things from the web. Non-blocking.
+    const resolveImage = async (id: string, query: string) => {
+      try {
+        const r = await fetch(`/api/image-search?q=${encodeURIComponent(query)}`, { signal: abortRef.current?.signal });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (j?.url && runningRef.current) live().updateObject(id, { content: j.url });
+      } catch { /* leave the placeholder */ }
+    };
+
+    // Geocode a place name and turn the block into a live map centered on it.
+    const resolveMap = async (id: string, query: string) => {
+      try {
+        const r = await fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=1`, { signal: abortRef.current?.signal });
+        if (!r.ok) return;
+        const j = await r.json();
+        const p = j?.results?.[0];
+        if (p && runningRef.current) {
+          const existing = live().objects.find((o) => o.id === id);
+          live().updateObject(id, {
+            content: p.name || p.label || query,
+            style: { ...existing?.style, isMap: true, mapLat: p.lat, mapLng: p.lng, mapLabel: p.label, mapName: p.name, mapBbox: p.bbox, mapKind: p.kind },
+          });
+        }
+      } catch { /* leave the block as-is */ }
+    };
+
     const runAction = (action: Action) => {
       try {
         switch (action.type) {
           case 'CREATE_OBJECT': {
             if (!action.objData) break;
             const pos = placeFor(action.objData);
+            const od = action.objData;
+            const style = (od.style || {}) as Record<string, unknown>;
+            // Images: keep a real URL, otherwise blank now + fetch the picture.
+            const imageQuery = od.type === 'image'
+              ? (isHttpUrl(od.content) ? '' : (style.imageQuery as string) || od.content || '')
+              : '';
+            const startContent = od.type === 'image' && !isHttpUrl(od.content) ? '' : (od.content || '');
             const spawned = live().addObject({
-              type: action.objData.type,
+              type: od.type,
               x: pos.x, y: pos.y,
-              width: action.objData.width, height: action.objData.height,
-              content: action.objData.content || '',
-              style: action.objData.style || {},
+              width: od.width, height: od.height,
+              content: startContent,
+              style,
             });
             if (action.tempId) idMap[action.tempId] = spawned.id;
+            // Kick off async media resolution (image search / geocoding).
+            if (od.type === 'image' && !isHttpUrl(od.content) && imageQuery.trim()) {
+              void resolveImage(spawned.id, imageQuery.trim());
+            }
+            if (od.type === 'card' && style.isMap && !style.mapLat && typeof style.mapQuery === 'string' && style.mapQuery.trim()) {
+              void resolveMap(spawned.id, (style.mapQuery as string).trim());
+            }
             executed++;
-            gentlePan({ x: pos.x, y: pos.y, width: Number(action.objData.width) || 200, height: Number(action.objData.height) || 100 });
+            gentlePan({ x: pos.x, y: pos.y, width: Number(od.width) || 200, height: Number(od.height) || 100 });
             break;
           }
           case 'UPDATE_OBJECT': {
