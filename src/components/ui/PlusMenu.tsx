@@ -133,8 +133,8 @@ export default function PlusMenu() {
           type: 'card',
           x: canvasPos.x,
           y: canvasPos.y,
-          width: 340,
-          height: 300,
+          width: 360,
+          height: 340,
           content: '',
           style: { isMap: true },
         });
