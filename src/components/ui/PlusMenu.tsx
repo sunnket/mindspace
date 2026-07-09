@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import { v4 as uuidv4 } from 'uuid';
 import { screenToCanvas, randomStickyColor } from '@/lib/utils';
+import { ingestFile } from '@/lib/fileIngest';
 
 // One consistent outline icon family for the insert menu
 function MenuIcon({ children }: { children: React.ReactNode }) {
@@ -67,6 +68,23 @@ export default function PlusMenu() {
             };
             reader.readAsDataURL(file);
           }
+        };
+        input.click();
+      },
+    },
+    {
+      icon: (<MenuIcon><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z" /><path d="M9 13h6" /><path d="M9 17h4" /></MenuIcon>),
+      label: 'Drop a File',
+      action: () => {
+        // Any file type — pdf, docx, pptx, xlsx, zip, code… The agent reads it.
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.onchange = (e) => {
+          const files = Array.from((e.target as HTMLInputElement).files || []);
+          files.forEach((file, i) => {
+            ingestFile(file, canvasPos.x + (i % 3) * 330, canvasPos.y + Math.floor(i / 3) * 170);
+          });
         };
         input.click();
       },

@@ -16,6 +16,12 @@ const SparkleIcon = ({ size = 14 }: { size?: number }) => (
 const BRAINDUMP_DIRECTIVE =
   'This is a spoken braindump transcript. Turn it into a beautifully structured board: pull out action items into a checklist, capture key ideas as cards or sticky notes, group related things inside a titled frame, and connect what relates. Keep my words and meaning — organize, do not invent. Lay everything out cleanly with generous spacing.';
 
+// Is browser speech-to-text available? (Chrome/Edge yes; Firefox/some others no.)
+const sttSupported = (): boolean =>
+  typeof window !== 'undefined' &&
+  !!((window as unknown as Record<string, unknown>).SpeechRecognition ||
+     (window as unknown as Record<string, unknown>).webkitSpeechRecognition);
+
 export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
   const updateObject = useCanvasStore((s) => s.updateObject);
   const [isRecording, setIsRecording] = useState(false);
@@ -26,6 +32,8 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
   const [waveform, setWaveform] = useState<number[]>([]);
   const [liveTranscript, setLiveTranscript] = useState('');
   const [showTranscript, setShowTranscript] = useState(false);
+  const [sttNote, setSttNote] = useState('');
+  const [editingTranscript, setEditingTranscript] = useState(false);
 
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<BlobPart[]>([]);
@@ -41,6 +49,15 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
   const transcript = (obj.style?.transcript as string) || '';
   const isBraindump = Boolean(obj.style?.braindump);
   const isRecorded = obj.content && obj.content.startsWith('data:audio');
+
+  // Persist the transcript into the object so it survives remounts (viewport
+  // culling) and immediately enables the AI sparkle — even mid-recording.
+  const saveTranscript = useCallback((text: string) => {
+    const cur = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+    if (!cur) return;
+    if ((cur.style?.transcript as string) === text) return;
+    updateObject(obj.id, { style: { ...cur.style, transcript: text } });
+  }, [obj.id, updateObject]);
 
   // Generate waveform from audio data
   const generateWaveform = async (dataUrl: string) => {
@@ -98,7 +115,11 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
   const startRecognition = () => {
     if (typeof window === 'undefined') return;
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) return; // audio still records; transcript just won't be available
+    if (!SR) {
+      // Audio still records; we just can't auto-transcribe here.
+      setSttNote("Live transcription isn't supported in this browser — use Chrome, or type the transcript below after recording.");
+      return;
+    }
     try {
       const recognition = new SR();
       recognition.continuous = true;
@@ -106,12 +127,23 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
       recognition.lang = 'en-US';
       recognition.onresult = (event: any) => {
         let interim = '';
+        let gotFinal = false;
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const r = event.results[i];
-          if (r.isFinal) transcriptRef.current += r[0].transcript + ' ';
+          if (r.isFinal) { transcriptRef.current += r[0].transcript + ' '; gotFinal = true; }
           else interim += r[0].transcript;
         }
         setLiveTranscript((transcriptRef.current + interim).trim());
+        // Persist finals as they land so the transcript is never lost and the
+        // sparkle lights up in real time.
+        if (gotFinal) saveTranscript(transcriptRef.current.trim());
+      };
+      recognition.onerror = (event: any) => {
+        if (event?.error === 'not-allowed' || event?.error === 'service-not-allowed') {
+          setSttNote('Microphone access was blocked — allow it to capture a transcript.');
+        } else if (event?.error === 'audio-capture') {
+          setSttNote('No microphone was found for transcription.');
+        }
       };
       recognition.onend = () => {
         // Chrome auto-stops; restart while we're still recording.
@@ -119,7 +151,6 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
           try { recognition.start(); } catch { /* already started */ }
         }
       };
-      recognition.onerror = () => {};
       recognitionRef.current = recognition;
       recognition.start();
     } catch {
@@ -142,6 +173,7 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
       chunks.current = [];
       transcriptRef.current = '';
       setLiveTranscript('');
+      setSttNote('');
 
       mediaRecorder.current.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.current.push(e.data);
@@ -156,10 +188,12 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
           const cur = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
           updateObject(obj.id, {
             content: base64data,
-            style: { ...cur?.style, transcript: capturedTranscript, autoRecord: false },
+            style: { ...cur?.style, transcript: capturedTranscript || (cur?.style?.transcript as string) || '', autoRecord: false },
           });
-          if (capturedTranscript) setShowTranscript(true);
-          // Braindump auto-structures the moment recording ends.
+          // Always reveal the transcript panel afterwards so the user can read,
+          // fix, or type it (and then use the sparkle) — even if STT captured nothing.
+          setShowTranscript(true);
+          // Braindump auto-structures the moment recording ends (if we have text).
           if (isBraindump && capturedTranscript) {
             setTimeout(() => runSparkle(), 300);
           }
@@ -175,6 +209,7 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
       timer.current = setInterval(() => setRecordingTime((p) => p + 1), 1000);
     } catch (err) {
       console.error('Mic access error:', err);
+      setSttNote('Could not access the microphone. Check your browser permissions and try again.');
     }
   }, [obj.id, updateObject, isBraindump, runSparkle]);
 
@@ -249,6 +284,8 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
+  const hasTranscript = transcript.trim().length > 0;
+
   return (
     <div className="w-full h-full glass-panel flex flex-col px-3.5 py-3 gap-2 overflow-hidden group border border-white/5 shadow-2xl bg-[var(--bg-card)]/80 backdrop-blur-xl rounded-2xl">
       {isRecorded && <audio ref={audioRef} src={obj.content} />}
@@ -294,8 +331,8 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
             <button
               onClick={(e) => { e.stopPropagation(); runSparkle(); }}
               onMouseDown={(e) => e.stopPropagation()}
-              disabled={!transcript.trim()}
-              title={transcript.trim() ? 'Structure this into cards & checklists' : 'No transcript captured'}
+              disabled={!hasTranscript}
+              title={hasTranscript ? 'Structure this into cards & checklists' : 'Add a transcript first (type it below)'}
               className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-all shadow-sm disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer text-white bg-gradient-to-br from-[var(--accent)] to-[var(--accent-light)] hover:scale-105 active:scale-95"
             >
               <SparkleIcon />
@@ -304,27 +341,42 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
 
           <div className="flex justify-between items-center text-[9px] text-[var(--text-tertiary)] font-mono tracking-widest uppercase opacity-70">
             <span>{formatTime(currentTime)} / {formatTime(duration)}</span>
-            {transcript.trim() && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowTranscript((v) => !v); }}
-                onMouseDown={(e) => e.stopPropagation()}
-                className="hover:text-[var(--accent)] transition-colors cursor-pointer normal-case tracking-normal font-sans text-[10px]"
-              >
-                {showTranscript ? 'Hide transcript' : 'Show transcript'}
-              </button>
-            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowTranscript((v) => !v); }}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="hover:text-[var(--accent)] transition-colors cursor-pointer normal-case tracking-normal font-sans text-[10px]"
+            >
+              {showTranscript ? 'Hide transcript' : hasTranscript ? 'Show transcript' : 'Add transcript'}
+            </button>
           </div>
 
           <AnimatePresence>
-            {showTranscript && transcript.trim() && (
+            {showTranscript && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="flex-1 min-h-0 overflow-y-auto text-[11px] leading-relaxed text-[var(--text-secondary)] bg-black/5 dark:bg-white/5 rounded-lg px-2.5 py-2 select-text"
+                className="flex-1 min-h-0 flex flex-col"
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                {transcript}
+                {editingTranscript || !hasTranscript ? (
+                  <textarea
+                    autoFocus={editingTranscript}
+                    defaultValue={transcript}
+                    onBlur={(e) => { saveTranscript(e.target.value.trim()); setEditingTranscript(false); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    placeholder={sttNote || 'Type or paste the transcript here, then tap the sparkle to structure it…'}
+                    className="flex-1 min-h-[54px] max-h-[160px] overflow-y-auto text-[11px] leading-relaxed text-[var(--text-secondary)] bg-black/5 dark:bg-white/5 rounded-lg px-2.5 py-2 select-text outline-none resize-none border border-transparent focus:border-[var(--accent-light)]"
+                  />
+                ) : (
+                  <div
+                    onClick={(e) => { e.stopPropagation(); setEditingTranscript(true); }}
+                    className="flex-1 min-h-0 overflow-y-auto text-[11px] leading-relaxed text-[var(--text-secondary)] bg-black/5 dark:bg-white/5 rounded-lg px-2.5 py-2 select-text cursor-text"
+                    title="Click to edit"
+                  >
+                    {transcript}
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -349,11 +401,11 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto text-[12px] leading-relaxed text-[var(--text-secondary)] italic select-text">
-            {liveTranscript || (isBraindump ? 'Start talking — I\'ll turn it into a structured board.' : 'Listening…')}
+            {liveTranscript || sttNote || (isBraindump ? 'Start talking — I\'ll turn it into a structured board.' : 'Listening…')}
           </div>
         </div>
       ) : (
-        <div className="flex items-center justify-center w-full h-full">
+        <div className="flex flex-col items-center justify-center w-full h-full gap-2">
           <button
             onClick={(e) => { e.stopPropagation(); startRecording(); }}
             onMouseDown={(e) => e.stopPropagation()}
@@ -363,6 +415,11 @@ export default function VoiceNoteBlock({ obj }: { obj: CanvasObjectData }) {
             <span className="relative z-10">{isBraindump ? 'Start Braindump' : 'Record Voice Note'}</span>
             <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
           </button>
+          {!sttSupported() && (
+            <span className="text-[9px] text-[var(--text-tertiary)] text-center px-2">
+              Live transcription works best in Chrome. You can also type the transcript after recording.
+            </span>
+          )}
         </div>
       )}
     </div>

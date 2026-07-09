@@ -243,6 +243,7 @@ export default function AgentOverlay() {
 
   const runAgent = useCallback(async (
     promptText: string, keyIdx: number, customX?: number, customY?: number, refContext?: string,
+    filesContextArg?: string,
   ) => {
     if (!promptText.trim() || runningRef.current) return;
 
@@ -269,6 +270,37 @@ export default function AgentOverlay() {
     const visibleObjects = store.objects.filter((o) => o.parentId === activeParent && !o.style?.isMinimized);
     const visibleIds = new Set(visibleObjects.map((o) => o.id));
     const visibleConnections = store.connections.filter((c) => visibleIds.has(c.fromId) && visibleIds.has(c.toId));
+
+    // Gather text from any File blocks the user dropped so the agent can read
+    // them. Use an explicit arg (the file card's "Ask AI" button) if given;
+    // otherwise pull from the selected file, else the file(s) nearest to where
+    // the agent was invoked. Cap the total so we never blow the model context.
+    const FILES_BUDGET = 26_000;
+    let filesContext = (filesContextArg || '').slice(0, FILES_BUDGET);
+    if (!filesContext) {
+      const fileBlocks = visibleObjects.filter(
+        (o) => o.style?.isFile && typeof o.style?.fileText === 'string' && (o.style.fileText as string).trim()
+      );
+      if (fileBlocks.length) {
+        const selected = store.selectedId ? fileBlocks.find((o) => o.id === store.selectedId) : undefined;
+        const ordered = selected
+          ? [selected, ...fileBlocks.filter((o) => o.id !== selected.id)]
+          : [...fileBlocks].sort(
+              (a, b) => Math.hypot(a.x - startX, a.y - startY) - Math.hypot(b.x - startX, b.y - startY)
+            );
+        const parts: string[] = [];
+        let budget = FILES_BUDGET;
+        for (const f of ordered) {
+          if (budget <= 200) break;
+          const nm = (f.style?.fileName as string) || 'file';
+          const body = (f.style?.fileText as string).slice(0, budget - 40);
+          const chunk = `FILE: ${nm}\n${body}`;
+          parts.push(chunk);
+          budget -= chunk.length + 4;
+        }
+        filesContext = parts.join('\n\n---\n\n');
+      }
+    }
 
     // --- shared execution state ---
     const idMap: Record<string, string> = {};
@@ -492,6 +524,7 @@ export default function AgentOverlay() {
           agentX: startX, agentY: startY,
           context: refContext,
           visionContext,
+          filesContext: filesContext || undefined,
           canvas: {
             objects: visibleObjects.map((o) => ({
               id: o.id, type: o.type, x: o.x, y: o.y,
@@ -546,9 +579,9 @@ export default function AgentOverlay() {
   // Inline "/agent <task>" launches arrive as run-agent window events
   useEffect(() => {
     const handleRunEvent = (e: Event) => {
-      const ce = e as CustomEvent<{ prompt: string; apiKeyIndex?: number; x?: number; y?: number; context?: string }>;
-      const { prompt: p, apiKeyIndex: ki, x, y, context } = ce.detail;
-      runAgent(p, ki ?? 0, x, y, context);
+      const ce = e as CustomEvent<{ prompt: string; apiKeyIndex?: number; x?: number; y?: number; context?: string; filesContext?: string }>;
+      const { prompt: p, apiKeyIndex: ki, x, y, context, filesContext } = ce.detail;
+      runAgent(p, ki ?? 0, x, y, context, filesContext);
     };
     window.addEventListener('run-agent', handleRunEvent);
     return () => window.removeEventListener('run-agent', handleRunEvent);

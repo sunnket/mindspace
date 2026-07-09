@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import { screenToCanvas, clamp } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
+import { ingestFile } from '@/lib/fileIngest';
 import {
   saveObjects,
   saveStrokes,
@@ -716,31 +717,21 @@ export default function InfiniteCanvas() {
     };
   }, [mode, previousMode, selectedId, focusedId, canvasStack, setMode, setPreviousMode, setSelectedId, setFocusedId, setSearchOpen, setCommandPaletteOpen, removeObject, undo, redo, popCanvas]);
 
-  // Drag and drop images
+  // Drag and drop ANY file — images become image cards; everything else (pdf,
+  // docx, pptx, xlsx, zip, code, …) becomes a readable File block the agent can
+  // inspect and answer questions about.
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const files = Array.from(e.dataTransfer.files).filter((f) =>
-        f.type.startsWith('image/')
-      );
-
-      files.forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const worldPos = screenToCanvas(e.clientX, e.clientY, camera);
-          addObject({
-            type: 'image',
-            x: worldPos.x,
-            y: worldPos.y,
-            width: 300,
-            height: 200,
-            content: ev.target?.result as string,
-          });
-        };
-        reader.readAsDataURL(file);
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length === 0) return;
+      const origin = screenToCanvas(e.clientX, e.clientY, camera);
+      files.forEach((file, i) => {
+        // Fan multiple files out so they don't stack on the same spot.
+        ingestFile(file, origin.x + (i % 3) * 330, origin.y + Math.floor(i / 3) * 170);
       });
     },
-    [camera, addObject]
+    [camera]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {

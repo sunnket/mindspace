@@ -5,6 +5,10 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: process.cwd(),
   },
+  // File parsers use Node.js-specific features (streams, workers, fs). Keep them
+  // out of the Server Components bundle and load them via native require at
+  // runtime so the /api/file-extract route works reliably.
+  serverExternalPackages: ['pdf-parse', 'mammoth', 'jszip'],
 };
 
 export default nextConfig;
