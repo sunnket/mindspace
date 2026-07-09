@@ -250,7 +250,7 @@ export default function MarginsLayer() {
               <h3 className="text-[11px] uppercase font-extrabold tracking-[0.16em] text-[var(--text-secondary)]">Comments</h3>
               <div className="clay-inset flex p-0.5 rounded-full text-[10px] font-bold">
                 {(['open', 'all'] as const).map((f) => (
-                  <button key={f} onClick={() => setFilter(f)} className={`px-2.5 py-1 rounded-full cursor-pointer transition-colors ${filter === f ? 'bg-white text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)]'}`}>{f === 'open' ? 'Open' : 'All'}</button>
+                  <button key={f} onClick={() => setFilter(f)} className={`px-2.5 py-1 rounded-full cursor-pointer transition-colors ${filter === f ? 'bg-white dark:bg-white/15 text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)]'}`}>{f === 'open' ? 'Open' : 'All'}</button>
                 ))}
               </div>
             </div>

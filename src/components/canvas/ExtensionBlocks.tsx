@@ -201,7 +201,7 @@ export function CountdownBlock({ obj }: { obj: CanvasObjectData }) {
         onMouseDown={stop}
         onPointerDown={stop}
         onClick={stop}
-        className="mt-2.5 w-full text-center text-[10px] font-semibold text-[var(--text-secondary)] bg-transparent outline-none rounded-lg py-1 hover:bg-[#F5EFE7] focus:bg-[#F5EFE7] transition-colors cursor-pointer"
+        className="mt-2.5 w-full text-center text-[10px] font-semibold text-[var(--text-secondary)] bg-transparent outline-none rounded-lg py-1 hover:bg-[#F5EFE7] focus:bg-[#F5EFE7] dark:hover:bg-white/10 dark:focus:bg-white/10 transition-colors cursor-pointer"
       />
     </BlockShell>
   );
@@ -394,7 +394,7 @@ export function LiveMetricBlock({ obj }: { obj: CanvasObjectData }) {
           onPointerDown={stop}
           onClick={stop}
           title="Chart datapoints (comma separated)"
-          className="mt-1 w-full bg-[#F5EFE7] rounded-lg px-2 py-1 text-[9px] font-mono text-[var(--text-secondary)] outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text tabular-nums"
+          className="mt-1 w-full bg-[#F5EFE7] dark:bg-white/10 rounded-lg px-2 py-1 text-[9px] font-mono text-[var(--text-secondary)] outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text tabular-nums"
         />
       )}
     </BlockShell>
@@ -476,7 +476,7 @@ export function QuickDataBlock({ obj }: { obj: CanvasObjectData }) {
             onChange={(e) => setNewKey(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addRow()}
             onMouseDown={stop} onPointerDown={stop} onClick={stop}
-            className="w-[38%] shrink-0 bg-[#F5EFE7] rounded-md px-1.5 py-1 text-[10px] font-semibold outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text placeholder:text-[var(--text-muted)]"
+            className="w-[38%] shrink-0 bg-[#F5EFE7] dark:bg-white/10 rounded-md px-1.5 py-1 text-[10px] font-semibold outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text placeholder:text-[var(--text-muted)]"
           />
           <input
             type="text" value={newValue} placeholder="value"
@@ -484,7 +484,7 @@ export function QuickDataBlock({ obj }: { obj: CanvasObjectData }) {
             onKeyDown={(e) => e.key === 'Enter' && addRow()}
             onBlur={addRow}
             onMouseDown={stop} onPointerDown={stop} onClick={stop}
-            className="flex-1 min-w-0 bg-[#F5EFE7] rounded-md px-1.5 py-1 text-[10px] font-semibold outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text placeholder:text-[var(--text-muted)]"
+            className="flex-1 min-w-0 bg-[#F5EFE7] dark:bg-white/10 rounded-md px-1.5 py-1 text-[10px] font-semibold outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text placeholder:text-[var(--text-muted)]"
           />
         </div>
       </div>

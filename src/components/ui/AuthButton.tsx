@@ -91,8 +91,8 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.95 }}
                   transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-                  className="absolute right-0 mt-2.5 w-56 glass-panel border border-white/20 p-2.5 shadow-xl rounded-xl"
-                  style={{ background: 'rgba(250, 246, 241, 0.96)', color: 'var(--text-primary)' }}
+                  className="absolute right-0 mt-2.5 w-56 glass-panel border border-white/20 dark:border-white/10 p-2.5 shadow-xl rounded-xl"
+                  style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
                 >
                   {/* Dropdown Header */}
                   <div className="px-3 py-2 border-b border-black/5 mb-1.5">
@@ -109,7 +109,7 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
                       setModalMode('update-password');
                       setModalOpen(true);
                     }}
-                    className="w-full text-left px-3 py-2 text-xs font-light hover:bg-white/60 hover:text-[var(--accent)] rounded-lg transition-colors flex items-center justify-between group cursor-pointer"
+                    className="w-full text-left px-3 py-2 text-xs font-light hover:bg-white/60 dark:hover:bg-white/10 hover:text-[var(--accent)] rounded-lg transition-colors flex items-center justify-between group cursor-pointer"
                   >
                     <span>Update Password</span>
                     <span className="text-[var(--text-muted)] group-hover:text-[var(--accent)] flex items-center">

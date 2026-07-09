@@ -389,7 +389,7 @@ export default function FloatingToolbar() {
                 }}
                 className={`flex-1 py-1.5 px-2.5 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
                   !eraserMode && !highlighterMode
-                    ? 'bg-white text-[var(--accent)] shadow-sm'
+                    ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
@@ -406,7 +406,7 @@ export default function FloatingToolbar() {
                 }}
                 className={`flex-1 py-1.5 px-2.5 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
                   highlighterMode
-                    ? 'bg-white text-[var(--accent)] shadow-sm'
+                    ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
@@ -423,7 +423,7 @@ export default function FloatingToolbar() {
                 }}
                 className={`flex-1 py-1.5 px-2.5 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
                   eraserMode
-                    ? 'bg-white text-[var(--accent)] shadow-sm'
+                    ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >

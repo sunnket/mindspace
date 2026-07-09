@@ -185,7 +185,7 @@ export default function CollabModal() {
                       }`}
                     >
                       {tab === t && (
-                        <motion.span layoutId="collab-tab-thumb" transition={spring} className="absolute inset-0 bg-white rounded-full shadow-[0_2px_6px_rgba(90,62,40,0.15),inset_0_1px_0_rgba(255,255,255,1)]" />
+                        <motion.span layoutId="collab-tab-thumb" transition={spring} className="absolute inset-0 bg-white dark:bg-white/15 rounded-full shadow-[0_2px_6px_rgba(90,62,40,0.15),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-none" />
                       )}
                       <span className="relative">{t === 'host' ? 'Start a session' : 'Join with code'}</span>
                     </button>

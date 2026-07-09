@@ -987,7 +987,7 @@ export default function InfiniteCanvas() {
             onChange={(e) => setWorkspaceTitle(e.target.value)}
             onBlur={() => setIsEditingTitle(false)}
             onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)}
-            className="bg-white/80 border-none outline-none text-2xl text-[var(--text-primary)] w-80 px-4 py-2 rounded-xl transition-all shadow-xl backdrop-blur-md"
+            className="bg-white/80 dark:bg-white/10 border-none outline-none text-2xl text-[var(--text-primary)] w-80 px-4 py-2 rounded-xl transition-all shadow-xl backdrop-blur-md"
             placeholder="Untitled Workspace"
             style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300 }}
           />
