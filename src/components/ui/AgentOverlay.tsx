@@ -559,6 +559,28 @@ export default function AgentOverlay() {
         if (!runningRef.current) return;
       }
 
+      // If the user pasted URL(s), CRAWL them so the agent works from the real
+      // page — "read this", "summarize this docs page", "pull X from this link".
+      let webContext: string | undefined;
+      const urlsInPrompt = Array.from(
+        new Set((promptText.match(/https?:\/\/[^\s)]+/gi) || []).map((u) => u.replace(/[.,]+$/, '')))
+      ).slice(0, 3);
+      if (urlsInPrompt.length) {
+        addLog('[Agent] Reading the web…');
+        const parts: string[] = [];
+        for (const u of urlsInPrompt) {
+          try {
+            const r = await fetch(`/api/fetch-url?url=${encodeURIComponent(u)}`, { signal: controller.signal });
+            if (r.ok) {
+              const j = await r.json();
+              if (j?.text) parts.push(`URL: ${j.url || u}\nTITLE: ${j.title || ''}\n${j.text}`);
+            }
+          } catch { /* skip a page that won't load */ }
+        }
+        if (parts.length) webContext = parts.join('\n\n----------\n\n').slice(0, 24_000);
+        if (!runningRef.current) return;
+      }
+
       const res = await fetch('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -570,6 +592,7 @@ export default function AgentOverlay() {
           brief: briefArg,
           mode: modeArg,
           visionContext,
+          webContext,
           filesContext: filesContext || undefined,
           canvas: {
             objects: visibleObjects.map((o) => ({

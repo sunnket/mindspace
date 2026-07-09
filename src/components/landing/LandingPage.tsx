@@ -22,6 +22,7 @@ import {
 import { useRouter } from 'next/navigation';
 import AuthButton from '@/components/ui/AuthButton';
 import { exportBoardById } from '@/lib/boardIO';
+import { applyCanvasTheme, resetCanvasTheme, presetById, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 
 /* ============================================================
    Types
@@ -311,6 +312,13 @@ export default function LandingPage() {
     seedDatabaseIfEmpty().then(refresh).catch(console.error);
   }, [refresh]);
 
+  // The canvas gallery ships in a warm dark theme by default. Restore the light
+  // default palette on unmount so an opened canvas starts from its own theme.
+  useEffect(() => {
+    applyCanvasTheme(presetById('graphite') || DEFAULT_BACKGROUND);
+    return () => resetCanvasTheme();
+  }, []);
+
   // Lazy-load all objects the first time images/checkpoints tab is opened
   useEffect(() => {
     if ((activeSidebarTab === 'images' || activeSidebarTab === 'checkpoints') && galleryObjects === null) {
@@ -530,7 +538,7 @@ export default function LandingPage() {
      ============================================================ */
 
   return (
-    <div className="min-h-screen bg-[#FAF6F1] text-[var(--text-primary)] flex overflow-x-hidden relative paper-texture">
+    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex overflow-x-hidden relative paper-texture">
       <div className="noise-overlay" />
 
       {/* ---------- Floating clay dock ---------- */}
@@ -635,7 +643,7 @@ export default function LandingPage() {
                     <Icon size={13}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>
                   </button>
                 ) : (
-                  <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold text-[var(--text-tertiary)] bg-white/70 px-2 py-1 rounded-full border border-[var(--border)] select-none shrink-0">
+                  <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold text-[var(--text-tertiary)] bg-white/70 dark:bg-white/10 px-2 py-1 rounded-full border border-[var(--border)] select-none shrink-0">
                     ⌘K
                   </kbd>
                 )}
@@ -948,7 +956,7 @@ export default function LandingPage() {
                           <motion.span
                             layoutId="layout-thumb"
                             transition={spring}
-                            className="absolute inset-0 bg-white rounded-full shadow-[0_2px_6px_rgba(90,62,40,0.15),inset_0_1px_0_rgba(255,255,255,1)]"
+                            className="absolute inset-0 bg-white dark:bg-white/15 rounded-full shadow-[0_2px_6px_rgba(90,62,40,0.15),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-none"
                           />
                         )}
                         <span className="relative">{mode}</span>
@@ -975,11 +983,11 @@ export default function LandingPage() {
                         <motion.span
                           layoutId="category-thumb"
                           transition={spring}
-                          className="absolute inset-0 bg-[#2D2A26] rounded-full shadow-[0_8px_16px_-6px_rgba(45,42,38,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]"
+                          className="absolute inset-0 bg-[#2D2A26] dark:bg-[var(--accent)] rounded-full shadow-[0_8px_16px_-6px_rgba(45,42,38,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]"
                         />
                       )}
                       <span className="relative">{cat}</span>
-                      <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === cat ? 'bg-white/20' : 'bg-white/70 border border-[var(--border)]'}`}>
+                      <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === cat ? 'bg-white/20' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
                         {counts[cat]}
                       </span>
                     </button>
@@ -1120,7 +1128,7 @@ export default function LandingPage() {
                     <div className="overflow-x-auto">
                       <table className="w-full border-collapse text-left min-w-[640px]">
                         <thead>
-                          <tr className="border-b border-[var(--border)] bg-[#FAF6F1]/60 text-[10px] uppercase font-extrabold tracking-[0.15em] text-[var(--text-secondary)] select-none">
+                          <tr className="border-b border-[var(--border)] bg-[#FAF6F1]/60 dark:bg-white/5 text-[10px] uppercase font-extrabold tracking-[0.15em] text-[var(--text-secondary)] select-none">
                             <th className="py-4 px-6">Title</th>
                             <th className="py-4 px-6">Category</th>
                             <th className="py-4 px-6">Contents</th>
@@ -1133,7 +1141,7 @@ export default function LandingPage() {
                             <tr
                               key={ws.id}
                               onClick={() => router.push(`/canvas?id=${ws.id}`)}
-                              className="border-b border-[var(--border)] last:border-b-0 hover:bg-[#FAF6F1]/50 cursor-pointer transition-colors group"
+                              className="border-b border-[var(--border)] last:border-b-0 hover:bg-[#FAF6F1]/50 dark:hover:bg-white/5 cursor-pointer transition-colors group"
                             >
                               <td className="py-4 px-6 font-semibold text-[16px] tracking-tight group-hover:text-[var(--accent)] transition-colors" style={{ fontFamily: "'Playfair Display', serif" }}>
                                 <span className="flex items-center gap-1.5">
@@ -1231,7 +1239,7 @@ export default function LandingPage() {
           {/* Footer hint */}
           <footer className="flex justify-center pt-4 select-none">
             <p className="text-[10px] font-medium text-[var(--text-muted)] tracking-wide">
-              <kbd className="px-1.5 py-0.5 rounded bg-white/70 border border-[var(--border)] font-mono text-[9px]">⌘K</kbd> search
+              <kbd className="px-1.5 py-0.5 rounded bg-white/70 dark:bg-white/10 border border-[var(--border)] font-mono text-[9px]">⌘K</kbd> search
               <span className="mx-2">·</span>
               click your name to edit it
               <span className="mx-2">·</span>
