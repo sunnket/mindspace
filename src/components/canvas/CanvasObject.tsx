@@ -1546,15 +1546,17 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           // Selection-panel controls: stroke width, stroke style (dash), edges.
           const strokeWidthKey = obj.style?.strokeWidth as string | undefined; // 'thin' | 'medium' | 'bold'
           const sloppiness = obj.style?.sloppiness as string | undefined; // 'architect' | 'artist' | 'cartoonist'
-          const roughBump = sloppiness === 'cartoonist' ? 1 : sloppiness === 'artist' ? 0.5 : 0;
-          const shapeStroke = (strokeWidthKey === 'bold' ? 4 : strokeWidthKey === 'medium' ? 2.5 : strokeWidthKey === 'thin' ? 1 : 1.5) + roughBump;
+          const shapeStroke = strokeWidthKey === 'bold' ? 4 : strokeWidthKey === 'medium' ? 2.5 : strokeWidthKey === 'thin' ? 1 : 1.5;
           const strokeStyleKey = obj.style?.strokeStyle as string | undefined; // 'solid' | 'dashed' | 'dotted'
-          const shapeDash: string | undefined =
+          const shapeDash: string =
             strokeStyleKey === 'dashed' ? `${(shapeStroke * 3).toFixed(1)},${(shapeStroke * 2.4).toFixed(1)}`
             : strokeStyleKey === 'dotted' ? `${shapeStroke.toFixed(1)},${(shapeStroke * 2).toFixed(1)}`
-            : undefined;
+            : 'none';
           const cssBorderStyle = strokeStyleKey === 'dashed' ? 'dashed' : strokeStyleKey === 'dotted' ? 'dotted' : 'solid';
           const sharpEdges = obj.style?.edges === 'sharp';
+          const shapeJoin = sharpEdges ? 'miter' : 'round';
+          // Hand-drawn wobble level (applied as an SVG turbulence filter class).
+          const roughClass = sloppiness === 'cartoonist' ? 'shape-rough-2' : sloppiness === 'artist' ? 'shape-rough-1' : '';
 
           const getShapePadding = (shape: string) => {
             switch (shape) {
@@ -1668,9 +1670,19 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           const pad = getShapePadding(shapeType);
           
           return (
-            <div className={`shape-container ${shapeType}`} style={{ width: '100%', height: '100%', position: 'relative' }}>
+            <div
+              className={`shape-container ${shapeType}`}
+              style={{
+                width: '100%', height: '100%', position: 'relative',
+                // Universal stroke controls — the CSS rule reads these vars and
+                // overrides every shape's SVG stroke at once.
+                ['--shape-sw' as string]: String(shapeStroke),
+                ['--shape-dash' as string]: shapeDash,
+                ['--shape-join' as string]: shapeJoin,
+              } as React.CSSProperties}
+            >
               {/* Background Shape */}
-              <div className="absolute inset-0 pointer-events-none z-0">
+              <div className={`absolute inset-0 pointer-events-none z-0 ${roughClass}`}>
                 {shapeType === 'circle' && (
                   <div 
                     className="w-full h-full rounded-full transition-all duration-300"

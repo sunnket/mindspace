@@ -485,9 +485,10 @@ export default function InfiniteCanvas() {
             const worldPos = screenToCanvas(e.clientX, e.clientY, camera);
             
             if (mode === 'arrow') {
-              const activePointer = useCanvasStore.getState().selectedArrowPointerType || 'line';
+              const aStyle = useCanvasStore.getState().arrowStyle;
               if (!activeArrowId) {
-                // First click: Create the arrow
+                // First click: Create the arrow with the current tool defaults
+                // (set in the selection panel while in arrow mode).
                 const obj = addObject({
                   type: 'arrow',
                   x: worldPos.x,
@@ -500,10 +501,10 @@ export default function InfiniteCanvas() {
                     startY: worldPos.y,
                     endX: worldPos.x,
                     endY: worldPos.y,
-                    pointerType: activePointer,
-                    color: 'var(--accent)',
-                    thickness: 3,
-                    dashStyle: 'solid',
+                    pointerType: aStyle.pointerType,
+                    color: aStyle.color,
+                    thickness: aStyle.thickness,
+                    dashStyle: aStyle.dashStyle,
                   }
                 });
                 setActiveArrowId(obj.id);
@@ -635,9 +636,10 @@ export default function InfiniteCanvas() {
         return;
       }
 
-      // A = arrow mode
+      // A = arrow mode (deselect so the panel shows arrow tool defaults)
       if (e.key === 'a' || e.key === 'A') {
         setMode('arrow');
+        setSelectedId(null);
         return;
       }
 
@@ -985,6 +987,20 @@ export default function InfiniteCanvas() {
 
       {/* Noise overlay */}
       <div className="noise-overlay" />
+
+      {/* Hand-drawn "sloppiness" filters referenced by shapes via CSS filter:url() */}
+      <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none' }} aria-hidden="true">
+        <defs>
+          <filter id="ms-rough-1" x="-8%" y="-8%" width="116%" height="116%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.016" numOctaves="2" seed="7" result="n" />
+            <feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+          <filter id="ms-rough-2" x="-12%" y="-12%" width="124%" height="124%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="3" seed="13" result="n" />
+            <feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+        </defs>
+      </svg>
 
       {/* UI overlays */}
       <div className="fixed top-12 left-10 z-50 pointer-events-auto flex flex-col items-start">

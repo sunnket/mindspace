@@ -128,6 +128,25 @@ html, body {
   .semantic-fade { animation: none; }
 }
 
+/* ============================================
+   Shape styling — universal stroke controls.
+   A CSS stroke-* property overrides the SVG
+   presentation attribute, so EVERY shape
+   (polygon / path / line / circle) honors the
+   selection panel's width / dash / corners at
+   once, no matter how it was authored.
+   ============================================ */
+.shape-container svg [stroke]:not([stroke="none"]) {
+  stroke-width: var(--shape-sw, 1.5);
+  stroke-dasharray: var(--shape-dash, none);
+  stroke-linejoin: var(--shape-join, round);
+  stroke-linecap: round;
+  transition: stroke-width 0.15s ease;
+}
+/* Hand-drawn "sloppiness" — a turbulence wobble on the whole shape layer. */
+.shape-rough-1 { filter: url(#ms-rough-1); }
+.shape-rough-2 { filter: url(#ms-rough-2); }
+
 /* Scenes: distraction-free "tour mode" fades the canvas chrome out of the way */
 .tour-mode .floating-toolbar,
 .tour-mode .minimap-container,

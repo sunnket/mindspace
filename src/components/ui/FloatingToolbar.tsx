@@ -261,6 +261,9 @@ export default function FloatingToolbar() {
               setMode(tool.id as InteractionMode);
               setShowWorkflowMenu(false);
               setShowBgOptions(false);
+              // Picking the arrow tool starts a fresh draw — deselect so the
+              // panel shows the arrow tool defaults, not the last selection.
+              if (tool.id === 'arrow') setSelectedId(null);
               if (tool.id === 'draw') {
                 setShowDrawOptions(true);
                 setShowTextOptions(false);
@@ -836,10 +839,10 @@ export default function FloatingToolbar() {
         )}
       </AnimatePresence>
 
-      {/* Arrow options panel — only while placing a new arrow; editing an
-          existing arrow is handled by the left SelectionPanel. */}
+      {/* Arrow options are now handled entirely by the left SelectionPanel
+          (both the tool defaults in arrow mode and editing a selected arrow). */}
       <AnimatePresence>
-        {mode === 'arrow' && (
+        {false && (
           <motion.div
             className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[240px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}

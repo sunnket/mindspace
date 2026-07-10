@@ -220,6 +220,11 @@ interface CanvasStore {
   // Arrow settings
   selectedArrowPointerType: 'line' | 'arrow' | 'dot' | 'diamond';
   setSelectedArrowPointerType: (type: 'line' | 'arrow' | 'dot' | 'diamond') => void;
+
+  // Default style applied to the NEXT arrow you draw (editable in the panel
+  // while in arrow mode, before anything is on the canvas).
+  arrowStyle: { color: string; thickness: number; dashStyle: string; pointerType: string };
+  setArrowStyle: (patch: Partial<{ color: string; thickness: number; dashStyle: string; pointerType: string }>) => void;
   
   // Max z-index tracker
   maxZIndex: number;
@@ -1033,6 +1038,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Arrow settings
   selectedArrowPointerType: 'line',
   setSelectedArrowPointerType: (selectedArrowPointerType) => set({ selectedArrowPointerType }),
+
+  arrowStyle: { color: '#2D2A26', thickness: 3, dashStyle: 'solid', pointerType: 'arrow' },
+  setArrowStyle: (patch) => set((s) => ({ arrowStyle: { ...s.arrowStyle, ...patch } })),
   
   // Max z-index
   maxZIndex: 0,
