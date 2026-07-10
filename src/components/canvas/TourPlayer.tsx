@@ -32,25 +32,6 @@ export default function TourPlayer({
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [hasMoved, setHasMoved] = useState(false);
 
-  // Narrated present mode: read each scene's notes aloud with the browser's
-  // built-in TTS (no API key) as the camera arrives.
-  const [narrate, setNarrate] = useState(true);
-  const narrateRef = useRef(true);
-  const speak = useCallback((text: string) => {
-    if (typeof window === 'undefined' || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const t = (text || '').trim();
-    if (!t) return;
-    const u = new SpeechSynthesisUtterance(t);
-    u.rate = 1.0;
-    u.pitch = 1.0;
-    window.speechSynthesis.speak(u);
-  }, []);
-  useEffect(() => {
-    narrateRef.current = narrate;
-    if (!narrate && typeof window !== 'undefined') window.speechSynthesis?.cancel();
-  }, [narrate]);
-
   useEffect(() => {
     if (!laserActive) {
       setHasMoved(false);
@@ -116,10 +97,10 @@ export default function TourPlayer({
         await flyTo(ordered[i].camera, ordered[i].durationMs || 1400);
         if (!playingRef.current) break;
         if (i < total - 1) {
-          // Linger a bit longer when narrating so speech isn't cut off — but
+          // Linger longer on stops with notes so the caption can be read — but
           // capped so it never feels frozen.
           const notes = ordered[i]?.notes;
-          const holdMs = narrateRef.current && notes ? Math.min(4800, 1200 + notes.length * 38) : 800;
+          const holdMs = notes ? Math.min(4800, 1200 + notes.length * 38) : 800;
           await new Promise<void>((r) => {
             holdTimer.current = setTimeout(r, holdMs);
           });
@@ -135,7 +116,6 @@ export default function TourPlayer({
     playingRef.current = false;
     setPlaying(false);
     cancelMotion();
-    if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
   }, [cancelMotion]);
 
   const stepTo = useCallback(
@@ -168,7 +148,6 @@ export default function TourPlayer({
       if (holdTimer.current) clearTimeout(holdTimer.current);
       setTouring(false);
       document.documentElement.classList.remove('tour-mode');
-      if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -185,13 +164,6 @@ export default function TourPlayer({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [index, exit, stepTo, togglePlay]);
-
-  // Speak the current scene's narration as the camera lands on it.
-  useEffect(() => {
-    if (!narrate) return;
-    const sc = ordered[index];
-    speak(sc?.notes || sc?.name || '');
-  }, [index, narrate, ordered, speak]);
 
   const current = ordered[index];
 
@@ -242,8 +214,8 @@ export default function TourPlayer({
         </div>
       )}
 
-      {/* Narration caption */}
-      {narrate && current?.notes && (
+      {/* Scene caption */}
+      {current?.notes && (
         <motion.div
           key={current.id}
           initial={{ opacity: 0, y: 12 }}
@@ -301,24 +273,6 @@ export default function TourPlayer({
         </div>
 
         <span className="text-[10px] font-bold text-[var(--text-tertiary)] tabular-nums shrink-0">{index + 1}/{total}</span>
-
-        <button
-          onClick={() => setNarrate((v) => !v)}
-          aria-label="Toggle narration"
-          title="Narration (voice)"
-          className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
-            narrate
-              ? 'bg-[var(--accent)] text-white shadow-[0_4px_12px_rgba(201,123,75,0.45)]'
-              : 'text-[var(--text-tertiary)] hover:text-[var(--accent)] hover:bg-[var(--accent-subtle)]'
-          }`}
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M11 5 6 9H2v6h4l5 4z" />
-            {narrate
-              ? <><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M18.5 5.5a9 9 0 0 1 0 13" /></>
-              : <><line x1="22" y1="9" x2="16" y2="15" /><line x1="16" y1="9" x2="22" y2="15" /></>}
-          </svg>
-        </button>
 
         <button
           onClick={() => setLaserActive(prev => !prev)}

@@ -16,7 +16,7 @@ import QuoteBlock from './QuoteBlock';
 import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
-import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock } from './ExtensionBlocks';
+import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock } from './ExtensionBlocks';
 
 interface CommentBubbleProps {
   obj: CanvasObjectData;
@@ -1319,6 +1319,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <LiveMetricBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isChart) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <ChartBlock obj={obj} />
             </div>
           );
         }

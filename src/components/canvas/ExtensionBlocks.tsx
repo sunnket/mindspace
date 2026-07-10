@@ -334,6 +334,17 @@ export function LiveMetricBlock({ obj }: { obj: CanvasObjectData }) {
   const patch = (kv: Record<string, unknown>) =>
     updateObject(obj.id, { style: { ...obj.style, ...kv } });
 
+  // Data-entry first: a freshly inserted metric asks for its numbers before it
+  // renders the sparkline. Existing/agent-made metrics (no metricSetup flag)
+  // skip straight to the live view.
+  const setup = obj.style?.metricSetup === true;
+  const [sTitle, setSTitle] = useState(title);
+  const [sValue, setSValue] = useState(value);
+  const [sTrend, setSTrend] = useState(trend);
+  const [sData, setSData] = useState((obj.style?.metricChartData as number[] | undefined)?.join(', ') || '');
+
+  // All hooks must run before any conditional return (Rules of Hooks), so the
+  // sparkline path + trend are computed up here even in setup mode.
   const pathD = useMemo(() => {
     if (chartData.length < 2) return '';
     const w = 240; const h = 30;
@@ -342,8 +353,52 @@ export function LiveMetricBlock({ obj }: { obj: CanvasObjectData }) {
     const pts = chartData.map((v, i) => `${((i / (chartData.length - 1)) * w).toFixed(1)},${(h - ((v - min) / range) * (h - 6) - 3).toFixed(1)}`);
     return `M ${pts.join(' L ')}`;
   }, [chartData]);
-
   const trendUp = trend.trim().startsWith('+') || trend.includes('up');
+
+  if (setup) {
+    const finish = () => {
+      const parsed = sData.split(',').map((x) => parseFloat(x.trim())).filter((x) => !isNaN(x));
+      patch({
+        metricTitle: sTitle.trim() || 'Metric',
+        metricValue: sValue.trim() || '0',
+        metricTrend: sTrend.trim(),
+        metricChartData: parsed.length >= 2 ? parsed : [0, 0],
+        metricSetup: false,
+      });
+    };
+    return (
+      <BlockShell
+        tint={tint}
+        tag="live metric"
+        icon={<MiniIcon><polyline points="3 17 9 11 13 15 21 7" /><polyline points="15 7 21 7 21 13" /></MiniIcon>}
+        badge={<Badge tint={tint}>set up</Badge>}
+      >
+        <p className="text-[11.5px] font-bold text-[var(--text-primary)] mb-1.5">Fill in your metric</p>
+        <div className="flex-1 flex flex-col gap-1.5 overflow-y-auto min-h-0">
+          <input type="text" value={sTitle} onChange={(e) => setSTitle(e.target.value)} placeholder="Metric name" onMouseDown={stop} onPointerDown={stop} onClick={stop}
+            className="w-full bg-[var(--well)] rounded-md px-2 py-1 text-[11px] font-semibold outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text placeholder:text-[var(--text-muted)]" />
+          <div className="flex gap-1.5">
+            <input type="text" value={sValue} onChange={(e) => setSValue(e.target.value)} placeholder="Value (e.g. 71%)" onMouseDown={stop} onPointerDown={stop} onClick={stop}
+              className="flex-1 min-w-0 bg-[var(--well)] rounded-md px-2 py-1 text-[11px] font-bold outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text placeholder:text-[var(--text-muted)]" />
+            <input type="text" value={sTrend} onChange={(e) => setSTrend(e.target.value)} placeholder="+3% this week" onMouseDown={stop} onPointerDown={stop} onClick={stop}
+              className="flex-1 min-w-0 bg-[var(--well)] rounded-md px-2 py-1 text-[11px] font-semibold outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text placeholder:text-[var(--text-muted)]" />
+          </div>
+          <input type="text" value={sData} onChange={(e) => setSData(e.target.value)} placeholder="Trend points: 60, 65, 70, 71" onMouseDown={stop} onPointerDown={stop} onClick={stop}
+            onKeyDown={(e) => e.key === 'Enter' && finish()}
+            className="w-full bg-[var(--well)] rounded-md px-2 py-1 text-[10px] font-mono tabular-nums outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text placeholder:text-[var(--text-muted)]" />
+        </div>
+        <button
+          onClick={(e) => { stop(e); finish(); }}
+          onMouseDown={stop} onPointerDown={stop}
+          className="mt-2 h-7 px-3.5 rounded-full text-[11px] font-bold text-white flex items-center justify-center gap-1.5 self-end transition-all active:scale-95 cursor-pointer"
+          style={{ background: tint, boxShadow: `0 6px 14px -6px ${tint}AA, inset 0 1px 0 rgba(255,255,255,0.3)` }}
+        >
+          <MiniIcon size={10}><polyline points="20 6 9 17 4 12" /></MiniIcon>
+          Show metric
+        </button>
+      </BlockShell>
+    );
+  }
 
   return (
     <BlockShell
@@ -810,6 +865,364 @@ export function ProgressBlock({ obj }: { obj: CanvasObjectData }) {
           ))}
         </div>
         <span className="text-lg font-extrabold tabular-nums" style={{ color: done ? '#C9904B' : tint }}>{value}%</span>
+      </div>
+    </BlockShell>
+  );
+}
+
+/* ============================================================
+   CHART — Notion-style data viz. Pick a type, fill in your data,
+   THEN it renders. Bar / horizontal bar / line / donut / number.
+   ============================================================ */
+
+type ChartRow = { label: string; value: number };
+type ChartType = 'bar' | 'hbar' | 'line' | 'donut' | 'number';
+
+const CHART_TINT = '#C97B4B';
+// Categorical palette (accent first) for donut slices / multi-series.
+const CHART_PALETTE = ['#C97B4B', '#3E63DD', '#2F9E6E', '#E93D82', '#8B5FBF', '#C9904B', '#45B761', '#D64545'];
+
+const CHART_TYPES: { id: ChartType; label: string; icon: React.ReactNode }[] = [
+  { id: 'bar', label: 'Vertical bar', icon: <MiniIcon><line x1="6" y1="20" x2="6" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="18" y1="20" x2="18" y2="14" /></MiniIcon> },
+  { id: 'hbar', label: 'Horizontal bar', icon: <MiniIcon><line x1="4" y1="6" x2="16" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="11" y2="18" /></MiniIcon> },
+  { id: 'line', label: 'Line chart', icon: <MiniIcon><polyline points="3 17 9 11 13 15 21 6" /></MiniIcon> },
+  { id: 'donut', label: 'Donut chart', icon: <MiniIcon><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4" /></MiniIcon> },
+  { id: 'number', label: 'Number', icon: <MiniIcon><line x1="4" y1="9" x2="20" y2="9" /><line x1="4" y1="15" x2="20" y2="15" /><line x1="10" y1="3" x2="8" y2="21" /><line x1="16" y1="3" x2="14" y2="21" /></MiniIcon> },
+];
+
+function fmtNum(n: number): string {
+  if (!isFinite(n)) return '0';
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return (n / 1e9).toFixed(abs >= 1e10 ? 0 : 1) + 'B';
+  if (abs >= 1e6) return (n / 1e6).toFixed(abs >= 1e7 ? 0 : 1) + 'M';
+  if (abs >= 1e3) return (n / 1e3).toFixed(abs >= 1e4 ? 0 : 1) + 'K';
+  return String(Math.round(n * 100) / 100);
+}
+
+function polar(cx: number, cy: number, r: number, angle: number): [number, number] {
+  const a = (angle - 90) * (Math.PI / 180);
+  return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+}
+
+/** Small text button used in the chart footer. */
+function ChartLink({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={(e) => { stop(e); onClick(); }}
+      onMouseDown={stop}
+      onPointerDown={stop}
+      className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+    >
+      {children}
+    </button>
+  );
+}
+
+export function ChartBlock({ obj }: { obj: CanvasObjectData }) {
+  const updateObject = useCanvasStore((s) => s.updateObject);
+
+  const chartType = obj.style?.chartType as ChartType | undefined;
+  const title = (obj.style?.chartTitle as string) || '';
+  const savedData = useMemo<ChartRow[]>(
+    () => (Array.isArray(obj.style?.chartData) ? (obj.style!.chartData as ChartRow[]) : []),
+    [obj.style]
+  );
+  const ready = obj.style?.chartReady === true && savedData.length > 0;
+
+  // Phase: pick a type → enter data → see the chart. Starts on whichever step
+  // the object's data implies, so the agent can drop a finished chart straight in.
+  const [phase, setPhase] = useState<'type' | 'data' | 'chart'>(
+    !chartType ? 'type' : ready ? 'chart' : 'data'
+  );
+
+  // Editable draft rows (kept as strings so typing is smooth).
+  const [draft, setDraft] = useState<{ label: string; value: string }[]>(() =>
+    savedData.length
+      ? savedData.map((r) => ({ label: String(r.label ?? ''), value: String(r.value ?? '') }))
+      : [{ label: '', value: '' }, { label: '', value: '' }, { label: '', value: '' }]
+  );
+
+  const patch = (kv: Record<string, unknown>) =>
+    updateObject(obj.id, { style: { ...obj.style, ...kv } });
+
+  const pickType = (t: ChartType) => {
+    patch({ chartType: t });
+    if (t === 'number' && draft.length > 1) setDraft([draft[0] || { label: '', value: '' }]);
+    setPhase('data');
+  };
+
+  const commit = () => {
+    const rows: ChartRow[] = draft
+      .map((r) => ({ label: r.label.trim(), value: parseFloat(r.value) }))
+      .filter((r) => !isNaN(r.value));
+    if (rows.length === 0) return;
+    patch({ chartData: rows, chartReady: true });
+    setPhase('chart');
+  };
+
+  const setDraftRow = (i: number, part: 'label' | 'value', v: string) =>
+    setDraft((d) => d.map((r, idx) => (idx === i ? { ...r, [part]: v } : r)));
+  const addDraftRow = () => setDraft((d) => [...d, { label: '', value: '' }]);
+  const removeDraftRow = (i: number) => setDraft((d) => (d.length > 1 ? d.filter((_, idx) => idx !== i) : d));
+
+  const typeLabel = CHART_TYPES.find((t) => t.id === chartType)?.label || 'Chart';
+
+  /* ---- PHASE 1: pick a chart type (Notion-style list) ---- */
+  if (phase === 'type') {
+    return (
+      <BlockShell
+        tint={CHART_TINT}
+        tag="chart"
+        icon={<MiniIcon><line x1="6" y1="20" x2="6" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="18" y1="20" x2="18" y2="14" /></MiniIcon>}
+        badge={<Badge tint={CHART_TINT}>new</Badge>}
+      >
+        <p className="text-[12px] font-bold text-[var(--text-primary)] mb-1.5">Pick a chart type</p>
+        <div className="flex-1 flex flex-col gap-1 overflow-y-auto min-h-0 -mx-1 px-1">
+          {CHART_TYPES.map((t) => (
+            <button
+              key={t.id}
+              onClick={(e) => { stop(e); pickType(t.id); }}
+              onMouseDown={stop}
+              onPointerDown={stop}
+              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left transition-colors cursor-pointer hover:bg-[var(--well)]"
+            >
+              <span className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${CHART_TINT}1E`, color: CHART_TINT }}>
+                {t.icon}
+              </span>
+              <span className="text-[12px] font-semibold text-[var(--text-primary)]">{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </BlockShell>
+    );
+  }
+
+  /* ---- PHASE 2: fill in the data ---- */
+  if (phase === 'data') {
+    const isNumber = chartType === 'number';
+    return (
+      <BlockShell
+        tint={CHART_TINT}
+        tag={typeLabel}
+        icon={<MiniIcon><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="10" y1="9" x2="10" y2="20" /></MiniIcon>}
+        badge={<Badge tint={CHART_TINT}>data</Badge>}
+      >
+        <Seamless value={title} onChange={(v) => patch({ chartTitle: v })} placeholder="Chart title…" className="text-[12px] font-bold mb-1.5" />
+
+        {isNumber ? (
+          <div className="flex-1 flex flex-col justify-center gap-2">
+            <input
+              type="text" inputMode="decimal" value={draft[0]?.value ?? ''}
+              onChange={(e) => setDraftRow(0, 'value', e.target.value)}
+              onMouseDown={stop} onPointerDown={stop} onClick={stop}
+              placeholder="0"
+              className="w-full text-center text-[30px] font-extrabold tabular-nums bg-[var(--well)] rounded-xl py-2 outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text"
+            />
+            <input
+              type="text" value={draft[0]?.label ?? ''}
+              onChange={(e) => setDraftRow(0, 'label', e.target.value)}
+              onMouseDown={stop} onPointerDown={stop} onClick={stop}
+              placeholder="Label (e.g. Active users)"
+              className="w-full text-center text-[11px] font-semibold text-[var(--text-secondary)] bg-transparent outline-none cursor-text"
+            />
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col gap-1 overflow-y-auto min-h-0">
+            {draft.map((r, i) => (
+              <div key={i} className="group/dr flex items-center gap-1.5">
+                <input
+                  type="text" value={r.label} placeholder="label"
+                  onChange={(e) => setDraftRow(i, 'label', e.target.value)}
+                  onMouseDown={stop} onPointerDown={stop} onClick={stop}
+                  className="flex-1 min-w-0 bg-[var(--well)] rounded-md px-2 py-1 text-[11px] font-semibold outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text placeholder:text-[var(--text-muted)]"
+                />
+                <input
+                  type="text" inputMode="decimal" value={r.value} placeholder="0"
+                  onChange={(e) => setDraftRow(i, 'value', e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && commit()}
+                  onMouseDown={stop} onPointerDown={stop} onClick={stop}
+                  className="w-[64px] shrink-0 bg-[var(--well)] rounded-md px-2 py-1 text-[11px] font-bold text-right tabular-nums outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text placeholder:text-[var(--text-muted)]"
+                />
+                <button
+                  onClick={(e) => { stop(e); removeDraftRow(i); }}
+                  onMouseDown={stop} onPointerDown={stop}
+                  aria-label="Remove row"
+                  className="w-4 h-4 rounded-full items-center justify-center text-[var(--text-muted)] hover:text-red-500 hidden group-hover/dr:flex shrink-0 cursor-pointer"
+                >
+                  <MiniIcon size={9}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></MiniIcon>
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={(e) => { stop(e); addDraftRow(); }}
+              onMouseDown={stop} onPointerDown={stop}
+              className="mt-0.5 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold text-[var(--text-tertiary)] hover:text-[var(--accent)] border border-dashed border-[var(--border-strong)] cursor-pointer w-fit"
+            >
+              <MiniIcon size={10}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></MiniIcon>
+              Add row
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between pt-2 mt-1 border-t border-[var(--border)] shrink-0">
+          <ChartLink onClick={() => setPhase('type')}>
+            <MiniIcon size={10}><polyline points="15 18 9 12 15 6" /></MiniIcon> Type
+          </ChartLink>
+          <button
+            onClick={(e) => { stop(e); commit(); }}
+            onMouseDown={stop} onPointerDown={stop}
+            className="h-7 px-3.5 rounded-full text-[11px] font-bold text-white flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+            style={{ background: CHART_TINT, boxShadow: `0 6px 14px -6px ${CHART_TINT}AA, inset 0 1px 0 rgba(255,255,255,0.3)` }}
+          >
+            <MiniIcon size={10}><polyline points="20 6 9 17 4 12" /></MiniIcon>
+            Create chart
+          </button>
+        </div>
+      </BlockShell>
+    );
+  }
+
+  /* ---- PHASE 3: render the chart ---- */
+  const data = savedData;
+  const maxVal = Math.max(...data.map((d) => d.value), 0) || 1;
+
+  let chart: React.ReactNode = null;
+
+  if (chartType === 'number') {
+    const d0 = data[0];
+    chart = (
+      <div className="flex-1 flex flex-col items-center justify-center">
+        <span className="text-[42px] leading-none font-extrabold tabular-nums" style={{ color: CHART_TINT }}>{d0 ? fmtNum(d0.value) : '0'}</span>
+        {d0?.label && <span className="mt-1.5 text-[12px] font-semibold text-[var(--text-secondary)] text-center">{d0.label}</span>}
+      </div>
+    );
+  } else if (chartType === 'bar') {
+    chart = (
+      <div className="flex-1 flex items-stretch gap-2 min-h-0 pt-1">
+        {data.map((d, i) => (
+          <div key={i} className="flex-1 flex flex-col items-center min-w-0 h-full">
+            <span className="text-[10px] font-bold tabular-nums text-[var(--text-secondary)] shrink-0">{fmtNum(d.value)}</span>
+            <div className="flex-1 w-full flex items-end justify-center min-h-0 py-1">
+              <div
+                className="w-[76%] rounded-t-md transition-[height]"
+                style={{
+                  height: `${Math.max(2, (Math.max(0, d.value) / maxVal) * 100)}%`,
+                  background: `linear-gradient(180deg, ${CHART_TINT}, ${CHART_TINT}B0)`,
+                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.35)`,
+                }}
+              />
+            </div>
+            <span className="text-[9px] font-semibold text-[var(--text-tertiary)] truncate w-full text-center shrink-0" title={d.label}>{d.label}</span>
+          </div>
+        ))}
+      </div>
+    );
+  } else if (chartType === 'hbar') {
+    chart = (
+      <div className="flex-1 flex flex-col justify-center gap-1.5 min-h-0 overflow-y-auto">
+        {data.map((d, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="w-[32%] shrink-0 text-[10px] font-semibold text-[var(--text-tertiary)] truncate" title={d.label}>{d.label}</span>
+            <div className="flex-1 h-4 rounded-full min-w-0" style={{ background: 'var(--well)' }}>
+              <div
+                className="h-full rounded-full flex items-center justify-end pr-1.5"
+                style={{
+                  width: `${Math.max(6, (Math.max(0, d.value) / maxVal) * 100)}%`,
+                  background: `linear-gradient(90deg, ${CHART_TINT}B0, ${CHART_TINT})`,
+                }}
+              >
+                <span className="text-[8.5px] font-extrabold text-white tabular-nums">{fmtNum(d.value)}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  } else if (chartType === 'line') {
+    const w = 260, h = 90, pad = 6;
+    const minV = Math.min(...data.map((d) => d.value), 0);
+    const range = maxVal - minV || 1;
+    const pts = data.map((d, i) => {
+      const x = data.length === 1 ? w / 2 : pad + (i / (data.length - 1)) * (w - pad * 2);
+      const y = h - pad - ((d.value - minV) / range) * (h - pad * 2);
+      return [x, y] as [number, number];
+    });
+    const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    chart = (
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 min-h-0">
+          <svg className="w-full h-full" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+            <defs>
+              <linearGradient id={`cl-${obj.id}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={CHART_TINT} stopOpacity="0.28" />
+                <stop offset="100%" stopColor={CHART_TINT} stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {pts.length >= 2 && <path d={`${path} L ${pts[pts.length - 1][0].toFixed(1)},${h} L ${pts[0][0].toFixed(1)},${h} Z`} fill={`url(#cl-${obj.id})`} />}
+            <path d={path} fill="none" stroke={CHART_TINT} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+            {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r="2.6" fill="#fff" stroke={CHART_TINT} strokeWidth="2" vectorEffect="non-scaling-stroke" />)}
+          </svg>
+        </div>
+        <div className="flex justify-between mt-1 shrink-0">
+          {data.map((d, i) => <span key={i} className="text-[8.5px] font-semibold text-[var(--text-tertiary)] truncate flex-1 text-center" title={`${d.label}: ${d.value}`}>{d.label}</span>)}
+        </div>
+      </div>
+    );
+  } else if (chartType === 'donut') {
+    const total = data.reduce((s, d) => s + Math.max(0, d.value), 0) || 1;
+    const cx = 50, cy = 50, rOuter = 42, rInner = 24;
+    let acc = 0;
+    const arcs = data.map((d, i) => {
+      const frac = Math.max(0, d.value) / total;
+      const start = acc * 360;
+      acc += frac;
+      const end = acc * 360;
+      const large = end - start > 180 ? 1 : 0;
+      const [x1, y1] = polar(cx, cy, rOuter, start);
+      const [x2, y2] = polar(cx, cy, rOuter, end);
+      const [x3, y3] = polar(cx, cy, rInner, end);
+      const [x4, y4] = polar(cx, cy, rInner, start);
+      const dPath = `M ${x1} ${y1} A ${rOuter} ${rOuter} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${rInner} ${rInner} 0 ${large} 0 ${x4} ${y4} Z`;
+      return <path key={i} d={dPath} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />;
+    });
+    chart = (
+      <div className="flex-1 flex items-center gap-2 min-h-0">
+        <div className="relative shrink-0" style={{ width: 104, height: 104 }}>
+          <svg viewBox="0 0 100 100" className="w-full h-full">{arcs}</svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span className="text-[15px] font-extrabold tabular-nums text-[var(--text-primary)] leading-none">{fmtNum(total)}</span>
+            <span className="text-[7.5px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">total</span>
+          </div>
+        </div>
+        <div className="flex-1 flex flex-col gap-0.5 overflow-y-auto min-h-0">
+          {data.map((d, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: CHART_PALETTE[i % CHART_PALETTE.length] }} />
+              <span className="text-[10px] font-semibold text-[var(--text-secondary)] truncate flex-1" title={d.label}>{d.label}</span>
+              <span className="text-[10px] font-extrabold tabular-nums text-[var(--text-primary)]">{Math.round((Math.max(0, d.value) / total) * 100)}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <BlockShell
+      tint={CHART_TINT}
+      tag={typeLabel}
+      icon={<MiniIcon><line x1="6" y1="20" x2="6" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="18" y1="20" x2="18" y2="14" /></MiniIcon>}
+      badge={<Badge tint={CHART_TINT}>{data.length} pts</Badge>}
+    >
+      <Seamless value={title} onChange={(v) => patch({ chartTitle: v })} placeholder="Chart title…" className="text-[12px] font-bold mb-1" />
+      {chart}
+      <div className="flex items-center gap-3 pt-2 mt-1 border-t border-[var(--border)] shrink-0">
+        <ChartLink onClick={() => { setDraft(data.map((r) => ({ label: String(r.label ?? ''), value: String(r.value ?? '') }))); setPhase('data'); }}>
+          <MiniIcon size={10}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></MiniIcon> Edit data
+        </ChartLink>
+        <ChartLink onClick={() => setPhase('type')}>
+          <MiniIcon size={10}><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></MiniIcon> Change type
+        </ChartLink>
       </div>
     </BlockShell>
   );

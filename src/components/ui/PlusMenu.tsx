@@ -290,22 +290,64 @@ export default function PlusMenu() {
       icon: (<MenuIcon><polyline points="3 17 9 11 13 15 21 7" /><polyline points="15 7 21 7 21 13" /></MenuIcon>),
       label: 'Live Metric',
       action: () => {
+        // Data-entry first: the block asks for your numbers before it renders.
         addObject({
           type: 'card',
           x: canvasPos.x,
           y: canvasPos.y,
           width: 260,
-          height: 155,
+          height: 180,
           content: '',
-          style: {
-            isLiveMetric: true,
-            metricTitle: 'Onboarding completion rate',
-            metricValue: '71.3%',
-            metricTrend: '+3.2% this week',
-            metricChartData: [60, 62, 61, 65, 68, 70, 71.3]
-          }
+          style: { isLiveMetric: true, metricSetup: true }
         });
       }
+    },
+    {
+      icon: (<MenuIcon><rect x="3" y="3" width="18" height="18" rx="2" /><line x1="8" y1="17" x2="8" y2="12" /><line x1="12" y1="17" x2="12" y2="7" /><line x1="16" y1="17" x2="16" y2="14" /></MenuIcon>),
+      label: 'Chart',
+      action: () => {
+        // Starts on the chart-type picker → then asks for your data → then renders.
+        addObject({
+          type: 'card',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 300,
+          height: 280,
+          content: '',
+          style: { isChart: true },
+        });
+      },
+    },
+    {
+      icon: (<MenuIcon><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></MenuIcon>),
+      label: 'Dashboard',
+      action: () => {
+        const ox = canvasPos.x;
+        const oy = canvasPos.y;
+        // A titled dashboard: a backdrop frame + heading + a number, a live metric,
+        // a bar chart and a donut chart — each asks for real data before rendering.
+        addObject({
+          type: 'frame', x: ox - 24, y: oy - 24, width: 812, height: 596, content: 'Dashboard',
+          zIndex: 0, style: { frameColor: '#C97B4B' },
+        });
+        addObject({ type: 'heading', x: ox, y: oy, width: 500, height: 60, content: 'Dashboard' });
+        addObject({
+          type: 'card', x: ox, y: oy + 78, width: 240, height: 150, content: '',
+          style: { isChart: true, chartType: 'number', chartTitle: 'Headline number', chartReady: false },
+        });
+        addObject({
+          type: 'card', x: ox + 268, y: oy + 78, width: 260, height: 180, content: '',
+          style: { isLiveMetric: true, metricSetup: true },
+        });
+        addObject({
+          type: 'card', x: ox, y: oy + 268, width: 360, height: 280, content: '',
+          style: { isChart: true, chartType: 'bar', chartTitle: 'By category', chartReady: false },
+        });
+        addObject({
+          type: 'card', x: ox + 400, y: oy + 268, width: 360, height: 280, content: '',
+          style: { isChart: true, chartType: 'donut', chartTitle: 'Breakdown', chartReady: false },
+        });
+      },
     },
     {
       icon: (<MenuIcon><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2 2M9 2h6" /></MenuIcon>),
