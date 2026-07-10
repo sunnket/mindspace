@@ -18,6 +18,8 @@ export default function VoiceCommand() {
   const finalRef = useRef('');
   const wantRef = useRef(false);       // does the user still want to be listening?
   const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const silenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -25,6 +27,8 @@ export default function VoiceCommand() {
     return () => {
       wantRef.current = false;
       if (restartTimer.current) clearTimeout(restartTimer.current);
+      if (silenceTimer.current) clearTimeout(silenceTimer.current);
+      if (maxTimer.current) clearTimeout(maxTimer.current);
       try { recRef.current?.stop(); } catch {}
     };
   }, []);
@@ -49,6 +53,15 @@ export default function VoiceCommand() {
       rec.continuous = true;      // KEEP listening — don't die after one phrase
       rec.interimResults = true;
       rec.lang = 'en-US';
+      const armSilence = () => {
+        if (silenceTimer.current) clearTimeout(silenceTimer.current);
+        // Auto-finish a couple seconds after you stop talking, so you don't have
+        // to tap again — then send what you said to the agent.
+        silenceTimer.current = setTimeout(() => {
+          wantRef.current = false;
+          try { rec.stop(); } catch {}
+        }, 2400);
+      };
       rec.onresult = (e: any) => {
         let interimStr = '';
         for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -57,6 +70,7 @@ export default function VoiceCommand() {
           else interimStr += chunk;
         }
         setInterim((finalRef.current + interimStr).trim());
+        if (finalRef.current.trim() || interimStr.trim()) armSilence();
       };
       rec.onerror = (e: any) => {
         if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed' || e?.error === 'audio-capture') {
@@ -72,6 +86,8 @@ export default function VoiceCommand() {
             if (wantRef.current) { try { rec.start(); } catch {} }
           }, 250);
         } else {
+          if (silenceTimer.current) clearTimeout(silenceTimer.current);
+          if (maxTimer.current) clearTimeout(maxTimer.current);
           setListening(false);
           const said = finalRef.current.trim();
           setInterim('');
@@ -85,12 +101,16 @@ export default function VoiceCommand() {
       rec.start();
       setListening(true);
       setInterim('');
+      if (maxTimer.current) clearTimeout(maxTimer.current);
+      maxTimer.current = setTimeout(() => { wantRef.current = false; try { rec.stop(); } catch {} }, 20000);
     } catch { /* already running */ }
   }, [dispatchAgent]);
 
   const stop = useCallback(() => {
     wantRef.current = false;
     if (restartTimer.current) clearTimeout(restartTimer.current);
+    if (silenceTimer.current) clearTimeout(silenceTimer.current);
+    if (maxTimer.current) clearTimeout(maxTimer.current);
     try { recRef.current?.stop(); } catch {}
   }, []);
 

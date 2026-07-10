@@ -38,6 +38,7 @@ interface Action {
   y?: number;
   zoom?: number;
   // CREATE_SKETCH (AI line drawing → real pen strokes)
+  svg?: string;
   prompt?: string;
   width?: number;
   log?: string;
@@ -402,18 +403,117 @@ export default function AgentOverlay() {
       } catch { /* leave the block as-is */ }
     };
 
-    // AI SKETCH: generate a line-art image for a prompt, trace it into vector
-    // polylines, and ink them onto the canvas as REAL, editable pen strokes
-    // (with a touch of hand-drawn jitter) — the drawing appears stroke by stroke.
-    const resolveSketch = async (prompt: string, ox: number, oy: number, targetW: number, color: string, size: number) => {
+    // Ink must contrast with the canvas paper — dark ink is invisible on a
+    // dark theme, so flip to a light ink there (and vice-versa).
+    const contrastInk = (color: string): string => {
+      const bg = live().canvasBackground;
+      const darkCanvas = bg?.dark ?? isDarkColor(bg?.color || '#FAF6F1');
+      let ink = color || (darkCanvas ? '#EDE6DA' : '#2D2A26');
+      if (darkCanvas && isDarkColor(ink)) ink = '#EDE6DA';
+      if (!darkCanvas && !isDarkColor(ink)) ink = '#2D2A26';
+      return ink;
+    };
+
+    // Ink a set of polylines as real pen strokes, mapping each point to world
+    // space via `toWorld`, staggered so the drawing visibly appears stroke by stroke.
+    const inkPolylines = async (
+      polylines: number[][][], toWorld: (px: number, py: number) => [number, number], ink: string, size: number,
+    ): Promise<number> => {
+      let inked = 0;
+      for (let p = 0; p < polylines.length; p++) {
+        if (!runningRef.current) return inked;
+        const poly = polylines[p].slice(0, 600);
+        const pts = poly.map((pt) => {
+          const [wx, wy] = toWorld(pt[0], pt[1]);
+          return [wx + (Math.random() - 0.5) * 0.7, wy + (Math.random() - 0.5) * 0.7, 0.5];
+        });
+        if (pts.length >= 2) {
+          live().addStroke({ id: uuidv4(), points: pts, color: ink, size, isHighlighter: false, createdAt: Date.now() });
+          inked++;
+        }
+        if (p % 4 === 3) await new Promise((res) => setTimeout(res, 14));
+      }
+      return inked;
+    };
+
+    // Sample any <svg> the agent drew into polylines using the browser's native
+    // SVG geometry API (getPointAtLength) — handles path curves, lines, circles,
+    // ellipses, polylines, polygons and rects precisely. Deterministic, offline.
+    const svgToPolylines = (svgString: string): { polylines: number[][][]; vb: [number, number, number, number] } => {
+      const fallback = { polylines: [] as number[][][], vb: [0, 0, 100, 100] as [number, number, number, number] };
       try {
-        // Ink must contrast with the canvas paper — dark ink is invisible on a
-        // dark theme, so flip to a light ink there (and vice-versa).
-        const bg = live().canvasBackground;
-        const darkCanvas = bg?.dark ?? isDarkColor(bg?.color || '#FAF6F1');
-        let ink = color || (darkCanvas ? '#EDE6DA' : '#2D2A26');
-        if (darkCanvas && isDarkColor(ink)) ink = '#EDE6DA';
-        if (!darkCanvas && !isDarkColor(ink)) ink = '#2D2A26';
+        const doc = new DOMParser().parseFromString(svgString, 'image/svg+xml');
+        const svgEl = doc.querySelector('svg');
+        if (!svgEl) return fallback;
+        let vb: [number, number, number, number] = [0, 0, 100, 100];
+        const vbAttr = svgEl.getAttribute('viewBox');
+        if (vbAttr) {
+          const n = vbAttr.split(/[\s,]+/).map(Number).filter((x) => isFinite(x));
+          if (n.length === 4 && n[2] > 0 && n[3] > 0) vb = [n[0], n[1], n[2], n[3]];
+        } else {
+          const w = parseFloat(svgEl.getAttribute('width') || '100') || 100;
+          const h = parseFloat(svgEl.getAttribute('height') || '100') || 100;
+          vb = [0, 0, w, h];
+        }
+        const NS = 'http://www.w3.org/2000/svg';
+        const host = document.createElementNS(NS, 'svg') as SVGSVGElement;
+        // Map viewBox 1:1 to the viewport so getCTM output is in viewBox units
+        // (already offset by the viewBox min) — then any <g> transforms are baked in.
+        host.setAttribute('viewBox', vb.join(' '));
+        host.setAttribute('width', String(vb[2]));
+        host.setAttribute('height', String(vb[3]));
+        host.style.cssText = 'position:absolute;left:-99999px;top:0;opacity:0;pointer-events:none';
+        // Preserve structure (groups/transforms), not a flat copy.
+        Array.from(svgEl.childNodes).forEach((n) => host.appendChild(n.cloneNode(true)));
+        document.body.appendChild(host);
+        const polylines: number[][][] = [];
+        const spt = host.createSVGPoint();
+        (Array.from(host.querySelectorAll('path,line,polyline,polygon,circle,ellipse,rect')) as unknown as SVGGeometryElement[]).forEach((el) => {
+          let len = 0;
+          try { len = el.getTotalLength(); } catch { len = 0; }
+          if (!len || !isFinite(len) || len < 0.4) return;
+          const ctm = el.getCTM();
+          const samples = Math.max(2, Math.min(400, Math.round(len / 1.3)));
+          const step = len / samples;
+          const pts: number[][] = [];
+          for (let i = 0; i <= samples; i++) {
+            try {
+              const p = el.getPointAtLength(i * step);
+              if (ctm) {
+                spt.x = p.x; spt.y = p.y;
+                const tp = spt.matrixTransform(ctm);
+                if (isFinite(tp.x) && isFinite(tp.y)) pts.push([tp.x, tp.y]);
+              } else if (isFinite(p.x) && isFinite(p.y)) {
+                pts.push([p.x - vb[0], p.y - vb[1]]);
+              }
+            } catch { /* skip */ }
+          }
+          if (pts.length >= 2) polylines.push(pts);
+        });
+        document.body.removeChild(host);
+        return { polylines, vb };
+      } catch {
+        return fallback;
+      }
+    };
+
+    // AI SKETCH: prefer the agent's own SVG drawing (deterministic), else fall
+    // back to generating + tracing a line-art image. Inked as real pen strokes.
+    const resolveSketch = async (opts: { svg?: string; prompt?: string; ox: number; oy: number; targetW: number; color: string; size: number }) => {
+      const { svg, prompt, ox, oy, targetW, color, size } = opts;
+      const ink = contrastInk(color);
+      try {
+        if (svg && svg.includes('<')) {
+          const { polylines, vb } = svgToPolylines(svg);
+          if (polylines.length) {
+            // getCTM already offsets points by the viewBox min, so just scale.
+            const scale = targetW / (vb[2] || 100);
+            const n = await inkPolylines(polylines, (px, py) => [ox + px * scale, oy + py * scale], ink, size);
+            addLog(`[Success] Drew it (${n} strokes).`);
+            return;
+          }
+        }
+        if (!prompt) { addLog('[Agent] Nothing to sketch.'); return; }
 
         const r = await fetch(`/api/image-generate?q=${encodeURIComponent(prompt)}`, { signal: abortRef.current?.signal });
         if (!r.ok) { addLog('[Agent] Sketch source unavailable.'); return; }
@@ -427,7 +527,6 @@ export default function AgentOverlay() {
           im.src = url;
         });
         if (!img || !runningRef.current) { URL.revokeObjectURL(url); return; }
-
         const maxDim = 240;
         const dscale = Math.min(1, maxDim / Math.max(img.width, img.height));
         const w = Math.max(1, Math.round(img.width * dscale));
@@ -437,32 +536,15 @@ export default function AgentOverlay() {
         const ctx = cv.getContext('2d', { willReadFrequently: true });
         if (!ctx) { URL.revokeObjectURL(url); return; }
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, w, h); // flatten transparency to white paper
+        ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
         const data = ctx.getImageData(0, 0, w, h);
         URL.revokeObjectURL(url);
-
         const polys = imageDataToPolylines(data).slice(0, 240);
-        if (!polys.length || !runningRef.current) { addLog('[Agent] Could not trace the sketch.'); return; }
-
-        const s = targetW / w; // image-space → world-space
-        let inked = 0;
-        for (let p = 0; p < polys.length; p++) {
-          if (!runningRef.current) return;
-          const poly = polys[p].slice(0, 500);
-          const pts = poly.map(([ix, iy]) => [
-            ox + ix * s + (Math.random() - 0.5) * 0.9,
-            oy + iy * s + (Math.random() - 0.5) * 0.9,
-            0.5,
-          ]);
-          if (pts.length >= 2) {
-            live().addStroke({ id: uuidv4(), points: pts, color: ink, size, isHighlighter: false, createdAt: Date.now() });
-            inked++;
-          }
-          // stagger so it visibly "draws in" rather than popping all at once
-          if (p % 5 === 4) await new Promise((res) => setTimeout(res, 16));
-        }
-        addLog(`[Success] Sketched "${prompt.slice(0, 40)}" (${inked} strokes).`);
+        if (!polys.length) { addLog('[Agent] Could not trace the sketch.'); return; }
+        const s = targetW / w;
+        const n = await inkPolylines(polys, (px, py) => [ox + px * s, oy + py * s], ink, size);
+        addLog(`[Success] Sketched (${n} strokes).`);
       } catch { /* best-effort; leave whatever inked so far */ }
     };
 
@@ -568,13 +650,13 @@ export default function AgentOverlay() {
             break;
           }
           case 'CREATE_SKETCH': {
-            const w = Math.max(120, Math.min(900, Number(action.width) || 320));
+            const w = Math.max(120, Math.min(900, Number(action.width) || 340));
             const anchor = placeFor({ type: 'image', x: Number(action.x) || startX, y: Number(action.y) || startY, width: w, height: w });
             const color = (action.color as string) || '#2D2A26';
             const size = Math.max(1, Number(action.size) || 2.4);
             executed++;
             gentlePan({ x: anchor.x, y: anchor.y, width: w, height: w });
-            void resolveSketch(action.prompt || 'a quick sketch', anchor.x, anchor.y, w, color, size);
+            void resolveSketch({ svg: action.svg, prompt: action.prompt, ox: anchor.x, oy: anchor.y, targetW: w, color, size });
             break;
           }
         }
