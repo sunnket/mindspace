@@ -1037,8 +1037,10 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           saveContent(finalContent);
 
           // Auto-remove empty text/heading blocks when editing actually ends
-          const isStillEditing = useCanvasStore.getState().editingId === obj.id;
-          if (!isStillEditing) {
+          const state = useCanvasStore.getState();
+          const isStillEditing = state.editingId === obj.id;
+          const isStillSelected = state.selectedId === obj.id;
+          if (!isStillEditing && !isStillSelected) {
             const shouldDelete = finalContent.trim() === '' && isAutoCleanable(obj);
             if (shouldDelete) {
               removeObject(obj.id);
