@@ -224,6 +224,10 @@ export default function CollabModal() {
                   </div>
                 ) : (
                   <div className="mt-4">
+                    <p className="text-xs text-[var(--text-secondary)] leading-relaxed mb-4">
+                      You&apos;ll jump into their shared canvas — your own canvas stays untouched.
+                      Select something and use &quot;Add to my canvas&quot; to bring it back with you.
+                    </p>
                     <label htmlFor="collab-code" className="block text-[11px] font-bold text-[var(--text-secondary)] mb-1.5">
                       Invite code
                     </label>

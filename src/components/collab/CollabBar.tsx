@@ -17,12 +17,28 @@ export default function CollabBar() {
   const transportKind = useCollabStore((s) => s.transportKind);
   const openModal = useCollabStore((s) => s.openModal);
   const leave = useCollabStore((s) => s.leave);
+  const isHost = useCollabStore((s) => s.isHost);
+  const guestOriginView = useCollabStore((s) => s.guestOriginView);
+  const addSelectionToOriginCanvas = useCollabStore((s) => s.addSelectionToOriginCanvas);
+  const selectedId = useCanvasStore((s) => s.selectedId);
 
   const [copied, setCopied] = useState(false);
+  const [added, setAdded] = useState(false);
 
   const peerList = Object.values(peers);
-  const active = status === 'connected';
+  // Once join() is called the canvas swaps to the (initially blank) session
+  // view synchronously, before status even reaches 'connecting' — the Leave
+  // button needs to be reachable through that whole window, not just once
+  // fully connected.
+  const active = status === 'connected' || status === 'connecting';
   const amPresenting = !!me && presenter?.id === me.id;
+
+  const addToMyCanvas = async () => {
+    if (!selectedId) return;
+    await addSelectionToOriginCanvas();
+    setAdded(true);
+    setTimeout(() => setAdded(false), 1600);
+  };
 
   const togglePresent = () => {
     const collab = useCollabStore.getState();
@@ -138,6 +154,25 @@ export default function CollabBar() {
               </svg>
               {amPresenting ? 'Presenting' : 'Present'}
             </button>
+
+            {/* add selected object to my own canvas — guest only */}
+            {!isHost && guestOriginView && (
+              <button
+                onClick={addToMyCanvas}
+                disabled={!selectedId}
+                title={selectedId ? 'Add the selected object to your own canvas' : 'Select an object first'}
+                className={`h-7 px-3 rounded-full flex items-center gap-1.5 text-[10px] font-bold shrink-0 transition-all ${
+                  !selectedId
+                    ? 'text-[var(--text-muted)] cursor-not-allowed'
+                    : 'text-[var(--text-secondary)] hover:bg-white/60 cursor-pointer'
+                }`}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  {added ? <polyline points="20 6 9 17 4 12" /> : <><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></>}
+                </svg>
+                {added ? 'Added' : 'Add to my canvas'}
+              </button>
+            )}
 
             {/* leave */}
             <button

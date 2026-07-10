@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { CanvasState, CanvasObjectData, DrawingStroke, ConnectionData } from './db';
+import { CanvasState, CanvasObjectData, DrawingStroke, ConnectionData, COLLAB_SESSION_ID_PREFIX } from './db';
 import {
   saveCanvasState,
   saveObjects,
@@ -191,6 +191,7 @@ export async function syncCanvasToCloud(
   connections: ConnectionData[],
   opts?: { force?: boolean }
 ) {
+  if (canvasId.startsWith(COLLAB_SESSION_ID_PREFIX)) return; // never sync a guest's ephemeral session view to their own cloud
   const { data: sessionData } = await supabase.auth.getSession();
   if (!sessionData.session) return; // guests stay 100% local
 
