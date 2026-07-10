@@ -165,6 +165,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Clear IndexedDB local database on logout to protect user's privacy
       const { clearAll } = await import('@/lib/db');
       await clearAll();
+      const { useChatStore } = await import('@/store/chatStore');
+      useChatStore.getState().reset();
       set({
         session: null,
         user: null,

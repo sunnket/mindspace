@@ -21,6 +21,8 @@ import {
 } from '@/lib/db';
 import { useRouter } from 'next/navigation';
 import AuthButton from '@/components/ui/AuthButton';
+import ChatPanel from '@/components/chat/ChatPanel';
+import { useChatUnreadTotal } from '@/store/chatStore';
 import { exportBoardById } from '@/lib/boardIO';
 import { applyCanvasTheme, resetCanvasTheme, presetById, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 
@@ -36,7 +38,7 @@ type WorkspaceWithStats = CanvasState & {
   connections: ConnectionData[];
 };
 
-type SidebarTab = 'home' | 'favorites' | 'images' | 'checkpoints' | 'archive' | 'deleted';
+type SidebarTab = 'home' | 'favorites' | 'images' | 'checkpoints' | 'chat' | 'archive' | 'deleted';
 type SortMode = 'recent' | 'name' | 'cards';
 type Category = 'all' | 'work' | 'personal' | 'study';
 
@@ -133,6 +135,7 @@ const ICONS = {
   arrowRight: <Icon size={14}><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></Icon>,
   palette: <Icon size={14}><circle cx="12" cy="12" r="10" /><circle cx="8" cy="10" r="1" fill="currentColor" /><circle cx="12" cy="7.5" r="1" fill="currentColor" /><circle cx="16" cy="10" r="1" fill="currentColor" /></Icon>,
   tag: <Icon size={14}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z" /><line x1="7" y1="7" x2="7.01" y2="7" /></Icon>,
+  chat: <Icon><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></Icon>,
 };
 
 /* ============================================================
@@ -250,6 +253,7 @@ export default function LandingPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<Category>('all');
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('home');
+  const chatUnread = useChatUnreadTotal();
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
@@ -523,12 +527,13 @@ export default function LandingPage() {
 
   if (!mounted) return null;
 
-  const isCollectionTab = activeSidebarTab !== 'images' && activeSidebarTab !== 'checkpoints';
+  const isCollectionTab = activeSidebarTab !== 'images' && activeSidebarTab !== 'checkpoints' && activeSidebarTab !== 'chat';
   const sectionTitles: Record<SidebarTab, string> = {
     home: 'all canvases',
     favorites: 'favorite canvases',
     images: 'image library',
     checkpoints: 'checkpoints',
+    chat: 'chat',
     archive: 'archived',
     deleted: 'trash',
   };
@@ -564,6 +569,7 @@ export default function LandingPage() {
           <DockButton label="Favorites" active={activeSidebarTab === 'favorites'} onClick={() => setActiveSidebarTab('favorites')} icon={ICONS.heart} />
           <DockButton label="Images" active={activeSidebarTab === 'images'} onClick={() => setActiveSidebarTab('images')} icon={ICONS.image} />
           <DockButton label="Checkpoints" active={activeSidebarTab === 'checkpoints'} onClick={() => setActiveSidebarTab('checkpoints')} icon={ICONS.flag} />
+          <DockButton label="Chat" active={activeSidebarTab === 'chat'} onClick={() => setActiveSidebarTab('chat')} icon={ICONS.chat} badge={chatUnread || undefined} />
 
           <div className="w-8 h-px bg-[var(--border-strong)] opacity-50 my-2" />
 
@@ -869,6 +875,14 @@ export default function LandingPage() {
                   ))}
                 </div>
               )}
+            </section>
+          )}
+
+          {/* ---------- CHAT TAB ---------- */}
+          {!isLoading && activeSidebarTab === 'chat' && (
+            <section className="w-full flex flex-col gap-5 h-[calc(100vh-180px)]">
+              <SectionHeading title={sectionTitles.chat} />
+              <ChatPanel mode="embedded" />
             </section>
           )}
 

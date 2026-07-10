@@ -18,6 +18,7 @@ import {
   deleteObject as dbDeleteObject,
   deleteStroke as dbDeleteStroke,
   getAllConnections,
+  COLLAB_SESSION_ID_PREFIX,
 } from '@/lib/db';
 import CanvasObject from './CanvasObject';
 import DrawingLayer from './DrawingLayer';
@@ -40,6 +41,7 @@ import MinimizeDock from './MinimizeDock';
 import WarpPortal from './WarpPortal';
 import ScenesPanel from './ScenesPanel';
 import MarginsLayer from './MarginsLayer';
+import ChatLauncher from '@/components/chat/ChatLauncher';
 import CollabBar from '@/components/collab/CollabBar';
 import CollabCursors from '@/components/collab/CollabCursors';
 import CollabModal from '@/components/collab/CollabModal';
@@ -80,6 +82,12 @@ function GlowCursor({ isDrawMode }: { isDrawMode: boolean }) {
 export default function InfiniteCanvas() {
   const searchParams = useSearchParams();
   const urlId = searchParams?.get('id') || 'root';
+  // A joining guest's live session lives under a synthetic canvas id instead
+  // of whatever's in the URL — this is what actually swaps them into the
+  // shared view without ever touching their real canvas. Null for a host
+  // and for anyone not currently in a session.
+  const sessionCanvasId = useCollabStore((s) => s.sessionCanvasId);
+  const effectiveCanvasId = sessionCanvasId ?? urlId;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isPanningRef = useRef(false);
@@ -160,16 +168,18 @@ export default function InfiniteCanvas() {
     }
   }, [mode]);
 
-  // Track the URL canvas ID in Zustand
+  // Track the effective canvas ID (real URL id, or a synthetic collab
+  // session id while a guest is in a live session) in Zustand — this is
+  // what every canvasStore "current canvas" resolution reads.
   useEffect(() => {
-    setUrlCanvasId(urlId);
-  }, [urlId, setUrlCanvasId]);
+    setUrlCanvasId(effectiveCanvasId);
+  }, [effectiveCanvasId, setUrlCanvasId]);
 
   // Load from IndexedDB
   useEffect(() => {
     async function load() {
       try {
-        const parentId = canvasStack.length > 0 ? canvasStack[canvasStack.length - 1] : urlId;
+        const parentId = canvasStack.length > 0 ? canvasStack[canvasStack.length - 1] : effectiveCanvasId;
         const [savedObjects, savedStrokes, savedCamera, savedConnections] = await Promise.all([
           getAllObjects(parentId === 'root' ? undefined : parentId),
           getAllStrokes(parentId === 'root' ? undefined : parentId),
@@ -224,14 +234,18 @@ export default function InfiniteCanvas() {
       }
     }
     load();
-  }, [canvasStack, setObjects, setStrokes, setCamera, setWorkspaceTitle, urlId, setCanvasBackground]);
+  }, [canvasStack, setObjects, setStrokes, setCamera, setWorkspaceTitle, effectiveCanvasId, setCanvasBackground]);
 
   // Save on unmount to prevent losing last-second pans or edits
   useEffect(() => {
     return () => {
       const state = useCanvasStore.getState();
-      const parentId = state.canvasStack.length > 0 ? state.canvasStack[state.canvasStack.length - 1] : urlId;
-      
+      const parentId = state.canvasStack.length > 0 ? state.canvasStack[state.canvasStack.length - 1] : effectiveCanvasId;
+      // A guest's live collab session is a synthetic, never-persisted view —
+      // nothing to save here (db.ts/syncService.ts also guard this, but
+      // skipping it here avoids the wasted work entirely).
+      if (parentId.startsWith(COLLAB_SESSION_ID_PREFIX)) return;
+
       // Always save camera position and canvas state locally on unmount
       saveCanvasState({
         id: parentId,
@@ -275,7 +289,7 @@ export default function InfiniteCanvas() {
         });
       }
     };
-  }, [urlId, workspaceTitle, checkpoint]);
+  }, [effectiveCanvasId, workspaceTitle, checkpoint]);
 
   // Autosave
   useEffect(() => {
@@ -283,8 +297,10 @@ export default function InfiniteCanvas() {
 
     const timeout = setTimeout(async () => {
       try {
-        const parentId = canvasStack.length > 0 ? canvasStack[canvasStack.length - 1] : urlId;
-        
+        const parentId = canvasStack.length > 0 ? canvasStack[canvasStack.length - 1] : effectiveCanvasId;
+        // A guest's live collab session is a synthetic, never-persisted view.
+        if (parentId.startsWith(COLLAB_SESSION_ID_PREFIX)) return;
+
         // Save locally to IndexedDB first
         await Promise.all([
           saveObjects(objects),
@@ -333,7 +349,7 @@ export default function InfiniteCanvas() {
     }, 500);
 
     return () => clearTimeout(timeout);
-  }, [isDirty, objects, strokes, camera, checkpoint, loaded, canvasStack, urlId, workspaceTitle, setDirty, setLastSaved, connections, canvasBackground]);
+  }, [isDirty, objects, strokes, camera, checkpoint, loaded, canvasStack, effectiveCanvasId, workspaceTitle, setDirty, setLastSaved, connections, canvasBackground]);
 
 
   // Wheel zoom
@@ -1074,6 +1090,7 @@ export default function InfiniteCanvas() {
 
       {/* Margins: spatial comment threads */}
       <MarginsLayer />
+      <ChatLauncher />
     </>
   );
 }

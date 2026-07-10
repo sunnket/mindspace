@@ -45,8 +45,6 @@ export default function FloatingToolbar() {
   const redoStack = useCanvasStore((s) => s.redoStack);
   const setPlusMenuPos = useCanvasStore((s) => s.setPlusMenuPos);
   
-  const textFont = useCanvasStore((s) => s.textFont);
-  const setTextFont = useCanvasStore((s) => s.setTextFont);
   const textSize = useCanvasStore((s) => s.textSize);
   const setTextSize = useCanvasStore((s) => s.setTextSize);
   const selectedId = useCanvasStore((s) => s.selectedId);
@@ -59,6 +57,11 @@ export default function FloatingToolbar() {
   const camera = useCanvasStore((s) => s.camera);
   const checkpoint = useCanvasStore((s) => s.checkpoint);
   const setCheckpoint = useCanvasStore((s) => s.setCheckpoint);
+  const commentMode = useCanvasStore((s) => s.commentMode);
+  const setCommentMode = useCanvasStore((s) => s.setCommentMode);
+  const threadsSidebarOpen = useCanvasStore((s) => s.threadsSidebarOpen);
+  const setThreadsSidebarOpen = useCanvasStore((s) => s.setThreadsSidebarOpen);
+  const openThreadCount = useCanvasStore((s) => s.threads.filter((t) => !t.resolved).length);
 
   const [showDrawOptions, setShowDrawOptions] = useState(false);
   const [showTextOptions, setShowTextOptions] = useState(false);
@@ -77,21 +80,11 @@ export default function FloatingToolbar() {
   // When selectedObject changes, sync the toolbar state (but don't auto-open)
   React.useEffect(() => {
     if (selectedObject && (selectedObject.type === 'text' || selectedObject.type === 'heading' || selectedObject.type === 'card' || selectedObject.type === 'sticky')) {
-      if (selectedObject.style?.fontFamily && selectedObject.style.fontFamily !== textFont) {
-        setTextFont(selectedObject.style.fontFamily as string);
-      }
       if (selectedObject.style?.fontSize && selectedObject.style.fontSize !== textSize) {
         setTextSize(selectedObject.style.fontSize as number);
       }
     }
-  }, [selectedObject, textFont, textSize, setTextFont, setTextSize]);
-
-  const handleFontChange = (font: string) => {
-    setTextFont(font);
-    if (selectedId && selectedObject) {
-      updateObject(selectedId, { style: { ...selectedObject.style, fontFamily: font } });
-    }
-  };
+  }, [selectedObject, textSize, setTextSize]);
 
   const handleSizeChange = (size: number) => {
     setTextSize(size);
@@ -255,12 +248,16 @@ export default function FloatingToolbar() {
                 setShowArrowOptions(false);
                 setShowFrameOptions(false);
                 setShowBgOptions(false);
+                setCommentMode(false);
+                setThreadsSidebarOpen(false);
                 setMode('select');
                 return;
               }
               setMode(tool.id as InteractionMode);
               setShowWorkflowMenu(false);
               setShowBgOptions(false);
+              setCommentMode(false);
+              setThreadsSidebarOpen(false);
               // Picking the arrow tool starts a fresh draw — deselect so the
               // panel shows the arrow tool defaults, not the last selection.
               if (tool.id === 'arrow') setSelectedId(null);
@@ -325,6 +322,8 @@ export default function FloatingToolbar() {
             setShowShapeOptions(false);
             setShowArrowOptions(false);
             setShowFrameOptions(false);
+            setCommentMode(false);
+            setThreadsSidebarOpen(false);
           }}
           className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
             showBgOptions
@@ -336,6 +335,62 @@ export default function FloatingToolbar() {
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="9" />
             <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+          </svg>
+        </motion.button>
+
+        {/* Threads — add a pin / view all threads */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => {
+            setCommentMode(!commentMode);
+            setThreadsSidebarOpen(false);
+            setShowWorkflowMenu(false);
+            setShowDrawOptions(false);
+            setShowTextOptions(false);
+            setShowShapeOptions(false);
+            setShowArrowOptions(false);
+            setShowFrameOptions(false);
+            setShowBgOptions(false);
+          }}
+          className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
+            commentMode
+              ? 'bg-[var(--accent)] text-white shadow-md'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+          }`}
+          title="Add a thread"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 21s-7-7.58-7-12a7 7 0 0 1 14 0c0 4.42-7 12-7 12z" />
+            <circle cx="12" cy="9" r="2.5" />
+          </svg>
+          {openThreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 rounded-full bg-[var(--accent)] text-white text-[8px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">{openThreadCount}</span>
+          )}
+        </motion.button>
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => {
+            setThreadsSidebarOpen(!threadsSidebarOpen);
+            setCommentMode(false);
+            setShowWorkflowMenu(false);
+            setShowDrawOptions(false);
+            setShowTextOptions(false);
+            setShowShapeOptions(false);
+            setShowArrowOptions(false);
+            setShowFrameOptions(false);
+            setShowBgOptions(false);
+          }}
+          className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
+            threadsSidebarOpen
+              ? 'bg-[var(--accent)] text-white shadow-md'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+          }`}
+          title="All threads"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><circle cx="3.5" cy="6" r="1" fill="currentColor" /><circle cx="3.5" cy="12" r="1" fill="currentColor" /><circle cx="3.5" cy="18" r="1" fill="currentColor" />
           </svg>
         </motion.button>
 
@@ -486,96 +541,12 @@ export default function FloatingToolbar() {
       <AnimatePresence>
         {showTextOptions && mode === 'text' && (
           <motion.div
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-3 flex flex-col gap-3 min-w-[280px]"
+            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-3 flex flex-col gap-3 min-w-[200px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
-            {/* Fonts */}
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">Font Family</span>
-              <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto pr-1">
-                {[
-                  { label: 'Inter', value: "'Inter', sans-serif" },
-                  { label: 'Roboto', value: "'Roboto', sans-serif" },
-                  { label: 'Outfit', value: "'Outfit', sans-serif" },
-                  { label: 'Lora', value: "'Lora', serif" },
-                  { label: 'Merriweather', value: "'Merriweather', serif" },
-                  { label: 'Playfair', value: "'Playfair Display', serif" },
-                  { label: 'JetBrains', value: "'JetBrains Mono', monospace" },
-                  { label: 'Fira Code', value: "'Fira Code', monospace" },
-                  { label: 'Caveat', value: "'Caveat', cursive" },
-                  { label: 'Pacifico', value: "'Pacifico', cursive" },
-                  { label: 'Montserrat', value: "'Montserrat', sans-serif" },
-                  { label: 'Oswald', value: "'Oswald', sans-serif" },
-                  { label: 'Bebas Neue', value: "'Bebas Neue', sans-serif" },
-                  { label: 'Anton', value: "'Anton', sans-serif" },
-                  { label: 'Alfa Slab', value: "'Alfa Slab One', cursive" },
-                  { label: 'Fredoka', value: "'Fredoka', sans-serif" },
-                  { label: 'Comfortaa', value: "'Comfortaa', cursive" },
-                  { label: 'Quicksand', value: "'Quicksand', sans-serif" },
-                  { label: 'Cinzel', value: "'Cinzel', serif" },
-                  { label: 'Sacramento', value: "'Sacramento', cursive" },
-                  { label: 'Shadows Into', value: "'Shadows Into Light', cursive" },
-                  { label: 'Gloria Hal.', value: "'Gloria Hallelujah', cursive" },
-                  { label: 'Marker Felt', value: "'Permanent Marker', cursive" },
-                  { label: 'Spicy Rice', value: "'Spicy Rice', cursive" },
-                  { label: 'Lobster', value: "'Lobster', cursive" },
-                  { label: 'Abril Fat.', value: "'Abril Fatface', serif" },
-                  { label: 'Righteous', value: "'Righteous', sans-serif" },
-                  { label: 'Press Start', value: "'Press Start 2P', monospace" },
-                  { label: 'Creepster', value: "'Creepster', cursive" },
-                  { label: 'Arch. Daughter', value: "'Architects Daughter', cursive" },
-                  { label: 'Dancing Script', value: "'Dancing Script', cursive" },
-                  { label: 'Amatic SC', value: "'Amatic SC', sans-serif" },
-                  { label: 'Bangers', value: "'Bangers', sans-serif" },
-                  { label: 'Chewy', value: "'Chewy', cursive" },
-                  { label: 'Cinzel Dec.', value: "'Cinzel Decorative', serif" },
-                  { label: 'Special Elite', value: "'Special Elite', monospace" },
-                  { label: 'Monoton', value: "'Monoton', sans-serif" },
-                  { label: 'Poiret One', value: "'Poiret One', sans-serif" },
-                  
-                  { label: 'Shrikhand', value: "'Shrikhand', cursive" },
-                  { label: 'Ultra', value: "'Ultra', serif" },
-                  { label: 'VT323', value: "'VT323', monospace" },
-                  { label: 'Bungee', value: "'Bungee', sans-serif" },
-                  { label: 'Fredericka', value: "'Fredericka the Great', serif" },
-                  { label: 'Luckiest Guy', value: "'Luckiest Guy', cursive" },
-                  { label: 'Pinyon Script', value: "'Pinyon Script', cursive" },
-                  { label: 'Kelly Slab', value: "'Kelly Slab', cursive" },
-                  { label: 'Kranky', value: "'Kranky', cursive" },
-                  { label: 'Slackey', value: "'Slackey', cursive" },
-                  { label: 'Rye', value: "'Rye', cursive" },
-                  { label: 'Pirata One', value: "'Pirata One', cursive" },
-                  { label: 'Uncial Antiqua', value: "'Uncial Antiqua', cursive" },
-                  { label: 'Nosifer', value: "'Nosifer', cursive" },
-                  { label: 'Eater', value: "'Eater', cursive" },
-                  { label: 'Monofett', value: "'Monofett', monospace" },
-                  { label: 'Syne Tactile', value: "'Syne Tactile', sans-serif" },
-                  { label: 'Butcherman', value: "'Butcherman', cursive" },
-                  { label: 'Codystar', value: "'Codystar', cursive" },
-                  { label: 'Fascinate', value: "'Fascinate Inline', cursive" },
-                  { label: 'Beastly', value: "'Rubik Beastly', cursive" }
-                ].map((font) => (
-                  <button
-                    key={font.value}
-                    onClick={() => handleFontChange(font.value)}
-                    style={{ fontFamily: font.value }}
-                    className={`text-left px-2 py-1.5 rounded-md text-xs truncate transition-all ${
-                      textFont === font.value
-                        ? 'bg-[var(--accent)] text-white shadow-sm'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                    }`}
-                  >
-                    {font.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="w-full h-px bg-[var(--border)]" />
-
             {/* Sizes */}
             <div className="flex flex-col gap-1.5">
               <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">Font Size</span>

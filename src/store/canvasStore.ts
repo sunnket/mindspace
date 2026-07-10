@@ -97,6 +97,8 @@ interface CanvasStore {
   setActiveThreadId: (id: string | null) => void;
   commentMode: boolean;
   setCommentMode: (v: boolean) => void;
+  threadsSidebarOpen: boolean;
+  setThreadsSidebarOpen: (v: boolean) => void;
 
   // Objects
   objects: CanvasObjectData[];
@@ -416,6 +418,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   setActiveThreadId: (activeThreadId) => set({ activeThreadId }),
   commentMode: false,
   setCommentMode: (commentMode) => set({ commentMode }),
+  threadsSidebarOpen: false,
+  setThreadsSidebarOpen: (threadsSidebarOpen) => set({ threadsSidebarOpen }),
 
   // Objects
   objects: [],
