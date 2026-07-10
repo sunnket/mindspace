@@ -1,8 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useChatStore, useChatUnreadTotal } from '@/store/chatStore';
+import { useAuthStore } from '@/store/authStore';
+import { CanvasObjectSnapshot } from '@/lib/chat/service';
 import ChatPanel from './ChatPanel';
 
 export default function ChatLauncher() {
@@ -10,6 +12,27 @@ export default function ChatLauncher() {
   const openPanel = useChatStore((s) => s.openPanel);
   const closePanel = useChatStore((s) => s.closePanel);
   const unread = useChatUnreadTotal();
+
+  // A canvas object dropped on the "send to chat" hotzone (CanvasObject.tsx)
+  // lands here: if a conversation is already open, send it straight there;
+  // otherwise open the panel and let ChatPanel's pending-drop banner ask who.
+  useEffect(() => {
+    const onOpenChatSend = (e: Event) => {
+      const detail = (e as CustomEvent<{ snapshot: CanvasObjectSnapshot; label: string }>).detail;
+      if (!detail) return;
+      const chat = useChatStore.getState();
+      const user = useAuthStore.getState().user;
+      if (user && chat.panelOpen && chat.activeRoomId) {
+        chat.sendCanvasObjectAttachment(chat.activeRoomId, user.id, detail.snapshot, detail.label)
+          .catch((err) => console.error('[chat] send canvas object failed:', err));
+        return;
+      }
+      chat.setPendingCanvasDrop(detail);
+      chat.openPanel();
+    };
+    window.addEventListener('open-chat-send', onOpenChatSend as EventListener);
+    return () => window.removeEventListener('open-chat-send', onOpenChatSend as EventListener);
+  }, []);
 
   return (
     <>

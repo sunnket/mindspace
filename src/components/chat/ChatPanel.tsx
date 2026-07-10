@@ -4,6 +4,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '@/store/authStore';
 import { useChatStore } from '@/store/chatStore';
+import { useCanvasStore } from '@/store/canvasStore';
+import { screenToCanvas } from '@/lib/utils';
+import { ingestFile } from '@/lib/fileIngest';
 import AuthModal from '@/components/ui/AuthModal';
 import { ChatAttachment, ChatMessage, MAX_ATTACHMENT_BYTES, getAttachmentUrl } from '@/lib/chat/service';
 
@@ -84,6 +87,9 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
   const setActiveRoom = useChatStore((s) => s.setActiveRoom);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const sendAttachment = useChatStore((s) => s.sendAttachment);
+  const sendCanvasObjectAttachment = useChatStore((s) => s.sendCanvasObjectAttachment);
+  const pendingCanvasDrop = useChatStore((s) => s.pendingCanvasDrop);
+  const setPendingCanvasDrop = useChatStore((s) => s.setPendingCanvasDrop);
 
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounced(query, 250);
@@ -114,6 +120,18 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
     setDraft('');
   };
 
+  const completePendingDrop = async (roomId: string) => {
+    if (!pendingCanvasDrop) return;
+    const drop = pendingCanvasDrop;
+    setPendingCanvasDrop(null);
+    try {
+      await sendCanvasObjectAttachment(roomId, userId, drop.snapshot, drop.label);
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : 'Could not send — try again.');
+      setTimeout(() => setAttachError(null), 4000);
+    }
+  };
+
   const pickFile = () => fileInputRef.current?.click();
 
   const onFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -141,6 +159,21 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
       <div className={`flex-1 min-h-0 flex ${mode === 'embedded' ? 'flex-row' : 'flex-col'}`}>
         {showList && (
           <div className={`flex flex-col min-h-0 ${mode === 'embedded' ? 'w-64 shrink-0 border-r border-[var(--border)]' : 'flex-1'}`}>
+            {pendingCanvasDrop && (
+              <div className="mx-3 mt-3 p-2.5 rounded-xl clay-inset flex items-center gap-2 shrink-0">
+                <span className="text-[16px] shrink-0">📦</span>
+                <p className="text-[10px] font-semibold text-[var(--text-secondary)] leading-snug flex-1 min-w-0">
+                  Sending <span className="text-[var(--text-primary)]">&quot;{pendingCanvasDrop.label}&quot;</span> — pick who to send it to.
+                </p>
+                <button
+                  onClick={() => setPendingCanvasDrop(null)}
+                  aria-label="Cancel"
+                  className="w-5 h-5 shrink-0 rounded-full flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                </button>
+              </div>
+            )}
             <div className="p-3 shrink-0">
               <input
                 value={query}
@@ -163,7 +196,8 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
                       key={r.id}
                       onClick={async () => {
                         setQuery('');
-                        await startDm(userId, r.id, r.username);
+                        const roomId = await startDm(userId, r.id, r.username);
+                        await completePendingDrop(roomId);
                       }}
                       className="w-full flex items-center gap-2 px-2 py-2 rounded-xl text-left hover:bg-[var(--well)] transition-colors cursor-pointer"
                     >
@@ -185,7 +219,10 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
                   {rooms.map((r) => (
                     <button
                       key={r.id}
-                      onClick={() => setActiveRoom(r.id)}
+                      onClick={async () => {
+                        await setActiveRoom(r.id);
+                        await completePendingDrop(r.id);
+                      }}
                       className={`w-full flex items-center gap-2 px-2 py-2.5 rounded-xl text-left transition-colors cursor-pointer ${
                         activeRoomId === r.id ? 'bg-[var(--well)]' : 'hover:bg-[var(--well)]'
                       }`}
@@ -216,7 +253,7 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
               <>
                 <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 px-3 py-3 flex flex-col gap-2">
                   {messages.map((m) => (
-                    <MessageBubble key={m.id} message={m} mine={m.senderId === userId} />
+                    <MessageBubble key={m.id} message={m} mine={m.senderId === userId} mode={mode} />
                   ))}
                 </div>
                 {attachError && (
@@ -257,12 +294,12 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
   );
 }
 
-function MessageBubble({ message, mine }: { message: ChatMessage; mine: boolean }) {
+function MessageBubble({ message, mine, mode }: { message: ChatMessage; mine: boolean; mode: 'overlay' | 'embedded' }) {
   const attachments = message.attachments || [];
   return (
     <div className={`flex flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
       {attachments.map((att, i) => (
-        <AttachmentBubble key={i} attachment={att} mine={mine} />
+        <AttachmentBubble key={i} attachment={att} mine={mine} mode={mode} />
       ))}
       {message.body && (
         <div
@@ -277,16 +314,57 @@ function MessageBubble({ message, mine }: { message: ChatMessage; mine: boolean 
   );
 }
 
-function AttachmentBubble({ attachment, mine }: { attachment: ChatAttachment; mine: boolean }) {
-  const uploading = attachment.path === '';
+/** Downloads a private attachment and drops it onto the currently-open
+ * canvas at the viewport center — the chat-side half of the "Add to
+ * canvas" pattern used for the collab-session fix. Only meaningful in
+ * overlay mode, where a canvas is actually behind the panel. */
+async function addAttachmentToCanvas(attachment: ChatAttachment, url: string | null) {
+  const camera = useCanvasStore.getState().camera;
+  const center = screenToCanvas(window.innerWidth / 2, window.innerHeight / 2, camera);
+  if (attachment.kind === 'canvas-object' && attachment.snapshot) {
+    useCanvasStore.getState().addObject({
+      ...attachment.snapshot,
+      x: center.x - attachment.snapshot.width / 2,
+      y: center.y - attachment.snapshot.height / 2,
+    });
+    return;
+  }
+  if (!url) return;
+  try {
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    const file = new File([blob], attachment.name, { type: attachment.mime });
+    ingestFile(file, center.x - 150, center.y - 100);
+  } catch (err) {
+    console.error('[chat] add attachment to canvas failed:', err);
+  }
+}
+
+function AddToCanvasButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClick(); }}
+      title="Add to canvas"
+      aria-label="Add to canvas"
+      className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/55 hover:bg-black/70 text-white flex items-center justify-center cursor-pointer transition-colors"
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+    </button>
+  );
+}
+
+function AttachmentBubble({ attachment, mine, mode }: { attachment: ChatAttachment; mine: boolean; mode: 'overlay' | 'embedded' }) {
+  const isCanvasObject = attachment.kind === 'canvas-object';
+  const uploading = attachment.path === '' && !isCanvasObject;
   const [url, setUrl] = useState<string | null>(null);
+  const canAddToCanvas = mode === 'overlay';
 
   useEffect(() => {
-    if (uploading) return;
+    if (uploading || isCanvasObject) return;
     let cancelled = false;
     getAttachmentUrl(attachment.path).then((u) => { if (!cancelled) setUrl(u); });
     return () => { cancelled = true; };
-  }, [attachment.path, uploading]);
+  }, [attachment.path, uploading, isCanvasObject]);
 
   if (uploading) {
     return (
@@ -296,11 +374,32 @@ function AttachmentBubble({ attachment, mine }: { attachment: ChatAttachment; mi
     );
   }
 
+  if (isCanvasObject) {
+    const body = (
+      <>
+        <span className="text-[18px] shrink-0">📦</span>
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold truncate">{attachment.name}</p>
+          <p className={`text-[9px] ${mine ? 'text-white/80' : 'text-[var(--text-tertiary)]'}`}>
+            {canAddToCanvas ? 'Tap to add to canvas' : 'Open a canvas to add this'}
+          </p>
+        </div>
+      </>
+    );
+    const className = `flex items-center gap-2 px-3 py-2 rounded-2xl max-w-[220px] ${mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'} ${canAddToCanvas ? 'cursor-pointer hover:brightness-95' : ''}`;
+    return canAddToCanvas ? (
+      <button onClick={() => addAttachmentToCanvas(attachment, null)} className={className}>{body}</button>
+    ) : (
+      <div className={className}>{body}</div>
+    );
+  }
+
   if (attachment.kind === 'image') {
     return url ? (
-      <a href={url} target="_blank" rel="noreferrer" className="block max-w-[220px] rounded-2xl overflow-hidden">
+      <a href={url} target="_blank" rel="noreferrer" className="relative block max-w-[220px] rounded-2xl overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={url} alt={attachment.name} className="w-full h-auto object-cover" />
+        {canAddToCanvas && <AddToCanvasButton onClick={() => addAttachmentToCanvas(attachment, url)} />}
       </a>
     ) : (
       <div className="w-40 h-28 rounded-2xl clay-inset animate-pulse" />
@@ -309,27 +408,42 @@ function AttachmentBubble({ attachment, mine }: { attachment: ChatAttachment; mi
 
   if (attachment.kind === 'video') {
     return url ? (
-      <video src={url} controls className="max-w-[240px] rounded-2xl" />
+      <div className="relative max-w-[240px]">
+        <video src={url} controls className="w-full rounded-2xl" />
+        {canAddToCanvas && <AddToCanvasButton onClick={() => addAttachmentToCanvas(attachment, url)} />}
+      </div>
     ) : (
       <div className="w-40 h-28 rounded-2xl clay-inset animate-pulse" />
     );
   }
 
   return (
-    <a
-      href={url || undefined}
-      target="_blank"
-      rel="noreferrer"
-      className={`flex items-center gap-2 px-3 py-2 rounded-2xl max-w-[220px] ${mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'}`}
-    >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
-      </svg>
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold truncate">{attachment.name}</p>
-        <p className={`text-[9px] ${mine ? 'text-white/80' : 'text-[var(--text-tertiary)]'}`}>{formatBytes(attachment.size)}</p>
-      </div>
-    </a>
+    <div className="relative max-w-[220px]">
+      <a
+        href={url || undefined}
+        target="_blank"
+        rel="noreferrer"
+        className={`flex items-center gap-2 px-3 py-2 rounded-2xl ${mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'}`}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+        </svg>
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold truncate">{attachment.name}</p>
+          <p className={`text-[9px] ${mine ? 'text-white/80' : 'text-[var(--text-tertiary)]'}`}>{formatBytes(attachment.size)}</p>
+        </div>
+      </a>
+      {canAddToCanvas && (
+        <button
+          onClick={() => addAttachmentToCanvas(attachment, url)}
+          title="Add to canvas"
+          aria-label="Add to canvas"
+          className={`absolute top-1/2 -translate-y-1/2 right-2 w-6 h-6 rounded-full flex items-center justify-center cursor-pointer transition-colors ${mine ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-black/10 hover:bg-black/20 text-[var(--text-primary)]'}`}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+        </button>
+      )}
+    </div>
   );
 }
 

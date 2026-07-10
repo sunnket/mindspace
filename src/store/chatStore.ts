@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import {
+  CanvasObjectSnapshot,
+  ChatAttachment,
   ChatMessage,
   attachmentPreviewText,
   fetchMessages,
@@ -39,6 +41,10 @@ interface ChatState {
   searchResults: { id: string; username: string }[];
   searchLoading: boolean;
   panelOpen: boolean;
+  /** Set while a canvas object dragged into the "send to chat" hotzone is
+   * waiting for the user to pick who it goes to. Cleared once a room is
+   * chosen (the send happens as part of that pick) or the banner is dismissed. */
+  pendingCanvasDrop: { snapshot: CanvasObjectSnapshot; label: string } | null;
 
   loadRooms: (myUserId: string) => Promise<void>;
   searchUsers: (query: string) => Promise<void>;
@@ -46,6 +52,8 @@ interface ChatState {
   setActiveRoom: (roomId: string | null) => Promise<void>;
   sendMessage: (roomId: string, senderId: string, body: string) => Promise<void>;
   sendAttachment: (roomId: string, senderId: string, file: File, caption?: string) => Promise<void>;
+  sendCanvasObjectAttachment: (roomId: string, senderId: string, snapshot: CanvasObjectSnapshot, label: string) => Promise<void>;
+  setPendingCanvasDrop: (drop: { snapshot: CanvasObjectSnapshot; label: string } | null) => void;
   markRoomRead: (roomId: string) => void;
   openPanel: () => void;
   closePanel: () => void;
@@ -63,6 +71,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   searchResults: [],
   searchLoading: false,
   panelOpen: false,
+  pendingCanvasDrop: null,
 
   loadRooms: async (myUserId) => {
     set({ roomsLoading: true });
@@ -219,6 +228,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  sendCanvasObjectAttachment: async (roomId, senderId, snapshot, label) => {
+    const id = uuidv4();
+    const attachment: ChatAttachment = {
+      name: label, mime: 'application/x-mindspace-object', size: 0, path: '', kind: 'canvas-object', snapshot,
+    };
+    const optimistic: ChatMessage = { id, roomId, senderId, body: '', createdAt: Date.now(), attachments: [attachment] };
+    set((state) => ({
+      messagesByRoom: { ...state.messagesByRoom, [roomId]: [...(state.messagesByRoom[roomId] || []), optimistic] },
+    }));
+    try {
+      const saved = await sendMessageService(roomId, senderId, '', [attachment], id);
+      set((state) => ({
+        messagesByRoom: {
+          ...state.messagesByRoom,
+          [roomId]: (state.messagesByRoom[roomId] || []).map((m) => (m.id === id ? saved : m)),
+        },
+        rooms: state.rooms.map((r) =>
+          r.id === roomId ? { ...r, lastMessageAt: saved.createdAt, lastMessagePreview: attachmentPreviewText([attachment]) } : r
+        ),
+      }));
+    } catch (err) {
+      console.error('[chat] sendCanvasObjectAttachment failed:', err);
+      set((state) => ({
+        messagesByRoom: {
+          ...state.messagesByRoom,
+          [roomId]: (state.messagesByRoom[roomId] || []).filter((m) => m.id !== id),
+        },
+      }));
+      throw err;
+    }
+  },
+
+  setPendingCanvasDrop: (pendingCanvasDrop) => set({ pendingCanvasDrop }),
+
   markRoomRead: (roomId) =>
     set((state) => {
       if (!state.unreadByRoom[roomId]) return {};
@@ -243,6 +286,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       searchResults: [],
       searchLoading: false,
       panelOpen: false,
+      pendingCanvasDrop: null,
     });
   },
 }));

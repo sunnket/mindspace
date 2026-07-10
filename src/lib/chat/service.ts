@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '@/lib/supabaseClient';
+import { CanvasObjectData } from '@/lib/db';
 
 export const ATTACHMENTS_BUCKET = 'chat-attachments';
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024; // 25MB
@@ -9,12 +10,26 @@ export interface ProfileResult {
   username: string;
 }
 
+/** A minimal template of a canvas object — enough for `addObject` to recreate
+ * it on another canvas. Deliberately excludes id/position/parentId/zIndex,
+ * which get freshly assigned wherever it's dropped. */
+export interface CanvasObjectSnapshot {
+  type: CanvasObjectData['type'];
+  content: string;
+  width: number;
+  height: number;
+  style?: Record<string, unknown>;
+}
+
 export interface ChatAttachment {
   name: string;
   mime: string;
   size: number;
   path: string;
-  kind: 'image' | 'video' | 'file';
+  kind: 'image' | 'video' | 'file' | 'canvas-object';
+  /** Only present when kind === 'canvas-object' — no Storage upload involved,
+   * the object's data travels directly in this jsonb column. */
+  snapshot?: CanvasObjectSnapshot;
 }
 
 export interface ChatRoomRow {
@@ -65,6 +80,7 @@ export function attachmentPreviewText(attachments: ChatAttachment[]): string {
   if (!first) return '';
   if (first.kind === 'image') return '📷 Photo';
   if (first.kind === 'video') return '🎬 Video';
+  if (first.kind === 'canvas-object') return `📦 ${first.name}`;
   return `📎 ${first.name}`;
 }
 

@@ -342,10 +342,12 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       setIsDragging(true);
 
       // Top-left drop dock: the upper zone MINIMIZES the object into the shelf;
-      // the zone just below WARPS it to another canvas. Tracked as plain closure
-      // variables (not React state) so the frequent mousemove never re-renders.
+      // the zone below that WARPS it to another canvas; the zone below THAT
+      // sends it to an open chat. Tracked as plain closure variables (not
+      // React state) so the frequent mousemove never re-renders.
       let overMinimizeZone = false;
       let overWarpZone = false;
+      let overChatZone = false;
       let draggedFar = false;
       const HOTZONE_W = 210;
 
@@ -354,10 +356,17 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           draggedFar = true;
         }
         const inLeftCol = draggedFar && moveE.clientX < HOTZONE_W;
-        // Frames/arrows can't be warped into another canvas meaningfully.
+        // Frames/arrows can't be warped/sent meaningfully — neither has a
+        // standalone snapshot that makes sense outside its canvas context.
         const warpable = dragObj.type !== 'frame' && dragObj.type !== 'arrow';
+        // Warping is additionally disabled for a guest inside someone else's
+        // live session: teleportObject broadcasts a remove op, which would
+        // delete the object from the HOST's real canvas — sending to chat
+        // doesn't touch canvas state at all, so it stays allowed here.
+        const canWarp = warpable && !useCollabStore.getState().guestOriginView;
         overMinimizeZone = inLeftCol && moveE.clientY >= 72 && moveE.clientY < 232;
-        overWarpZone = warpable && inLeftCol && moveE.clientY >= 240 && moveE.clientY < 404;
+        overWarpZone = canWarp && inLeftCol && moveE.clientY >= 240 && moveE.clientY < 404;
+        overChatZone = warpable && inLeftCol && moveE.clientY >= 412 && moveE.clientY < 564;
 
         const zone = document.getElementById('minimize-hotzone');
         const label = document.getElementById('minimize-hotzone-label');
@@ -370,11 +379,20 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const wzone = document.getElementById('warp-hotzone');
         const wlabel = document.getElementById('warp-hotzone-label');
         if (wzone) {
-          wzone.style.opacity = draggedFar && warpable ? '1' : '0';
+          wzone.style.opacity = draggedFar && canWarp ? '1' : '0';
           wzone.style.borderColor = overWarpZone ? 'var(--accent)' : 'rgba(201,123,75,0.28)';
           wzone.style.background = overWarpZone ? 'rgba(201,123,75,0.12)' : 'transparent';
         }
         if (wlabel) wlabel.style.opacity = overWarpZone ? '1' : '0.55';
+
+        const czone = document.getElementById('chat-hotzone');
+        const clabel = document.getElementById('chat-hotzone-label');
+        if (czone) {
+          czone.style.opacity = draggedFar && warpable ? '1' : '0';
+          czone.style.borderColor = overChatZone ? 'var(--accent)' : 'rgba(201,123,75,0.28)';
+          czone.style.background = overChatZone ? 'rgba(201,123,75,0.12)' : 'transparent';
+        }
+        if (clabel) clabel.style.opacity = overChatZone ? '1' : '0.55';
 
         const dx = (moveE.clientX - dragStart.current.x) / camera.zoom;
         const dy = (moveE.clientY - dragStart.current.y) / camera.zoom;
@@ -431,6 +449,10 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const wlabel = document.getElementById('warp-hotzone-label');
         if (wzone) { wzone.style.opacity = '0'; wzone.style.borderColor = 'rgba(201,123,75,0.28)'; wzone.style.background = 'transparent'; }
         if (wlabel) wlabel.style.opacity = '0.55';
+        const czone = document.getElementById('chat-hotzone');
+        const clabel = document.getElementById('chat-hotzone-label');
+        if (czone) { czone.style.opacity = '0'; czone.style.borderColor = 'rgba(201,123,75,0.28)'; czone.style.background = 'transparent'; }
+        if (clabel) clabel.style.opacity = '0.55';
 
         if (overMinimizeZone) {
           useCanvasStore.getState().minimizeObject(dragObj.id);
@@ -443,6 +465,21 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         if (overWarpZone) {
           updateObject(dragObj.id, { x: before.x, y: before.y });
           window.dispatchEvent(new CustomEvent('open-warp', { detail: { objectId: dragObj.id } }));
+          return;
+        }
+
+        // Send to chat: hand off to ChatLauncher, which either drops it
+        // straight into whatever conversation is currently open, or opens
+        // the panel and asks who to send it to. Snap back like Warp does.
+        if (overChatZone) {
+          updateObject(dragObj.id, { x: before.x, y: before.y });
+          const label = (dragObj.content || '').split('\n')[0].trim().slice(0, 60) || dragObj.type;
+          window.dispatchEvent(new CustomEvent('open-chat-send', {
+            detail: {
+              snapshot: { type: dragObj.type, content: dragObj.content, width: dragObj.width, height: dragObj.height, style: dragObj.style },
+              label,
+            },
+          }));
           return;
         }
 
