@@ -227,6 +227,17 @@ interface CanvasStore {
   // while in arrow mode, before anything is on the canvas).
   arrowStyle: { color: string; thickness: number; dashStyle: string; pointerType: string };
   setArrowStyle: (patch: Partial<{ color: string; thickness: number; dashStyle: string; pointerType: string }>) => void;
+
+  // Default style applied to the NEXT text block you create (editable in the
+  // panel while in text mode, before clicking on the canvas).
+  textStyle: {
+    fontSize: number; fontFamily: string; fontWeight: number;
+    textColor: string; bgColor: string; textAlign: string; headingLevel: string;
+  };
+  setTextStyle: (patch: Partial<{
+    fontSize: number; fontFamily: string; fontWeight: number;
+    textColor: string; bgColor: string; textAlign: string; headingLevel: string;
+  }>) => void;
   
   // Max z-index tracker
   maxZIndex: number;
@@ -1045,6 +1056,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   arrowStyle: { color: '#2D2A26', thickness: 3, dashStyle: 'solid', pointerType: 'arrow' },
   setArrowStyle: (patch) => set((s) => ({ arrowStyle: { ...s.arrowStyle, ...patch } })),
+
+  textStyle: {
+    fontSize: 15, fontFamily: "'Outfit', sans-serif", fontWeight: 400,
+    textColor: '#F4EFE8', bgColor: 'transparent', textAlign: 'left', headingLevel: 'body',
+  },
+  setTextStyle: (patch) => set((s) => ({ textStyle: { ...s.textStyle, ...patch } })),
   
   // Max z-index
   maxZIndex: 0,

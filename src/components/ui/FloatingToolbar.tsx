@@ -64,7 +64,7 @@ export default function FloatingToolbar() {
   const openThreadCount = useCanvasStore((s) => s.threads.filter((t) => !t.resolved).length);
 
   const [showDrawOptions, setShowDrawOptions] = useState(false);
-  const [showTextOptions, setShowTextOptions] = useState(false);
+
   const [showShapeOptions, setShowShapeOptions] = useState(false);
   const [showArrowOptions, setShowArrowOptions] = useState(false);
   const [showFrameOptions, setShowFrameOptions] = useState(false);
@@ -103,7 +103,6 @@ export default function FloatingToolbar() {
         </svg>
       ),
     },
-    { id: 'text', icon: <span className="text-sm font-bold">Aa</span>, label: 'Text (T)' },
     {
       id: 'voice' as any,
       label: 'Voice Typing',
@@ -243,7 +242,6 @@ export default function FloatingToolbar() {
               if (tool.id === 'workflow' as any) {
                 setShowWorkflowMenu(!showWorkflowMenu);
                 setShowDrawOptions(false);
-                setShowTextOptions(false);
                 setShowShapeOptions(false);
                 setShowArrowOptions(false);
                 setShowFrameOptions(false);
@@ -263,37 +261,26 @@ export default function FloatingToolbar() {
               if (tool.id === 'arrow') setSelectedId(null);
               if (tool.id === 'draw') {
                 setShowDrawOptions(true);
-                setShowTextOptions(false);
-                setShowShapeOptions(false);
-                setShowArrowOptions(false);
-                setShowFrameOptions(false);
-              } else if (tool.id === 'text') {
-                setShowTextOptions(true);
-                setShowDrawOptions(false);
                 setShowShapeOptions(false);
                 setShowArrowOptions(false);
                 setShowFrameOptions(false);
               } else if (tool.id === 'shape') {
                 setShowShapeOptions(true);
                 setShowDrawOptions(false);
-                setShowTextOptions(false);
                 setShowArrowOptions(false);
                 setShowFrameOptions(false);
               } else if (tool.id === 'arrow') {
                 setShowArrowOptions(true);
                 setShowDrawOptions(false);
-                setShowTextOptions(false);
                 setShowShapeOptions(false);
                 setShowFrameOptions(false);
               } else if (tool.id === 'frame') {
                 setShowFrameOptions(true);
                 setShowDrawOptions(false);
-                setShowTextOptions(false);
                 setShowShapeOptions(false);
                 setShowArrowOptions(false);
               } else {
                 setShowDrawOptions(false);
-                setShowTextOptions(false);
                 setShowShapeOptions(false);
                 setShowArrowOptions(false);
                 setShowFrameOptions(false);
@@ -318,7 +305,6 @@ export default function FloatingToolbar() {
             setShowBgOptions((v) => !v);
             setShowWorkflowMenu(false);
             setShowDrawOptions(false);
-            setShowTextOptions(false);
             setShowShapeOptions(false);
             setShowArrowOptions(false);
             setShowFrameOptions(false);
@@ -347,7 +333,6 @@ export default function FloatingToolbar() {
             setThreadsSidebarOpen(false);
             setShowWorkflowMenu(false);
             setShowDrawOptions(false);
-            setShowTextOptions(false);
             setShowShapeOptions(false);
             setShowArrowOptions(false);
             setShowFrameOptions(false);
@@ -361,8 +346,7 @@ export default function FloatingToolbar() {
           title="Add a thread"
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 21s-7-7.58-7-12a7 7 0 0 1 14 0c0 4.42-7 12-7 12z" />
-            <circle cx="12" cy="9" r="2.5" />
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
           {openThreadCount > 0 && (
             <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 rounded-full bg-[var(--accent)] text-white text-[8px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">{openThreadCount}</span>
@@ -376,7 +360,6 @@ export default function FloatingToolbar() {
             setCommentMode(false);
             setShowWorkflowMenu(false);
             setShowDrawOptions(false);
-            setShowTextOptions(false);
             setShowShapeOptions(false);
             setShowArrowOptions(false);
             setShowFrameOptions(false);
@@ -537,38 +520,6 @@ export default function FloatingToolbar() {
         )}
       </AnimatePresence>
 
-      {/* Text options panel */}
-      <AnimatePresence>
-        {showTextOptions && mode === 'text' && (
-          <motion.div
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-3 flex flex-col gap-3 min-w-[200px]"
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          >
-            {/* Sizes */}
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">Font Size</span>
-              <div className="flex flex-wrap gap-1.5">
-                {[12, 14, 16, 20, 24, 32, 48, 64].map((size) => (
-                  <button
-                    key={size}
-                    onClick={() => handleSizeChange(size)}
-                    className={`w-7 h-7 flex items-center justify-center rounded-md text-xs transition-all ${
-                      textSize === size
-                        ? 'bg-[var(--accent)] text-white shadow-sm'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                    }`}
-                  >
-                    {size}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Shape options panel — only while placing a new shape; editing an
           existing shape is handled by the left SelectionPanel. */}

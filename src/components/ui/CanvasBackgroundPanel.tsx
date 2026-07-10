@@ -140,7 +140,7 @@ export default function CanvasBackgroundPanel() {
         onClick={() => setBg({ ...DEFAULT_BACKGROUND })}
         className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors self-start"
       >
-        ↺ Reset to Cream
+        ↺ Reset to Graphite
       </button>
     </div>
   );

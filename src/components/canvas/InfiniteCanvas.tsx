@@ -564,6 +564,7 @@ export default function InfiniteCanvas() {
               setEditingId(obj.id);
               setMode('select');
             } else {
+              const ts = useCanvasStore.getState().textStyle;
               const obj = addObject({
                 type: 'text',
                 x: worldPos.x,
@@ -571,6 +572,15 @@ export default function InfiniteCanvas() {
                 width: 900,
                 height: 100,
                 content: '',
+                style: {
+                  fontSize: ts.fontSize,
+                  fontFamily: ts.fontFamily,
+                  fontWeight: ts.fontWeight,
+                  textColor: ts.textColor,
+                  bgColor: ts.bgColor,
+                  textAlign: ts.textAlign,
+                  headingLevel: ts.headingLevel,
+                },
               });
               setSelectedId(obj.id);
               setEditingId(obj.id);

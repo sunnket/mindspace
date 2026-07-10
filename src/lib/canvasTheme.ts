@@ -32,14 +32,14 @@ export interface CanvasThemePreset extends CanvasBackground {
 
 const DEFAULT_ACCENT = '#C97B4B';
 
-/** The app's original light palette — used as the "no theme" baseline. */
+/** Dark graphite default — matches the landing page's dark aesthetic. */
 export const DEFAULT_BACKGROUND: CanvasBackground = {
-  presetId: 'cream',
-  color: '#FAF6F1',
+  presetId: 'graphite',
+  color: '#1C1A17',
   opacity: 1,
-  dark: false,
-  accent: DEFAULT_ACCENT,
-  name: 'Cream',
+  dark: true,
+  accent: '#E8A97B',
+  name: 'Graphite',
 };
 
 /* ---------------------------- color math ---------------------------- */
