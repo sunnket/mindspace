@@ -345,12 +345,8 @@ export default function FloatingToolbar() {
           }`}
           title="Add a thread"
         >
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M6 3h12" />
-            <path d="M6 21h12" />
-            <rect x="8" y="3" width="8" height="18" rx="1.5" fill="currentColor" fillOpacity="0.12" />
-            <path d="M8 8h8M8 12h8M8 16h8" />
-            <path d="M12 18c-2 2-3 1-3 3" />
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
           {openThreadCount > 0 && (
             <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 rounded-full bg-[var(--accent)] text-white text-[8px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">{openThreadCount}</span>
