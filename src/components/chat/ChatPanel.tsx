@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '@/store/authStore';
 import { useChatStore } from '@/store/chatStore';
 import AuthModal from '@/components/ui/AuthModal';
+import { ChatAttachment, ChatMessage, MAX_ATTACHMENT_BYTES, getAttachmentUrl } from '@/lib/chat/service';
 
 function timeAgo(ts: number) {
   const d = Date.now() - ts;
@@ -14,6 +15,12 @@ function timeAgo(ts: number) {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h`;
   return `${Math.floor(h / 24)}d`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function useDebounced<T>(value: T, delayMs: number): T {
@@ -76,11 +83,14 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
   const startDm = useChatStore((s) => s.startDm);
   const setActiveRoom = useChatStore((s) => s.setActiveRoom);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const sendAttachment = useChatStore((s) => s.sendAttachment);
 
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounced(query, 250);
   const [draft, setDraft] = useState('');
+  const [attachError, setAttachError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadRooms(userId);
@@ -102,6 +112,25 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
     if (!activeRoomId || !draft.trim()) return;
     sendMessage(activeRoomId, userId, draft);
     setDraft('');
+  };
+
+  const pickFile = () => fileInputRef.current?.click();
+
+  const onFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow choosing the same file again later
+    if (!file || !activeRoomId) return;
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      setAttachError(`"${file.name}" is too large — max ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB.`);
+      setTimeout(() => setAttachError(null), 4000);
+      return;
+    }
+    try {
+      await sendAttachment(activeRoomId, userId, file);
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : 'Upload failed — try again.');
+      setTimeout(() => setAttachError(null), 4000);
+    }
   };
 
   const showThread = mode === 'embedded' || !!activeRoomId;
@@ -186,22 +215,23 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
             ) : (
               <>
                 <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 px-3 py-3 flex flex-col gap-2">
-                  {messages.map((m) => {
-                    const mine = m.senderId === userId;
-                    return (
-                      <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                        <div
-                          className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-[12px] leading-snug break-words ${
-                            mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'
-                          }`}
-                        >
-                          {m.body}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {messages.map((m) => (
+                    <MessageBubble key={m.id} message={m} mine={m.senderId === userId} />
+                  ))}
                 </div>
-                <div className="flex gap-1.5 p-3 pt-2 border-t border-[var(--border)] shrink-0">
+                {attachError && (
+                  <p className="px-3 pb-1 text-[10px] font-semibold text-red-500 shrink-0">{attachError}</p>
+                )}
+                <div className="flex items-center gap-1.5 p-3 pt-2 border-t border-[var(--border)] shrink-0">
+                  <input ref={fileInputRef} type="file" onChange={onFileChosen} className="hidden" />
+                  <button
+                    onClick={pickFile}
+                    title="Attach a file, image or video"
+                    className="w-9 h-9 shrink-0 rounded-full text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--well)] flex items-center justify-center cursor-pointer transition-colors"
+                    aria-label="Attach file"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                  </button>
                   <input
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
@@ -224,6 +254,82 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
         )}
       </div>
     </ChatShell>
+  );
+}
+
+function MessageBubble({ message, mine }: { message: ChatMessage; mine: boolean }) {
+  const attachments = message.attachments || [];
+  return (
+    <div className={`flex flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
+      {attachments.map((att, i) => (
+        <AttachmentBubble key={i} attachment={att} mine={mine} />
+      ))}
+      {message.body && (
+        <div
+          className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-[12px] leading-snug break-words ${
+            mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'
+          }`}
+        >
+          {message.body}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AttachmentBubble({ attachment, mine }: { attachment: ChatAttachment; mine: boolean }) {
+  const uploading = attachment.path === '';
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (uploading) return;
+    let cancelled = false;
+    getAttachmentUrl(attachment.path).then((u) => { if (!cancelled) setUrl(u); });
+    return () => { cancelled = true; };
+  }, [attachment.path, uploading]);
+
+  if (uploading) {
+    return (
+      <div className={`w-40 h-28 rounded-2xl flex items-center justify-center text-[10px] font-semibold ${mine ? 'bg-[var(--accent)]/60 text-white' : 'clay-inset text-[var(--text-tertiary)]'}`}>
+        Uploading…
+      </div>
+    );
+  }
+
+  if (attachment.kind === 'image') {
+    return url ? (
+      <a href={url} target="_blank" rel="noreferrer" className="block max-w-[220px] rounded-2xl overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt={attachment.name} className="w-full h-auto object-cover" />
+      </a>
+    ) : (
+      <div className="w-40 h-28 rounded-2xl clay-inset animate-pulse" />
+    );
+  }
+
+  if (attachment.kind === 'video') {
+    return url ? (
+      <video src={url} controls className="max-w-[240px] rounded-2xl" />
+    ) : (
+      <div className="w-40 h-28 rounded-2xl clay-inset animate-pulse" />
+    );
+  }
+
+  return (
+    <a
+      href={url || undefined}
+      target="_blank"
+      rel="noreferrer"
+      className={`flex items-center gap-2 px-3 py-2 rounded-2xl max-w-[220px] ${mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'}`}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+      </svg>
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold truncate">{attachment.name}</p>
+        <p className={`text-[9px] ${mine ? 'text-white/80' : 'text-[var(--text-tertiary)]'}`}>{formatBytes(attachment.size)}</p>
+      </div>
+    </a>
   );
 }
 

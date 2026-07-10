@@ -1,6 +1,8 @@
 import { create } from 'zustand';
+import { v4 as uuidv4 } from 'uuid';
 import {
   ChatMessage,
+  attachmentPreviewText,
   fetchMessages,
   fetchProfilesByIds,
   fetchRooms,
@@ -9,7 +11,14 @@ import {
   sendMessage as sendMessageService,
   subscribeToRoom,
   unsubscribeFromRoom,
+  uploadAttachment,
 } from '@/lib/chat/service';
+
+function attachmentKindOf(mime: string): 'image' | 'video' | 'file' {
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  return 'file';
+}
 
 export interface ChatRoomSummary {
   id: string;
@@ -36,6 +45,7 @@ interface ChatState {
   startDm: (myUserId: string, otherUserId: string, otherUsername: string) => Promise<string>;
   setActiveRoom: (roomId: string | null) => Promise<void>;
   sendMessage: (roomId: string, senderId: string, body: string) => Promise<void>;
+  sendAttachment: (roomId: string, senderId: string, file: File, caption?: string) => Promise<void>;
   markRoomRead: (roomId: string) => void;
   openPanel: () => void;
   closePanel: () => void;
@@ -168,6 +178,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
           [roomId]: (state.messagesByRoom[roomId] || []).filter((m) => m.id !== optimistic.id),
         },
       }));
+    }
+  },
+
+  sendAttachment: async (roomId, senderId, file, caption = '') => {
+    const id = uuidv4();
+    const trimmedCaption = caption.trim();
+    // path:'' is the "still uploading" signal the UI checks for — a real
+    // attachment always has a non-empty storage path.
+    const optimistic: ChatMessage = {
+      id, roomId, senderId, body: trimmedCaption, createdAt: Date.now(),
+      attachments: [{ name: file.name, mime: file.type || 'application/octet-stream', size: file.size, path: '', kind: attachmentKindOf(file.type || '') }],
+    };
+    set((state) => ({
+      messagesByRoom: { ...state.messagesByRoom, [roomId]: [...(state.messagesByRoom[roomId] || []), optimistic] },
+    }));
+    try {
+      const attachment = await uploadAttachment(roomId, id, file);
+      const saved = await sendMessageService(roomId, senderId, trimmedCaption, [attachment], id);
+      set((state) => ({
+        messagesByRoom: {
+          ...state.messagesByRoom,
+          [roomId]: (state.messagesByRoom[roomId] || []).map((m) => (m.id === id ? saved : m)),
+        },
+        rooms: state.rooms.map((r) =>
+          r.id === roomId
+            ? { ...r, lastMessageAt: saved.createdAt, lastMessagePreview: (saved.body || attachmentPreviewText(saved.attachments || [])).slice(0, 140) }
+            : r
+        ),
+      }));
+    } catch (err) {
+      console.error('[chat] sendAttachment failed:', err);
+      set((state) => ({
+        messagesByRoom: {
+          ...state.messagesByRoom,
+          [roomId]: (state.messagesByRoom[roomId] || []).filter((m) => m.id !== id),
+        },
+      }));
+      throw err;
     }
   },
 

@@ -1,9 +1,20 @@
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '@/lib/supabaseClient';
 
+export const ATTACHMENTS_BUCKET = 'chat-attachments';
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024; // 25MB
+
 export interface ProfileResult {
   id: string;
   username: string;
+}
+
+export interface ChatAttachment {
+  name: string;
+  mime: string;
+  size: number;
+  path: string;
+  kind: 'image' | 'video' | 'file';
 }
 
 export interface ChatRoomRow {
@@ -23,11 +34,13 @@ export interface ChatMessage {
   createdAt: number;
   editedAt?: number | null;
   deleted?: boolean;
+  attachments?: ChatAttachment[];
 }
 
 function rowToMessage(row: {
   id: string; room_id: string; sender_id: string; body: string;
   created_at: number; edited_at: number | null; deleted: boolean | null;
+  attachments: ChatAttachment[] | null;
 }): ChatMessage {
   return {
     id: row.id,
@@ -37,7 +50,56 @@ function rowToMessage(row: {
     createdAt: row.created_at,
     editedAt: row.edited_at,
     deleted: !!row.deleted,
+    attachments: row.attachments || [],
   };
+}
+
+function attachmentKind(mime: string): ChatAttachment['kind'] {
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  return 'file';
+}
+
+export function attachmentPreviewText(attachments: ChatAttachment[]): string {
+  const first = attachments[0];
+  if (!first) return '';
+  if (first.kind === 'image') return '📷 Photo';
+  if (first.kind === 'video') return '🎬 Video';
+  return `📎 ${first.name}`;
+}
+
+/** Uploads a file to the room's private attachment folder. `messageId` must
+ * be the id the caller will use for the chat_messages row this attaches to
+ * (generated up front by the caller) so the storage path and the message
+ * that references it line up. */
+export async function uploadAttachment(roomId: string, messageId: string, file: File): Promise<ChatAttachment> {
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    throw new Error(`"${file.name}" is too large — max ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB.`);
+  }
+  const safeName = file.name.replace(/[^\w.\-]+/g, '_') || 'file';
+  const path = `${roomId}/${messageId}/${safeName}`;
+  const { error } = await supabase.storage.from(ATTACHMENTS_BUCKET).upload(path, file, {
+    contentType: file.type || 'application/octet-stream',
+    upsert: false,
+  });
+  if (error) throw error;
+  return {
+    name: file.name,
+    mime: file.type || 'application/octet-stream',
+    size: file.size,
+    path,
+    kind: attachmentKind(file.type || ''),
+  };
+}
+
+/** Short-lived signed URL for a private attachment — safe to call every render. */
+export async function getAttachmentUrl(path: string): Promise<string | null> {
+  const { data, error } = await supabase.storage.from(ATTACHMENTS_BUCKET).createSignedUrl(path, 3600);
+  if (error) {
+    console.error('[chat] getAttachmentUrl failed:', error);
+    return null;
+  }
+  return data?.signedUrl || null;
 }
 
 export async function searchUsers(query: string): Promise<ProfileResult[]> {
@@ -124,25 +186,31 @@ export async function fetchMessages(roomId: string): Promise<ChatMessage[]> {
   return (data || []).map(rowToMessage);
 }
 
-export async function sendMessage(roomId: string, senderId: string, body: string): Promise<ChatMessage> {
+export async function sendMessage(
+  roomId: string,
+  senderId: string,
+  body: string,
+  attachments: ChatAttachment[] = [],
+  id: string = uuidv4()
+): Promise<ChatMessage> {
   const trimmed = body.trim();
-  const id = uuidv4();
   const createdAt = Date.now();
   const { error } = await supabase.from('chat_messages').insert({
-    id, room_id: roomId, sender_id: senderId, body: trimmed, created_at: createdAt,
+    id, room_id: roomId, sender_id: senderId, body: trimmed, created_at: createdAt, attachments,
   });
   if (error) throw error;
 
+  const preview = trimmed || attachmentPreviewText(attachments);
   // Best-effort — the message is already durably written even if this fails.
   supabase
     .from('chat_rooms')
-    .update({ last_message_at: createdAt, last_message_preview: trimmed.slice(0, 140) })
+    .update({ last_message_at: createdAt, last_message_preview: preview.slice(0, 140) })
     .eq('id', roomId)
     .then(({ error: updateErr }) => {
       if (updateErr) console.error('[chat] failed to update room preview:', updateErr);
     });
 
-  return { id, roomId, senderId, body: trimmed, createdAt };
+  return { id, roomId, senderId, body: trimmed, createdAt, attachments };
 }
 
 type ChannelHandle = ReturnType<typeof supabase.channel>;
