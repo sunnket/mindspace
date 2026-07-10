@@ -104,6 +104,13 @@ interface CanvasStore {
   addObject: (obj: Partial<CanvasObjectData>) => CanvasObjectData;
   updateObject: (id: string, updates: Partial<CanvasObjectData>) => void;
   removeObject: (id: string) => void;
+  duplicateObject: (id: string) => CanvasObjectData | null;
+
+  // Layer ordering (z-index)
+  bringToFront: (id: string) => void;
+  sendToBack: (id: string) => void;
+  bringForward: (id: string) => void;
+  sendBackward: (id: string) => void;
 
   // Minimize dock — slide any object into the corner shelf, drag it back out anywhere
   minimizeObject: (id: string) => void;
@@ -541,6 +548,60 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         relatedConns.forEach(c => deleteConnection(c.id).catch(err => console.error('Failed to delete connection:', err)));
       }
     });
+  },
+
+  // Clone an object (offset a little so it's visible), give it a fresh id and the
+  // top z-index, and select it. Arrows clone their start/end/bend geometry too.
+  duplicateObject: (id) => {
+    const src = get().objects.find((o) => o.id === id);
+    if (!src) return null;
+    const offset = 28;
+    const clone: Partial<CanvasObjectData> = {
+      ...src,
+      id: uuidv4(),
+      x: src.x + offset,
+      y: src.y + offset,
+      zIndex: get().getNextZIndex(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      style: src.style ? { ...src.style } : undefined,
+    };
+    if (src.type === 'arrow' && src.style) {
+      clone.style = {
+        ...clone.style,
+        startX: (src.style.startX as number ?? 0) + offset,
+        startY: (src.style.startY as number ?? 0) + offset,
+        endX: (src.style.endX as number ?? 0) + offset,
+        endY: (src.style.endY as number ?? 0) + offset,
+        ...(src.style.bendX !== undefined
+          ? { bendX: (src.style.bendX as number) + offset, bendY: (src.style.bendY as number ?? 0) + offset }
+          : {}),
+      };
+    }
+    const created = get().addObject(clone);
+    set({ selectedId: created.id });
+    return created;
+  },
+
+  // Layer ordering — nudge one step, or jump to the very front/back.
+  bringToFront: (id) => {
+    const next = get().getNextZIndex();
+    get().updateObject(id, { zIndex: next });
+  },
+  sendToBack: (id) => {
+    const minZ = get().objects.reduce((m, o) => Math.min(m, o.zIndex ?? 0), 0);
+    get().updateObject(id, { zIndex: minZ - 1 });
+  },
+  bringForward: (id) => {
+    const obj = get().objects.find((o) => o.id === id);
+    if (!obj) return;
+    get().updateObject(id, { zIndex: (obj.zIndex ?? 0) + 1 });
+    set((s) => ({ maxZIndex: Math.max(s.maxZIndex, (obj.zIndex ?? 0) + 1) }));
+  },
+  sendBackward: (id) => {
+    const obj = get().objects.find((o) => o.id === id);
+    if (!obj) return;
+    get().updateObject(id, { zIndex: (obj.zIndex ?? 0) - 1 });
   },
 
   minimizeObject: (id) => {

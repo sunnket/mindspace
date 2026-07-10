@@ -596,9 +596,10 @@ export default function FloatingToolbar() {
         )}
       </AnimatePresence>
 
-      {/* Shape options panel */}
+      {/* Shape options panel — only while placing a new shape; editing an
+          existing shape is handled by the left SelectionPanel. */}
       <AnimatePresence>
-        {(mode === 'shape' || selectedObject?.type === 'shape') && (
+        {mode === 'shape' && (
           <motion.div
             className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[280px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -835,9 +836,10 @@ export default function FloatingToolbar() {
         )}
       </AnimatePresence>
 
-      {/* Arrow options panel */}
+      {/* Arrow options panel — only while placing a new arrow; editing an
+          existing arrow is handled by the left SelectionPanel. */}
       <AnimatePresence>
-        {(mode === 'arrow' || selectedObject?.type === 'arrow') && (
+        {mode === 'arrow' && (
           <motion.div
             className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[240px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -958,9 +960,10 @@ export default function FloatingToolbar() {
         )}
       </AnimatePresence>
 
-      {/* Frame options panel */}
+      {/* Frame options panel — only while placing a new frame; editing an
+          existing frame is handled by the left SelectionPanel. */}
       <AnimatePresence>
-        {(mode === 'frame' || selectedObject?.type === 'frame') && (
+        {mode === 'frame' && (
           <motion.div
             className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[240px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
