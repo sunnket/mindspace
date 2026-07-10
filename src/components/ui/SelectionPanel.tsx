@@ -546,8 +546,7 @@ export default function SelectionPanel() {
                     </div>
                   </Section>
                 )}
-
-                {/* Object-only: opacity + layers + link */}
+                {/* Object-only: opacity */}
                 {obj && (
                   <>
                     <HDivider />
@@ -559,31 +558,6 @@ export default function SelectionPanel() {
                           className="flex-1 accent-[var(--accent)] cursor-pointer h-1"
                         />
                         <span className="text-[10px] font-bold tabular-nums text-[var(--text-secondary)] w-6 text-right">{Math.round(opacity)}</span>
-                      </div>
-                    </Section>
-
-                    <Section label="Layers">
-                      <div className="flex gap-1">
-                        {([
-                          ['To back', <><polyline points="7 13 12 18 17 13" /><line x1="12" y1="3" x2="12" y2="18" /><line x1="4" y1="21" x2="20" y2="21" /></>, () => sendToBack(obj.id)],
-                          ['Backward', <polyline key="bw" points="7 10 12 15 17 10" />, () => sendBackward(obj.id)],
-                          ['Forward', <polyline key="fw" points="7 14 12 9 17 14" />, () => bringForward(obj.id)],
-                          ['To front', <><polyline points="7 11 12 6 17 11" /><line x1="12" y1="6" x2="12" y2="21" /><line x1="4" y1="3" x2="20" y2="3" /></>, () => bringToFront(obj.id)],
-                        ] as const).map(([label, ic, fn]) => (
-                          <OptBtn key={label} wide title={label} onClick={fn}>
-                            <Icon size={12}>{ic}</Icon>
-                          </OptBtn>
-                        ))}
-                      </div>
-                    </Section>
-
-                    <Section label="Actions">
-                      <div className="flex gap-1">
-                        <OptBtn wide title={linked ? 'Link copied!' : 'Copy link'} onClick={copyLink} active={linked}>
-                          {linked
-                            ? <Icon size={12}><polyline points="20 6 9 17 4 12" /></Icon>
-                            : <Icon size={12}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></Icon>}
-                        </OptBtn>
                       </div>
                     </Section>
                   </>
