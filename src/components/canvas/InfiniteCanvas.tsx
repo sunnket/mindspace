@@ -493,7 +493,9 @@ export default function InfiniteCanvas() {
         isPanningRef.current = false;
         
         // If it was a click (not a drag) on empty space in select/text/shape/arrow mode, create element!
-        if (mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame') {
+        const target = e.target as HTMLElement;
+        const isClickOnObject = target.closest('.canvas-object') || target.closest('.canvas-object-content');
+        if (!isClickOnObject && (mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame')) {
           const dx = Math.abs(e.clientX - panStartRef.current.x);
           const dy = Math.abs(e.clientY - panStartRef.current.y);
           if (dx < 5 && dy < 5) {

@@ -1364,6 +1364,9 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                 style={{
                   fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
                   fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '14px',
+                  width: '100%',
+                  height: '100%',
+                  padding: '12px',
                 }}
               />
             ) : (
