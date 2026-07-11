@@ -77,7 +77,7 @@ interface CanvasStore {
   scenes: Scene[];
   setScenes: (scenes: Scene[]) => void;
   addScene: (name?: string) => void;
-  addSceneWithCamera: (name: string, camera: { x: number; y: number; zoom: number }, durationMs?: number) => void;
+  addSceneWithCamera: (name: string, camera: { x: number; y: number; zoom: number }, durationMs?: number, notes?: string) => void;
   removeScene: (id: string) => void;
   renameScene: (id: string, name: string) => void;
   moveScene: (id: string, dir: -1 | 1) => void;
@@ -97,6 +97,8 @@ interface CanvasStore {
   setActiveThreadId: (id: string | null) => void;
   commentMode: boolean;
   setCommentMode: (v: boolean) => void;
+  threadsSidebarOpen: boolean;
+  setThreadsSidebarOpen: (v: boolean) => void;
 
   // Objects
   objects: CanvasObjectData[];
@@ -104,6 +106,13 @@ interface CanvasStore {
   addObject: (obj: Partial<CanvasObjectData>) => CanvasObjectData;
   updateObject: (id: string, updates: Partial<CanvasObjectData>) => void;
   removeObject: (id: string) => void;
+  duplicateObject: (id: string) => CanvasObjectData | null;
+
+  // Layer ordering (z-index)
+  bringToFront: (id: string) => void;
+  sendToBack: (id: string) => void;
+  bringForward: (id: string) => void;
+  sendBackward: (id: string) => void;
 
   // Minimize dock — slide any object into the corner shelf, drag it back out anywhere
   minimizeObject: (id: string) => void;
@@ -213,6 +222,22 @@ interface CanvasStore {
   // Arrow settings
   selectedArrowPointerType: 'line' | 'arrow' | 'dot' | 'diamond';
   setSelectedArrowPointerType: (type: 'line' | 'arrow' | 'dot' | 'diamond') => void;
+
+  // Default style applied to the NEXT arrow you draw (editable in the panel
+  // while in arrow mode, before anything is on the canvas).
+  arrowStyle: { color: string; thickness: number; dashStyle: string; pointerType: string };
+  setArrowStyle: (patch: Partial<{ color: string; thickness: number; dashStyle: string; pointerType: string }>) => void;
+
+  // Default style applied to the NEXT text block you create (editable in the
+  // panel while in text mode, before clicking on the canvas).
+  textStyle: {
+    fontSize: number; fontFamily: string; fontWeight: number;
+    textColor: string; bgColor: string; textAlign: string; headingLevel: string;
+  };
+  setTextStyle: (patch: Partial<{
+    fontSize: number; fontFamily: string; fontWeight: number;
+    textColor: string; bgColor: string; textAlign: string; headingLevel: string;
+  }>) => void;
   
   // Max z-index tracker
   maxZIndex: number;
@@ -319,7 +344,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     };
     set({ scenes: [...scenes, scene], isDirty: true });
   },
-  addSceneWithCamera: (name, camera, durationMs) => {
+  addSceneWithCamera: (name, camera, durationMs, notes) => {
     const scenes = get().scenes;
     const scene: Scene = {
       id: uuidv4(),
@@ -327,6 +352,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       camera: { x: camera.x, y: camera.y, zoom: camera.zoom },
       order: scenes.length,
       durationMs: durationMs && durationMs > 0 ? durationMs : 1400,
+      notes: notes?.trim() || undefined,
     };
     set({ scenes: [...scenes, scene], isDirty: true });
   },
@@ -403,6 +429,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   setActiveThreadId: (activeThreadId) => set({ activeThreadId }),
   commentMode: false,
   setCommentMode: (commentMode) => set({ commentMode }),
+  threadsSidebarOpen: false,
+  setThreadsSidebarOpen: (threadsSidebarOpen) => set({ threadsSidebarOpen }),
 
   // Objects
   objects: [],
@@ -540,6 +568,60 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         relatedConns.forEach(c => deleteConnection(c.id).catch(err => console.error('Failed to delete connection:', err)));
       }
     });
+  },
+
+  // Clone an object (offset a little so it's visible), give it a fresh id and the
+  // top z-index, and select it. Arrows clone their start/end/bend geometry too.
+  duplicateObject: (id) => {
+    const src = get().objects.find((o) => o.id === id);
+    if (!src) return null;
+    const offset = 28;
+    const clone: Partial<CanvasObjectData> = {
+      ...src,
+      id: uuidv4(),
+      x: src.x + offset,
+      y: src.y + offset,
+      zIndex: get().getNextZIndex(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      style: src.style ? { ...src.style } : undefined,
+    };
+    if (src.type === 'arrow' && src.style) {
+      clone.style = {
+        ...clone.style,
+        startX: (src.style.startX as number ?? 0) + offset,
+        startY: (src.style.startY as number ?? 0) + offset,
+        endX: (src.style.endX as number ?? 0) + offset,
+        endY: (src.style.endY as number ?? 0) + offset,
+        ...(src.style.bendX !== undefined
+          ? { bendX: (src.style.bendX as number) + offset, bendY: (src.style.bendY as number ?? 0) + offset }
+          : {}),
+      };
+    }
+    const created = get().addObject(clone);
+    set({ selectedId: created.id });
+    return created;
+  },
+
+  // Layer ordering — nudge one step, or jump to the very front/back.
+  bringToFront: (id) => {
+    const next = get().getNextZIndex();
+    get().updateObject(id, { zIndex: next });
+  },
+  sendToBack: (id) => {
+    const minZ = get().objects.reduce((m, o) => Math.min(m, o.zIndex ?? 0), 0);
+    get().updateObject(id, { zIndex: minZ - 1 });
+  },
+  bringForward: (id) => {
+    const obj = get().objects.find((o) => o.id === id);
+    if (!obj) return;
+    get().updateObject(id, { zIndex: (obj.zIndex ?? 0) + 1 });
+    set((s) => ({ maxZIndex: Math.max(s.maxZIndex, (obj.zIndex ?? 0) + 1) }));
+  },
+  sendBackward: (id) => {
+    const obj = get().objects.find((o) => o.id === id);
+    if (!obj) return;
+    get().updateObject(id, { zIndex: (obj.zIndex ?? 0) - 1 });
   },
 
   minimizeObject: (id) => {
@@ -971,6 +1053,15 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Arrow settings
   selectedArrowPointerType: 'line',
   setSelectedArrowPointerType: (selectedArrowPointerType) => set({ selectedArrowPointerType }),
+
+  arrowStyle: { color: '#2D2A26', thickness: 3, dashStyle: 'solid', pointerType: 'arrow' },
+  setArrowStyle: (patch) => set((s) => ({ arrowStyle: { ...s.arrowStyle, ...patch } })),
+
+  textStyle: {
+    fontSize: 15, fontFamily: "'Outfit', sans-serif", fontWeight: 400,
+    textColor: '#F4EFE8', bgColor: 'transparent', textAlign: 'left', headingLevel: 'body',
+  },
+  setTextStyle: (patch) => set((s) => ({ textStyle: { ...s.textStyle, ...patch } })),
   
   // Max z-index
   maxZIndex: 0,

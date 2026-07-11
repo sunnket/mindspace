@@ -138,22 +138,35 @@ const ITEMS: SlashItem[] = [
   {
     id: 'metric',
     label: 'Live Metric',
-    sublabel: 'Analytics sparkline chart',
+    sublabel: 'Enter your numbers, get a sparkline',
     icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 17 9 11 13 15 21 7" /><polyline points="15 7 21 7 21 13" /></svg>),
-    keywords: ['metric', 'graph', 'chart', 'analytics', 'live', 'sparkline'],
+    keywords: ['metric', 'kpi', 'analytics', 'live', 'sparkline', 'number'],
     action: (objectId, updateObject, setEditingId) => {
+      // Data-entry first: asks for your numbers before rendering.
       updateObject(objectId, {
         type: 'card',
         width: 260,
-        height: 155,
+        height: 180,
         content: '',
-        style: {
-          isLiveMetric: true,
-          metricTitle: 'Onboarding completion rate',
-          metricValue: '71.3%',
-          metricTrend: '+3.2% this week',
-          metricChartData: [60, 62, 61, 65, 68, 70, 71.3]
-        }
+        style: { isLiveMetric: true, metricSetup: true }
+      });
+      setEditingId(null);
+    }
+  },
+  {
+    id: 'chart',
+    label: 'Chart',
+    sublabel: 'Bar, line, donut or number — from your data',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><line x1="8" y1="17" x2="8" y2="12" /><line x1="12" y1="17" x2="12" y2="7" /><line x1="16" y1="17" x2="16" y2="14" /></svg>),
+    keywords: ['chart', 'bar', 'line', 'donut', 'pie', 'graph', 'data', 'visualize', 'dashboard'],
+    action: (objectId, updateObject, setEditingId) => {
+      // Starts on the type picker → then asks for data → then renders.
+      updateObject(objectId, {
+        type: 'card',
+        width: 300,
+        height: 280,
+        content: '',
+        style: { isChart: true }
       });
       setEditingId(null);
     }

@@ -1,6 +1,11 @@
 @import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Anton&family=Bebas+Neue&family=Caveat:wght@400..700&family=Fira+Code:wght@300..700&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Lora:ital,wght@400..700;1,400..700&family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400;1,700;1,900&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Outfit:wght@100..900&family=Oswald:wght@200..700&family=Pacifico&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&family=Comfortaa:wght@300..700&family=Fredoka:wght@300..700&family=Quicksand:wght@300..700&family=Cinzel:wght@400..900&family=Sacramento&family=Shadows+Into+Light&family=Gloria+Hallelujah&family=Permanent+Marker&family=Spicy+Rice&family=Lobster&family=Abril+Fatface&family=Righteous&family=Press+Start+2P&family=Creepster&family=Architects+Daughter&family=Dancing+Script:wght@400..700&family=Amatic+SC:wght@400;700&family=Bangers&family=Chewy&family=Cinzel+Decorative:wght@400;700&family=Special+Elite&family=Monoton&family=Poiret+One&family=Shrikhand&family=Ultra&family=VT323&family=Bungee&family=Fredericka+the+Great&family=Luckiest+Guy&family=Pinyon+Script&family=Kelly+Slab&family=Kranky&family=Slackey&family=Rye&family=Pirata+One&family=Uncial+Antiqua&family=Nosifer&family=Eater&family=Monofett&family=Syne+Tactile&family=Butcherman&family=Codystar&family=Fascinate+Inline&family=Rubik+Beastly&display=swap');
 @import "tailwindcss";
 
+/* Drive Tailwind's `dark:` variant from the canvas color mode (set by
+   canvasTheme.ts on :root) instead of the OS preference, so every existing
+   `dark:` utility in the app follows the chosen canvas background. */
+@custom-variant dark (&:where([data-canvas-theme="dark"], [data-canvas-theme="dark"] *));
+
 :root {
   /* Claude-inspired creamy warm palette */
   --bg-primary: #FAF6F1;
@@ -32,6 +37,9 @@
   --radius-lg: 16px;
   --radius-xl: 24px;
   
+  /* Recessed sub-surface inside cards (poll tracks, progress bars, wells) */
+  --well: #F5EFE7;
+
   --sticky-yellow: #FFF8DC;
   --sticky-pink: #FFE4E6;
   --sticky-blue: #E0F2FE;
@@ -119,6 +127,25 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .semantic-fade { animation: none; }
 }
+
+/* ============================================
+   Shape styling — universal stroke controls.
+   A CSS stroke-* property overrides the SVG
+   presentation attribute, so EVERY shape
+   (polygon / path / line / circle) honors the
+   selection panel's width / dash / corners at
+   once, no matter how it was authored.
+   ============================================ */
+.shape-container svg [stroke]:not([stroke="none"]) {
+  stroke-width: var(--shape-sw, 1.5);
+  stroke-dasharray: var(--shape-dash, none);
+  stroke-linejoin: var(--shape-join, round);
+  stroke-linecap: round;
+  transition: stroke-width 0.15s ease;
+}
+/* Hand-drawn "sloppiness" — a turbulence wobble on the whole shape layer. */
+.shape-rough-1 { filter: url(#ms-rough-1); }
+.shape-rough-2 { filter: url(#ms-rough-2); }
 
 /* Scenes: distraction-free "tour mode" fades the canvas chrome out of the way */
 .tour-mode .floating-toolbar,
@@ -559,11 +586,44 @@ html, body {
    hardcoded-cream scrims legible on dark paper.
    (data-canvas-theme is stamped by canvasTheme.ts)
    ============================================ */
+:root[data-canvas-theme="dark"] {
+  --well: rgba(255, 255, 255, 0.07);
+}
 :root[data-canvas-theme="dark"] .focus-overlay {
   background: rgba(10, 10, 12, 0.72);
 }
 :root[data-canvas-theme="dark"] .search-overlay {
   background: rgba(10, 10, 12, 0.82);
+}
+
+/* Clay & glass materials are hardcoded cream in light mode — give them dark,
+   theme-tinted surfaces so every modal/panel built on them (Collaborate,
+   Scenes, Margins, Shortcuts, tour bar…) stays legible on dark paper. */
+:root[data-canvas-theme="dark"] .clay-card {
+  background: var(--bg-secondary);
+  border-color: rgba(255, 255, 255, 0.10);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+    0 20px 44px -18px rgba(0, 0, 0, 0.65),
+    0 5px 12px -6px rgba(0, 0, 0, 0.5);
+}
+:root[data-canvas-theme="dark"] .clay-inset {
+  background: rgba(0, 0, 0, 0.26);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.45),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+:root[data-canvas-theme="dark"] .glass-bar {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.10);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 30px -16px rgba(0, 0, 0, 0.6);
+}
+:root[data-canvas-theme="dark"] .clay-skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.035) 25%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.035) 75%);
+  background-size: 800px 100%;
 }
 :root[data-canvas-theme="dark"] .paper-texture {
   background-image:

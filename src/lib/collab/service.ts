@@ -305,5 +305,20 @@ export function leaveSession() {
   setCollabAuthor(null);
   if (typeof window !== 'undefined') window.removeEventListener('beforeunload', beforeUnload);
 
+  // A guest leaving a live session: put them back exactly where they were
+  // before they joined. Clear objects/strokes/connections immediately so no
+  // stale host content flashes; InfiniteCanvas's load effect repopulates the
+  // guest's real canvas from IndexedDB right after urlCanvasId flips back.
+  const { guestOriginView } = useCollabStore.getState();
+  if (guestOriginView) {
+    useCanvasStore.setState({
+      canvasStack: guestOriginView.canvasStack,
+      urlCanvasId: guestOriginView.urlCanvasId,
+      objects: [],
+      strokes: [],
+      connections: [],
+    });
+  }
+
   useCollabStore.getState()._reset();
 }

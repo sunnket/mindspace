@@ -18,6 +18,7 @@ import {
   deleteObject as dbDeleteObject,
   deleteStroke as dbDeleteStroke,
   getAllConnections,
+  COLLAB_SESSION_ID_PREFIX,
 } from '@/lib/db';
 import CanvasObject from './CanvasObject';
 import DrawingLayer from './DrawingLayer';
@@ -28,6 +29,7 @@ import CommandPalette from '@/components/ui/CommandPalette';
 import PlusMenu from '@/components/ui/PlusMenu';
 import SlashCommandMenu from '@/components/ui/SlashCommandMenu';
 import AgentOverlay from '@/components/ui/AgentOverlay';
+import SelectionPanel from '@/components/ui/SelectionPanel';
 import Minimap from '@/components/ui/Minimap';
 import CheckpointIndex from '@/components/ui/CheckpointIndex';
 import SaveIndicator from '@/components/ui/SaveIndicator';
@@ -39,6 +41,7 @@ import MinimizeDock from './MinimizeDock';
 import WarpPortal from './WarpPortal';
 import ScenesPanel from './ScenesPanel';
 import MarginsLayer from './MarginsLayer';
+import ChatLauncher from '@/components/chat/ChatLauncher';
 import CollabBar from '@/components/collab/CollabBar';
 import CollabCursors from '@/components/collab/CollabCursors';
 import CollabModal from '@/components/collab/CollabModal';
@@ -79,6 +82,12 @@ function GlowCursor({ isDrawMode }: { isDrawMode: boolean }) {
 export default function InfiniteCanvas() {
   const searchParams = useSearchParams();
   const urlId = searchParams?.get('id') || 'root';
+  // A joining guest's live session lives under a synthetic canvas id instead
+  // of whatever's in the URL — this is what actually swaps them into the
+  // shared view without ever touching their real canvas. Null for a host
+  // and for anyone not currently in a session.
+  const sessionCanvasId = useCollabStore((s) => s.sessionCanvasId);
+  const effectiveCanvasId = sessionCanvasId ?? urlId;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isPanningRef = useRef(false);
@@ -159,16 +168,18 @@ export default function InfiniteCanvas() {
     }
   }, [mode]);
 
-  // Track the URL canvas ID in Zustand
+  // Track the effective canvas ID (real URL id, or a synthetic collab
+  // session id while a guest is in a live session) in Zustand — this is
+  // what every canvasStore "current canvas" resolution reads.
   useEffect(() => {
-    setUrlCanvasId(urlId);
-  }, [urlId, setUrlCanvasId]);
+    setUrlCanvasId(effectiveCanvasId);
+  }, [effectiveCanvasId, setUrlCanvasId]);
 
   // Load from IndexedDB
   useEffect(() => {
     async function load() {
       try {
-        const parentId = canvasStack.length > 0 ? canvasStack[canvasStack.length - 1] : urlId;
+        const parentId = canvasStack.length > 0 ? canvasStack[canvasStack.length - 1] : effectiveCanvasId;
         const [savedObjects, savedStrokes, savedCamera, savedConnections] = await Promise.all([
           getAllObjects(parentId === 'root' ? undefined : parentId),
           getAllStrokes(parentId === 'root' ? undefined : parentId),
@@ -223,14 +234,18 @@ export default function InfiniteCanvas() {
       }
     }
     load();
-  }, [canvasStack, setObjects, setStrokes, setCamera, setWorkspaceTitle, urlId, setCanvasBackground]);
+  }, [canvasStack, setObjects, setStrokes, setCamera, setWorkspaceTitle, effectiveCanvasId, setCanvasBackground]);
 
   // Save on unmount to prevent losing last-second pans or edits
   useEffect(() => {
     return () => {
       const state = useCanvasStore.getState();
-      const parentId = state.canvasStack.length > 0 ? state.canvasStack[state.canvasStack.length - 1] : urlId;
-      
+      const parentId = state.canvasStack.length > 0 ? state.canvasStack[state.canvasStack.length - 1] : effectiveCanvasId;
+      // A guest's live collab session is a synthetic, never-persisted view —
+      // nothing to save here (db.ts/syncService.ts also guard this, but
+      // skipping it here avoids the wasted work entirely).
+      if (parentId.startsWith(COLLAB_SESSION_ID_PREFIX)) return;
+
       // Always save camera position and canvas state locally on unmount
       saveCanvasState({
         id: parentId,
@@ -259,6 +274,10 @@ export default function InfiniteCanvas() {
                   title: workspaceTitle,
                   camera: state.camera,
                   checkpoint: checkpoint || undefined,
+                  background: state.canvasBackground,
+                  scenes: state.scenes,
+                  threads: state.threads,
+                  lastModified: Date.now(),
                 },
                 state.objects,
                 state.strokes,
@@ -270,7 +289,7 @@ export default function InfiniteCanvas() {
         });
       }
     };
-  }, [urlId, workspaceTitle, checkpoint]);
+  }, [effectiveCanvasId, workspaceTitle, checkpoint]);
 
   // Autosave
   useEffect(() => {
@@ -278,8 +297,10 @@ export default function InfiniteCanvas() {
 
     const timeout = setTimeout(async () => {
       try {
-        const parentId = canvasStack.length > 0 ? canvasStack[canvasStack.length - 1] : urlId;
-        
+        const parentId = canvasStack.length > 0 ? canvasStack[canvasStack.length - 1] : effectiveCanvasId;
+        // A guest's live collab session is a synthetic, never-persisted view.
+        if (parentId.startsWith(COLLAB_SESSION_ID_PREFIX)) return;
+
         // Save locally to IndexedDB first
         await Promise.all([
           saveObjects(objects),
@@ -309,6 +330,10 @@ export default function InfiniteCanvas() {
               title: workspaceTitle,
               camera,
               checkpoint: checkpoint || undefined,
+              background: canvasBackground,
+              scenes: useCanvasStore.getState().scenes,
+              threads: useCanvasStore.getState().threads,
+              lastModified: Date.now(),
             },
             objects,
             strokes,
@@ -324,7 +349,7 @@ export default function InfiniteCanvas() {
     }, 500);
 
     return () => clearTimeout(timeout);
-  }, [isDirty, objects, strokes, camera, checkpoint, loaded, canvasStack, urlId, workspaceTitle, setDirty, setLastSaved, connections, canvasBackground]);
+  }, [isDirty, objects, strokes, camera, checkpoint, loaded, canvasStack, effectiveCanvasId, workspaceTitle, setDirty, setLastSaved, connections, canvasBackground]);
 
 
   // Wheel zoom
@@ -476,9 +501,10 @@ export default function InfiniteCanvas() {
             const worldPos = screenToCanvas(e.clientX, e.clientY, camera);
             
             if (mode === 'arrow') {
-              const activePointer = useCanvasStore.getState().selectedArrowPointerType || 'line';
+              const aStyle = useCanvasStore.getState().arrowStyle;
               if (!activeArrowId) {
-                // First click: Create the arrow
+                // First click: Create the arrow with the current tool defaults
+                // (set in the selection panel while in arrow mode).
                 const obj = addObject({
                   type: 'arrow',
                   x: worldPos.x,
@@ -491,10 +517,10 @@ export default function InfiniteCanvas() {
                     startY: worldPos.y,
                     endX: worldPos.x,
                     endY: worldPos.y,
-                    pointerType: activePointer,
-                    color: 'var(--accent)',
-                    thickness: 3,
-                    dashStyle: 'solid',
+                    pointerType: aStyle.pointerType,
+                    color: aStyle.color,
+                    thickness: aStyle.thickness,
+                    dashStyle: aStyle.dashStyle,
                   }
                 });
                 setActiveArrowId(obj.id);
@@ -538,6 +564,7 @@ export default function InfiniteCanvas() {
               setEditingId(obj.id);
               setMode('select');
             } else {
+              const ts = useCanvasStore.getState().textStyle;
               const obj = addObject({
                 type: 'text',
                 x: worldPos.x,
@@ -545,6 +572,15 @@ export default function InfiniteCanvas() {
                 width: 900,
                 height: 100,
                 content: '',
+                style: {
+                  fontSize: ts.fontSize,
+                  fontFamily: ts.fontFamily,
+                  fontWeight: ts.fontWeight,
+                  textColor: ts.textColor,
+                  bgColor: ts.bgColor,
+                  textAlign: ts.textAlign,
+                  headingLevel: ts.headingLevel,
+                },
               });
               setSelectedId(obj.id);
               setEditingId(obj.id);
@@ -626,9 +662,10 @@ export default function InfiniteCanvas() {
         return;
       }
 
-      // A = arrow mode
+      // A = arrow mode (deselect so the panel shows arrow tool defaults)
       if (e.key === 'a' || e.key === 'A') {
         setMode('arrow');
+        setSelectedId(null);
         return;
       }
 
@@ -977,6 +1014,20 @@ export default function InfiniteCanvas() {
       {/* Noise overlay */}
       <div className="noise-overlay" />
 
+      {/* Hand-drawn "sloppiness" filters referenced by shapes via CSS filter:url() */}
+      <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none' }} aria-hidden="true">
+        <defs>
+          <filter id="ms-rough-1" x="-8%" y="-8%" width="116%" height="116%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.016" numOctaves="2" seed="7" result="n" />
+            <feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+          <filter id="ms-rough-2" x="-12%" y="-12%" width="124%" height="124%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="3" seed="13" result="n" />
+            <feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+        </defs>
+      </svg>
+
       {/* UI overlays */}
       <div className="fixed top-12 left-10 z-50 pointer-events-auto flex flex-col items-start">
         {isEditingTitle ? (
@@ -987,7 +1038,7 @@ export default function InfiniteCanvas() {
             onChange={(e) => setWorkspaceTitle(e.target.value)}
             onBlur={() => setIsEditingTitle(false)}
             onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)}
-            className="bg-white/80 border-none outline-none text-2xl text-[var(--text-primary)] w-80 px-4 py-2 rounded-xl transition-all shadow-xl backdrop-blur-md"
+            className="bg-white/80 dark:bg-white/10 border-none outline-none text-2xl text-[var(--text-primary)] w-80 px-4 py-2 rounded-xl transition-all shadow-xl backdrop-blur-md"
             placeholder="Untitled Workspace"
             style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300 }}
           />
@@ -1021,6 +1072,7 @@ export default function InfiniteCanvas() {
       <PlusMenu />
       <SlashCommandMenu />
       <AgentOverlay />
+      <SelectionPanel />
       <Minimap />
       <CheckpointIndex />
       <SaveIndicator />
@@ -1048,6 +1100,7 @@ export default function InfiniteCanvas() {
 
       {/* Margins: spatial comment threads */}
       <MarginsLayer />
+      <ChatLauncher />
     </>
   );
 }

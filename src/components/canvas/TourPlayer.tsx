@@ -97,8 +97,12 @@ export default function TourPlayer({
         await flyTo(ordered[i].camera, ordered[i].durationMs || 1400);
         if (!playingRef.current) break;
         if (i < total - 1) {
+          // Linger longer on stops with notes so the caption can be read — but
+          // capped so it never feels frozen.
+          const notes = ordered[i]?.notes;
+          const holdMs = notes ? Math.min(4800, 1200 + notes.length * 38) : 800;
           await new Promise<void>((r) => {
-            holdTimer.current = setTimeout(r, 800);
+            holdTimer.current = setTimeout(r, holdMs);
           });
         }
       }
@@ -210,6 +214,21 @@ export default function TourPlayer({
         </div>
       )}
 
+      {/* Scene caption */}
+      {current?.notes && (
+        <motion.div
+          key={current.id}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[250] max-w-[min(720px,86vw)] px-6 py-3 rounded-2xl text-center pointer-events-none"
+          style={{ background: 'rgba(12,11,10,0.72)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)' }}
+        >
+          <p className="text-[15px] leading-relaxed text-white/95" style={{ fontFamily: "'Outfit', sans-serif" }}>
+            {current.notes}
+          </p>
+        </motion.div>
+      )}
+
       {/* control bar */}
       <motion.div
         initial={{ y: 30, opacity: 0 }}
@@ -255,8 +274,8 @@ export default function TourPlayer({
 
         <span className="text-[10px] font-bold text-[var(--text-tertiary)] tabular-nums shrink-0">{index + 1}/{total}</span>
 
-        <button 
-          onClick={() => setLaserActive(prev => !prev)} 
+        <button
+          onClick={() => setLaserActive(prev => !prev)}
           aria-label="Toggle laser pointer"
           title="Laser Pointer (L)"
           className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer ${

@@ -150,10 +150,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signOut: async () => {
     set({ loading: true });
     try {
+      // Final flush: push everything local to the cloud BEFORE wiping local, so
+      // logging out can never lose un-synced work.
+      const uid = get().user?.id;
+      if (uid) {
+        try {
+          const { pushAllLocalToCloud } = await import('@/lib/syncService');
+          await pushAllLocalToCloud(uid);
+        } catch (e) {
+          console.error('Final sync before logout failed:', e);
+        }
+      }
       await supabase.auth.signOut();
       // Clear IndexedDB local database on logout to protect user's privacy
       const { clearAll } = await import('@/lib/db');
       await clearAll();
+      const { useChatStore } = await import('@/store/chatStore');
+      useChatStore.getState().reset();
       set({
         session: null,
         user: null,

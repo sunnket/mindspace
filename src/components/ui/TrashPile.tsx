@@ -512,7 +512,7 @@ export default function TrashPile() {
       <AnimatePresence>
         {isTrashOpen && visibleTrashItems.length > 0 && (
           <motion.div
-            className="fixed bottom-24 left-6 z-[9995] flex flex-col w-[340px] max-h-[420px] bg-[#FAF6F1]/95 backdrop-blur-xl border border-black/10 rounded-2xl shadow-xl overflow-hidden pointer-events-auto"
+            className="fixed bottom-24 left-6 z-[9995] flex flex-col w-[340px] max-h-[420px] bg-[#FAF6F1]/95 dark:bg-[#191714]/95 backdrop-blur-xl border border-black/10 dark:border-white/10 rounded-2xl shadow-xl overflow-hidden pointer-events-auto"
             initial={{ opacity: 0, scale: 0.95, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
@@ -520,7 +520,7 @@ export default function TrashPile() {
             style={{ boxShadow: '0 20px 50px rgba(45, 42, 38, 0.15)' }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 bg-[#EDE5D8]/40 border-b border-black/5">
+            <div className="flex items-center justify-between px-4 py-3 bg-[#EDE5D8]/40 dark:bg-white/5 border-b border-black/5 dark:border-white/5">
               <div className="flex items-center gap-1.5">
                 <span className="font-serif italic text-lg text-[var(--accent)]">Deleted Items</span>
                 <span className="text-[10px] bg-[var(--accent-subtle)] text-[var(--accent)] font-semibold px-2 py-0.5 rounded-full">
@@ -536,7 +536,7 @@ export default function TrashPile() {
             </div>
 
             {/* Scrollable list */}
-            <div className="overflow-y-auto max-h-[340px] p-3 space-y-2.5 custom-scrollbar bg-[#FAF6F1]/50">
+            <div className="overflow-y-auto max-h-[340px] p-3 space-y-2.5 custom-scrollbar bg-[#FAF6F1]/50 dark:bg-transparent">
               {visibleTrashItems.map((item) => {
                 const itemType = item.objectData?.type as any;
                 const itemTypeName = 
@@ -553,7 +553,7 @@ export default function TrashPile() {
                   <motion.div
                     key={item.id}
                     layoutId={`trash-row-${item.id}`}
-                    className="group flex items-center justify-between p-2.5 rounded-xl bg-white border border-black/5 hover:border-[var(--accent-light)] hover:shadow-sm transition-all"
+                    className="group flex items-center justify-between p-2.5 rounded-xl bg-white dark:bg-white/5 border border-black/5 dark:border-white/10 hover:border-[var(--accent-light)] hover:shadow-sm transition-all"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95 }}
@@ -590,7 +590,7 @@ export default function TrashPile() {
                       {/* Delete permanently */}
                       <button
                         onClick={() => handleDeletePermanently(item.id)}
-                        className="w-7 h-7 rounded-full bg-[#FFE4E6]/50 flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white hover:scale-105 active:scale-95 transition-all"
+                        className="w-7 h-7 rounded-full bg-[#FFE4E6]/50 dark:bg-red-500/15 flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white hover:scale-105 active:scale-95 transition-all"
                         title="Delete permanently"
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

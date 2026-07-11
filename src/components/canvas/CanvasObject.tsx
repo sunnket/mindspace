@@ -10,13 +10,14 @@ import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import VoiceNoteBlock from './VoiceNoteBlock';
 import FileBlock from './FileBlock';
 import MapBlock from './MapBlock';
+import WeatherBlock from './WeatherBlock';
 import RichText from './RichText';
 import CodeSandboxBlock from './CodeSandboxBlock';
 import QuoteBlock from './QuoteBlock';
 import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
-import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock } from './ExtensionBlocks';
+import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock } from './ExtensionBlocks';
 
 interface CommentBubbleProps {
   obj: CanvasObjectData;
@@ -335,15 +336,19 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         objStartY: dragObj.style?.startY as number || 0,
         objEndX: dragObj.style?.endX as number || 0,
         objEndY: dragObj.style?.endY as number || 0,
+        objBendX: dragObj.style?.bendX as number | undefined,
+        objBendY: dragObj.style?.bendY as number | undefined,
       } as any;
 
       setIsDragging(true);
 
       // Top-left drop dock: the upper zone MINIMIZES the object into the shelf;
-      // the zone just below WARPS it to another canvas. Tracked as plain closure
-      // variables (not React state) so the frequent mousemove never re-renders.
+      // the zone below that WARPS it to another canvas; the zone below THAT
+      // sends it to an open chat. Tracked as plain closure variables (not
+      // React state) so the frequent mousemove never re-renders.
       let overMinimizeZone = false;
       let overWarpZone = false;
+      let overChatZone = false;
       let draggedFar = false;
       const HOTZONE_W = 210;
 
@@ -352,10 +357,17 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           draggedFar = true;
         }
         const inLeftCol = draggedFar && moveE.clientX < HOTZONE_W;
-        // Frames/arrows can't be warped into another canvas meaningfully.
+        // Frames/arrows can't be warped/sent meaningfully — neither has a
+        // standalone snapshot that makes sense outside its canvas context.
         const warpable = dragObj.type !== 'frame' && dragObj.type !== 'arrow';
+        // Warping is additionally disabled for a guest inside someone else's
+        // live session: teleportObject broadcasts a remove op, which would
+        // delete the object from the HOST's real canvas — sending to chat
+        // doesn't touch canvas state at all, so it stays allowed here.
+        const canWarp = warpable && !useCollabStore.getState().guestOriginView;
         overMinimizeZone = inLeftCol && moveE.clientY >= 72 && moveE.clientY < 232;
-        overWarpZone = warpable && inLeftCol && moveE.clientY >= 240 && moveE.clientY < 404;
+        overWarpZone = canWarp && inLeftCol && moveE.clientY >= 240 && moveE.clientY < 404;
+        overChatZone = warpable && inLeftCol && moveE.clientY >= 412 && moveE.clientY < 564;
 
         const zone = document.getElementById('minimize-hotzone');
         const label = document.getElementById('minimize-hotzone-label');
@@ -368,11 +380,20 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const wzone = document.getElementById('warp-hotzone');
         const wlabel = document.getElementById('warp-hotzone-label');
         if (wzone) {
-          wzone.style.opacity = draggedFar && warpable ? '1' : '0';
+          wzone.style.opacity = draggedFar && canWarp ? '1' : '0';
           wzone.style.borderColor = overWarpZone ? 'var(--accent)' : 'rgba(201,123,75,0.28)';
           wzone.style.background = overWarpZone ? 'rgba(201,123,75,0.12)' : 'transparent';
         }
         if (wlabel) wlabel.style.opacity = overWarpZone ? '1' : '0.55';
+
+        const czone = document.getElementById('chat-hotzone');
+        const clabel = document.getElementById('chat-hotzone-label');
+        if (czone) {
+          czone.style.opacity = draggedFar && warpable ? '1' : '0';
+          czone.style.borderColor = overChatZone ? 'var(--accent)' : 'rgba(201,123,75,0.28)';
+          czone.style.background = overChatZone ? 'rgba(201,123,75,0.12)' : 'transparent';
+        }
+        if (clabel) clabel.style.opacity = overChatZone ? '1' : '0.55';
 
         const dx = (moveE.clientX - dragStart.current.x) / camera.zoom;
         const dy = (moveE.clientY - dragStart.current.y) / camera.zoom;
@@ -392,15 +413,17 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         }
 
         if (dragObj.type === 'arrow') {
+          const ds = dragStart.current as any;
           updateObject(dragObj.id, {
             x: newX,
             y: newY,
             style: {
               ...dragObj.style,
-              startX: (dragStart.current as any).objStartX + dx,
-              startY: (dragStart.current as any).objStartY + dy,
-              endX: (dragStart.current as any).objEndX + dx,
-              endY: (dragStart.current as any).objEndY + dy,
+              startX: ds.objStartX + dx,
+              startY: ds.objStartY + dy,
+              endX: ds.objEndX + dx,
+              endY: ds.objEndY + dy,
+              ...(ds.objBendX !== undefined ? { bendX: ds.objBendX + dx, bendY: ds.objBendY + dy } : {}),
             }
           });
         } else {
@@ -427,6 +450,10 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const wlabel = document.getElementById('warp-hotzone-label');
         if (wzone) { wzone.style.opacity = '0'; wzone.style.borderColor = 'rgba(201,123,75,0.28)'; wzone.style.background = 'transparent'; }
         if (wlabel) wlabel.style.opacity = '0.55';
+        const czone = document.getElementById('chat-hotzone');
+        const clabel = document.getElementById('chat-hotzone-label');
+        if (czone) { czone.style.opacity = '0'; czone.style.borderColor = 'rgba(201,123,75,0.28)'; czone.style.background = 'transparent'; }
+        if (clabel) clabel.style.opacity = '0.55';
 
         if (overMinimizeZone) {
           useCanvasStore.getState().minimizeObject(dragObj.id);
@@ -439,6 +466,21 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         if (overWarpZone) {
           updateObject(dragObj.id, { x: before.x, y: before.y });
           window.dispatchEvent(new CustomEvent('open-warp', { detail: { objectId: dragObj.id } }));
+          return;
+        }
+
+        // Send to chat: hand off to ChatLauncher, which either drops it
+        // straight into whatever conversation is currently open, or opens
+        // the panel and asks who to send it to. Snap back like Warp does.
+        if (overChatZone) {
+          updateObject(dragObj.id, { x: before.x, y: before.y });
+          const label = (dragObj.content || '').split('\n')[0].trim().slice(0, 60) || dragObj.type;
+          window.dispatchEvent(new CustomEvent('open-chat-send', {
+            detail: {
+              snapshot: { type: dragObj.type, content: dragObj.content, width: dragObj.width, height: dragObj.height, style: dragObj.style },
+              label,
+            },
+          }));
           return;
         }
 
@@ -502,12 +544,16 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           const initialEndY = (resizeStart.current as any).objEndY || 0;
           const newEndX = initialEndX + dx;
           const newEndY = initialEndY + dy;
-          
-          const minX = Math.min(startX, newEndX);
-          const minY = Math.min(startY, newEndY);
-          const maxX = Math.max(startX, newEndX);
-          const maxY = Math.max(startY, newEndY);
-          
+
+          const bx = initialStyle.bendX as number | undefined;
+          const by = initialStyle.bendY as number | undefined;
+          const allX = bx !== undefined ? [startX, newEndX, bx] : [startX, newEndX];
+          const allY = by !== undefined ? [startY, newEndY, by] : [startY, newEndY];
+          const minX = Math.min(...allX);
+          const minY = Math.min(...allY);
+          const maxX = Math.max(...allX);
+          const maxY = Math.max(...allY);
+
           updateObject(obj.id, {
             x: minX,
             y: minY,
@@ -541,6 +587,51 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
+    },
+    [obj, camera.zoom, updateObject]
+  );
+
+  // Drag an arrow's start / end / bend control point. The bend point turns a
+  // straight arrow into a smooth curve — grab the middle dot and pull. The whole
+  // bounding box is recomputed to enclose all three so hit-testing stays sane.
+  const handleArrowPointDrag = useCallback(
+    (e: React.MouseEvent, which: 'start' | 'end' | 'bend') => {
+      e.stopPropagation();
+      e.preventDefault();
+      const s = obj.style || {};
+      const sx = (s.startX as number) || 0, sy = (s.startY as number) || 0;
+      const ex = (s.endX as number) || 0, ey = (s.endY as number) || 0;
+      const hasBend = s.bendX !== undefined;
+      const base =
+        which === 'start' ? { x: sx, y: sy }
+        : which === 'end' ? { x: ex, y: ey }
+        : hasBend ? { x: s.bendX as number, y: s.bendY as number } : { x: (sx + ex) / 2, y: (sy + ey) / 2 };
+      const origin = { x: e.clientX, y: e.clientY };
+
+      const move = (me: MouseEvent) => {
+        const dx = (me.clientX - origin.x) / camera.zoom;
+        const dy = (me.clientY - origin.y) / camera.zoom;
+        const ns: Record<string, unknown> = { ...s };
+        if (which === 'start') { ns.startX = base.x + dx; ns.startY = base.y + dy; }
+        else if (which === 'end') { ns.endX = base.x + dx; ns.endY = base.y + dy; }
+        else { ns.bendX = base.x + dx; ns.bendY = base.y + dy; }
+        const xs = [ns.startX as number, ns.endX as number];
+        const ys = [ns.startY as number, ns.endY as number];
+        if (ns.bendX !== undefined) { xs.push(ns.bendX as number); ys.push(ns.bendY as number); }
+        const minX = Math.min(...xs), minY = Math.min(...ys);
+        const maxX = Math.max(...xs), maxY = Math.max(...ys);
+        updateObject(obj.id, {
+          x: minX, y: minY,
+          width: Math.max(15, maxX - minX), height: Math.max(15, maxY - minY),
+          style: ns,
+        });
+      };
+      const up = () => {
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+      };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
     },
     [obj, camera.zoom, updateObject]
   );
@@ -947,8 +1038,10 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           saveContent(finalContent);
 
           // Auto-remove empty text/heading blocks when editing actually ends
-          const isStillEditing = useCanvasStore.getState().editingId === obj.id;
-          if (!isStillEditing) {
+          const state = useCanvasStore.getState();
+          const isStillEditing = state.editingId === obj.id;
+          const isStillSelected = state.selectedId === obj.id;
+          if (!isStillEditing && !isStillSelected) {
             const shouldDelete = finalContent.trim() === '' && isAutoCleanable(obj);
             if (shouldDelete) {
               removeObject(obj.id);
@@ -982,21 +1075,33 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const startY = obj.style?.startY as number || 0;
         const endX = obj.style?.endX as number || 0;
         const endY = obj.style?.endY as number || 0;
-        const minX = Math.min(startX, endX);
-        const minY = Math.min(startY, endY);
-        
-        const localX1 = startX - minX;
-        const localY1 = startY - minY;
-        const localX2 = endX - minX;
-        const localY2 = endY - minY;
-        
-        const midX = (localX1 + localX2) / 2;
-        const midY = (localY1 + localY2) / 2;
-        
+        const hasBend = obj.style?.bendX !== undefined && obj.style?.bendY !== undefined;
+        const bendWX = obj.style?.bendX as number;
+        const bendWY = obj.style?.bendY as number;
+
+        // Map every world point relative to the object's own origin so the curve,
+        // the label and the drag handles all line up even when the bend pushes
+        // the drawing outside the nominal bounding box (SVG is overflow-visible).
+        const localX1 = startX - obj.x;
+        const localY1 = startY - obj.y;
+        const localX2 = endX - obj.x;
+        const localY2 = endY - obj.y;
+        const localBendX = hasBend ? bendWX - obj.x : (localX1 + localX2) / 2;
+        const localBendY = hasBend ? bendWY - obj.y : (localY1 + localY2) / 2;
+
+        // Label sits on the line (or on the curve at t=0.5 for a quadratic).
+        const midX = hasBend ? (localX1 + 2 * localBendX + localX2) / 4 : (localX1 + localX2) / 2;
+        const midY = hasBend ? (localY1 + 2 * localBendY + localY2) / 4 : (localY1 + localY2) / 2;
+
         const color = (obj.style?.color as string) || 'var(--accent)';
         const thickness = (obj.style?.thickness as number) || 3;
         const pointerType = (obj.style?.pointerType as string) || 'line';
-        
+        const arrowDash = obj.style?.dashStyle === 'dashed' ? '8,6' : obj.style?.dashStyle === 'dotted' ? '2,4' : undefined;
+        const arrowMarker =
+          pointerType === 'arrow' ? `url(#arrow-head-${obj.id})` :
+          pointerType === 'dot' ? `url(#dot-head-${obj.id})` :
+          pointerType === 'diamond' ? `url(#diamond-head-${obj.id})` : undefined;
+
         return (
           <div className="w-full h-full relative" style={{ overflow: 'visible', pointerEvents: 'none' }}>
             <svg className="w-full h-full overflow-visible pointer-events-none">
@@ -1035,22 +1140,61 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   <polygon points="4,1 7,4 4,7 1,4" fill={color} />
                 </marker>
               </defs>
-              <line 
-                x1={localX1} 
-                y1={localY1} 
-                x2={localX2} 
-                y2={localY2} 
-                stroke={color} 
-                strokeWidth={thickness}
-                strokeDasharray={obj.style?.dashStyle === 'dashed' ? '8,6' : obj.style?.dashStyle === 'dotted' ? '2,4' : undefined}
-                markerEnd={
-                  pointerType === 'arrow' ? `url(#arrow-head-${obj.id})` :
-                  pointerType === 'dot' ? `url(#dot-head-${obj.id})` :
-                  pointerType === 'diamond' ? `url(#diamond-head-${obj.id})` : undefined
-                }
-              />
+              {hasBend ? (
+                <path
+                  d={`M ${localX1} ${localY1} Q ${localBendX} ${localBendY} ${localX2} ${localY2}`}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={thickness}
+                  strokeLinecap="round"
+                  strokeDasharray={arrowDash}
+                  markerEnd={arrowMarker}
+                />
+              ) : (
+                <line
+                  x1={localX1}
+                  y1={localY1}
+                  x2={localX2}
+                  y2={localY2}
+                  stroke={color}
+                  strokeWidth={thickness}
+                  strokeLinecap="round"
+                  strokeDasharray={arrowDash}
+                  markerEnd={arrowMarker}
+                />
+              )}
             </svg>
-            
+
+            {/* Draggable control points (only while this arrow is selected). Drag
+                the ends to re-aim; drag the middle dot to bend it into a curve. */}
+            {isSelected && (
+              <>
+                {([
+                  { key: 'start', lx: localX1, ly: localY1, bend: false },
+                  { key: 'end', lx: localX2, ly: localY2, bend: false },
+                  { key: 'bend', lx: localBendX, ly: localBendY, bend: true },
+                ] as const).map((h) => (
+                  <div
+                    key={h.key}
+                    onMouseDown={(e) => handleArrowPointDrag(e, h.key)}
+                    onDoubleClick={(e) => { e.stopPropagation(); if (h.bend) updateObject(obj.id, { style: { ...obj.style, bendX: undefined, bendY: undefined } }); }}
+                    title={h.bend ? (hasBend ? 'Drag to bend · double-click to straighten' : 'Drag to bend') : 'Drag endpoint'}
+                    className="absolute z-30 rounded-full pointer-events-auto"
+                    style={{
+                      left: h.lx, top: h.ly,
+                      width: h.bend ? 11 : 12, height: h.bend ? 11 : 12,
+                      transform: 'translate(-50%, -50%)',
+                      cursor: 'grab',
+                      background: h.bend ? (hasBend ? 'var(--accent)' : 'transparent') : '#fff',
+                      border: `2px solid var(--accent)`,
+                      opacity: h.bend && !hasBend ? 0.55 : 1,
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+                    }}
+                  />
+                ))}
+              </>
+            )}
+
             {/* Label in the middle */}
             {(isEditing || obj.content) && (
               <div 
@@ -1126,6 +1270,9 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             style={{
               fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '15px',
               fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+              fontWeight: (obj.style?.fontWeight as number | undefined) ?? undefined,
+              textAlign: (obj.style?.textAlign as any) || undefined,
+              color: (obj.style?.textColor as string | undefined) ?? undefined,
               lineHeight: '1.7'
             }}
           />
@@ -1136,6 +1283,9 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             style={{
               fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '15px',
               fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+              fontWeight: (obj.style?.fontWeight as number | undefined) ?? undefined,
+              textAlign: (obj.style?.textAlign as any) || undefined,
+              color: (obj.style?.textColor as string | undefined) ?? undefined,
               lineHeight: '1.7',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
@@ -1159,9 +1309,10 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                 style={{
                   fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
                   fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '2.2rem',
-                  fontWeight: 500,
+                  fontWeight: (obj.style?.fontWeight as number | undefined) ?? 500,
+                  textAlign: (obj.style?.textAlign as any) || undefined,
                   lineHeight: 1.2,
-                  color: 'var(--text-primary)',
+                  color: (obj.style?.textColor as string | undefined) || 'var(--text-primary)',
                 }}
               />
             ) : (
@@ -1171,9 +1322,10 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                 style={{
                   fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
                   fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '2.2rem',
-                  fontWeight: 500,
+                  fontWeight: (obj.style?.fontWeight as number | undefined) ?? 500,
+                  textAlign: (obj.style?.textAlign as any) || undefined,
                   lineHeight: 1.2,
-                  color: 'var(--text-primary)',
+                  color: (obj.style?.textColor as string | undefined) || 'var(--text-primary)',
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
                 }}
@@ -1255,6 +1407,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             </div>
           );
         }
+        if (obj.style?.isWeather) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <WeatherBlock obj={obj} />
+            </div>
+          );
+        }
         if (obj.style?.isMermaid) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
@@ -1319,6 +1478,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <LiveMetricBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isChart) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <ChartBlock obj={obj} />
             </div>
           );
         }
@@ -1423,7 +1589,22 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           // Define shape color from style, otherwise use default themes
           const shapeBg = (obj.style?.color as string) || 'var(--bg-glass)';
           const shapeBorder = (obj.style?.borderColor as string) || 'var(--accent-light)';
-          
+
+          // Selection-panel controls: stroke width, stroke style (dash), edges.
+          const strokeWidthKey = obj.style?.strokeWidth as string | undefined; // 'thin' | 'medium' | 'bold'
+          const sloppiness = obj.style?.sloppiness as string | undefined; // 'architect' | 'artist' | 'cartoonist'
+          const shapeStroke = strokeWidthKey === 'bold' ? 4 : strokeWidthKey === 'medium' ? 2.5 : strokeWidthKey === 'thin' ? 1 : 1.5;
+          const strokeStyleKey = obj.style?.strokeStyle as string | undefined; // 'solid' | 'dashed' | 'dotted'
+          const shapeDash: string =
+            strokeStyleKey === 'dashed' ? `${(shapeStroke * 3).toFixed(1)},${(shapeStroke * 2.4).toFixed(1)}`
+            : strokeStyleKey === 'dotted' ? `${shapeStroke.toFixed(1)},${(shapeStroke * 2).toFixed(1)}`
+            : 'none';
+          const cssBorderStyle = strokeStyleKey === 'dashed' ? 'dashed' : strokeStyleKey === 'dotted' ? 'dotted' : 'solid';
+          const sharpEdges = obj.style?.edges === 'sharp';
+          const shapeJoin = sharpEdges ? 'miter' : 'round';
+          // Hand-drawn wobble level (applied as an SVG turbulence filter class).
+          const roughClass = sloppiness === 'cartoonist' ? 'shape-rough-2' : sloppiness === 'artist' ? 'shape-rough-1' : '';
+
           const getShapePadding = (shape: string) => {
             switch (shape) {
               case 'triangle': return { left: '20%', right: '20%', top: '35%', bottom: '15%' };
@@ -1536,26 +1717,36 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           const pad = getShapePadding(shapeType);
           
           return (
-            <div className={`shape-container ${shapeType}`} style={{ width: '100%', height: '100%', position: 'relative' }}>
+            <div
+              className={`shape-container ${shapeType}`}
+              style={{
+                width: '100%', height: '100%', position: 'relative',
+                // Universal stroke controls — the CSS rule reads these vars and
+                // overrides every shape's SVG stroke at once.
+                ['--shape-sw' as string]: String(shapeStroke),
+                ['--shape-dash' as string]: shapeDash,
+                ['--shape-join' as string]: shapeJoin,
+              } as React.CSSProperties}
+            >
               {/* Background Shape */}
-              <div className="absolute inset-0 pointer-events-none z-0">
+              <div className={`absolute inset-0 pointer-events-none z-0 ${roughClass}`}>
                 {shapeType === 'circle' && (
                   <div 
                     className="w-full h-full rounded-full transition-all duration-300"
                     style={{
                       backgroundColor: shapeBg,
-                      border: `1.5px solid ${shapeBorder}`,
+                      border: `${shapeStroke}px ${cssBorderStyle} ${shapeBorder}`,
                       boxShadow: isSelected ? '0 0 15px rgba(201, 123, 75, 0.2)' : 'var(--shadow-sm)',
                       backdropFilter: 'blur(10px)',
                     }}
                   />
                 )}
                 {shapeType === 'square' && (
-                  <div 
-                    className="w-full h-full rounded-xl transition-all duration-300"
+                  <div
+                    className={`w-full h-full transition-all duration-300 ${sharpEdges ? 'rounded-none' : 'rounded-xl'}`}
                     style={{
                       backgroundColor: shapeBg,
-                      border: `1.5px solid ${shapeBorder}`,
+                      border: `${shapeStroke}px ${cssBorderStyle} ${shapeBorder}`,
                       boxShadow: isSelected ? '0 0 15px rgba(201, 123, 75, 0.2)' : 'var(--shadow-sm)',
                       backdropFilter: 'blur(10px)',
                     }}
@@ -1567,7 +1758,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                       points="50,2 98,96 2,96" 
                       fill={shapeBg} 
                       stroke={shapeBorder} 
-                      strokeWidth="1.5"
+                      strokeWidth={shapeStroke}
+                      strokeDasharray={shapeDash}
                       className="transition-all duration-300"
                     />
                   </svg>
@@ -1578,7 +1770,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                       points="50,2 98,50 50,98 2,50" 
                       fill={shapeBg} 
                       stroke={shapeBorder} 
-                      strokeWidth="1.5"
+                      strokeWidth={shapeStroke}
+                      strokeDasharray={shapeDash}
                       className="transition-all duration-300"
                     />
                   </svg>
@@ -1589,7 +1782,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                       points="50,4 96,37 78,92 22,92 4,37" 
                       fill={shapeBg} 
                       stroke={shapeBorder} 
-                      strokeWidth="1.5"
+                      strokeWidth={shapeStroke}
+                      strokeDasharray={shapeDash}
                       className="transition-all duration-300"
                     />
                   </svg>
@@ -1600,7 +1794,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                       points="50,2 94,27 94,73 50,98 6,73 6,27" 
                       fill={shapeBg} 
                       stroke={shapeBorder} 
-                      strokeWidth="1.5"
+                      strokeWidth={shapeStroke}
+                      strokeDasharray={shapeDash}
                       className="transition-all duration-300"
                     />
                   </svg>
@@ -1611,7 +1806,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                       points="50,2 63,35 98,35 70,57 81,91 50,70 19,91 30,57 2,35 37,35" 
                       fill={shapeBg} 
                       stroke={shapeBorder} 
-                      strokeWidth="1.5"
+                      strokeWidth={shapeStroke}
+                      strokeDasharray={shapeDash}
                       className="transition-all duration-300"
                     />
                   </svg>
@@ -1622,7 +1818,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                       d="M50,25 C35,5 5,5 5,42 C5,68 45,90 50,95 C55,90 95,68 95,42 C95,5 65,5 50,25 Z" 
                       fill={shapeBg} 
                       stroke={shapeBorder} 
-                      strokeWidth="1.5"
+                      strokeWidth={shapeStroke}
+                      strokeDasharray={shapeDash}
                       className="transition-all duration-300"
                     />
                   </svg>
@@ -1633,7 +1830,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                       d="M25,50 C25,35 40,25 55,25 C70,25 85,35 85,50 C92,50 98,56 98,63 C98,71 92,77 85,77 L25,77 C15,77 8,70 8,60 C8,51 16,45 25,50 Z" 
                       fill={shapeBg} 
                       stroke={shapeBorder} 
-                      strokeWidth="1.5"
+                      strokeWidth={shapeStroke}
+                      strokeDasharray={shapeDash}
                       className="transition-all duration-300"
                     />
                   </svg>
@@ -1644,7 +1842,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                       d="M10,25 C10,15 28,10 50,10 C72,10 90,15 90,25 L90,75 C90,85 72,90 50,90 C28,90 10,85 10,75 Z M10,25 C10,35 28,40 50,40 C72,40 90,35 90,25" 
                       fill={shapeBg} 
                       stroke={shapeBorder} 
-                      strokeWidth="1.5"
+                      strokeWidth={shapeStroke}
+                      strokeDasharray={shapeDash}
                       className="transition-all duration-300"
                     />
                   </svg>
@@ -1691,7 +1890,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                       points="35,10 65,10 65,35 90,35 90,65 65,65 65,90 35,90 35,65 10,65 10,35 35,35" 
                       fill={shapeBg} 
                       stroke={shapeBorder} 
-                      strokeWidth="1.5"
+                      strokeWidth={shapeStroke}
+                      strokeDasharray={shapeDash}
                       className="transition-all duration-300"
                     />
                   </svg>
@@ -1774,7 +1974,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                       points="29,5 71,5 95,29 95,71 71,95 29,95 5,71 5,29" 
                       fill={shapeBg} 
                       stroke={shapeBorder} 
-                      strokeWidth="1.5"
+                      strokeWidth={shapeStroke}
+                      strokeDasharray={shapeDash}
                       className="transition-all duration-300"
                     />
                   </svg>
@@ -2574,9 +2775,16 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         height: obj.height,
         zIndex: isDragging ? 1000 : isSelected ? 100 : obj.zIndex || 1,
         cursor: mode === 'connector' ? 'grab' : isEditing ? 'text' : isDragging ? 'grabbing' : 'pointer',
-        background: (mode === 'connector' || connectorSelectedIds.includes(obj.id)) 
+        // Per-object opacity + custom text color set from the selection panel.
+        opacity: (obj.style?.opacity as number | undefined) ?? undefined,
+        color: (obj.type === 'text' || obj.type === 'heading' || obj.type === 'card' || obj.type === 'sticky')
+          ? ((obj.style?.textColor as string | undefined) ?? undefined)
+          : undefined,
+        background: (mode === 'connector' || connectorSelectedIds.includes(obj.id))
           ? (obj.type === 'sticky' ? 'none' : 'var(--bg-card)')
-          : 'rgba(0,0,0,0)',
+          : ((obj.type === 'text' || obj.type === 'heading' || obj.type === 'card')
+              ? ((obj.style?.bgColor as string | undefined) ?? 'rgba(0,0,0,0)')
+              : 'rgba(0,0,0,0)'),
         boxShadow: obj.type === 'arrow' ? 'none' : ((connectorSelectedIds.includes(obj.id) || mode === 'connector')
           ? (connectorSelectedIds.includes(obj.id)
             ? '0 0 50px rgba(201, 123, 75, 0.4), 0 8px 32px rgba(0,0,0,0.15)'
@@ -2672,7 +2880,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           className={`absolute -bottom-10 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${
             connectorSelectedIds.includes(obj.id)
               ? 'bg-[var(--accent)] text-white shadow-lg'
-              : 'bg-white/80 backdrop-blur-md text-[var(--text-secondary)] border border-[var(--border)] hover:bg-[var(--accent)] hover:text-white'
+              : 'bg-white/80 dark:bg-white/10 backdrop-blur-md text-[var(--text-secondary)] border border-[var(--border)] hover:bg-[var(--accent)] hover:text-white'
           }`}
         >
           {connectorSelectedIds.includes(obj.id) ? 'Selected' : 'Link Card'}
@@ -2682,7 +2890,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       {/* Workflow Custom Floating Contextual Hover Buttons */}
       {obj.type === 'workflow-node' && !isDragging && isHovered && !isEditing && (
         <div 
-          className="absolute -top-10 left-1/2 -translate-x-1/2 flex gap-2 z-[101] bg-white/95 backdrop-blur-md px-2.5 py-1 rounded-full border border-[#C97B4B]/30 shadow-lg pointer-events-auto items-center animate-fade-in"
+          className="absolute -top-10 left-1/2 -translate-x-1/2 flex gap-2 z-[101] bg-white/95 dark:bg-[var(--bg-secondary)] backdrop-blur-md px-2.5 py-1 rounded-full border border-[#C97B4B]/30 dark:border-white/10 shadow-lg pointer-events-auto items-center animate-fade-in"
           onMouseDown={(e) => e.stopPropagation()}
         >
           {/* Plus Button */}
@@ -2775,8 +2983,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             <motion.button
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
-              className={`w-8 h-8 rounded-full bg-white border border-[var(--border)] flex items-center justify-center transition-all shadow-md ${
-                obj.style?.isFavorite ? 'text-red-500 border-red-200 bg-red-50' : 'text-[var(--text-tertiary)] hover:text-red-500'
+              className={`w-8 h-8 rounded-full bg-white dark:bg-white/10 border border-[var(--border)] flex items-center justify-center transition-all shadow-md ${
+                obj.style?.isFavorite ? 'text-red-500 border-red-200 bg-red-50 dark:bg-red-500/20 dark:border-red-500/40' : 'text-[var(--text-tertiary)] hover:text-red-500'
               }`}
               onMouseDown={(e) => {
                 e.stopPropagation();
@@ -2798,7 +3006,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.05 }}
-              className={`w-8 h-8 rounded-full bg-white border border-[var(--border)] flex items-center justify-center transition-all shadow-md ${
+              className={`w-8 h-8 rounded-full bg-white dark:bg-white/10 border border-[var(--border)] flex items-center justify-center transition-all shadow-md ${
                 obj.style?.comment ? 'text-[var(--accent)] border-[var(--accent-light)]' : 'text-[var(--text-tertiary)] hover:text-[var(--accent)]'
               }`}
               onMouseDown={(e) => {
@@ -2831,7 +3039,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="w-8 h-8 rounded-full bg-white border border-[var(--border)] flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-500 hover:border-red-500 transition-all shadow-md"
+            className="w-8 h-8 rounded-full bg-white dark:bg-white/10 border border-[var(--border)] flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-500 hover:border-red-500 transition-all shadow-md"
             onMouseDown={(e) => {
               e.stopPropagation();
               // Get card center in screen space for trash animation origin

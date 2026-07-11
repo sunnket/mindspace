@@ -1,5 +1,17 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 
+/**
+ * A joining guest's live collab session renders under a synthetic canvas id
+ * (`__collab_<CODE>`) that must never touch local storage — it's the host's
+ * shared content, not the guest's own canvas. Every save path below no-ops
+ * for this prefix so callers (including applyRemoteSnapshot/applyRemoteOp)
+ * don't need their own awareness of it.
+ */
+export const COLLAB_SESSION_ID_PREFIX = '__collab_';
+function isCollabSessionId(id?: string): boolean {
+  return !!id && id.startsWith(COLLAB_SESSION_ID_PREFIX);
+}
+
 export interface CanvasObjectData {
   id: string;
   type: 'text' | 'sticky' | 'image' | 'drawing' | 'card' | 'heading' | 'shape' | 'arrow' | 'workflow-node' | 'frame';
@@ -34,6 +46,8 @@ export interface Scene {
   camera: { x: number; y: number; zoom: number };
   order: number;
   durationMs?: number;
+  /** Optional narration read aloud in present mode. */
+  notes?: string;
 }
 
 export interface CommentReply {
@@ -147,14 +161,17 @@ export async function getDB(): Promise<IDBPDatabase<MindSpaceDB>> {
 }
 
 export async function saveObject(obj: CanvasObjectData): Promise<void> {
+  if (isCollabSessionId(obj.parentId)) return;
   const db = await getDB();
   await db.put('objects', { ...obj, updatedAt: Date.now() });
 }
 
 export async function saveObjects(objects: CanvasObjectData[]): Promise<void> {
+  const filtered = objects.filter((obj) => !isCollabSessionId(obj.parentId));
+  if (filtered.length === 0) return;
   const db = await getDB();
   const tx = db.transaction('objects', 'readwrite');
-  for (const obj of objects) {
+  for (const obj of filtered) {
     await tx.store.put({ ...obj, updatedAt: Date.now() });
   }
   await tx.done;
@@ -182,14 +199,17 @@ export async function getAllObjects(parentId?: string): Promise<CanvasObjectData
 }
 
 export async function saveStroke(stroke: DrawingStroke): Promise<void> {
+  if (isCollabSessionId(stroke.parentId)) return;
   const db = await getDB();
   await db.put('strokes', stroke);
 }
 
 export async function saveStrokes(strokes: DrawingStroke[]): Promise<void> {
+  const filtered = strokes.filter((stroke) => !isCollabSessionId(stroke.parentId));
+  if (filtered.length === 0) return;
   const db = await getDB();
   const tx = db.transaction('strokes', 'readwrite');
-  for (const stroke of strokes) {
+  for (const stroke of filtered) {
     await tx.store.put(stroke);
   }
   await tx.done;
@@ -217,6 +237,7 @@ export async function getAllStrokes(parentId?: string): Promise<DrawingStroke[]>
 }
 
 export async function saveConnection(conn: ConnectionData): Promise<void> {
+  if (isCollabSessionId(conn.parentId)) return;
   const db = await getDB();
   await db.put('connections', conn);
 }
@@ -259,6 +280,7 @@ export async function getAbsoluteAllConnections(): Promise<ConnectionData[]> {
 
 
 export async function saveCanvasState(state: CanvasState): Promise<void> {
+  if (isCollabSessionId(state.id)) return;
   const db = await getDB();
   await db.put('canvas', state);
 }

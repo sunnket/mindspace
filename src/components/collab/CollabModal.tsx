@@ -185,7 +185,7 @@ export default function CollabModal() {
                       }`}
                     >
                       {tab === t && (
-                        <motion.span layoutId="collab-tab-thumb" transition={spring} className="absolute inset-0 bg-white rounded-full shadow-[0_2px_6px_rgba(90,62,40,0.15),inset_0_1px_0_rgba(255,255,255,1)]" />
+                        <motion.span layoutId="collab-tab-thumb" transition={spring} className="absolute inset-0 bg-white dark:bg-white/15 rounded-full shadow-[0_2px_6px_rgba(90,62,40,0.15),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-none" />
                       )}
                       <span className="relative">{t === 'host' ? 'Start a session' : 'Join with code'}</span>
                     </button>
@@ -224,6 +224,10 @@ export default function CollabModal() {
                   </div>
                 ) : (
                   <div className="mt-4">
+                    <p className="text-xs text-[var(--text-secondary)] leading-relaxed mb-4">
+                      You&apos;ll jump into their shared canvas — your own canvas stays untouched.
+                      Select something and use &quot;Add to my canvas&quot; to bring it back with you.
+                    </p>
                     <label htmlFor="collab-code" className="block text-[11px] font-bold text-[var(--text-secondary)] mb-1.5">
                       Invite code
                     </label>

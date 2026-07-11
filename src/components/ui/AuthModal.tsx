@@ -142,8 +142,8 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'signin' }: A
             exit={{ scale: 0.94, opacity: 0, y: 15 }}
             transition={{ type: 'spring', damping: 25, stiffness: 350 }}
             className="relative w-full max-w-md mx-4 glass-panel border border-white/20 p-8 shadow-2xl rounded-2xl flex flex-col z-10"
-            style={{ 
-              background: 'rgba(250, 246, 241, 0.92)',
+            style={{
+              background: 'var(--bg-secondary)',
               color: 'var(--text-primary)',
             }}
           >
@@ -195,7 +195,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'signin' }: A
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@domain.com"
-                    className="w-full bg-white/70 border border-black/10 focus:border-[var(--accent)] rounded-lg px-3 py-2 text-sm outline-none transition-all font-light"
+                    className="w-full bg-white/70 dark:bg-white/10 border border-black/10 dark:border-white/15 focus:border-[var(--accent)] rounded-lg px-3 py-2 text-sm outline-none transition-all font-light"
                     disabled={loading || successMsg.includes('Verification')}
                   />
                 </div>
@@ -222,7 +222,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'signin' }: A
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-white/70 border border-black/10 focus:border-[var(--accent)] rounded-lg px-3 py-2 text-sm outline-none transition-all font-light"
+                    className="w-full bg-white/70 dark:bg-white/10 border border-black/10 dark:border-white/15 focus:border-[var(--accent)] rounded-lg px-3 py-2 text-sm outline-none transition-all font-light"
                     disabled={loading || successMsg.includes('Verification')}
                   />
                 </div>
@@ -238,7 +238,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'signin' }: A
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-white/70 border border-black/10 focus:border-[var(--accent)] rounded-lg px-3 py-2 text-sm outline-none transition-all font-light"
+                    className="w-full bg-white/70 dark:bg-white/10 border border-black/10 dark:border-white/15 focus:border-[var(--accent)] rounded-lg px-3 py-2 text-sm outline-none transition-all font-light"
                     disabled={loading}
                   />
                 </div>

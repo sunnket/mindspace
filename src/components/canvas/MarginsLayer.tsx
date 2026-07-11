@@ -34,6 +34,7 @@ export default function MarginsLayer() {
   const setActiveThreadId = useCanvasStore((s) => s.setActiveThreadId);
   const commentMode = useCanvasStore((s) => s.commentMode);
   const setCommentMode = useCanvasStore((s) => s.setCommentMode);
+  const showSidebar = useCanvasStore((s) => s.threadsSidebarOpen);
   const addThread = useCanvasStore((s) => s.addThread);
   const addReply = useCanvasStore((s) => s.addReply);
   const resolveThread = useCanvasStore((s) => s.resolveThread);
@@ -43,7 +44,6 @@ export default function MarginsLayer() {
   const [draft, setDraft] = useState<{ x: number; y: number } | null>(null);
   const [draftText, setDraftText] = useState('');
   const [replyText, setReplyText] = useState('');
-  const [showSidebar, setShowSidebar] = useState(false);
   const [filter, setFilter] = useState<'all' | 'open'>('open');
 
   const anchorWorld = (t: CommentThread): { x: number; y: number } | null => {
@@ -56,7 +56,6 @@ export default function MarginsLayer() {
   const toScreen = (w: { x: number; y: number }) => ({ x: w.x * camera.zoom + camera.x, y: w.y * camera.zoom + camera.y });
 
   const numbered = useMemo(() => [...threads].sort((a, b) => a.createdAt - b.createdAt), [threads]);
-  const openCount = threads.filter((t) => !t.resolved).length;
 
   const activeThread = threads.find((t) => t.id === activeThreadId) || null;
 
@@ -104,7 +103,7 @@ export default function MarginsLayer() {
           onClick={placeDraft}
         >
           <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 glass-bar rounded-full px-4 py-2 text-[11px] font-bold text-[var(--text-secondary)] pointer-events-none">
-            Click anywhere to drop a comment · Esc to cancel
+            Click anywhere to drop a thread · Esc to cancel
           </div>
         </div>
       )}
@@ -123,7 +122,7 @@ export default function MarginsLayer() {
               onClick={() => setActiveThreadId(activeThreadId === t.id ? null : t.id)}
               className="absolute pointer-events-auto -translate-y-full rounded-t-full rounded-br-full flex items-center justify-center text-[11px] font-extrabold text-white shadow-md transition-transform hover:scale-110 cursor-pointer"
               style={{ left: p.x, top: p.y, width: 26, height: 26, background: color, boxShadow: '0 3px 8px rgba(90,62,40,0.3)' }}
-              title={`${t.replies.length} comment${t.replies.length === 1 ? '' : 's'}`}
+              title={`${t.replies.length} repl${t.replies.length === 1 ? 'y' : 'ies'}`}
             >
               {i + 1}
             </button>
@@ -135,7 +134,7 @@ export default function MarginsLayer() {
       {draft && (
         <ThreadPopover screen={toScreen(draft)} onClose={() => setDraft(null)}>
           <div className="flex flex-col gap-2">
-            <span className="text-[10px] uppercase font-extrabold tracking-wider text-[var(--text-tertiary)]">New comment</span>
+            <span className="text-[10px] uppercase font-extrabold tracking-wider text-[var(--text-tertiary)]">New thread</span>
             <textarea
               autoFocus
               value={draftText}
@@ -147,7 +146,7 @@ export default function MarginsLayer() {
             />
             <div className="flex justify-end gap-2">
               <button onClick={() => setDraft(null)} className="px-3 py-1.5 rounded-full text-[11px] font-bold text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer">Cancel</button>
-              <button onClick={submitDraft} className="px-3.5 py-1.5 rounded-full text-[11px] font-bold text-white bg-[var(--accent)] hover:brightness-105 cursor-pointer">Comment</button>
+              <button onClick={submitDraft} className="px-3.5 py-1.5 rounded-full text-[11px] font-bold text-white bg-[var(--accent)] hover:brightness-105 cursor-pointer">Post</button>
             </div>
           </div>
         </ThreadPopover>
@@ -207,35 +206,6 @@ export default function MarginsLayer() {
         );
       })()}
 
-      {/* Launcher cluster (right edge) */}
-      <div className="fixed right-5 top-28 z-[125] flex flex-col items-end gap-2 pointer-events-auto">
-        <motion.button
-          onClick={() => { setCommentMode(!commentMode); setShowSidebar(false); }}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          title="Add a comment"
-          className={`clay-card w-11 h-11 rounded-2xl flex items-center justify-center transition-colors cursor-pointer relative ${commentMode ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--accent)]'}`}
-        >
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-          </svg>
-          {openCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accent)] text-white text-[9px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">{openCount}</span>
-          )}
-        </motion.button>
-        <motion.button
-          onClick={() => { setShowSidebar(!showSidebar); setCommentMode(false); }}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          title="All comments"
-          className={`clay-card w-11 h-11 rounded-2xl flex items-center justify-center transition-colors cursor-pointer ${showSidebar ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--accent)]'}`}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><circle cx="3.5" cy="6" r="1" fill="currentColor" /><circle cx="3.5" cy="12" r="1" fill="currentColor" /><circle cx="3.5" cy="18" r="1" fill="currentColor" />
-          </svg>
-        </motion.button>
-      </div>
-
       {/* Sidebar */}
       <AnimatePresence>
         {showSidebar && (
@@ -247,15 +217,15 @@ export default function MarginsLayer() {
             className="fixed right-20 top-28 z-[124] clay-card w-72 max-h-[70vh] rounded-[24px] p-4 flex flex-col gap-3 pointer-events-auto"
           >
             <div className="flex items-center justify-between shrink-0">
-              <h3 className="text-[11px] uppercase font-extrabold tracking-[0.16em] text-[var(--text-secondary)]">Comments</h3>
+              <h3 className="text-[11px] uppercase font-extrabold tracking-[0.16em] text-[var(--text-secondary)]">Threads</h3>
               <div className="clay-inset flex p-0.5 rounded-full text-[10px] font-bold">
                 {(['open', 'all'] as const).map((f) => (
-                  <button key={f} onClick={() => setFilter(f)} className={`px-2.5 py-1 rounded-full cursor-pointer transition-colors ${filter === f ? 'bg-white text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)]'}`}>{f === 'open' ? 'Open' : 'All'}</button>
+                  <button key={f} onClick={() => setFilter(f)} className={`px-2.5 py-1 rounded-full cursor-pointer transition-colors ${filter === f ? 'bg-white dark:bg-white/15 text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)]'}`}>{f === 'open' ? 'Open' : 'All'}</button>
                 ))}
               </div>
             </div>
             {numbered.filter((t) => filter === 'all' || !t.resolved).length === 0 ? (
-              <p className="text-xs text-[var(--text-secondary)] text-center py-6 leading-relaxed">No {filter === 'open' ? 'open ' : ''}comments yet. Hit the comment button and click anywhere on the board.</p>
+              <p className="text-xs text-[var(--text-secondary)] text-center py-6 leading-relaxed">No {filter === 'open' ? 'open ' : ''}threads yet. Hit the thread tool in the toolbar and click anywhere on the board.</p>
             ) : (
               <div className="flex flex-col gap-2 overflow-y-auto min-h-0 pr-1">
                 {numbered.map((t, i) => {

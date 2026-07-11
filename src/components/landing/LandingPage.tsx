@@ -21,7 +21,10 @@ import {
 } from '@/lib/db';
 import { useRouter } from 'next/navigation';
 import AuthButton from '@/components/ui/AuthButton';
+import ChatPanel from '@/components/chat/ChatPanel';
+import { useChatUnreadTotal } from '@/store/chatStore';
 import { exportBoardById } from '@/lib/boardIO';
+import { applyCanvasTheme, resetCanvasTheme, presetById, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 
 /* ============================================================
    Types
@@ -35,7 +38,7 @@ type WorkspaceWithStats = CanvasState & {
   connections: ConnectionData[];
 };
 
-type SidebarTab = 'home' | 'favorites' | 'images' | 'checkpoints' | 'archive' | 'deleted';
+type SidebarTab = 'home' | 'favorites' | 'images' | 'checkpoints' | 'chat' | 'archive' | 'deleted';
 type SortMode = 'recent' | 'name' | 'cards';
 type Category = 'all' | 'work' | 'personal' | 'study';
 
@@ -132,6 +135,28 @@ const ICONS = {
   arrowRight: <Icon size={14}><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></Icon>,
   palette: <Icon size={14}><circle cx="12" cy="12" r="10" /><circle cx="8" cy="10" r="1" fill="currentColor" /><circle cx="12" cy="7.5" r="1" fill="currentColor" /><circle cx="16" cy="10" r="1" fill="currentColor" /></Icon>,
   tag: <Icon size={14}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z" /><line x1="7" y1="7" x2="7.01" y2="7" /></Icon>,
+  chat: (
+    <Icon>
+      <defs>
+        <mask id="landing-chat-double-bubble-mask">
+          <rect x="0" y="0" width="24" height="24" fill="white" />
+          <path 
+            d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292" 
+            fill="black" 
+            stroke="black" 
+            strokeWidth="3.5" 
+          />
+        </mask>
+      </defs>
+      <path 
+        d="M18.85 12C18.9484 11.5153 19 11.0137 19 10.5C19 6.35786 15.6421 3 11.5 3C7.35786 3 4 6.35786 4 10.5C4 11.3766 4.15039 12.2181 4.42676 13C5.50098 16.0117 3 18 3 18H9.5" 
+        mask="url(#landing-chat-double-bubble-mask)" 
+      />
+      <path 
+        d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292" 
+      />
+    </Icon>
+  ),
 };
 
 /* ============================================================
@@ -249,6 +274,7 @@ export default function LandingPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<Category>('all');
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('home');
+  const chatUnread = useChatUnreadTotal();
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
@@ -310,6 +336,13 @@ export default function LandingPage() {
 
     seedDatabaseIfEmpty().then(refresh).catch(console.error);
   }, [refresh]);
+
+  // The canvas gallery ships in a warm dark theme by default. Restore the light
+  // default palette on unmount so an opened canvas starts from its own theme.
+  useEffect(() => {
+    applyCanvasTheme(presetById('graphite') || DEFAULT_BACKGROUND);
+    return () => resetCanvasTheme();
+  }, []);
 
   // Lazy-load all objects the first time images/checkpoints tab is opened
   useEffect(() => {
@@ -515,12 +548,13 @@ export default function LandingPage() {
 
   if (!mounted) return null;
 
-  const isCollectionTab = activeSidebarTab !== 'images' && activeSidebarTab !== 'checkpoints';
+  const isCollectionTab = activeSidebarTab !== 'images' && activeSidebarTab !== 'checkpoints' && activeSidebarTab !== 'chat';
   const sectionTitles: Record<SidebarTab, string> = {
     home: 'all canvases',
     favorites: 'favorite canvases',
     images: 'image library',
     checkpoints: 'checkpoints',
+    chat: 'chat',
     archive: 'archived',
     deleted: 'trash',
   };
@@ -530,7 +564,7 @@ export default function LandingPage() {
      ============================================================ */
 
   return (
-    <div className="min-h-screen bg-[#FAF6F1] text-[var(--text-primary)] flex overflow-x-hidden relative paper-texture">
+    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex overflow-x-hidden relative paper-texture">
       <div className="noise-overlay" />
 
       {/* ---------- Floating clay dock ---------- */}
@@ -556,6 +590,7 @@ export default function LandingPage() {
           <DockButton label="Favorites" active={activeSidebarTab === 'favorites'} onClick={() => setActiveSidebarTab('favorites')} icon={ICONS.heart} />
           <DockButton label="Images" active={activeSidebarTab === 'images'} onClick={() => setActiveSidebarTab('images')} icon={ICONS.image} />
           <DockButton label="Checkpoints" active={activeSidebarTab === 'checkpoints'} onClick={() => setActiveSidebarTab('checkpoints')} icon={ICONS.flag} />
+          <DockButton label="Chat" active={activeSidebarTab === 'chat'} onClick={() => setActiveSidebarTab('chat')} icon={ICONS.chat} badge={chatUnread || undefined} />
 
           <div className="w-8 h-px bg-[var(--border-strong)] opacity-50 my-2" />
 
@@ -635,7 +670,7 @@ export default function LandingPage() {
                     <Icon size={13}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>
                   </button>
                 ) : (
-                  <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold text-[var(--text-tertiary)] bg-white/70 px-2 py-1 rounded-full border border-[var(--border)] select-none shrink-0">
+                  <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold text-[var(--text-tertiary)] bg-white/70 dark:bg-white/10 px-2 py-1 rounded-full border border-[var(--border)] select-none shrink-0">
                     ⌘K
                   </kbd>
                 )}
@@ -864,6 +899,14 @@ export default function LandingPage() {
             </section>
           )}
 
+          {/* ---------- CHAT TAB ---------- */}
+          {!isLoading && activeSidebarTab === 'chat' && (
+            <section className="w-full flex flex-col gap-5 h-[calc(100vh-180px)]">
+              <SectionHeading title={sectionTitles.chat} />
+              <ChatPanel mode="embedded" />
+            </section>
+          )}
+
           {/* ---------- COLLECTION SECTIONS (home / favorites / archive / trash) ---------- */}
           {!isLoading && isCollectionTab && (
             <section className="w-full flex flex-col gap-6">
@@ -940,7 +983,7 @@ export default function LandingPage() {
                         role="tab"
                         aria-selected={layoutMode === mode}
                         onClick={() => setLayoutMode(mode)}
-                        className={`relative px-4 py-1.5 rounded-full text-[11px] font-bold transition-colors cursor-pointer focus-visible:outline-none ${
+                        className={`relative px-4 py-1.5 rounded-full text-[11px] font-bold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 ${
                           layoutMode === mode ? 'text-[var(--text-primary)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
                         }`}
                       >
@@ -948,7 +991,7 @@ export default function LandingPage() {
                           <motion.span
                             layoutId="layout-thumb"
                             transition={spring}
-                            className="absolute inset-0 bg-white rounded-full shadow-[0_2px_6px_rgba(90,62,40,0.15),inset_0_1px_0_rgba(255,255,255,1)]"
+                            className="absolute inset-0 bg-white dark:bg-white/15 rounded-full shadow-[0_2px_6px_rgba(90,62,40,0.15),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-none"
                           />
                         )}
                         <span className="relative">{mode}</span>
@@ -975,11 +1018,11 @@ export default function LandingPage() {
                         <motion.span
                           layoutId="category-thumb"
                           transition={spring}
-                          className="absolute inset-0 bg-[#2D2A26] rounded-full shadow-[0_8px_16px_-6px_rgba(45,42,38,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]"
+                          className="absolute inset-0 bg-[#2D2A26] dark:bg-[var(--accent)] rounded-full shadow-[0_8px_16px_-6px_rgba(45,42,38,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]"
                         />
                       )}
                       <span className="relative">{cat}</span>
-                      <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === cat ? 'bg-white/20' : 'bg-white/70 border border-[var(--border)]'}`}>
+                      <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === cat ? 'bg-white/20' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
                         {counts[cat]}
                       </span>
                     </button>
@@ -1120,7 +1163,7 @@ export default function LandingPage() {
                     <div className="overflow-x-auto">
                       <table className="w-full border-collapse text-left min-w-[640px]">
                         <thead>
-                          <tr className="border-b border-[var(--border)] bg-[#FAF6F1]/60 text-[10px] uppercase font-extrabold tracking-[0.15em] text-[var(--text-secondary)] select-none">
+                          <tr className="border-b border-[var(--border)] bg-[#FAF6F1]/60 dark:bg-white/5 text-[10px] uppercase font-extrabold tracking-[0.15em] text-[var(--text-secondary)] select-none">
                             <th className="py-4 px-6">Title</th>
                             <th className="py-4 px-6">Category</th>
                             <th className="py-4 px-6">Contents</th>
@@ -1133,7 +1176,7 @@ export default function LandingPage() {
                             <tr
                               key={ws.id}
                               onClick={() => router.push(`/canvas?id=${ws.id}`)}
-                              className="border-b border-[var(--border)] last:border-b-0 hover:bg-[#FAF6F1]/50 cursor-pointer transition-colors group"
+                              className="border-b border-[var(--border)] last:border-b-0 hover:bg-[#FAF6F1]/50 dark:hover:bg-white/5 cursor-pointer transition-colors group"
                             >
                               <td className="py-4 px-6 font-semibold text-[16px] tracking-tight group-hover:text-[var(--accent)] transition-colors" style={{ fontFamily: "'Playfair Display', serif" }}>
                                 <span className="flex items-center gap-1.5">
@@ -1231,7 +1274,7 @@ export default function LandingPage() {
           {/* Footer hint */}
           <footer className="flex justify-center pt-4 select-none">
             <p className="text-[10px] font-medium text-[var(--text-muted)] tracking-wide">
-              <kbd className="px-1.5 py-0.5 rounded bg-white/70 border border-[var(--border)] font-mono text-[9px]">⌘K</kbd> search
+              <kbd className="px-1.5 py-0.5 rounded bg-white/70 dark:bg-white/10 border border-[var(--border)] font-mono text-[9px]">⌘K</kbd> search
               <span className="mx-2">·</span>
               click your name to edit it
               <span className="mx-2">·</span>
