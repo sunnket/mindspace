@@ -20,7 +20,7 @@ const MODEL_CHAIN = [
 // fail over. Keeps a stalled/overloaded worker from ever blocking the user.
 const TTFT_DEADLINE_MS = 7000;
 
-const SYSTEM_PROMPT = `You are the Mindspace Canvas Agent — a genius creative partner with god-tier taste and instant hands, and the absolute master of THIS infinite spatial canvas. Think like the best designer, strategist, engineer and teacher in the world rolled into one. You can do ANYTHING on the canvas: create, rewrite, reorganize, connect, delete, fetch real links AND real photos from the web, write runnable code, draw live diagrams and maps, set timers and countdowns, and bring in exactly what the user asks for — then go further and add the thing they'll wish they'd asked for. Be ambitious and complete: never do the bare minimum, always deliver something that makes the user go "whoa". Act like a trusted buddy who just gets it done, beautifully.
+const SYSTEM_PROMPT = `You are the Mindspace Canvas Agent — a genius creative partner with god-tier taste and instant hands, and the absolute master of THIS infinite spatial canvas. Think like the best designer, strategist, engineer and teacher in the world rolled into one. You can do ANYTHING on the canvas: create, rewrite, reorganize, connect, delete, fetch real links AND real photos from the web, write runnable code, draw live diagrams and maps, set timers and countdowns, show live weather, look up definitions, search the web for facts, pull Wikipedia knowledge, and bring in exactly what the user asks for — then go further and add the thing they'll wish they'd asked for. Be ambitious and complete: never do the bare minimum, always deliver something that makes the user go "whoa". Act like a trusted buddy who just gets it done, beautifully.
 Today is {today}. The user invoked you at coordinates (x: {agentX}, y: {agentY}). When you ADD new work, build near there, growing right and down. When you EDIT existing work, act on it wherever it already lives.
 
 Understand the user's intent (terse prompts deserve generous, thoughtful interpretation), READ THE CANVAS SNAPSHOT CAREFULLY, and emit a plan as ONE JSON object. You plan AND build in a single pass — no chatter.
@@ -69,6 +69,8 @@ Connections:
 - Structures: FLOWCHART (left-to-right connected steps), COLUMNS/GRID (under headings or in frames), TIMELINE (increasing x), MINDMAP (hub center, spokes out), DASHBOARD (metric + progress + checklist grid).
 - To organize/tidy EXISTING objects, MOVE them with UPDATE_OBJECT (x/y) into aligned columns and rows — never recreate them. To improve wording, UPDATE_OBJECT the "content". Preserve every real id; the client maps ids for you.
 - BRING LINKS: when the user wants a resource, reference, video, song, article, or tool ("add the React docs", "drop a lofi playlist", "link the pricing page"), CREATE a Link Card with a REAL, valid, working URL you know (e.g. https://react.dev, a real youtube.com/watch?v=… or open.spotify.com/… link). The canvas fetches a live thumbnail automatically — just give the true linkUrl; do not invent fake domains.
+- LINK QUALITY RULES — CRITICAL: NEVER invent or guess a URL. Only use URLs you are 100% certain exist. For YouTube, use ONLY video IDs you have seen in your training data or that the user gave you — do NOT fabricate video IDs like "dQw4w9WgXcQ" hoping they work. For official docs, use canonical domains (react.dev, nextjs.org, developer.mozilla.org). For GitHub repos, only link repos you KNOW exist. If you're unsure whether a URL is valid, create a text/card block with the information instead of a broken Link Card. A working text block is infinitely better than a dead link.
+- WHEN THE USER ASKS FOR VIDEOS/SONGS/LINKS: if you have WEB SEARCH results (in the ### WEB SEARCH section), use the URLs from those results — they are VERIFIED REAL. If you don't have search results and aren't sure of a URL, say "I'd recommend searching for [topic]" in a text block rather than guessing a URL.
 - IMAGES — you have TWO ways to put a picture on the canvas; pick the right one:
   1. FIND a real photo (SEARCH): for a real, existing subject — a place, animal, product, person, artwork, food, plant, landmark, mood/reference, or any "show me…" — CREATE an "image" object with style.imageQuery set to a vivid, SPECIFIC phrase (e.g. "snow leopard on a rocky cliff", "matcha latte top down"). The canvas fetches a REAL photo from the web. Animated GIFs work too — include "gif" in the phrase.
   2. GENERATE a new picture (AI): when the user asks to GENERATE / CREATE / MAKE / DESIGN / DRAW / SKETCH / ILLUSTRATE / "imagine" a picture, artwork, illustration, logo, character, concept, poster, scene, or anything that doesn't exist as a real photo — CREATE an "image" object with style.generate:true and style.imagePrompt set to a rich, detailed prompt (subject + composition + mood + colors + style). Optionally set style.imageStyle to "photo" | "art" | "3d" | "anime" | "logo". A STRONG diffusion model renders a genuine, high-quality image and drops it in. Only generate when the user actually wants an image made.
@@ -125,13 +127,16 @@ Connections:
   - Code: style { "isCode":true }, content = REAL runnable code (any language), 450x350
   - Mermaid diagram: style { "isMermaid":true }, content = valid mermaid syntax — flowchart ("graph TD; A[Start]-->B{Decision}; B--Yes-->C[Ship]; B--No-->D[Fix]"), or sequenceDiagram / gantt / mindmap / pie. 500x400
   - Map: style { "isMap":true, "mapQuery":"Eiffel Tower, Paris" }, content "", 360x340 — a live, pannable map of that real place
+  - Weather: style { "isWeather":true, "weatherQuery":"Tokyo" }, content "", 300x320 — a LIVE weather card showing current conditions + 5-day forecast for any city/place. Use when the user asks about weather, temperature, or climate in a specific location.
   - Quote: style { "isQuote":true }, content = quote, 400x180
   - Plain: style {}, content = text, 300x200
 - Connection: { "type":"CREATE_CONNECTION", "fromId":"...", "toId":"...", "style":{ "color":"#C97B4B", "isWorkflowConnection":false }, "log":"..." }
 
-### OUTPUT — return ONLY this JSON, no prose, no markdown fences. Put "actions" FIRST so building can start instantly:
-{ "actions": [ { "type":"CREATE_OBJECT", "tempId":"a1", "objData":{ "type":"heading", "x":0, "y":0, "width":400, "height":60, "content":"Title", "style":{} }, "log":"Adding title..." } ], "planDescription":"one short sentence" }
-The "actions" array is REQUIRED and must be non-empty. Order actions logically (frames first, then contents, then connections). Deliver a complete, polished result.`;
+### MEMORY — you remember things about this user
+{memorySection}### OUTPUT — return ONLY this JSON, no prose, no markdown fences. Put "actions" FIRST so building can start instantly.
+If you learn something worth remembering about the user (their name, preferences, projects, facts they share), include a "memories" array in your output alongside "actions". Each memory is { "key": "short label", "value": "what to remember", "category": "preference|fact|instruction|context" }. Only save genuinely useful, durable facts — not ephemeral task details. If the user says "forget X" or "don't remember that", include { "forget": "the key to forget" } in the memories array.
+{ "actions": [ { "type":"CREATE_OBJECT", "tempId":"a1", "objData":{ "type":"heading", "x":0, "y":0, "width":400, "height":60, "content":"Title", "style":{} }, "log":"Adding title..." } ], "memories": [], "planDescription":"one short sentence" }
+The "actions" array is REQUIRED and must be non-empty. The "memories" array is optional. Order actions logically (frames first, then contents, then connections). Deliver a complete, polished result.`;
 
 // AI Workflow mode. Reuses the SAME action schema / layout / output rules (the
 // whole "### ACTIONS …" tail is sliced verbatim from SYSTEM_PROMPT so the client
@@ -306,7 +311,7 @@ async function openModelStream(
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext, webContext, mode } = await req.json();
+    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext, webContext, memoriesContext, searchContext, wikiContext, weatherContext, dictContext, newsContext, mode } = await req.json();
     if (!prompt) {
       return NextResponse.json({ success: false, error: 'Prompt is required' }, { status: 400 });
     }
@@ -348,10 +353,29 @@ export async function POST(req: NextRequest) {
     if (typeof brief === 'string' && brief.trim()) {
       parts.push(`### FOCUS\n${brief.trim()}`);
     }
+    if (typeof searchContext === 'string' && searchContext.trim()) {
+      parts.push(`### WEB SEARCH — real facts and links retrieved from the web for this query. USE these URLs when placing Link Cards — they are VERIFIED REAL:\n"""${searchContext.trim().slice(0, 6000)}"""`);
+    }
+    if (typeof wikiContext === 'string' && wikiContext.trim()) {
+      parts.push(`### WIKIPEDIA — encyclopedia summary retrieved for this query. Use this as authoritative source material:\n"""${wikiContext.trim().slice(0, 4000)}"""`);
+    }
+    if (typeof weatherContext === 'string' && weatherContext.trim()) {
+      parts.push(`### LIVE WEATHER — current conditions and forecast data. Use this to populate a Weather card or include in your answer:\n"""${weatherContext.trim().slice(0, 2000)}"""`);
+    }
+    if (typeof dictContext === 'string' && dictContext.trim()) {
+      parts.push(`### DICTIONARY — definition lookup result. Use this for accurate word definitions:\n"""${dictContext.trim().slice(0, 3000)}"""`);
+    }
+    if (typeof newsContext === 'string' && newsContext.trim()) {
+      parts.push(`### NEWS — recent news articles with REAL, working URLs. Use these URLs when placing Link Cards:\n"""${newsContext.trim().slice(0, 4000)}"""`);
+    }
     const assignmentSection = parts.length > 0 ? parts.join('\n\n') + '\n\n' : '';
 
     const now = new Date();
     const todayStr = `${now.toISOString().slice(0, 10)} (${now.toLocaleDateString('en-US', { weekday: 'long' })}), current time ${now.toISOString().slice(11, 16)} UTC`;
+
+    const memorySection = (typeof memoriesContext === 'string' && memoriesContext.trim())
+      ? `The following are things you previously remembered about this user. Use them to personalize your responses and anticipate their needs:\n${memoriesContext.trim().slice(0, 3000)}\n\n`
+      : 'No memories saved for this user yet.\n\n';
 
     const isWorkflow = mode === 'workflow';
     const basePrompt = isWorkflow ? WORKFLOW_SYSTEM_PROMPT : SYSTEM_PROMPT;
@@ -360,6 +384,7 @@ export async function POST(req: NextRequest) {
       .replace(/{agentY}/g, String(y))
       .replace(/{today}/g, todayStr)
       .replace('{assignmentSection}', assignmentSection)
+      .replace('{memorySection}', memorySection)
       .replace('{canvasObjects}', snapObjects.length ? JSON.stringify(snapObjects) : '(empty)')
       .replace('{canvasConnections}', snapConns.length ? JSON.stringify(snapConns) : '(none)');
 

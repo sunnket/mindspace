@@ -610,6 +610,107 @@ export default function AgentOverlay() {
         if (!runningRef.current) return;
       }
 
+      // Memory pass: fetch facts about the user
+      let memoriesContext: string | undefined;
+      addLog('[Agent] Checking memory...');
+      try {
+        const memRes = await fetch('/api/agent/memory?action=get', { signal: controller.signal });
+        if (memRes.ok) {
+          const memJson = await memRes.json();
+          if (memJson.success && memJson.memories && memJson.memories.length > 0) {
+            memoriesContext = memJson.memories.map((m: any) => `- ${m.key}: ${m.value}`).join('\n');
+          }
+        }
+      } catch { /* best effort */ }
+      if (!runningRef.current) return;
+
+      // Smart pre-passes based on prompt intent
+      let searchContext: string | undefined;
+      let weatherContext: string | undefined;
+      let dictContext: string | undefined;
+      let wikiContext: string | undefined;
+      let newsContext: string | undefined;
+
+      const pLower = promptText.toLowerCase();
+
+      if (/\b(search|find|google|look up|who is|what is|how to)\b/i.test(pLower)) {
+        addLog('[Agent] Searching the web...');
+        try {
+          const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: controller.signal });
+          if (sRes.ok) {
+            const sJson = await sRes.json();
+            if (sJson.success && sJson.results?.length) {
+              searchContext = sJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
+            }
+          }
+        } catch { /* best effort */ }
+      }
+      if (!runningRef.current) return;
+
+      if (/\b(weather|temperature|forecast|climate|rain|snow)\b/i.test(pLower)) {
+        addLog('[Agent] Checking weather...');
+        try {
+          const match = promptText.match(/(?:in|at|for) ([a-zA-Z\s,]+)/i);
+          const q = match ? match[1].trim() : promptText;
+          const wRes = await fetch(`/api/weather?q=${encodeURIComponent(q)}`, { signal: controller.signal });
+          if (wRes.ok) {
+            const wJson = await wRes.json();
+            if (!wJson.error) {
+              weatherContext = `Location: ${wJson.location?.name}, ${wJson.location?.country}\nTemp: ${wJson.current?.temperature}${wJson.units?.temperature}, ${wJson.current?.condition}`;
+            }
+          }
+        } catch { /* best effort */ }
+      }
+      if (!runningRef.current) return;
+
+      if (/\b(meaning|define|definition|synonym|dictionary)\b/i.test(pLower)) {
+        addLog('[Agent] Looking up definition...');
+        try {
+          const match = promptText.match(/(?:define|meaning of|definition of) ([a-zA-Z]+)/i);
+          const w = match ? match[1].trim() : promptText.split(' ').pop() || '';
+          const dRes = await fetch(`/api/dictionary?word=${encodeURIComponent(w)}`, { signal: controller.signal });
+          if (dRes.ok) {
+            const dJson = await dRes.json();
+            if (dJson.success && dJson.results?.length) {
+              dictContext = JSON.stringify(dJson.results, null, 2);
+            }
+          }
+        } catch { /* best effort */ }
+      }
+      if (!runningRef.current) return;
+
+      if (/\b(wiki|wikipedia|who is|history of)\b/i.test(pLower)) {
+        addLog('[Agent] Querying Wikipedia...');
+        try {
+          const match = promptText.match(/(?:who is|what is|history of|wikipedia) ([a-zA-Z0-9\s]+)/i);
+          const q = match ? match[1].trim() : promptText;
+          const wikiRes = await fetch(`/api/wikipedia?q=${encodeURIComponent(q)}`, { signal: controller.signal });
+          if (wikiRes.ok) {
+            const wikiJson = await wikiRes.json();
+            if (wikiJson.success) {
+              wikiContext = `TITLE: ${wikiJson.title}\nSUMMARY: ${wikiJson.summary}\nURL: ${wikiJson.url}`;
+            }
+          }
+        } catch { /* best effort */ }
+      }
+      if (!runningRef.current) return;
+
+      if (/\b(news|latest|breaking|headlines)\b/i.test(pLower)) {
+        addLog('[Agent] Fetching latest news...');
+        try {
+          const match = promptText.match(/(?:news about|latest on|headlines for) ([a-zA-Z0-9\s]+)/i);
+          const q = match ? match[1].trim() : undefined;
+          const nRes = await fetch(`/api/news${q ? `?q=${encodeURIComponent(q)}` : ''}`, { signal: controller.signal });
+          if (nRes.ok) {
+            const nJson = await nRes.json();
+            if (nJson.success && nJson.results?.length) {
+              newsContext = nJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
+            }
+          }
+        } catch { /* best effort */ }
+      }
+      if (!runningRef.current) return;
+
       const res = await fetch('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -622,6 +723,12 @@ export default function AgentOverlay() {
           mode: modeArg,
           visionContext,
           webContext,
+          memoriesContext,
+          searchContext,
+          weatherContext,
+          dictContext,
+          wikiContext,
+          newsContext,
           filesContext: filesContext || undefined,
           canvas: {
             objects: visibleObjects.map((o) => ({
@@ -646,12 +753,67 @@ export default function AgentOverlay() {
       const scan = makeActionScanner((action) => { if (runningRef.current) runAction(action); });
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      let fullResponse = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         if (!runningRef.current) { reader.cancel(); return; }
-        scan(decoder.decode(value, { stream: true }));
+        const chunk = decoder.decode(value, { stream: true });
+        fullResponse += chunk;
+        scan(chunk);
+      }
+
+      if (!runningRef.current) return;
+
+      // After streaming is done, process memory instructions & validate newly created links
+      try {
+        const payload = JSON.parse(fullResponse);
+        
+        // 1. Link Validation
+        const linkActions = (payload.actions || []).filter((a: any) => a.type === 'CREATE_OBJECT' && a.objData?.style?.isLink && a.objData?.style?.linkUrl);
+        for (const action of linkActions) {
+          const url = action.objData.style.linkUrl;
+          const id = action.tempId || action.id; // Usually it's mapped to a real ID by now if we can find it
+          if (!url) continue;
+          
+          try {
+            const vRes = await fetch(`/api/link-validate?url=${encodeURIComponent(url)}`);
+            if (vRes.ok) {
+              const vJson = await vRes.json();
+              if (vJson.status === 'dead') {
+                // Find the actual created object (tempId might have been swapped)
+                const createdObj = live().objects.find(o => o.style?.linkUrl === url && o.style?.isLink);
+                if (createdObj) {
+                  live().updateObject(createdObj.id, { 
+                    style: { ...createdObj.style, isError: true, errorReason: vJson.reason || 'Link is broken' } 
+                  });
+                }
+              }
+            }
+          } catch { /* ignore validation failure */ }
+        }
+
+        // 2. Memory Processing
+        if (payload.memories && Array.isArray(payload.memories)) {
+          for (const mem of payload.memories) {
+            if (mem.forget) {
+              await fetch('/api/agent/memory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete', key: mem.forget }),
+              });
+            } else if (mem.key && mem.value) {
+              await fetch('/api/agent/memory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'set', key: mem.key, value: mem.value, category: mem.category || 'fact' }),
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Agent] Post-processing failed', err);
       }
 
       if (!runningRef.current) return;

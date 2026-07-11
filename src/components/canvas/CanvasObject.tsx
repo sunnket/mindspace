@@ -10,6 +10,7 @@ import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import VoiceNoteBlock from './VoiceNoteBlock';
 import FileBlock from './FileBlock';
 import MapBlock from './MapBlock';
+import WeatherBlock from './WeatherBlock';
 import RichText from './RichText';
 import CodeSandboxBlock from './CodeSandboxBlock';
 import QuoteBlock from './QuoteBlock';
@@ -1403,6 +1404,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <MapBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isWeather) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <WeatherBlock obj={obj} />
             </div>
           );
         }
