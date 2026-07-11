@@ -286,15 +286,14 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
       style={{
         transform: `perspective(800px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
         transition: 'transform 0.15s cubic-bezier(0.25, 1, 0.5, 1)',
-        transformStyle: 'preserve-3d',
       }}
       className="w-full h-full p-4 rounded-2xl bg-[rgba(255,252,248,0.35)] dark:bg-black/15 backdrop-blur-2xl border border-white/20 dark:border-white/5 flex flex-col justify-between hover:shadow-[0_20px_50px_rgba(201,123,75,0.15)] transition-shadow select-none group relative overflow-hidden"
     >
       {/* Background Soft Glow Pattern */}
-      <div className="absolute -inset-10 bg-[radial-gradient(circle_at_top_right,rgba(201,123,75,0.06),transparent_60%)] pointer-events-none" />
+      <div className="absolute -inset-10 bg-[radial-gradient(circle_at_top_right,rgba(201,123,75,0.06),transparent_60%)] pointer-events-none z-0" />
 
       {/* Header Info */}
-      <div className="flex items-center justify-between select-none">
+      <div className="relative z-10 flex items-center justify-between select-none">
         <div className="flex items-center gap-2 overflow-hidden">
           {favicon ? (
             <img src={favicon} alt="" className="w-4 h-4 object-contain shrink-0 rounded-sm" />
@@ -324,7 +323,7 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
       </div>
 
       {/* Main Content Row */}
-      <div className="flex gap-4 my-2.5 items-start flex-1 overflow-hidden">
+      <div className="relative z-10 flex gap-4 my-2.5 items-start flex-1 overflow-hidden">
         <div className="flex-1 flex flex-col justify-center min-w-0">
           <h3
             className="text-xs font-bold text-[var(--text-primary)] leading-snug line-clamp-2 select-text group-hover:text-[var(--accent)] transition-colors"
@@ -360,7 +359,7 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
       </div>
 
       {/* Footer Navigation CTAs */}
-      <div className="flex items-center gap-2 pointer-events-auto">
+      <div className="relative z-10 flex items-center gap-2 pointer-events-auto">
         {/* Open Direct Link */}
         <a
           href={url}
