@@ -150,13 +150,7 @@ export default function MinimizeDock() {
                     onMouseDown={(e) => startDrag(e, obj)}
                     onClick={(e) => e.stopPropagation()}
                     title={`${label} — drag onto the canvas to restore, or click to pop it back to center`}
-                    className="group flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-full cursor-grab active:cursor-grabbing max-w-[170px]"
-                    style={{
-                      background: '#FFFDFA',
-                      border: '1px solid rgba(201,123,75,0.16)',
-                      boxShadow:
-                        'inset 0 1.5px 0 rgba(255,255,255,0.95), 0 12px 24px -12px rgba(90,62,40,0.30), 0 3px 8px -4px rgba(90,62,40,0.1)',
-                    }}
+                    className="group flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-full cursor-grab active:cursor-grabbing max-w-[170px] bg-white/90 dark:bg-black/60 backdrop-blur-md border border-white/20 dark:border-white/10 shadow-lg"
                   >
                     <span className="w-6 h-6 rounded-full shrink-0" style={{ background: color }} />
                     <span className="text-[11px] font-semibold text-[var(--text-primary)] truncate">{label}</span>

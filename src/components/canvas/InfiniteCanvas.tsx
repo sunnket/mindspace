@@ -861,6 +861,7 @@ export default function InfiniteCanvas() {
         o.id === selectedId ||
         o.id === editingId ||
         o.id === focusedId ||
+        o.style?.linkIsPlaying ||
         (o.x + o.width >= minX && o.x <= maxX && o.y + o.height >= minY && o.y <= maxY)
     );
   }, [objects, camera, selectedId, editingId, focusedId]);

@@ -21,14 +21,38 @@ export async function GET(req: NextRequest) {
     }
 
     const html = await res.text();
-    const match = html.match(/watch\?v=([a-zA-Z0-9_-]{11})/g);
+    const dataMatch = html.match(/var ytInitialData = ({.*?});<\/script>/);
+    let results: string[] = [];
     
-    if (!match) {
-      return NextResponse.json({ success: true, results: [] });
+    if (dataMatch) {
+      try {
+        const data = JSON.parse(dataMatch[1]);
+        const items = data.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents || [];
+        
+        for (const item of items) {
+          const video = item.videoRenderer;
+          // Ensure we don't pick up upcoming premieres or live streams unless wanted, but basic check is videoId
+          if (video && video.videoId) {
+            results.push(`https://www.youtube.com/watch?v=${video.videoId}`);
+          }
+          if (results.length >= 5) break;
+        }
+      } catch (e) {
+        // Fallback to regex if parsing fails
+        const match = html.match(/watch\?v=([a-zA-Z0-9_-]{11})/g);
+        if (match) {
+          const uniqueIds = [...new Set(match.map(m => m.replace('watch?v=', '')))].slice(0, 5);
+          results = uniqueIds.map(id => `https://www.youtube.com/watch?v=${id}`);
+        }
+      }
+    } else {
+      // Fallback
+      const match = html.match(/watch\?v=([a-zA-Z0-9_-]{11})/g);
+      if (match) {
+        const uniqueIds = [...new Set(match.map(m => m.replace('watch?v=', '')))].slice(0, 5);
+        results = uniqueIds.map(id => `https://www.youtube.com/watch?v=${id}`);
+      }
     }
-
-    const uniqueIds = [...new Set(match.map(m => m.replace('watch?v=', '')))].slice(0, 5);
-    const results = uniqueIds.map(id => `https://www.youtube.com/watch?v=${id}`);
 
     return NextResponse.json({
       success: true,

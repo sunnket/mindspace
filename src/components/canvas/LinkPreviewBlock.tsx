@@ -26,10 +26,18 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   const platform = (style?.linkPlatform as string) || '';
   const embedUrl = (style?.linkEmbedUrl as string) || '';
 
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlayingState] = useState(false);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const [draftUrl, setDraftUrl] = useState('');
   const cardRef = useRef<HTMLDivElement>(null);
+
+  const setIsPlaying = (playing: boolean) => {
+    setIsPlayingState(playing);
+    const cur = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+    if (cur) {
+      updateObject(obj.id, { style: { ...cur.style, linkIsPlaying: playing } });
+    }
+  };
 
   /* --- Self-hydration: fetch metadata whenever a URL is set but unresolved --- */
   useEffect(() => {
