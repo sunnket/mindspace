@@ -32,7 +32,18 @@ Understand the user's intent (terse prompts deserve generous, thoughtful interpr
 - EDIT / REWRITE / IMPROVE / FIX / RECOLOR / RESIZE a specific existing thing → UPDATE_OBJECT that real object in place (change its content/style/size). Don't clone it.
 - ANSWER / EXPLAIN / "tell me more" / a question about something already on the canvas → READ that object's real content in the snapshot and add a NEW text/card answer beside it (never delete the thing you're explaining). Ground the answer in what's actually on the canvas + any REFERENCE / WEB / FILE material provided; if you truly don't have the info, say so in one short line rather than inventing it.
 - BUILD / MAKE / GENERATE something brand new → CREATE_OBJECT for the new work.
+- RESIZE / MAKE BIGGER / MAKE SMALLER / EXPAND / SHRINK / "make this wider" → UPDATE_OBJECT with new width and/or height. Sticky notes can be resized from 120x120 to 800x600. Cards from 200x150 to 800x800. Text blocks from 200x30 to 800x600.
 - Mixed asks → do both, but the rule never changes: add and reposition freely; delete almost never.
+
+### CANVAS AWARENESS — you can SEE the entire board
+- The CANVAS SNAPSHOT below shows you every object currently on the board: its id, type, position, size, and content. You can READ it all. When the user asks "what's on my canvas?", "summarize this board", "how many items do I have?", "describe what I've built" — READ the snapshot carefully and answer from it. Count objects, list titles, describe the layout, mention widgets. You are FULLY AWARE of the canvas.
+- When answering questions about existing content, ALWAYS ground your answer in the actual snapshot data. Never hallucinate content that isn't there.
+
+### INTELLIGENCE RULES — be the smartest agent alive
+- ANTI-HALLUCINATION: NEVER make up facts, statistics, dates, quotes, or URLs. If you don't know something, say "I'm not sure about that — try asking me to search the web for it" in a text block. When asked about specific data (prices, rankings, stats), only provide numbers if you found them in WEB SEARCH, WIKIPEDIA, NEWS, or another attached source. Unsourced numbers are lies. Unsourced URLs are broken links.
+- ANTI-SPAM OUTPUT SCALING: Match your output SIZE to the user's prompt SIZE and complexity. A one-word or one-line ask like "add a heading" deserves 1-2 actions. A medium ask like "explain quantum computing" deserves 3-6 actions. A complex ask like "build me a project dashboard" deserves 10-20+ actions. NEVER pad output with unnecessary extras the user didn't ask for. Read the prompt — if they asked for ONE thing, give ONE thing plus at most 1 small anticipatory bonus. Over-delivery when not asked is spam, not intelligence.
+- LINK SOURCING HIERARCHY: When placing links: 1) Use URLs from ### WEB SEARCH, ### YOUTUBE RESULTS, or ### NEWS — these are VERIFIED REAL and working. 2) Use canonical documentation URLs you are 100% certain exist (react.dev, nextjs.org, developer.mozilla.org, github.com/facebook/react, etc.). 3) If neither source is available, DO NOT GUESS. Instead create a text/card block with the information and suggest the user search for it. A working text block is infinitely better than a dead link card.
+- CONTEXT AWARENESS: Pay close attention to the user's exact words. If they say "make it blue", change the color. If they say "add one more", add exactly one. If they say "like the one above", look at what's above in the snapshot. Mirror the user's tone — casual prompt gets casual response, professional prompt gets polished response.
 
 {assignmentSection}### CURRENT CANVAS SNAPSHOT
 Objects (real ids — reference, update, delete or connect these):
@@ -108,7 +119,7 @@ Connections:
 ### OBJECT SCHEMAS (objData for CREATE_OBJECT; also valid as UPDATE_OBJECT updates)
 - "heading": { content, width 300-500, height 60 }
 - "text": { content, width 300-600, height 80-200 }
-- "sticky": { content, width 200, height 160, style:{ "color": "#FEF3C7"|"#F3E8FF"|"#ECFDF5"|"#FEE2E2" } }
+- "sticky": { content, width 120-800, height 120-600, style:{ "color": "#FEF3C7"|"#F3E8FF"|"#ECFDF5"|"#FEE2E2"|"#DBEAFE"|"#FED7AA" } }. Stickies are now RESIZABLE — use UPDATE_OBJECT with width/height to resize them. Default 200x160.
 - "shape": { content:"label", width 120-200, height 60-120, style:{ "shapeType":"square"|"circle"|"triangle"|"diamond"|"pentagon"|"hexagon"|"star"|"heart"|"cloud"|"database"|"document"|"speech"|"message"|"cross"|"lightning"|"shield"|"pill", "color":"#hex" } }
 - "workflow-node": { content:"Step", width 160, height 60, style:{ "isWorkflowNode":true, "workflowId":"same_id_for_whole_diagram", "nodeShape":"pill"|"circle"|"square"|"diamond", "color":"#FAF6F1", "borderColor":"#C97B4B", "textColor":"#2D2A26", "branchColor":"#C97B4B" } }
 - "frame": { content:"Name", width 600+, height 400+, style:{ "frameColor":"#C97B4B"|"#3E63DD"|"#2F9E6E" } }
@@ -181,14 +192,12 @@ function compactSnapshot(objects: SnapshotObject[], agentX: number, agentY: numb
   const byDistance = [...objects].sort((a, b) =>
     Math.hypot(a.x - agentX, a.y - agentY) - Math.hypot(b.x - agentX, b.y - agentY)
   );
-  return byDistance.slice(0, 100).map((o) => {
+  return byDistance.slice(0, 200).map((o) => {
     const isImage = o.type === 'image' || (o.content || '').startsWith('data:image');
     const isFile = Boolean(o.style?.isFile);
     const isBinary = isImage || o.type === 'drawing' || (o.content || '').startsWith('data:');
     const style: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(o.style || {})) {
-      // The full extracted file text is supplied separately in ATTACHED FILE(S);
-      // never inline it into the snapshot (it's huge and already stripped by len).
       if (k === 'fileText') continue;
       if (typeof v === 'string' && v.length > 160) continue;
       style[k] = v;
@@ -199,11 +208,42 @@ function compactSnapshot(objects: SnapshotObject[], agentX: number, agentY: numb
       const shape = [meta.pages && `${meta.pages}p`, meta.slides && `${meta.slides} slides`, meta.words && `${meta.words} words`].filter(Boolean).join(', ');
       content = `[FILE: ${(o.style?.fileName as string) || 'file'}${shape ? ` — ${shape}` : ''} — full text provided in ATTACHED FILE(S)]`;
     } else if (isImage) {
-      content = '[IMAGE — a picture the user placed here]';
+      const query = o.style?.imageQuery as string;
+      const prompt = o.style?.imagePrompt as string;
+      content = query ? `[IMAGE: search "${query}"]` : prompt ? `[IMAGE: generated "${prompt.slice(0, 80)}"]` : '[IMAGE — a picture the user placed here]';
     } else if (isBinary) {
       content = '[media]';
     } else {
-      content = (o.content || '').slice(0, 240);
+      // Provide richer widget summaries so the agent can answer "what's on my canvas"
+      const s = o.style || {};
+      if (s.isChart) {
+        content = `[CHART: ${s.chartType || 'bar'} — "${s.chartTitle || 'Untitled'}"]`;
+      } else if (s.isTodo) {
+        const items = (() => { try { return JSON.parse(o.content || '[]'); } catch { return []; } })();
+        content = `[TODO: "${s.todoTitle || 'Tasks'}" — ${items.length} items, ${items.filter((i: { done?: boolean }) => i.done).length} done]`;
+      } else if (s.isLinkPreview) {
+        content = `[LINK: ${s.linkTitle || s.linkUrl || 'link'} → ${s.linkUrl || ''}]`;
+      } else if (s.isMap) {
+        content = `[MAP: ${s.mapQuery || 'location'}]`;
+      } else if (s.isWeather) {
+        content = `[WEATHER: ${s.weatherQuery || 'location'}]`;
+      } else if (s.isLiveMetric) {
+        content = `[METRIC: "${s.metricTitle}" = ${s.metricValue}]`;
+      } else if (s.isProgress) {
+        content = `[PROGRESS: "${s.progressLabel}" at ${s.progressValue}%]`;
+      } else if (s.isTimer) {
+        content = `[TIMER: "${s.timerLabel || 'Timer'}"]`;
+      } else if (s.isCountdown) {
+        content = `[COUNTDOWN: "${s.countdownTitle}" → ${s.countdownDate}]`;
+      } else if (s.isMermaid) {
+        content = `[MERMAID DIAGRAM] ${(o.content || '').slice(0, 200)}`;
+      } else if (s.isCode) {
+        content = `[CODE] ${(o.content || '').slice(0, 400)}`;
+      } else if (s.isQuote) {
+        content = `[QUOTE] ${(o.content || '').slice(0, 300)}`;
+      } else {
+        content = (o.content || '').slice(0, 600);
+      }
     }
     return {
       id: o.id, type: o.type,
@@ -214,6 +254,7 @@ function compactSnapshot(objects: SnapshotObject[], agentX: number, agentY: numb
     };
   });
 }
+
 
 /**
  * Open a streaming completion. Resolves only once the FIRST content token has
@@ -311,7 +352,7 @@ async function openModelStream(
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext, webContext, memoriesContext, searchContext, wikiContext, weatherContext, dictContext, newsContext, youtubeContext, mode } = await req.json();
+    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext, webContext, memoriesContext, searchContext, wikiContext, weatherContext, dictContext, newsContext, youtubeContext, quotesContext, countryContext, triviaContext, mode } = await req.json();
     if (!prompt) {
       return NextResponse.json({ success: false, error: 'Prompt is required' }, { status: 400 });
     }
@@ -371,6 +412,15 @@ export async function POST(req: NextRequest) {
     if (typeof youtubeContext === 'string' && youtubeContext.trim()) {
       parts.push(`### YOUTUBE RESULTS — REAL, working YouTube video URLs for this query. Use THESE exact URLs when placing Link Cards instead of guessing:\n"""${youtubeContext.trim().slice(0, 2000)}"""`);
     }
+    if (typeof quotesContext === 'string' && quotesContext.trim()) {
+      parts.push(`### QUOTES — inspirational/famous quotes retrieved for this query. Use these real quotes with proper attribution when creating Quote cards or text blocks:\n"""${quotesContext.trim().slice(0, 2000)}"""`);
+    }
+    if (typeof countryContext === 'string' && countryContext.trim()) {
+      parts.push(`### COUNTRY DATA — real geographic and demographic data about a country. Use these REAL facts and numbers when answering — do not make up statistics:\n"""${countryContext.trim().slice(0, 3000)}"""`);
+    }
+    if (typeof triviaContext === 'string' && triviaContext.trim()) {
+      parts.push(`### TRIVIA — real quiz questions with answers. Use these to create Poll/Decision cards or text blocks with fun facts:\n"""${triviaContext.trim().slice(0, 2000)}"""`);
+    }
     
     if (canvas?.isDark !== undefined) {
       parts.push(`### CANVAS THEME\nThe canvas background is currently ${canvas.isDark ? 'DARK' : 'LIGHT'}.\nCRITICAL: You MUST use ${canvas.isDark ? 'WHITE (#FFFFFF) or light colors' : 'DARK (#2D2A26) or dark colors'} for all text, headings, sticky notes, and drawing strokes so they are clearly visible against the background. Never use text colors that blend into the background.`);
@@ -398,8 +448,8 @@ export async function POST(req: NextRequest) {
     // Give the agent room to be ambitious and a little extra spark for richer,
     // more complete, more visual boards. Workflows go even bigger.
     const modelOpts = isWorkflow
-      ? { maxTokens: 8000, temperature: 0.55 }
-      : { maxTokens: 6500, temperature: 0.5 };
+      ? { maxTokens: 10240, temperature: 0.55 }
+      : { maxTokens: 8192, temperature: 0.5 };
 
     // Try models in order, rotating keys; stream the first that produces tokens.
     let lastError: Error | null = null;

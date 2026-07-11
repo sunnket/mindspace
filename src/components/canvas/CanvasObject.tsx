@@ -3082,7 +3082,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
 
       {/* Resize handle(s) */}
-      {isSelected && obj.type === 'frame' ? (
+      {isSelected && (obj.type === 'frame' || obj.type === 'sticky') ? (
         <>
           {([
             ['nw', { top: -5, left: -5, cursor: 'nwse-resize' }],

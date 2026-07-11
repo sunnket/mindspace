@@ -631,10 +631,14 @@ export default function AgentOverlay() {
       let wikiContext: string | undefined;
       let newsContext: string | undefined;
       let youtubeContext: string | undefined;
+      let quotesContext: string | undefined;
+      let countryContext: string | undefined;
+      let triviaContext: string | undefined;
 
       const pLower = promptText.toLowerCase();
 
-      if (/\b(search|find|google|look up|who is|what is|how to)\b/i.test(pLower)) {
+      // Expanded web search triggers — catches way more natural language queries
+      if (/\b(search|find|google|look up|who is|what is|how to|best|top|compare|vs|versus|recommend|review|list of|examples of|alternatives|how much|price|cost|where can i|when did|why does|which is)\b/i.test(pLower)) {
         addLog('[Agent] Searching the web...');
         try {
           const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: controller.signal });
@@ -648,7 +652,7 @@ export default function AgentOverlay() {
       }
       if (!runningRef.current) return;
 
-      if (/\b(weather|temperature|forecast|climate|rain|snow)\b/i.test(pLower)) {
+      if (/\b(weather|temperature|forecast|climate|rain|snow|humidity|wind)\b/i.test(pLower)) {
         addLog('[Agent] Checking weather...');
         try {
           const match = promptText.match(/(?:in|at|for) ([a-zA-Z\s,]+)/i);
@@ -664,10 +668,10 @@ export default function AgentOverlay() {
       }
       if (!runningRef.current) return;
 
-      if (/\b(meaning|define|definition|synonym|dictionary)\b/i.test(pLower)) {
+      if (/\b(meaning|define|definition|synonym|dictionary|antonym|word meaning)\b/i.test(pLower)) {
         addLog('[Agent] Looking up definition...');
         try {
-          const match = promptText.match(/(?:define|meaning of|definition of) ([a-zA-Z]+)/i);
+          const match = promptText.match(/(?:define|meaning of|definition of|what does .* mean) ([a-zA-Z]+)/i);
           const w = match ? match[1].trim() : promptText.split(' ').pop() || '';
           const dRes = await fetch(`/api/dictionary?word=${encodeURIComponent(w)}`, { signal: controller.signal });
           if (dRes.ok) {
@@ -680,10 +684,11 @@ export default function AgentOverlay() {
       }
       if (!runningRef.current) return;
 
-      if (/\b(wiki|wikipedia|who is|history of)\b/i.test(pLower)) {
+      // Expanded Wikipedia triggers
+      if (/\b(wiki|wikipedia|who is|who was|history of|biography|about|origin of|founded|inventor|discovery|explain .* concept)\b/i.test(pLower)) {
         addLog('[Agent] Querying Wikipedia...');
         try {
-          const match = promptText.match(/(?:who is|what is|history of|wikipedia) ([a-zA-Z0-9\s]+)/i);
+          const match = promptText.match(/(?:who is|who was|what is|history of|biography of|about|wikipedia|origin of|explain) ([a-zA-Z0-9\s]+)/i);
           const q = match ? match[1].trim() : promptText;
           const wikiRes = await fetch(`/api/wikipedia?q=${encodeURIComponent(q)}`, { signal: controller.signal });
           if (wikiRes.ok) {
@@ -696,10 +701,11 @@ export default function AgentOverlay() {
       }
       if (!runningRef.current) return;
 
-      if (/\b(news|latest|breaking|headlines)\b/i.test(pLower)) {
+      // Expanded news triggers
+      if (/\b(news|latest|breaking|headlines|update|recent|today|happening|current events|trending)\b/i.test(pLower)) {
         addLog('[Agent] Fetching latest news...');
         try {
-          const match = promptText.match(/(?:news about|latest on|headlines for) ([a-zA-Z0-9\s]+)/i);
+          const match = promptText.match(/(?:news about|latest on|headlines for|update on|trending) ([a-zA-Z0-9\s]+)/i);
           const q = match ? match[1].trim() : undefined;
           const nRes = await fetch(`/api/news${q ? `?q=${encodeURIComponent(q)}` : ''}`, { signal: controller.signal });
           if (nRes.ok) {
@@ -712,17 +718,76 @@ export default function AgentOverlay() {
       }
       if (!runningRef.current) return;
 
-      if (/\b(youtube|video|song|music|listen to|watch)\b/i.test(pLower)) {
+      // Expanded YouTube triggers — also fire web search alongside for link redundancy
+      if (/\b(youtube|video|song|music|listen to|watch|play|track|album|artist|singer|band|clip|trailer|mv|music video|remix|cover|live performance)\b/i.test(pLower)) {
         addLog('[Agent] Searching YouTube...');
         try {
-          // Remove filler words to get a better query
-          let q = promptText.replace(/\b(find|me|a|the|youtube|video|song|music|link|listen to|watch|of|by|for)\b/gi, '').trim();
+          let q = promptText.replace(/\b(find|me|a|the|youtube|video|song|music|link|listen to|watch|play|of|by|for|on)\b/gi, '').trim();
           if (!q) q = promptText;
           const yRes = await fetch(`/api/youtube-search?q=${encodeURIComponent(q)}`, { signal: controller.signal });
           if (yRes.ok) {
             const yJson = await yRes.json();
             if (yJson.success && yJson.results?.length) {
               youtubeContext = yJson.results.map((r: string, i: number) => `Result ${i+1}: ${r}`).join('\n');
+            }
+          }
+        } catch { /* best effort */ }
+        // Also run a web search for links if we haven't already
+        if (!searchContext) {
+          try {
+            const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: controller.signal });
+            if (sRes.ok) {
+              const sJson = await sRes.json();
+              if (sJson.success && sJson.results?.length) {
+                searchContext = sJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
+              }
+            }
+          } catch { /* best effort */ }
+        }
+      }
+      if (!runningRef.current) return;
+
+      // Quotes API
+      if (/\b(quote|quotes|inspire|inspiration|motivation|motivational|words of wisdom|famous saying|wise words)\b/i.test(pLower)) {
+        addLog('[Agent] Finding quotes...');
+        try {
+          const qRes = await fetch(`/api/quotes-search?limit=5`, { signal: controller.signal });
+          if (qRes.ok) {
+            const qJson = await qRes.json();
+            if (qJson.success && qJson.results?.length) {
+              quotesContext = qJson.results.map((q: { text: string; author: string }) => `"${q.text}" — ${q.author}`).join('\n\n');
+            }
+          }
+        } catch { /* best effort */ }
+      }
+      if (!runningRef.current) return;
+
+      // Country info API
+      if (/\b(country|capital of|population of|flag of|currency of|language of|languages in|about .* country)\b/i.test(pLower)) {
+        addLog('[Agent] Looking up country info...');
+        try {
+          const match = promptText.match(/(?:about|country|capital of|population of|flag of|currency of|language of|languages in) ([a-zA-Z\s]+)/i);
+          const q = match ? match[1].trim() : promptText;
+          const cRes = await fetch(`/api/country-info?q=${encodeURIComponent(q)}`, { signal: controller.signal });
+          if (cRes.ok) {
+            const cJson = await cRes.json();
+            if (cJson.success && cJson.results?.length) {
+              countryContext = cJson.results.map((c: Record<string, string>) => `${c.name} (${c.official})\nCapital: ${c.capital}\nPopulation: ${c.population}\nRegion: ${c.region}, ${c.subregion}\nLanguages: ${c.languages}\nCurrencies: ${c.currencies}\nArea: ${c.area}\nTimezones: ${c.timezones}`).join('\n\n');
+            }
+          }
+        } catch { /* best effort */ }
+      }
+      if (!runningRef.current) return;
+
+      // Trivia API
+      if (/\b(trivia|quiz|fun fact|random fact|did you know|brain teaser)\b/i.test(pLower)) {
+        addLog('[Agent] Getting trivia...');
+        try {
+          const tRes = await fetch(`/api/trivia?amount=5`, { signal: controller.signal });
+          if (tRes.ok) {
+            const tJson = await tRes.json();
+            if (tJson.success && tJson.results?.length) {
+              triviaContext = tJson.results.map((t: { question: string; correct_answer: string; category: string }) => `Q: ${t.question}\nA: ${t.correct_answer}\nCategory: ${t.category}`).join('\n\n');
             }
           }
         } catch { /* best effort */ }
@@ -748,6 +813,9 @@ export default function AgentOverlay() {
           wikiContext,
           newsContext,
           youtubeContext,
+          quotesContext,
+          countryContext,
+          triviaContext,
           filesContext: filesContext || undefined,
           canvas: {
             isDark: store.canvasBackground.dark,
