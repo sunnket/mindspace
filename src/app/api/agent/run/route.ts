@@ -125,6 +125,7 @@ Connections:
 - "shape": { content:"label", width 120-200, height 60-120, style:{ "shapeType":"square"|"circle"|"triangle"|"diamond"|"pentagon"|"hexagon"|"star"|"heart"|"cloud"|"database"|"document"|"speech"|"message"|"cross"|"lightning"|"shield"|"pill", "color":"#hex" } }
 - "workflow-node": { content:"Step", width 160, height 60, style:{ "isWorkflowNode":true, "workflowId":"same_id_for_whole_diagram", "nodeShape":"pill"|"circle"|"square"|"diamond", "color":"#FAF6F1", "borderColor":"#C97B4B", "textColor":"#2D2A26", "branchColor":"#C97B4B" } }
 - "frame": { content:"Name", width 600+, height 400+, style:{ "frameColor":"#C97B4B"|"#3E63DD"|"#2F9E6E" } }
+- "browser": { content:"https://real-url-to-surf.com", width 800, height 600, style:{} }. A fully surfable embedded browser window. Use this when the user asks to open a website, browse a link, or embed a webpage directly on the canvas!
 - "image" (two modes): SEARCH a real photo → { style:{ "imageQuery":"vivid, SPECIFIC search phrase" }, width 320-520, height 220-380 }. GENERATE a new AI picture → { style:{ "generate":true, "imagePrompt":"rich detailed prompt", "imageStyle":"photo"|"art"|"3d"|"anime"|"logo" }, width 320-520, height 320-420 }. (Or set "content" to an exact direct https image URL you know.)
 - "card" (pick ONE feature):
   - To-Do: style { "isTodo":true, "todoTitle":"Title" }, content = JSON string like "[{\\"id\\":\\"1\\",\\"text\\":\\"Task\\",\\"done\\":false}]", 300x280

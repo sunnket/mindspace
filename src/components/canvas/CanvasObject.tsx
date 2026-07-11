@@ -1256,6 +1256,59 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         );
       }
 
+      case 'browser': {
+        const url = obj.content || 'https://wikipedia.org';
+        const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
+        
+        return (
+          <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-[var(--border-strong)] bg-white shadow-xl">
+            {/* Browser Top Bar */}
+            <div 
+              className="h-9 bg-neutral-100 flex items-center px-2 gap-2 border-b border-neutral-200"
+              onMouseDown={(e) => {
+                // Let the object drag on the top bar, but let the input field work
+                if ((e.target as HTMLElement).tagName !== 'INPUT') {
+                  // The drag handler handles moving, so just stop propagation isn't needed here if we want drag.
+                  // Actually, let the default handleMouseDown run.
+                }
+              }}
+            >
+              <div className="flex gap-1.5 px-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-red-400"></div>
+                <div className="w-2.5 h-2.5 rounded-full bg-yellow-400"></div>
+                <div className="w-2.5 h-2.5 rounded-full bg-green-400"></div>
+              </div>
+              <input 
+                type="text" 
+                defaultValue={url}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    let val = (e.target as HTMLInputElement).value;
+                    if (!val.startsWith('http')) val = 'https://' + val;
+                    updateObject(obj.id, { content: val });
+                  }
+                }}
+                onMouseDown={(e) => e.stopPropagation()} // Stop drag when clicking input
+                className="flex-1 bg-white border border-neutral-200 rounded px-2 py-0.5 text-xs text-neutral-600 outline-none focus:border-blue-400 font-medium"
+              />
+            </div>
+            {/* Browser Iframe */}
+            <div className="flex-1 relative bg-white">
+              <iframe
+                src={proxyUrl}
+                className="absolute inset-0 w-full h-full border-none"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                onMouseDown={(e) => e.stopPropagation()} // Let user interact inside iframe
+              />
+              {isDragging && (
+                <div className="absolute inset-0 z-10" /> 
+                // Invisible shield when dragging so iframe doesn't swallow mouse events
+              )}
+            </div>
+          </div>
+        );
+      }
+
       case 'text':
         return isEditing ? (
           <div

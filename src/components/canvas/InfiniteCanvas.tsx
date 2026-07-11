@@ -835,7 +835,14 @@ export default function InfiniteCanvas() {
       const text = (e.clipboardData?.getData('text') || '').trim();
       if (isUrl(text)) {
         e.preventDefault();
-        addObject(newLinkCard(text, centerX - 150, centerY - 130));
+        addObject({
+          type: 'browser',
+          x: centerX - 400,
+          y: centerY - 300,
+          width: 800,
+          height: 600,
+          content: text,
+        });
       }
     };
 

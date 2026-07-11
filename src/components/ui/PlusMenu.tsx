@@ -171,6 +171,20 @@ export default function PlusMenu() {
       },
     },
     {
+      icon: (<MenuIcon><circle cx="12" cy="12" r="10" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /><line x1="2" y1="12" x2="22" y2="12" /></MenuIcon>),
+      label: 'Browser',
+      action: () => {
+        addObject({
+          type: 'browser',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 800,
+          height: 600,
+          content: 'https://wikipedia.org',
+        });
+      },
+    },
+    {
       icon: (<MenuIcon><rect x="3" y="3" width="18" height="18" rx="4" /><polyline points="8 12 11 15 16 9" /></MenuIcon>),
       label: 'To-Do List',
       action: () => {
