@@ -135,7 +135,28 @@ const ICONS = {
   arrowRight: <Icon size={14}><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></Icon>,
   palette: <Icon size={14}><circle cx="12" cy="12" r="10" /><circle cx="8" cy="10" r="1" fill="currentColor" /><circle cx="12" cy="7.5" r="1" fill="currentColor" /><circle cx="16" cy="10" r="1" fill="currentColor" /></Icon>,
   tag: <Icon size={14}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z" /><line x1="7" y1="7" x2="7.01" y2="7" /></Icon>,
-  chat: <Icon><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></Icon>,
+  chat: (
+    <Icon>
+      <defs>
+        <mask id="landing-chat-double-bubble-mask">
+          <rect x="0" y="0" width="24" height="24" fill="white" />
+          <path 
+            d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292" 
+            fill="black" 
+            stroke="black" 
+            strokeWidth="3.5" 
+          />
+        </mask>
+      </defs>
+      <path 
+        d="M18.85 12C18.9484 11.5153 19 11.0137 19 10.5C19 6.35786 15.6421 3 11.5 3C7.35786 3 4 6.35786 4 10.5C4 11.3766 4.15039 12.2181 4.42676 13C5.50098 16.0117 3 18 3 18H9.5" 
+        mask="url(#landing-chat-double-bubble-mask)" 
+      />
+      <path 
+        d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292" 
+      />
+    </Icon>
+  ),
 };
 
 /* ============================================================
@@ -962,7 +983,7 @@ export default function LandingPage() {
                         role="tab"
                         aria-selected={layoutMode === mode}
                         onClick={() => setLayoutMode(mode)}
-                        className={`relative px-4 py-1.5 rounded-full text-[11px] font-bold transition-colors cursor-pointer focus-visible:outline-none ${
+                        className={`relative px-4 py-1.5 rounded-full text-[11px] font-bold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 ${
                           layoutMode === mode ? 'text-[var(--text-primary)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
                         }`}
                       >
