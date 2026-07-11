@@ -45,8 +45,27 @@ export default function ChatLauncher() {
           className={`clay-card w-11 h-11 rounded-2xl flex items-center justify-center transition-colors cursor-pointer relative ${panelOpen ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--accent)]'}`}
         >
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
-            <path d="M16.1 4A9 9 0 0 1 22 12l2 5.9-3.9-1.9A9 9 0 0 1 16.1 4Z" />
+            <defs>
+              <mask id="chat-double-bubble-mask">
+                <rect x="0" y="0" width="24" height="24" fill="white" />
+                <path 
+                  d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" 
+                  transform="translate(1.5, 5) scale(0.68)" 
+                  fill="black" 
+                  stroke="black" 
+                  strokeWidth="3.5" 
+                />
+              </mask>
+            </defs>
+            <path 
+              d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" 
+              transform="translate(22.5, 1.5) scale(-0.68, 0.68)" 
+              mask="url(#chat-double-bubble-mask)" 
+            />
+            <path 
+              d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" 
+              transform="translate(1.5, 5) scale(0.68)" 
+            />
           </svg>
           {unread > 0 && (
             <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accent)] text-white text-[9px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">{unread}</span>
