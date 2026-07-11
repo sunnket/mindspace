@@ -630,6 +630,7 @@ export default function AgentOverlay() {
       let dictContext: string | undefined;
       let wikiContext: string | undefined;
       let newsContext: string | undefined;
+      let youtubeContext: string | undefined;
 
       const pLower = promptText.toLowerCase();
 
@@ -711,6 +712,23 @@ export default function AgentOverlay() {
       }
       if (!runningRef.current) return;
 
+      if (/\b(youtube|video|song|music|listen to|watch)\b/i.test(pLower)) {
+        addLog('[Agent] Searching YouTube...');
+        try {
+          // Remove filler words to get a better query
+          let q = promptText.replace(/\b(find|me|a|the|youtube|video|song|music|link|listen to|watch|of|by|for)\b/gi, '').trim();
+          if (!q) q = promptText;
+          const yRes = await fetch(`/api/youtube-search?q=${encodeURIComponent(q)}`, { signal: controller.signal });
+          if (yRes.ok) {
+            const yJson = await yRes.json();
+            if (yJson.success && yJson.results?.length) {
+              youtubeContext = yJson.results.map((r: string, i: number) => `Result ${i+1}: ${r}`).join('\n');
+            }
+          }
+        } catch { /* best effort */ }
+      }
+      if (!runningRef.current) return;
+
       const res = await fetch('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -729,6 +747,7 @@ export default function AgentOverlay() {
           dictContext,
           wikiContext,
           newsContext,
+          youtubeContext,
           filesContext: filesContext || undefined,
           canvas: {
             objects: visibleObjects.map((o) => ({

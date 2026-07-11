@@ -311,7 +311,7 @@ async function openModelStream(
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext, webContext, memoriesContext, searchContext, wikiContext, weatherContext, dictContext, newsContext, mode } = await req.json();
+    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext, webContext, memoriesContext, searchContext, wikiContext, weatherContext, dictContext, newsContext, youtubeContext, mode } = await req.json();
     if (!prompt) {
       return NextResponse.json({ success: false, error: 'Prompt is required' }, { status: 400 });
     }
@@ -367,6 +367,9 @@ export async function POST(req: NextRequest) {
     }
     if (typeof newsContext === 'string' && newsContext.trim()) {
       parts.push(`### NEWS — recent news articles with REAL, working URLs. Use these URLs when placing Link Cards:\n"""${newsContext.trim().slice(0, 4000)}"""`);
+    }
+    if (typeof youtubeContext === 'string' && youtubeContext.trim()) {
+      parts.push(`### YOUTUBE RESULTS — REAL, working YouTube video URLs for this query. Use THESE exact URLs when placing Link Cards instead of guessing:\n"""${youtubeContext.trim().slice(0, 2000)}"""`);
     }
     const assignmentSection = parts.length > 0 ? parts.join('\n\n') + '\n\n' : '';
 
