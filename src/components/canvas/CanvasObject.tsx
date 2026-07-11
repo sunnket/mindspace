@@ -367,7 +367,16 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const canWarp = warpable && !useCollabStore.getState().guestOriginView;
         overMinimizeZone = inLeftCol && moveE.clientY >= 72 && moveE.clientY < 232;
         overWarpZone = canWarp && inLeftCol && moveE.clientY >= 240 && moveE.clientY < 404;
-        overChatZone = warpable && inLeftCol && moveE.clientY >= 412 && moveE.clientY < 564;
+
+        const chatPanel = document.getElementById('chat-panel-container');
+        if (chatPanel && warpable && draggedFar) {
+          const rect = chatPanel.getBoundingClientRect();
+          overChatZone = moveE.clientX >= rect.left && moveE.clientX <= rect.right &&
+                         moveE.clientY >= rect.top && moveE.clientY <= rect.bottom;
+          chatPanel.style.transform = overChatZone ? 'scale(1.02)' : 'scale(1)';
+        } else {
+          overChatZone = false;
+        }
 
         const zone = document.getElementById('minimize-hotzone');
         const label = document.getElementById('minimize-hotzone-label');
@@ -385,15 +394,6 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           wzone.style.background = overWarpZone ? 'rgba(201,123,75,0.12)' : 'transparent';
         }
         if (wlabel) wlabel.style.opacity = overWarpZone ? '1' : '0.55';
-
-        const czone = document.getElementById('chat-hotzone');
-        const clabel = document.getElementById('chat-hotzone-label');
-        if (czone) {
-          czone.style.opacity = draggedFar && warpable ? '1' : '0';
-          czone.style.borderColor = overChatZone ? 'var(--accent)' : 'rgba(201,123,75,0.28)';
-          czone.style.background = overChatZone ? 'rgba(201,123,75,0.12)' : 'transparent';
-        }
-        if (clabel) clabel.style.opacity = overChatZone ? '1' : '0.55';
 
         const dx = (moveE.clientX - dragStart.current.x) / camera.zoom;
         const dy = (moveE.clientY - dragStart.current.y) / camera.zoom;
@@ -450,10 +450,9 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const wlabel = document.getElementById('warp-hotzone-label');
         if (wzone) { wzone.style.opacity = '0'; wzone.style.borderColor = 'rgba(201,123,75,0.28)'; wzone.style.background = 'transparent'; }
         if (wlabel) wlabel.style.opacity = '0.55';
-        const czone = document.getElementById('chat-hotzone');
-        const clabel = document.getElementById('chat-hotzone-label');
-        if (czone) { czone.style.opacity = '0'; czone.style.borderColor = 'rgba(201,123,75,0.28)'; czone.style.background = 'transparent'; }
-        if (clabel) clabel.style.opacity = '0.55';
+        
+        const chatPanel = document.getElementById('chat-panel-container');
+        if (chatPanel) chatPanel.style.transform = 'scale(1)';
 
         if (overMinimizeZone) {
           useCanvasStore.getState().minimizeObject(dragObj.id);

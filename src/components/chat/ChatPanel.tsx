@@ -478,11 +478,12 @@ function ChatShell({
   return (
     <AnimatePresence>
       <motion.div
+        id="chat-panel-container"
         initial={{ opacity: 0, x: 24 }}
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 24 }}
         transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-        className="fixed right-5 top-44 z-[126] clay-card w-80 h-[70vh] max-h-[560px] rounded-[24px] flex flex-col overflow-hidden pointer-events-auto"
+        className="fixed right-5 top-44 z-[150] clay-card w-80 h-[70vh] max-h-[560px] rounded-[24px] flex flex-col overflow-hidden pointer-events-auto"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] shrink-0">
           <div className="flex items-center gap-1.5 min-w-0">

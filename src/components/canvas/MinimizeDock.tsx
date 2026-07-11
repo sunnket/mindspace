@@ -127,23 +127,6 @@ export default function MinimizeDock() {
         </div>
       </div>
 
-      <div
-        id="chat-hotzone"
-        className="fixed top-[412px] left-4 w-[196px] h-[152px] z-[100] pointer-events-none rounded-[28px] border-2 border-dashed flex items-center justify-center transition-all duration-150"
-        style={{ borderColor: 'rgba(201,123,75,0.28)', background: 'transparent', opacity: 0 }}
-      >
-        <div
-          id="chat-hotzone-label"
-          className="flex flex-col items-center gap-1.5 text-[var(--accent)] transition-opacity duration-150"
-          style={{ opacity: 0.55 }}
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-          </svg>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-center">Send to chat</span>
-        </div>
-      </div>
-
       {/* The shelf itself */}
       <AnimatePresence>
         {minimized.length > 0 && (
