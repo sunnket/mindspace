@@ -49,8 +49,7 @@ export default function ChatLauncher() {
               <mask id="chat-double-bubble-mask">
                 <rect x="0" y="0" width="24" height="24" fill="white" />
                 <path 
-                  d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" 
-                  transform="translate(1.5, 5) scale(0.68)" 
+                  d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292" 
                   fill="black" 
                   stroke="black" 
                   strokeWidth="3.5" 
@@ -58,13 +57,11 @@ export default function ChatLauncher() {
               </mask>
             </defs>
             <path 
-              d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" 
-              transform="translate(22.5, 1.5) scale(-0.68, 0.68)" 
+              d="M18.85 12C18.9484 11.5153 19 11.0137 19 10.5C19 6.35786 15.6421 3 11.5 3C7.35786 3 4 6.35786 4 10.5C4 11.3766 4.15039 12.2181 4.42676 13C5.50098 16.0117 3 18 3 18H9.5" 
               mask="url(#chat-double-bubble-mask)" 
             />
             <path 
-              d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" 
-              transform="translate(1.5, 5) scale(0.68)" 
+              d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292" 
             />
           </svg>
           {unread > 0 && (
