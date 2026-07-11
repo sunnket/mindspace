@@ -15,9 +15,9 @@ import { useCanvasStore } from '@/store/canvasStore';
 const spring = { type: 'spring' as const, stiffness: 360, damping: 32 };
 
 /* ---- option palettes ---- */
-const TEXT_COLORS = ['#2D2A26', '#FFFFFF', '#D64545', '#E67E22', '#2F9E6E', '#3E63DD', '#8B5FBF', '#E93D82'];
+const TEXT_COLORS = ['#FFFFFF', '#2D2A26', '#D64545', '#E67E22', '#2F9E6E', '#3E63DD', '#8B5FBF', '#E93D82'];
 const FILL_COLORS = ['transparent', '#FBE9DE', '#FDE7E7', '#E7F6EC', '#E5EDFB', '#F1E9FA', '#FCE8F1', '#F3EEE7'];
-const STROKE_COLORS = ['#2D2A26', '#D64545', '#2F9E6E', '#3E63DD', '#E67E22', '#8B5FBF'];
+const STROKE_COLORS = ['#FFFFFF', '#2D2A26', '#D64545', '#2F9E6E', '#3E63DD', '#E67E22', '#8B5FBF'];
 const ARROW_COLORS = ['#2D2A26', '#D64545', '#E67E22', '#2F9E6E', '#3E63DD', '#8B5FBF'];
 
 const FONTS: { label: string; value: string }[] = [

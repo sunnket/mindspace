@@ -371,6 +371,10 @@ export async function POST(req: NextRequest) {
     if (typeof youtubeContext === 'string' && youtubeContext.trim()) {
       parts.push(`### YOUTUBE RESULTS — REAL, working YouTube video URLs for this query. Use THESE exact URLs when placing Link Cards instead of guessing:\n"""${youtubeContext.trim().slice(0, 2000)}"""`);
     }
+    
+    if (canvas?.isDark !== undefined) {
+      parts.push(`### CANVAS THEME\nThe canvas background is currently ${canvas.isDark ? 'DARK' : 'LIGHT'}.\nCRITICAL: You MUST use ${canvas.isDark ? 'WHITE (#FFFFFF) or light colors' : 'DARK (#2D2A26) or dark colors'} for all text, headings, sticky notes, and drawing strokes so they are clearly visible against the background. Never use text colors that blend into the background.`);
+    }
     const assignmentSection = parts.length > 0 ? parts.join('\n\n') + '\n\n' : '';
 
     const now = new Date();

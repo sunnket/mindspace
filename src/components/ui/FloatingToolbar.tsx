@@ -19,7 +19,7 @@ const FRAME_COLORS = [
 ];
 
 const DRAW_COLORS = [
-  '#2D2A26', '#0B57D0', '#D93025', '#188038', // Classics
+  '#FFFFFF', '#2D2A26', '#0B57D0', '#D93025', '#188038', // Classics
   '#FFB300', '#FF7043', '#D81B60', '#9B59B6', // Warm creative
   '#3F51B5', '#00ACC1', '#8EAC8A', '#4E342E', // Cool earth
   '#F48FB1', '#FFF59D', '#A5D6A7', '#B39DDB', // Pastels

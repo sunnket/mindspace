@@ -750,6 +750,7 @@ export default function AgentOverlay() {
           youtubeContext,
           filesContext: filesContext || undefined,
           canvas: {
+            isDark: store.canvasBackground.dark,
             objects: visibleObjects.map((o) => ({
               id: o.id, type: o.type, x: o.x, y: o.y,
               width: o.width, height: o.height, content: o.content, style: o.style,
