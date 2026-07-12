@@ -70,6 +70,7 @@ export default function FloatingToolbar() {
   const [showFrameOptions, setShowFrameOptions] = useState(false);
   const [showWorkflowMenu, setShowWorkflowMenu] = useState(false);
   const [showBgOptions, setShowBgOptions] = useState(false);
+  const [showRelaxOptions, setShowRelaxOptions] = useState(false);
 
   const [selectedShapeDomain, setSelectedShapeDomain] = useState<'all' | 'brainstorm' | 'code' | 'love' | 'usecase' | 'story' | 'system'>('all');
   const selectedShapeType = useCanvasStore((s) => s.selectedShapeType);
@@ -181,6 +182,18 @@ export default function FloatingToolbar() {
         </svg>
       ),
     },
+    {
+      id: 'relax' as any,
+      label: 'Stress Reliefer',
+      icon: (
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2C12 2 9 6 9 10C9 14.5 12 17 12 17C12 17 15 14.5 15 10C15 6 12 2 12 2Z" />
+          <path d="M12 17C12 17 6 16 4 12C2 8 6 6 6 6C6 6 9 9 10 12" />
+          <path d="M12 17C12 17 18 16 20 12C22 8 18 6 18 6C18 6 15 9 14 12" />
+          <circle cx="12" cy="17" r="1" fill="currentColor" />
+        </svg>
+      ),
+    },
   ];
 
   const { isListening } = useVoiceStore();
@@ -246,14 +259,29 @@ export default function FloatingToolbar() {
                 setShowArrowOptions(false);
                 setShowFrameOptions(false);
                 setShowBgOptions(false);
+                setShowRelaxOptions(false);
                 setCommentMode(false);
                 setThreadsSidebarOpen(false);
                 setMode('select');
                 return;
               }
+              if (tool.id === 'relax' as any) {
+                setShowRelaxOptions(!showRelaxOptions);
+                setShowDrawOptions(false);
+                setShowShapeOptions(false);
+                setShowArrowOptions(false);
+                setShowFrameOptions(false);
+                setShowBgOptions(false);
+                setShowWorkflowMenu(false);
+                setCommentMode(false);
+                setThreadsSidebarOpen(false);
+                setMode('relax' as any);
+                return;
+              }
               setMode(tool.id as InteractionMode);
               setShowWorkflowMenu(false);
               setShowBgOptions(false);
+              setShowRelaxOptions(false);
               setCommentMode(false);
               setThreadsSidebarOpen(false);
               // Picking the arrow tool starts a fresh draw — deselect so the
@@ -308,6 +336,7 @@ export default function FloatingToolbar() {
             setShowShapeOptions(false);
             setShowArrowOptions(false);
             setShowFrameOptions(false);
+            setShowRelaxOptions(false);
             setCommentMode(false);
             setThreadsSidebarOpen(false);
           }}
@@ -364,6 +393,7 @@ export default function FloatingToolbar() {
             setShowArrowOptions(false);
             setShowFrameOptions(false);
             setShowBgOptions(false);
+            setShowRelaxOptions(false);
           }}
           className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
             threadsSidebarOpen
@@ -923,6 +953,36 @@ export default function FloatingToolbar() {
             </div>
             <p className="text-[10px] text-[var(--text-muted)] text-center leading-relaxed">
               Click to place a frame, then drag its title tab to move it. Great for grouping related cards.
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Relax options panel */}
+      <AnimatePresence>
+        {showRelaxOptions && mode === 'relax' && (
+          <motion.div
+            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[240px]"
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider px-1">
+              Stress Reliefer
+            </span>
+            <button
+              className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-xs font-semibold bg-[var(--accent-subtle)] text-[var(--accent)] border border-[var(--accent-light)] transition-all hover:bg-[var(--accent-subtle)]/80"
+              onClick={() => {}}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 0 0 9.8 19.8 4 4 0 0 0 12 19a4 4 0 0 0 2.2.8 4 4 0 0 0 5.767-2.317 4 4 0 0 0 .556-6.588 4 4 0 0 0-2.526-5.77A3 3 0 0 0 12 5z" />
+              </svg>
+              🌸 Flower Burst
+            </button>
+            <p className="text-[10px] text-[var(--text-muted)] text-center leading-relaxed">
+              Click anywhere on the canvas to pop out and scatter blooming flowers and leaves. A cinematic, calming 10-second effect.
             </p>
           </motion.div>
         )}

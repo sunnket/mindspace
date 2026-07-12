@@ -4,7 +4,7 @@ import { CanvasObjectData, DrawingStroke, ConnectionData, Scene, CommentThread }
 import type { CanvasOp } from '@/lib/collab/types';
 import { CanvasBackground, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 
-export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame';
+export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax';
 
 /* ------------------------------------------------------------------
    Collaboration bridge — inert unless a live session sets these.

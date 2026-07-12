@@ -21,6 +21,7 @@ import {
   COLLAB_SESSION_ID_PREFIX,
 } from '@/lib/db';
 import CanvasObject from './CanvasObject';
+import FlowerParticlesLayer from './FlowerParticlesLayer';
 import DrawingLayer from './DrawingLayer';
 import ConnectionsLayer from './ConnectionsLayer';
 import FloatingToolbar from '@/components/ui/FloatingToolbar';
@@ -417,7 +418,7 @@ export default function InfiniteCanvas() {
         return;
       }
 
-      if (mode === 'text' || mode === 'select' || mode === 'shape' || mode === 'arrow' || mode === 'frame') {
+      if (mode === 'text' || mode === 'select' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax') {
         // If they click empty space, we record pan start just in case it's a tiny drag
         isPanningRef.current = true;
         panStartRef.current = {
@@ -473,7 +474,7 @@ export default function InfiniteCanvas() {
         // If we are in select/text mode, and drag is large enough, switch to panning the canvas optionally?
         // Wait, standard behavior: space to pan, or middle click. Left drag creates selection box (which we don't have yet), or just pans if empty canvas.
         // Let's implement empty canvas drag = pan for simplicity!
-        if (mode === 'select' || mode === 'text' || mode === 'pan') {
+        if (mode === 'select' || mode === 'text' || mode === 'pan' || mode === 'relax') {
           const dx = e.clientX - panStartRef.current.x;
           const dy = e.clientY - panStartRef.current.y;
           setCamera({
@@ -495,7 +496,7 @@ export default function InfiniteCanvas() {
         // If it was a click (not a drag) on empty space in select/text/shape/arrow mode, create element!
         const target = e.target as HTMLElement;
         const isClickOnObject = target.closest('.canvas-object') || target.closest('.canvas-object-content');
-        if (!isClickOnObject && (mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame')) {
+        if (!isClickOnObject && (mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax')) {
           const dx = Math.abs(e.clientX - panStartRef.current.x);
           const dy = Math.abs(e.clientY - panStartRef.current.y);
           if (dx < 5 && dy < 5) {
@@ -565,6 +566,8 @@ export default function InfiniteCanvas() {
               setSelectedId(obj.id);
               setEditingId(obj.id);
               setMode('select');
+            } else if (mode === 'relax') {
+              window.dispatchEvent(new CustomEvent('spawn-flower-burst', { detail: { x: worldPos.x, y: worldPos.y } }));
             } else {
               const ts = useCanvasStore.getState().textStyle;
               const obj = addObject({
@@ -979,6 +982,9 @@ export default function InfiniteCanvas() {
               />
             </div>
           ))}
+
+          {/* Cinematic Stress Reliefer particles */}
+          <FlowerParticlesLayer />
         </div>
 
         {/* Drawing layer (SVG overlay) */}
