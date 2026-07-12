@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import { getSnapPoints, randomStickyColor } from '@/lib/utils';
+import { ensureReadableInk, readableInk, paperColor } from '@/lib/canvasTheme';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import VoiceNoteBlock from './VoiceNoteBlock';
 import FileBlock from './FileBlock';
@@ -338,6 +339,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const pushUndo = useCanvasStore((s) => s.pushUndo);
   const objects = useCanvasStore((s) => s.objects);
   const camera = useCanvasStore((s) => s.camera);
+  const canvasBackground = useCanvasStore((s) => s.canvasBackground);
   const mode = useCanvasStore((s) => s.mode);
   const getNextZIndex = useCanvasStore((s) => s.getNextZIndex);
   const pushCanvas = useCanvasStore((s) => s.pushCanvas);
@@ -1224,6 +1226,10 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
   // Render content based on type
   const renderContent = () => {
+    // The resolved canvas "paper" color — used to auto-contrast free text so it
+    // never becomes invisible when the canvas background changes.
+    const canvasPaper = paperColor(canvasBackground);
+    const freeInk = ensureReadableInk(obj.style?.textColor as string | undefined, canvasPaper);
     switch (obj.type) {
       case 'arrow': {
         const startX = obj.style?.startX as number || 0;
@@ -1669,7 +1675,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
               fontWeight: (obj.style?.fontWeight as number | undefined) ?? undefined,
               textAlign: (obj.style?.textAlign as any) || undefined,
-              color: (obj.style?.textColor as string | undefined) ?? undefined,
+              color: freeInk,
               lineHeight: '1.7'
             }}
           />
@@ -1682,7 +1688,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
               fontWeight: (obj.style?.fontWeight as number | undefined) ?? undefined,
               textAlign: (obj.style?.textAlign as any) || undefined,
-              color: (obj.style?.textColor as string | undefined) ?? undefined,
+              color: freeInk,
               lineHeight: '1.7',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
@@ -1709,7 +1715,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   fontWeight: (obj.style?.fontWeight as number | undefined) ?? 500,
                   textAlign: (obj.style?.textAlign as any) || undefined,
                   lineHeight: 1.2,
-                  color: (obj.style?.textColor as string | undefined) || 'var(--text-primary)',
+                  color: freeInk,
                 }}
               />
             ) : (
@@ -1722,7 +1728,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   fontWeight: (obj.style?.fontWeight as number | undefined) ?? 500,
                   textAlign: (obj.style?.textAlign as any) || undefined,
                   lineHeight: 1.2,
-                  color: (obj.style?.textColor as string | undefined) || 'var(--text-primary)',
+                  color: freeInk,
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
                 }}
@@ -1740,7 +1746,14 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           </div>
         );
 
-      case 'sticky':
+      case 'sticky': {
+        // Sticky backgrounds are light pastels; its ink must contrast with the
+        // STICKY, not the canvas theme (otherwise light text on a light note is
+        // invisible when the canvas is dark).
+        const stickyBg = (obj.style?.color as string) || '#FEF3C7';
+        const stickyInk = /^#/.test(stickyBg)
+          ? ensureReadableInk(obj.style?.textColor as string | undefined, stickyBg)
+          : readableInk('#FEF3C7');
         return (
           <div
             className="sticky-note"
@@ -1748,6 +1761,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               background: (obj.style?.color as string) || 'var(--sticky-yellow)',
               width: '100%',
               height: '100%',
+              color: stickyInk,
             }}
           >
             {isEditing ? (
@@ -1765,6 +1779,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   width: '100%',
                   height: '100%',
                   padding: '12px',
+                  color: stickyInk,
                 }}
               />
             ) : (
@@ -1777,6 +1792,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
                   padding: '12px',
+                  color: stickyInk,
                 }}
               >
                 <RichText content={obj.content || ''} />
@@ -1784,6 +1800,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             )}
           </div>
         );
+      }
 
       case 'card':
         if (obj.style?.isVoiceNote) {

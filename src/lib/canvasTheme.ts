@@ -91,6 +91,39 @@ export function isDarkColor(hex: string): boolean {
   return luminance(hex) < 0.42;
 }
 
+/** WCAG contrast ratio between two hex colors (1 = identical … 21 = black/white). */
+export function contrastRatio(a: string, b: string): number {
+  const la = luminance(a);
+  const lb = luminance(b);
+  const hi = Math.max(la, lb);
+  const lo = Math.min(la, lb);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** Legible ink (near-black or warm off-white) for a given background hex. */
+export function readableInk(bgHex: string): string {
+  return isDarkColor(bgHex) ? '#F4EFE8' : '#2D2A26';
+}
+
+/**
+ * Pick a text color that is guaranteed readable on `bgHex`. Honors a desired
+ * color only when it clears a sensible contrast bar; otherwise falls back to
+ * an auto-contrasting ink. `desired` may be undefined or a non-hex CSS value
+ * (which we can't measure, so we replace it).
+ */
+export function ensureReadableInk(desired: string | undefined, bgHex: string): string {
+  if (desired && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(desired.trim())) {
+    if (contrastRatio(desired.trim(), bgHex) >= 3.2) return desired.trim();
+  }
+  return readableInk(bgHex);
+}
+
+/** The resolved "paper" hex for a background choice (same math as --bg-primary). */
+export function paperColor(bg: CanvasBackground): string {
+  const neutral = (bg.dark ?? isDarkColor(bg.color)) ? '#0D0C0B' : '#FAF6F1';
+  return mixHex(neutral, bg.color, clamp01(bg.opacity));
+}
+
 /* --------------------------- presets --------------------------- */
 
 export const CANVAS_PRESETS: CanvasThemePreset[] = [
