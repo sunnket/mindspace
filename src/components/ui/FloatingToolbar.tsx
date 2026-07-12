@@ -9,6 +9,7 @@ import WorkflowMenu from './WorkflowMenu';
 import CanvasBackgroundPanel from './CanvasBackgroundPanel';
 import ShapePreview from '@/components/canvas/ShapePreview';
 import { RELAX_EFFECTS, RELAX_EFFECT_LIST } from '@/lib/relaxEffects';
+import RelaxIcon from './RelaxIcons';
 
 const FRAME_COLORS = [
   { name: 'Terracotta', hex: '#C97B4B' },
@@ -76,6 +77,19 @@ export default function FloatingToolbar() {
   const relaxEffect = useCanvasStore((s) => s.relaxEffect);
   const setRelaxEffect = useCanvasStore((s) => s.setRelaxEffect);
   const activeRelax = relaxEffect ? RELAX_EFFECTS[relaxEffect] : null;
+
+  // Touching the canvas dismisses the picker on the spot — nobody wants to play
+  // with an effect through a panel sitting on top of it.
+  useEffect(() => {
+    if (!showRelaxOptions) return;
+    const dismiss = (e: MouseEvent) => {
+      if ((e.target as HTMLElement | null)?.closest?.('.canvas-container')) {
+        setShowRelaxOptions(false);
+      }
+    };
+    window.addEventListener('mousedown', dismiss);
+    return () => window.removeEventListener('mousedown', dismiss);
+  }, [showRelaxOptions]);
 
   const [selectedShapeDomain, setSelectedShapeDomain] = useState<'all' | 'brainstorm' | 'code' | 'love' | 'usecase' | 'story' | 'system'>('all');
   const selectedShapeType = useCanvasStore((s) => s.selectedShapeType);
@@ -986,17 +1000,8 @@ export default function FloatingToolbar() {
                     title={fx.label}
                     onClick={() => {
                       setRelaxEffect(fx.id);
-                      // Fire a preview at the centre of the viewport so picking an
-                      // effect shows you what it is instead of just naming it.
-                      const { camera } = useCanvasStore.getState();
-                      window.dispatchEvent(
-                        new CustomEvent('spawn-relax-burst', {
-                          detail: {
-                            x: (window.innerWidth / 2 - camera.x) / camera.zoom,
-                            y: (window.innerHeight / 2 - camera.y) / camera.zoom,
-                          },
-                        })
-                      );
+                      // Get out of the way immediately — the canvas is the point.
+                      setShowRelaxOptions(false);
                     }}
                     className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-lg border transition-all ${
                       active
@@ -1004,7 +1009,7 @@ export default function FloatingToolbar() {
                         : 'bg-transparent text-[var(--text-secondary)] border-transparent hover:bg-[var(--bg-tertiary)]'
                     }`}
                   >
-                    <span className="text-base leading-none">{fx.glyph}</span>
+                    <RelaxIcon id={fx.id} />
                     <span className="text-[9px] font-semibold leading-tight text-center">{fx.label}</span>
                   </button>
                 );
@@ -1013,7 +1018,7 @@ export default function FloatingToolbar() {
 
             <p className="text-[10px] text-[var(--text-muted)] text-center leading-relaxed">
               {activeRelax
-                ? `${activeRelax.blurb} Click anywhere on the canvas — it runs for 10 seconds.`
+                ? activeRelax.blurb
                 : 'Pick an effect, then click anywhere on the canvas to let it go.'}
             </p>
           </motion.div>

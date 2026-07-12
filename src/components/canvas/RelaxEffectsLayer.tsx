@@ -1,15 +1,23 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useCanvasStore } from '@/store/canvasStore';
-import { screenToCanvas } from '@/lib/utils';
-import { RELAX_EFFECTS, type Particle, type RelaxEffect } from '@/lib/relaxEffects';
+import { RELAX_EFFECTS, type EffectApi, type Particle, type RelaxEffect } from '@/lib/relaxEffects';
 
 /**
  * Stress Reliefer engine.
  *
- * Mounts inside `.canvas-world`, so particles are positioned in world
- * coordinates and pan/zoom with the canvas for free.
+ * Particles live in one of two containers, chosen by the effect's `space`:
+ *
+ *  - world  — a child of `.canvas-world`, so particles sit in canvas coordinates
+ *             and pan/zoom with the board.
+ *  - screen — a fixed, viewport-sized overlay portalled to <body>. Weather and
+ *             the pop games go here: a bubble you have to click must not slide
+ *             out from under the cursor when the canvas moves.
+ *
+ * The screen overlay sits below the toolbar (z-100) and minimap (z-50) so that
+ * clickable particles can never swallow a UI click.
  *
  * Particles are driven imperatively rather than through React state: a burst is
  * routinely 200+ nodes, and reconciling that list 60 times a second is hopeless.
@@ -31,16 +39,39 @@ interface Live {
 }
 
 export default function RelaxEffectsLayer() {
-  const layerRef = useRef<HTMLDivElement | null>(null);
+  const mode = useCanvasStore((s) => s.mode);
+  const relaxEffect = useCanvasStore((s) => s.relaxEffect);
+
+  const worldRef = useRef<HTMLDivElement | null>(null);
+  const screenRef = useRef<HTMLDivElement | null>(null);
   const emittersRef = useRef<Emitter[]>([]);
   const liveRef = useRef<Live[]>([]);
   const frameRef = useRef<number | null>(null);
   const runningRef = useRef(false);
-  const lastTrailRef = useRef(0);
+  const activeRef = useRef<Set<string>>(new Set());
+  const resetRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    const layer = layerRef.current;
-    if (!layer) return;
+    const world = worldRef.current;
+    const screen = screenRef.current;
+    if (!world || !screen) return;
+
+    const apis = new Map<string, EffectApi>();
+
+    const apiFor = (fx: RelaxEffect): EffectApi => {
+      let api = apis.get(fx.id);
+      if (!api) {
+        api = {
+          screen,
+          get viewport() {
+            return { w: window.innerWidth, h: window.innerHeight };
+          },
+          spawn: (x, y, n, kind, tint) => spawn(fx, x, y, n, kind, tint),
+        };
+        apis.set(fx.id, api);
+      }
+      return api;
+    };
 
     const countFor = (id: string) => {
       let n = 0;
@@ -48,26 +79,51 @@ export default function RelaxEffectsLayer() {
       return n;
     };
 
-    const spawn = (fx: RelaxEffect, x: number, y: number, n: number) => {
+    const pop = (l: Live) => {
+      if (l.p.kind !== 0) return; // shards aren't clickable
+      l.fx.onPop?.(l.p, apiFor(l.fx));
+      // Retire it immediately rather than animating a "popping" state: the shards
+      // it throws off are the pop, and a lingering husk reads as a missed click.
+      l.p.el.remove();
+      liveRef.current = liveRef.current.filter((x) => x !== l);
+    };
+
+    const spawn = (fx: RelaxEffect, x: number, y: number, n: number, kind?: number, tint?: string) => {
       const room = fx.maxParticles - countFor(fx.id);
       const count = Math.min(n, room);
+      if (count <= 0) return;
+
       const now = performance.now();
+      const host = fx.space === 'screen' ? screen : world;
+      const api = apiFor(fx);
+
       for (let i = 0; i < count; i++) {
-        const p = fx.create(x, y, now);
-        layer.appendChild(p.el);
-        liveRef.current.push({ p, fx });
+        const p = fx.create(x, y, now, api, kind, tint);
+        const live: Live = { p, fx };
+        if (fx.interactive && p.kind === 0) {
+          p.el.style.pointerEvents = 'auto';
+          p.el.addEventListener('pointerdown', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            pop(live);
+          });
+        }
+        host.appendChild(p.el);
+        liveRef.current.push(live);
       }
     };
 
     /** The shockwave that opens a burst. Handed to the compositor and forgotten. */
     const flash = (fx: RelaxEffect, x: number, y: number) => {
+      if (!fx.flash) return;
+      const host = fx.space === 'screen' ? screen : world;
       const ring = document.createElement('div');
       const r = 90;
       ring.style.cssText =
         `position:absolute;left:0;top:0;width:${r * 2}px;height:${r * 2}px;` +
         'border-radius:50%;pointer-events:none;max-width:none;max-height:none;' +
         `background:radial-gradient(circle, ${fx.flash} 0%, transparent 62%);`;
-      layer.appendChild(ring);
+      host.appendChild(ring);
       const anim = ring.animate(
         [
           { transform: `translate3d(${x - r}px, ${y - r}px, 0) scale(0.15)`, opacity: 0.95 },
@@ -84,20 +140,30 @@ export default function RelaxEffectsLayer() {
 
       emittersRef.current = emittersRef.current.filter((e) => e.endTime > now);
       for (const e of emittersRef.current) {
-        if (now - e.lastSpawn >= e.fx.spawnEveryMs) {
+        if (e.fx.spawnEveryMs > 0 && now - e.lastSpawn >= e.fx.spawnEveryMs) {
           e.lastSpawn = now;
           spawn(e.fx, e.x, e.y, e.fx.spawnPerTick + (Math.random() < 0.5 ? 1 : 0));
         }
+      }
+
+      // An effect that has no emitters left has gone quiet — let it tear down its
+      // continuous bits (the rain track, the storm veil) even if particles remain.
+      for (const id of [...activeRef.current]) {
+        if (emittersRef.current.some((e) => e.fx.id === id)) continue;
+        const fx = RELAX_EFFECTS[id as keyof typeof RELAX_EFFECTS];
+        activeRef.current.delete(id);
+        fx?.onStop?.(apiFor(fx));
       }
 
       const alive: Live[] = [];
       for (const l of liveRef.current) {
         const t = (now - l.p.born) / l.p.life;
         if (t >= 1) {
+          l.fx.onDeath?.(l.p, apiFor(l.fx));
           l.p.el.remove();
           continue;
         }
-        l.fx.step(l.p, t, now);
+        l.fx.step(l.p, t, now, apiFor(l.fx));
         alive.push(l);
       }
       liveRef.current = alive;
@@ -116,76 +182,86 @@ export default function RelaxEffectsLayer() {
       frameRef.current = requestAnimationFrame(tick);
     };
 
-    const activeEffect = (): RelaxEffect | null => {
-      const { mode, relaxEffect } = useCanvasStore.getState();
-      if (mode !== 'relax' || !relaxEffect) return null;
-      return RELAX_EFFECTS[relaxEffect] ?? null;
-    };
-
     const handleBurst = (e: Event) => {
       const detail = (e as CustomEvent<{ x: number; y: number }>).detail;
-      const fx = activeEffect();
-      if (!fx || !detail) return;
+      const { mode: m, relaxEffect: id } = useCanvasStore.getState();
+      if (m !== 'relax' || !id || !detail) return;
+      const fx = RELAX_EFFECTS[id];
+      if (!fx) return;
+
+      const api = apiFor(fx);
+      const now = performance.now();
+
+      if (!activeRef.current.has(fx.id)) {
+        activeRef.current.add(fx.id);
+        fx.onStart?.(detail.x, detail.y, api);
+      }
+      fx.onBurst?.(detail.x, detail.y, api);
 
       emittersRef.current.push({
         fx,
         x: detail.x,
         y: detail.y,
-        endTime: performance.now() + fx.burstMs,
-        lastSpawn: performance.now(),
+        endTime: now + fx.burstMs,
+        lastSpawn: now,
       });
       flash(fx, detail.x, detail.y);
       spawn(fx, detail.x, detail.y, fx.openingPop);
       ensureRunning();
     };
 
-    // Cursor trail: particles fall out of the pointer as it moves, so the mode
-    // feels alive even between clicks.
-    const handleMove = (e: MouseEvent) => {
-      if (e.buttons !== 0) return; // dragging or panning — don't fight the gesture
-      const fx = activeEffect();
-      if (!fx || fx.trailEveryMs <= 0) return;
-      if (!(e.target as HTMLElement | null)?.closest?.('.canvas-container')) return;
-
-      const now = performance.now();
-      if (now - lastTrailRef.current < fx.trailEveryMs) return;
-      lastTrailRef.current = now;
-
-      const { camera } = useCanvasStore.getState();
-      const world = screenToCanvas(e.clientX, e.clientY, camera);
-      spawn(fx, world.x, world.y, 1);
-      ensureRunning();
+    const reset = () => {
+      for (const id of [...activeRef.current]) {
+        const fx = RELAX_EFFECTS[id as keyof typeof RELAX_EFFECTS];
+        activeRef.current.delete(id);
+        fx?.onStop?.(apiFor(fx));
+      }
+      emittersRef.current = [];
+      for (const l of liveRef.current) l.p.el.remove();
+      liveRef.current = [];
     };
+    resetRef.current = reset;
 
     window.addEventListener('spawn-relax-burst', handleBurst);
-    window.addEventListener('mousemove', handleMove);
-
     return () => {
       window.removeEventListener('spawn-relax-burst', handleBurst);
-      window.removeEventListener('mousemove', handleMove);
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
       runningRef.current = false;
-      for (const l of liveRef.current) l.p.el.remove();
-      liveRef.current = [];
-      emittersRef.current = [];
+      reset();
     };
   }, []);
 
+  // Switching effect, or putting the tool down, kills whatever is in flight.
+  // Without this the rain track would keep playing over a canvas with no rain.
+  useEffect(() => {
+    resetRef.current?.();
+  }, [mode, relaxEffect]);
+
   return (
-    <div
-      ref={layerRef}
-      data-relax-layer=""
-      aria-hidden
-      style={{
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        width: 0,
-        height: 0,
-        pointerEvents: 'none',
-        zIndex: 5,
-      }}
-    />
+    <>
+      <div
+        ref={worldRef}
+        data-relax-layer="world"
+        aria-hidden
+        style={{ position: 'absolute', left: 0, top: 0, width: 0, height: 0, pointerEvents: 'none', zIndex: 5 }}
+      />
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={screenRef}
+            data-relax-layer="screen"
+            aria-hidden
+            style={{
+              position: 'fixed',
+              inset: 0,
+              overflow: 'hidden',
+              pointerEvents: 'none',
+              zIndex: 45,
+            }}
+          />,
+          document.body
+        )}
+    </>
   );
 }
