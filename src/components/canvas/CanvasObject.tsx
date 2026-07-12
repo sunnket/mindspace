@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useRef, useCallback, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useCollabStore } from '@/store/collabStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
-import { getSnapPoints, randomStickyColor } from '@/lib/utils';
+import { getSnapPoints, randomStickyColor, screenToCanvas } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import VoiceNoteBlock from './VoiceNoteBlock';
 import FileBlock from './FileBlock';
@@ -18,6 +19,77 @@ import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
 import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock } from './ExtensionBlocks';
+
+// ---- Embedded browser helpers --------------------------------------------
+interface BrowserTab {
+  id: string;
+  url: string;
+  title?: string;
+}
+
+const BROWSER_DEFAULT_URL = 'https://www.wikipedia.org';
+
+/** Turn known video-provider URLs into their framable /embed/ player. */
+function browserToEmbed(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^www\./, '');
+    if (host === 'youtube.com' || host === 'm.youtube.com') {
+      if (u.pathname.startsWith('/embed/')) return raw;
+      const v = u.searchParams.get('v');
+      if (v) return `https://www.youtube.com/embed/${v}`;
+      const shorts = u.pathname.match(/^\/shorts\/([^/?]+)/);
+      if (shorts) return `https://www.youtube.com/embed/${shorts[1]}`;
+    }
+    if (host === 'youtu.be') {
+      const id = u.pathname.slice(1);
+      if (id) return `https://www.youtube.com/embed/${id}`;
+    }
+    if (host === 'vimeo.com') {
+      const id = u.pathname.split('/').filter(Boolean)[0];
+      if (id && /^\d+$/.test(id)) return `https://player.vimeo.com/video/${id}`;
+    }
+  } catch {
+    /* not a url yet */
+  }
+  return null;
+}
+
+/** Normalise whatever the user typed into a navigable https URL or a search. */
+function normalizeBrowserUrl(raw: string): string {
+  const val = raw.trim();
+  if (!val) return '';
+  if (/^https?:\/\//i.test(val)) return val;
+  if (!val.includes(' ') && /^[^\s.]+\.[^\s]+/.test(val)) return 'https://' + val;
+  return 'https://www.google.com/search?q=' + encodeURIComponent(val);
+}
+
+/** Read tabs from the object's style, falling back to a single tab from content. */
+function readBrowserTabs(obj: CanvasObjectData): { tabs: BrowserTab[]; activeId: string } {
+  const style = obj.style || {};
+  const raw = style.tabs as BrowserTab[] | undefined;
+  if (raw && raw.length) {
+    const active = style.activeTab as string | undefined;
+    const activeId = active && raw.some((t) => t.id === active) ? active : raw[0].id;
+    return { tabs: raw, activeId };
+  }
+  const id = 't-' + obj.id;
+  return { tabs: [{ id, url: obj.content || BROWSER_DEFAULT_URL, title: '' }], activeId: id };
+}
+
+function browserTabLabel(t: BrowserTab): string {
+  if (t.title && t.title.trim()) return t.title.trim();
+  if (!t.url) return 'New Tab';
+  try {
+    return new URL(t.url).hostname.replace(/^www\./, '');
+  } catch {
+    return t.url;
+  }
+}
+
+function browserSrcFor(url: string): string {
+  return browserToEmbed(url) || `/api/proxy?url=${encodeURIComponent(url)}`;
+}
 
 interface CommentBubbleProps {
   obj: CanvasObjectData;
@@ -259,31 +331,48 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const [isHovered, setIsHovered] = useState(false);
 
   // ---- Embedded browser block state -------------------------------------
-  const browserIframeRef = useRef<HTMLIFrameElement>(null);
-  const browserInitial = obj.content || 'https://www.wikipedia.org';
-  const [browserLoadUrl, setBrowserLoadUrl] = useState(browserInitial);
-  const [browserCurrentUrl, setBrowserCurrentUrl] = useState(browserInitial);
-  const [browserUrlDraft, setBrowserUrlDraft] = useState(browserInitial);
-  const [browserLoading, setBrowserLoading] = useState(true);
+  const browserIframeRefs = useRef<Record<string, HTMLIFrameElement | null>>({});
+  const [browserUrlDraft, setBrowserUrlDraft] = useState('');
+  const [browserDraftFocused, setBrowserDraftFocused] = useState(false);
   const [browserExtract, setBrowserExtract] = useState(false);
   const browserExtractCount = useRef(0);
+  const [loadingTabs, setLoadingTabs] = useState<Record<string, boolean>>({});
+  const [dragGhost, setDragGhost] = useState<{ src: string; x: number; y: number } | null>(null);
+  const dragState = useRef<{ src: string; w: number; h: number; rect: DOMRect | null } | null>(null);
 
-  // Bridge messages coming from the proxied page inside the browser iframe.
+  // Bridge messages coming from proxied pages inside the browser iframe(s).
   useEffect(() => {
     if (obj.type !== 'browser') return;
+    const infoForSource = (source: unknown) => {
+      const map = browserIframeRefs.current;
+      for (const id in map) {
+        const el = map[id];
+        if (el && el.contentWindow === source) return { id, el };
+      }
+      return null;
+    };
     const handler = (e: MessageEvent) => {
-      const win = browserIframeRef.current?.contentWindow;
-      if (!win || e.source !== win) return;
+      const info = infoForSource(e.source);
+      if (!info) return;
       const d = e.data as
-        | { __ms?: number; type?: string; url?: string; kind?: string; src?: string; text?: string; w?: number; h?: number }
+        | { __ms?: number; type?: string; url?: string; title?: string; kind?: string; src?: string; text?: string; w?: number; h?: number; x?: number; y?: number }
         | null;
       if (!d || d.__ms !== 1) return;
+      const { tabs, activeId } = readBrowserTabs(obj);
 
       if (d.type === 'nav' && typeof d.url === 'string') {
-        setBrowserCurrentUrl(d.url);
-        setBrowserUrlDraft(d.url);
-        setBrowserLoading(false);
-        if (d.url !== obj.content) updateObject(obj.id, { content: d.url });
+        setLoadingTabs((m) => ({ ...m, [info.id]: false }));
+        const nextTabs = tabs.map((t) =>
+          t.id === info.id ? { ...t, url: d.url as string, title: d.title || t.title } : t
+        );
+        const patch: Partial<CanvasObjectData> = {
+          style: { ...(obj.style || {}), tabs: nextTabs, activeTab: activeId },
+        };
+        if (info.id === activeId) {
+          patch.content = d.url;
+          if (!browserDraftFocused) setBrowserUrlDraft(d.url);
+        }
+        updateObject(obj.id, patch);
       } else if (d.type === 'extract-off') {
         setBrowserExtract(false);
       } else if (d.type === 'extract') {
@@ -292,43 +381,39 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const by = obj.y + (n % 6) * 44 + Math.floor(n / 6) * 280;
         if (d.kind === 'image' && d.src) {
           const ratio = d.w && d.h ? d.h / d.w : 0.66;
-          const w = 300;
-          addObject({
-            type: 'image',
-            x: bx,
-            y: by,
-            width: w,
-            height: Math.max(80, Math.round(w * ratio)) || 200,
-            content: d.src,
-          });
+          addObject({ type: 'image', x: bx, y: by, width: 300, height: Math.max(80, Math.round(300 * ratio)) || 200, content: d.src });
         } else if (d.kind === 'text' && d.text) {
-          addObject({
-            type: 'sticky',
-            x: bx,
-            y: by,
-            width: 240,
-            height: 200,
-            content: d.text,
-            style: { color: randomStickyColor() },
-          });
+          addObject({ type: 'sticky', x: bx, y: by, width: 240, height: 200, content: d.text, style: { color: randomStickyColor() } });
         }
+      } else if (d.type === 'img-drag-start' && d.src) {
+        const rect = info.el.getBoundingClientRect();
+        dragState.current = { src: d.src, w: d.w || 0, h: d.h || 0, rect };
+        setDragGhost({ src: d.src, x: rect.left + (d.x || 0), y: rect.top + (d.y || 0) });
+      } else if (d.type === 'img-drag-move') {
+        const st = dragState.current;
+        if (st && st.rect) setDragGhost({ src: st.src, x: st.rect.left + (d.x || 0), y: st.rect.top + (d.y || 0) });
+      } else if (d.type === 'img-drag-end') {
+        const st = dragState.current;
+        dragState.current = null;
+        setDragGhost(null);
+        if (st && st.rect) {
+          const screenX = st.rect.left + (d.x || 0);
+          const screenY = st.rect.top + (d.y || 0);
+          const cam = useCanvasStore.getState().camera;
+          const world = screenToCanvas(screenX, screenY, cam);
+          const ratio = st.w && st.h ? st.h / st.w : 0.66;
+          const w = 300;
+          const h = Math.max(80, Math.round(w * ratio)) || 200;
+          addObject({ type: 'image', x: world.x - w / 2, y: world.y - h / 2, width: w, height: h, content: st.src });
+        }
+      } else if (d.type === 'img-drag-cancel') {
+        dragState.current = null;
+        setDragGhost(null);
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [obj.type, obj.id, obj.x, obj.y, obj.width, obj.content, addObject, updateObject]);
-
-  // Follow external URL changes (e.g. agent-created browser, programmatic nav).
-  useEffect(() => {
-    if (obj.type !== 'browser') return;
-    if (obj.content && obj.content !== browserLoadUrl && obj.content !== browserCurrentUrl) {
-      setBrowserLoadUrl(obj.content);
-      setBrowserCurrentUrl(obj.content);
-      setBrowserUrlDraft(obj.content);
-      setBrowserLoading(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [obj.content, obj.type]);
+  }, [obj, addObject, updateObject, browserDraftFocused]);
   const hoverTimeout = useRef<NodeJS.Timeout | null>(null);
   const editingCommentId = useCanvasStore((s) => s.editingCommentId);
   const setEditingCommentId = useCanvasStore((s) => s.setEditingCommentId);
@@ -1329,91 +1414,136 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       }
 
       case 'browser': {
-        // Video providers ship framable /embed/ players — load those directly so
-        // playback actually works, instead of routing the heavy SPA through the
-        // proxy. Everything else goes through the reverse proxy.
-        const toEmbed = (raw: string): string | null => {
-          try {
-            const u = new URL(raw);
-            const host = u.hostname.replace(/^www\./, '');
-            if (host === 'youtube.com' || host === 'm.youtube.com') {
-              if (u.pathname.startsWith('/embed/')) return raw;
-              const v = u.searchParams.get('v');
-              if (v) return `https://www.youtube.com/embed/${v}`;
-              const shorts = u.pathname.match(/^\/shorts\/([^/?]+)/);
-              if (shorts) return `https://www.youtube.com/embed/${shorts[1]}`;
-            }
-            if (host === 'youtu.be') {
-              const id = u.pathname.slice(1);
-              if (id) return `https://www.youtube.com/embed/${id}`;
-            }
-            if (host === 'vimeo.com') {
-              const id = u.pathname.split('/').filter(Boolean)[0];
-              if (id && /^\d+$/.test(id)) return `https://player.vimeo.com/video/${id}`;
-            }
-          } catch {
-            /* not a URL yet */
-          }
-          return null;
-        };
-        const embedSrc = toEmbed(browserLoadUrl);
-        const isEmbed = !!embedSrc;
-        const proxySrc = embedSrc || `/api/proxy?url=${encodeURIComponent(browserLoadUrl)}`;
+        const { tabs, activeId } = readBrowserTabs(obj);
+        const activeTab = tabs.find((t) => t.id === activeId) || tabs[0];
+        const activeUrl = activeTab.url;
+        const isEmbed = !!browserToEmbed(activeUrl);
+        const activeLoading = !!loadingTabs[activeId];
 
-        const postToFrame = (action: string, extra: Record<string, unknown> = {}) => {
-          browserIframeRef.current?.contentWindow?.postMessage({ __ms: 1, action, ...extra }, '*');
+        const stop = (e: React.MouseEvent) => e.stopPropagation();
+        const postActive = (action: string, extra: Record<string, unknown> = {}) => {
+          browserIframeRefs.current[activeId]?.contentWindow?.postMessage({ __ms: 1, action, ...extra }, '*');
+        };
+
+        const persistTabs = (nextTabs: BrowserTab[], nextActive: string) => {
+          const activeUrlNext = nextTabs.find((t) => t.id === nextActive)?.url;
+          updateObject(obj.id, {
+            content: activeUrlNext || obj.content,
+            style: { ...(obj.style || {}), tabs: nextTabs, activeTab: nextActive },
+          });
         };
 
         const navigate = (raw: string) => {
-          let val = raw.trim();
+          const val = normalizeBrowserUrl(raw);
           if (!val) return;
-          if (!/^https?:\/\//i.test(val)) {
-            if (!val.includes(' ') && /^[^\s.]+\.[^\s]+$/.test(val)) {
-              val = 'https://' + val;
-            } else {
-              val = 'https://www.google.com/search?q=' + encodeURIComponent(val);
-            }
+          if (val === activeTab.url) {
+            postActive('reload');
           }
-          if (val === browserLoadUrl) {
-            postToFrame('reload');
-          } else {
-            setBrowserLoadUrl(val);
-          }
-          setBrowserCurrentUrl(val);
-          setBrowserUrlDraft(val);
-          setBrowserLoading(true);
-          updateObject(obj.id, { content: val });
+          setLoadingTabs((m) => ({ ...m, [activeId]: true }));
+          setBrowserDraftFocused(false);
+          persistTabs(tabs.map((t) => (t.id === activeId ? { ...t, url: val } : t)), activeId);
+        };
+
+        const selectTab = (id: string) => {
+          setBrowserDraftFocused(false);
+          persistTabs(tabs, id);
+        };
+        const addTab = () => {
+          const id = 't-' + Math.random().toString(36).slice(2, 9);
+          setBrowserDraftFocused(false);
+          persistTabs([...tabs, { id, url: '', title: 'New Tab' }], id);
+        };
+        const closeTab = (id: string) => {
+          if (tabs.length <= 1) return;
+          const idx = tabs.findIndex((t) => t.id === id);
+          const nextTabs = tabs.filter((t) => t.id !== id);
+          const nextActive = id === activeId ? nextTabs[Math.max(0, idx - 1)].id : activeId;
+          delete browserIframeRefs.current[id];
+          persistTabs(nextTabs, nextActive);
         };
 
         const toggleExtract = () => {
           const on = !browserExtract;
           setBrowserExtract(on);
-          postToFrame('extract', { on });
+          postActive('extract', { on });
         };
 
         const btn =
           'w-7 h-7 flex items-center justify-center rounded-md text-neutral-500 hover:text-neutral-800 hover:bg-neutral-200/70 transition-colors disabled:opacity-30 disabled:pointer-events-none';
-        const stop = (e: React.MouseEvent) => e.stopPropagation();
+        const inputValue = browserDraftFocused ? browserUrlDraft : activeUrl;
 
         // Block iframe interaction while the block is being manipulated or is
         // not the active selection (first click selects, then you can surf).
         const interactionBlocked = isDragging || isResizing || !isSelected;
 
+        const quickLinks = [
+          { label: 'Wikipedia', url: 'https://www.wikipedia.org' },
+          { label: 'YouTube', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
+          { label: 'Google', url: 'https://www.google.com' },
+          { label: 'Hacker News', url: 'https://news.ycombinator.com' },
+        ];
+
         return (
           <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-[var(--border-strong)] bg-white shadow-xl">
+            {/* Tab strip */}
+            <div className="h-8 shrink-0 bg-neutral-200/70 flex items-stretch gap-1 px-1.5 pt-1 overflow-x-auto">
+              {tabs.map((t) => {
+                const active = t.id === activeId;
+                return (
+                  <div
+                    key={t.id}
+                    onMouseDown={(e) => { stop(e); selectTab(t.id); }}
+                    title={t.url || 'New Tab'}
+                    className={`group/tab flex items-center gap-1.5 pl-2.5 pr-1.5 max-w-[160px] min-w-[90px] rounded-t-lg text-[11px] cursor-pointer transition-colors ${
+                      active ? 'bg-white text-neutral-800 shadow-sm' : 'bg-neutral-300/40 text-neutral-500 hover:bg-neutral-300/70'
+                    }`}
+                  >
+                    {t.url ? (
+                      <img
+                        src={`https://www.google.com/s2/favicons?domain=${(() => { try { return new URL(t.url).hostname; } catch { return ''; } })()}&sz=32`}
+                        alt=""
+                        width={12}
+                        height={12}
+                        className="shrink-0 rounded-sm"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+                      />
+                    ) : (
+                      <svg className="shrink-0" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
+                    )}
+                    <span className="truncate flex-1 font-medium">{browserTabLabel(t)}</span>
+                    {tabs.length > 1 && (
+                      <button
+                        onMouseDown={(e) => { stop(e); closeTab(t.id); }}
+                        className="shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-neutral-400/40 opacity-60 group-hover/tab:opacity-100"
+                      >
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              <button
+                onMouseDown={(e) => { stop(e); addTab(); }}
+                title="New tab"
+                className="shrink-0 w-6 h-6 my-auto flex items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-300/60 hover:text-neutral-800"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+              </button>
+            </div>
+
             {/* Chrome / toolbar — also the drag handle */}
             <div className="h-10 shrink-0 bg-neutral-100 flex items-center px-2 gap-1 border-b border-neutral-200">
-              <button className={btn} title="Back" onMouseDown={stop} onClick={() => postToFrame('back')}>
+              <button className={btn} title="Back" onMouseDown={stop} onClick={() => postActive('back')}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
               </button>
-              <button className={btn} title="Forward" onMouseDown={stop} onClick={() => postToFrame('forward')}>
+              <button className={btn} title="Forward" onMouseDown={stop} onClick={() => postActive('forward')}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
               </button>
               <button
                 className={btn}
                 title="Reload"
                 onMouseDown={stop}
-                onClick={() => { setBrowserLoading(true); postToFrame('reload'); }}
+                onClick={() => { setLoadingTabs((m) => ({ ...m, [activeId]: true })); postActive('reload'); }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
               </button>
@@ -1421,33 +1551,34 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               <div className="flex-1 relative mx-1">
                 <input
                   type="text"
-                  value={browserUrlDraft}
+                  value={inputValue}
                   onChange={(e) => setBrowserUrlDraft(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
-                      (e.target as HTMLInputElement).blur();
                       navigate(browserUrlDraft);
+                      (e.target as HTMLInputElement).blur();
                     } else if (e.key === 'Escape') {
-                      setBrowserUrlDraft(browserCurrentUrl);
+                      setBrowserDraftFocused(false);
                       (e.target as HTMLInputElement).blur();
                     }
                   }}
                   onMouseDown={stop}
-                  onFocus={(e) => e.currentTarget.select()}
+                  onFocus={(e) => { setBrowserDraftFocused(true); setBrowserUrlDraft(activeUrl); e.currentTarget.select(); }}
+                  onBlur={() => setBrowserDraftFocused(false)}
                   spellCheck={false}
                   placeholder="Search or enter address"
                   className="w-full bg-white border border-neutral-200 rounded-full pl-8 pr-3 py-1 text-xs text-neutral-700 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200 font-medium truncate"
                 />
                 <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-                {browserLoading && (
+                {activeLoading && (
                   <div className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 border-2 border-neutral-300 border-t-blue-500 rounded-full animate-spin" />
                 )}
               </div>
 
               <button
                 className={`${btn} ${browserExtract ? 'bg-blue-500 text-white hover:bg-blue-600 hover:text-white' : ''}`}
-                title={isEmbed ? 'Extract not available on video embeds' : browserExtract ? 'Exit extract mode' : 'Extract images & text to canvas'}
-                disabled={isEmbed}
+                title={isEmbed || !activeUrl ? 'Extract not available here' : browserExtract ? 'Exit extract mode' : 'Extract images & text to canvas'}
+                disabled={isEmbed || !activeUrl}
                 onMouseDown={stop}
                 onClick={toggleExtract}
               >
@@ -1455,31 +1586,63 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               </button>
               <button
                 className={btn}
-                title="Open in new tab"
+                title="Open in a real browser tab"
                 onMouseDown={stop}
-                onClick={() => window.open(browserCurrentUrl, '_blank', 'noopener')}
+                onClick={() => activeUrl && window.open(activeUrl, '_blank', 'noopener')}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
               </button>
             </div>
 
-            {/* Viewport */}
+            {/* Viewport — one iframe per tab (kept mounted to preserve state) */}
             <div className="flex-1 relative bg-white overflow-hidden">
-              <iframe
-                ref={browserIframeRef}
-                src={proxySrc}
-                title="Embedded browser"
-                className="absolute inset-0 w-full h-full border-none bg-white"
-                sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-presentation"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-                allowFullScreen
-                referrerPolicy="no-referrer"
-                onLoad={() => setBrowserLoading(false)}
-                onMouseDown={stop}
-              />
+              {tabs.map((t) => {
+                const active = t.id === activeId;
+                if (!t.url) {
+                  // Blank "new tab" start page.
+                  return active ? (
+                    <div key={t.id} className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-gradient-to-b from-neutral-50 to-neutral-100 text-neutral-500">
+                      <div className="text-2xl font-bold text-neutral-700 tracking-tight">Start surfing</div>
+                      <div className="text-xs">Type a URL or search in the bar above, or jump to:</div>
+                      <div className="flex flex-wrap gap-2 justify-center max-w-[80%]">
+                        {quickLinks.map((q) => (
+                          <button
+                            key={q.url}
+                            onMouseDown={(e) => { stop(e); navigate(q.url); }}
+                            className="px-3 py-1.5 rounded-full bg-white border border-neutral-200 text-xs font-medium text-neutral-700 hover:border-blue-400 hover:text-blue-600 shadow-sm"
+                          >
+                            {q.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null;
+                }
+                return (
+                  <iframe
+                    key={t.id}
+                    ref={(el) => { browserIframeRefs.current[t.id] = el; }}
+                    src={browserSrcFor(t.url)}
+                    title="Embedded browser"
+                    className="absolute inset-0 w-full h-full border-none bg-white"
+                    style={{ visibility: active ? 'visible' : 'hidden', zIndex: active ? 1 : 0 }}
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads allow-presentation allow-popups-to-escape-sandbox"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                    allowFullScreen
+                    referrerPolicy="no-referrer"
+                    onLoad={() => setLoadingTabs((m) => ({ ...m, [t.id]: false }))}
+                    onMouseDown={stop}
+                  />
+                );
+              })}
               {browserExtract && (
                 <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 px-3 py-1 rounded-full bg-blue-500 text-white text-[11px] font-semibold shadow-lg pointer-events-none">
                   Click any image or text to grab it
+                </div>
+              )}
+              {!browserExtract && isSelected && !isDragging && !isResizing && activeUrl && (
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-full bg-black/55 text-white text-[10px] font-medium shadow pointer-events-none">
+                  Drag any image out onto the canvas
                 </div>
               )}
               {interactionBlocked && (
@@ -1488,6 +1651,28 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                 <div className="absolute inset-0 z-20" style={{ cursor: isSelected ? 'default' : 'pointer' }} />
               )}
             </div>
+
+            {/* Ghost image following the cursor while dragging out of the frame */}
+            {dragGhost && typeof document !== 'undefined' && createPortal(
+              <img
+                src={dragGhost.src}
+                alt=""
+                style={{
+                  position: 'fixed',
+                  left: dragGhost.x,
+                  top: dragGhost.y,
+                  transform: 'translate(-50%, -50%)',
+                  maxWidth: 150,
+                  maxHeight: 150,
+                  pointerEvents: 'none',
+                  zIndex: 2147483000,
+                  opacity: 0.85,
+                  borderRadius: 8,
+                  boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
+                }}
+              />,
+              document.body
+            )}
           </div>
         );
       }

@@ -80,7 +80,11 @@ function injectIntoHtml(html: string, finalUrl: string): string {
   const injection = buildInjection(finalUrl);
   // Remove any existing <base> so ours is authoritative.
   let out = html.replace(/<base\b[^>]*>/gi, '');
-  // Neutralise integrity checks on subresources we might touch indirectly.
+  // Strip in-document CSP / framing directives that headers alone don't cover.
+  out = out.replace(
+    /<meta[^>]+http-equiv=["']?(content-security-policy|x-frame-options)["']?[^>]*>/gi,
+    ''
+  );
   if (/<head[^>]*>/i.test(out)) {
     out = out.replace(/(<head[^>]*>)/i, `$1${injection}`);
   } else if (/<html[^>]*>/i.test(out)) {
