@@ -88,8 +88,32 @@ function browserTabLabel(t: BrowserTab): string {
   }
 }
 
+/** Detect a search-engine query URL and pull out the query text. */
+function browserSearchQuery(url: string): string | null {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, '');
+    const q = u.searchParams.get('q') || u.searchParams.get('query');
+    const isSearchHost =
+      ((host === 'bing.com' || host === 'google.com' || host === 'startpage.com' || host === 'search.brave.com') &&
+        /\/search|\/sp\//.test(u.pathname)) ||
+      host === 'duckduckgo.com' ||
+      host.endsWith('.duckduckgo.com');
+    if (isSearchHost && q) return q;
+  } catch {
+    /* not a url */
+  }
+  return null;
+}
+
 function browserSrcFor(url: string): string {
-  return browserToEmbed(url) || `/api/proxy?url=${encodeURIComponent(url)}`;
+  const embed = browserToEmbed(url);
+  if (embed) return embed;
+  // Search engines block proxied browser sessions with CAPTCHAs, so route
+  // searches to our own server-rendered results page instead.
+  const q = browserSearchQuery(url);
+  if (q) return `/api/search?q=${encodeURIComponent(q)}`;
+  return `/api/proxy?url=${encodeURIComponent(url)}`;
 }
 
 interface CommentBubbleProps {
