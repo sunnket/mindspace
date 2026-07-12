@@ -60,9 +60,9 @@ function normalizeBrowserUrl(raw: string): string {
   if (!val) return '';
   if (/^https?:\/\//i.test(val)) return val;
   if (!val.includes(' ') && /^[^\s.]+\.[^\s]+/.test(val)) return 'https://' + val;
-  // Google actively blocks framing/proxying; DuckDuckGo's HTML endpoint is
-  // built for no-JS clients and proxies cleanly, so use it for search.
-  return 'https://duckduckgo.com/html/?q=' + encodeURIComponent(val);
+  // Google and DuckDuckGo both block proxied/automated traffic (DDG shows an
+  // "anomaly" page). Bing tolerates it and returns clean, clickable results.
+  return 'https://www.bing.com/search?q=' + encodeURIComponent(val);
 }
 
 /** Read tabs from the object's style, falling back to a single tab from content. */
@@ -1452,7 +1452,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const interactionBlocked = isDragging || isResizing || !isSelected;
 
         const quickLinks = [
-          { label: 'DuckDuckGo', url: 'https://duckduckgo.com/html/' },
+          { label: 'Bing', url: 'https://www.bing.com' },
           { label: 'Wikipedia', url: 'https://www.wikipedia.org' },
           { label: 'YouTube', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
           { label: 'Hacker News', url: 'https://news.ycombinator.com' },
