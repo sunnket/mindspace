@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { useCanvasStore } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import { Occupancy, rectOf, isBackdrop, settle, fitFrame } from '@/lib/canvasLayout';
+import { extractUrl, newLinkCard, linkPreviewStyle, normalizeUrl, LINK_CARD_SIZE } from '@/lib/linkPreview';
 
 interface Action {
   type:
@@ -399,8 +400,42 @@ export default function AgentOverlay() {
         switch (action.type) {
           case 'CREATE_OBJECT': {
             if (!action.objData) break;
-            const pos = placeFor(action.objData);
-            const od = action.objData;
+
+            /* The embedded browser is the USER'S tool — they open it from the
+               toolbar. The agent must never spawn one: asking it for links should
+               hand back link cards, not hijack the canvas with a live browser.
+               The prompt forbids it, but a prompt is not a guarantee, so any
+               "browser" the model still asks for is rewritten into a link card
+               here. Its URL is the one thing worth keeping. */
+            let od: Partial<CanvasObjectData> = action.objData;
+            if (od.type === 'browser') {
+              const target = extractUrl(String(od.content || ''));
+              if (!target) break; // a browser with no URL has nothing worth keeping
+              const title = od.style?.linkTitle as string | undefined;
+              od = {
+                ...newLinkCard(target, Number(od.x) || 0, Number(od.y) || 0),
+                style: { ...linkPreviewStyle(target), ...(title ? { linkTitle: title } : {}) },
+              };
+            }
+
+            /* A link card the model wrote by hand carries only isLinkPreview +
+               linkUrl (+ maybe a title). Fold in the real link-card style so the
+               URL is normalized — the model routinely drops the scheme, and
+               "youtube.com/watch?v=X" is not a fetchable target — and so the
+               card starts in its loading state and hydrates its own thumbnail.
+               The model's title/description survive as placeholders until the
+               real metadata lands. */
+            if (od.type === 'card' && od.style?.isLinkPreview && od.style?.linkUrl) {
+              const raw = String(od.style.linkUrl);
+              od = {
+                ...od,
+                width: Number(od.width) || LINK_CARD_SIZE.width,
+                height: Number(od.height) || LINK_CARD_SIZE.height,
+                style: { ...od.style, ...linkPreviewStyle(raw) },
+              };
+            }
+
+            const pos = placeFor(od);
             const style = (od.style || {}) as Record<string, unknown>;
             const isImg = od.type === 'image';
             // Images: keep a real URL as-is. Otherwise decide GENERATE (AI makes a
@@ -924,26 +959,37 @@ export default function AgentOverlay() {
       try {
         const payload = JSON.parse(fullResponse);
         
-        // 1. Link Validation
-        const linkActions = (payload.actions || []).filter((a: any) => a.type === 'CREATE_OBJECT' && a.objData?.style?.isLink && a.objData?.style?.linkUrl);
+        /* 1. Link validation. This matched on style.isLink, which no link card
+           has ever carried — the flag is isLinkPreview — so it silently never
+           ran, and a dead URL the model invented just sat there looking real.
+           It also wrote style.isError, which nothing renders; the card's own
+           error state is linkError. Both fixed. */
+        const linkActions = (payload.actions || []).filter(
+          (a: any) => a.type === 'CREATE_OBJECT' && a.objData?.style?.isLinkPreview && a.objData?.style?.linkUrl
+        );
         for (const action of linkActions) {
-          const url = action.objData.style.linkUrl;
-          const id = action.tempId || action.id; // Usually it's mapped to a real ID by now if we can find it
+          const url = normalizeUrl(String(action.objData.style.linkUrl));
           if (!url) continue;
-          
+
           try {
             const vRes = await fetch(`/api/link-validate?url=${encodeURIComponent(url)}`);
-            if (vRes.ok) {
-              const vJson = await vRes.json();
-              if (vJson.status === 'dead') {
-                // Find the actual created object (tempId might have been swapped)
-                const createdObj = live().objects.find(o => o.style?.linkUrl === url && o.style?.isLink);
-                if (createdObj) {
-                  live().updateObject(createdObj.id, { 
-                    style: { ...createdObj.style, isError: true, errorReason: vJson.reason || 'Link is broken' } 
-                  });
-                }
-              }
+            if (!vRes.ok) continue;
+            const vJson = await vRes.json();
+            if (vJson.status !== 'dead') continue;
+
+            const createdObj = live().objects.find(
+              (o) => o.style?.isLinkPreview && o.style?.linkUrl === url
+            );
+            if (createdObj) {
+              live().updateObject(createdObj.id, {
+                style: {
+                  ...createdObj.style,
+                  linkLoading: false,
+                  linkResolved: true,
+                  linkError: true,
+                  linkErrorReason: vJson.reason || 'Link is broken',
+                },
+              });
             }
           } catch { /* ignore validation failure */ }
         }

@@ -10,6 +10,71 @@ import { motion } from 'framer-motion';
 // remount the same card mid-fetch). One in-flight request per object id.
 const inFlight = new Set<string>();
 
+/**
+ * Hydration writes to the CANVAS STORE, not to component state — so it must
+ * survive the component going away. A link card is routinely unmounted while its
+ * fetch is in flight: viewport culling drops it the moment the camera moves (the
+ * agent pans as it builds), and React StrictMode mounts/unmounts every effect
+ * once in dev.
+ *
+ * This used to abort the store write on unmount, which combined with the
+ * in-flight guard to lose the result entirely: run 1 started the fetch, the
+ * cleanup marked it cancelled, run 2 saw the id still in `inFlight` and bailed,
+ * and then run 1's response was discarded — leaving the card shimmering forever
+ * with no way to ever resolve. Nothing here should be cancelled: the fetch is
+ * for the board, not for this mount.
+ */
+async function hydrateLink(
+  id: string,
+  url: string,
+  updateObject: (id: string, updates: Partial<CanvasObjectData>) => void,
+): Promise<void> {
+  if (inFlight.has(id)) return;
+  inFlight.add(id);
+
+  const current = () => useCanvasStore.getState().objects.find((o) => o.id === id);
+
+  // Guarantee the shimmer is showing while we work.
+  const now = current();
+  if (now && !now.style?.linkLoading) {
+    updateObject(id, { style: { ...now.style, linkLoading: true } });
+  }
+
+  try {
+    const res = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
+    const data = await res.json().catch(() => null);
+    if (!data || data.error) throw new Error(data?.error || 'no metadata');
+
+    const cur = current();
+    if (!cur) return; // the card was deleted while we fetched — nothing to fill in
+    updateObject(id, {
+      style: {
+        ...cur.style,
+        isLinkPreview: true,
+        linkLoading: false,
+        linkError: false,
+        linkResolved: true,
+        linkUrl: data.url || url,
+        linkTitle: data.title || (cur.style?.linkTitle as string) || url,
+        linkDescription: data.description ?? (cur.style?.linkDescription as string) ?? '',
+        linkImage: data.image || '',
+        linkFavicon: data.favicon || '',
+        linkDomain: data.domain || (cur.style?.linkDomain as string) || '',
+        linkPlatform: data.platform || '',
+        linkEmbedUrl: data.embedUrl || '',
+      },
+    });
+  } catch {
+    const cur = current();
+    if (!cur) return;
+    updateObject(id, {
+      style: { ...cur.style, linkLoading: false, linkError: true, linkResolved: true },
+    });
+  } finally {
+    inFlight.delete(id);
+  }
+}
+
 export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   const { style } = obj;
   const updateObject = useCanvasStore((s) => s.updateObject);
@@ -43,62 +108,9 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   /* --- Self-hydration: fetch metadata whenever a URL is set but unresolved --- */
   useEffect(() => {
     if (!url || isResolved || isLinkError) return;
-    if (inFlight.has(obj.id)) return;
-    inFlight.add(obj.id);
-    let cancelled = false;
-
-    const current = () => useCanvasStore.getState().objects.find((o) => o.id === obj.id);
-
-    // Guarantee the shimmer is showing while we work.
-    const now = current();
-    if (now && !now.style?.linkLoading) {
-      updateObject(obj.id, { style: { ...now.style, linkLoading: true } });
-    }
-
-    fetch(`/api/link-preview?url=${encodeURIComponent(url)}`)
-      .then(async (r) => {
-        const data = await r.json().catch(() => null);
-        if (!data || data.error) throw new Error(data?.error || 'no metadata');
-        return data as Record<string, string>;
-      })
-      .then((data) => {
-        if (cancelled) return;
-        const cur = current();
-        if (!cur) return;
-        updateObject(obj.id, {
-          style: {
-            ...cur.style,
-            isLinkPreview: true,
-            linkLoading: false,
-            linkError: false,
-            linkResolved: true,
-            linkUrl: data.url || url,
-            linkTitle: data.title || (cur.style?.linkTitle as string) || url,
-            linkDescription: data.description ?? (cur.style?.linkDescription as string) ?? '',
-            linkImage: data.image || '',
-            linkFavicon: data.favicon || '',
-            linkDomain: data.domain || (cur.style?.linkDomain as string) || '',
-            linkPlatform: data.platform || '',
-            linkEmbedUrl: data.embedUrl || '',
-          },
-        });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        const cur = current();
-        if (!cur) return;
-        updateObject(obj.id, {
-          style: { ...cur.style, linkLoading: false, linkError: true, linkResolved: true },
-        });
-      })
-      .finally(() => {
-        inFlight.delete(obj.id);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-    // Re-run only when the target url or resolution state changes.
+    void hydrateLink(obj.id, url, updateObject);
+    // No cleanup: see hydrateLink — the fetch belongs to the board, not to this
+    // mount, so unmounting must never cancel it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [obj.id, url, isResolved, isLinkError]);
 
@@ -223,7 +235,9 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
         </div>
         <div className="my-2">
           <h4 className="text-xs font-semibold truncate text-[var(--text-primary)]">{title}</h4>
-          <p className="text-[10px] text-red-500/80 mt-1">Couldn&apos;t load a preview</p>
+          <p className="text-[10px] text-red-500/80 mt-1">
+            {(style?.linkErrorReason as string) || "Couldn't load a preview"}
+          </p>
         </div>
         <div className="flex items-center gap-2 pointer-events-auto">
           <a
