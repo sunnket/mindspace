@@ -777,15 +777,70 @@ export default function InfiniteCanvas() {
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const files = Array.from(e.dataTransfer.files);
-      if (files.length === 0) return;
+      const dt = e.dataTransfer;
       const origin = screenToCanvas(e.clientX, e.clientY, camera);
-      files.forEach((file, i) => {
-        // Fan multiple files out so they don't stack on the same spot.
-        ingestFile(file, origin.x + (i % 3) * 330, origin.y + Math.floor(i / 3) * 170);
-      });
+
+      // 1) Real files (from disk) keep their rich file-ingest treatment.
+      const files = Array.from(dt.files);
+      if (files.length > 0) {
+        files.forEach((file, i) => {
+          ingestFile(file, origin.x + (i % 3) * 330, origin.y + Math.floor(i / 3) * 170);
+        });
+        return;
+      }
+
+      // 2) An image/logo dragged out of the embedded browser (or another tab /
+      //    app). Native drag carries a URL, not a file, so resolve it here.
+      let src = '';
+      let w = 0;
+      let h = 0;
+      const custom = dt.getData('application/x-mindspace-image');
+      if (custom) {
+        try {
+          const p = JSON.parse(custom);
+          src = p.src || '';
+          w = p.w || 0;
+          h = p.h || 0;
+        } catch {
+          /* ignore */
+        }
+      }
+      const html = dt.getData('text/html');
+      if (!src && html) {
+        const m = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+        if (m) src = m[1];
+      }
+      const uri = (dt.getData('text/uri-list') || dt.getData('text/plain') || '').trim();
+      const firstUrl = uri
+        .split('\n')
+        .map((s) => s.trim())
+        .find((s) => /^https?:\/\//i.test(s));
+
+      const looksLikeImage = (u: string) =>
+        !!custom || (!!html && /<img/i.test(html)) || /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)(\?|#|$)/i.test(u);
+
+      if (!src && firstUrl && looksLikeImage(firstUrl)) src = firstUrl;
+
+      if (src && /^https?:\/\//i.test(src)) {
+        const ratio = w && h ? h / w : 0.66;
+        const width = 300;
+        addObject({
+          type: 'image',
+          x: origin.x - width / 2,
+          y: origin.y - (width * ratio) / 2,
+          width,
+          height: Math.max(80, Math.round(width * ratio)) || 200,
+          content: src,
+        });
+        return;
+      }
+
+      // 3) A bare link dragged in → drop a link-preview card.
+      if (firstUrl && isUrl(firstUrl)) {
+        addObject(newLinkCard(firstUrl, origin.x - 150, origin.y - 130));
+      }
     },
-    [camera]
+    [camera, addObject]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {

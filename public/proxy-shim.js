@@ -84,7 +84,6 @@
   // ---- link clicks --------------------------------------------------------
   document.addEventListener('click', function (e) {
     if (window.__ms_extract) return; // extractor owns clicks
-    if (window.__ms_justDragged) { e.preventDefault(); e.stopPropagation(); return; }
     var t = e.target;
     var a = t && t.closest ? t.closest('a') : null;
     if (!a) return;
@@ -118,12 +117,13 @@
   }, true);
 
   // ---- drag images / logos out onto the canvas ----------------------------
-  // Pointer-capture based, because native HTML5 drag doesn't cross the
-  // sandboxed iframe boundary reliably. We stream the pointer position to the
-  // parent, which renders a ghost and drops an image block on release.
+  // Uses native HTML5 drag (which DOES cross a same-origin iframe boundary) and
+  // stamps the ABSOLUTE image URL + dimensions onto the dataTransfer. The parent
+  // canvas' drop handler turns that into an image block.
   function findImageSrc(el) {
     if (!el) return null;
-    var img = el.tagName === 'IMG' ? el : (el.querySelector ? el.querySelector('img') : null);
+    var img = el.tagName === 'IMG' ? el : (el.closest ? el.closest('img') : null);
+    if (!img && el.querySelector) img = el.querySelector('img');
     if (img && (img.currentSrc || img.getAttribute('src'))) {
       return {
         src: abs(img.currentSrc || img.getAttribute('src')),
@@ -143,45 +143,26 @@
     return null;
   }
 
-  var imgDrag = null;
-  document.addEventListener('pointerdown', function (e) {
-    if (window.__ms_extract || e.button !== 0) return;
-    var info = findImageSrc(e.target);
-    if (!info || !info.src) return;
-    imgDrag = { src: info.src, w: info.w, h: info.h, sx: e.clientX, sy: e.clientY, moved: false, pid: e.pointerId };
-    try { document.documentElement.setPointerCapture(e.pointerId); } catch (er) {}
-  }, true);
-
-  document.addEventListener('pointermove', function (e) {
-    if (!imgDrag) return;
-    var dx = e.clientX - imgDrag.sx, dy = e.clientY - imgDrag.sy;
-    if (!imgDrag.moved && dx * dx + dy * dy > 36) {
-      imgDrag.moved = true;
-      parent.postMessage({ __ms: 1, type: 'img-drag-start', src: imgDrag.src, w: imgDrag.w, h: imgDrag.h, x: e.clientX, y: e.clientY }, '*');
-    }
-    if (imgDrag.moved) {
-      e.preventDefault();
-      parent.postMessage({ __ms: 1, type: 'img-drag-move', x: e.clientX, y: e.clientY }, '*');
-    }
-  }, true);
-
-  function endImgDrag(e, cancel) {
-    if (!imgDrag) return;
-    var moved = imgDrag.moved, pid = imgDrag.pid;
-    imgDrag = null;
-    try { document.documentElement.releasePointerCapture(pid); } catch (er) {}
-    if (moved) {
-      window.__ms_justDragged = true;
-      setTimeout(function () { window.__ms_justDragged = false; }, 60);
-      if (e) { e.preventDefault(); e.stopPropagation(); }
-      parent.postMessage({ __ms: 1, type: cancel ? 'img-drag-cancel' : 'img-drag-end', x: e ? e.clientX : 0, y: e ? e.clientY : 0 }, '*');
+  // Make sure images are actually draggable (some sites disable it).
+  function ensureDraggable() {
+    var imgs = document.getElementsByTagName('img');
+    for (var i = 0; i < imgs.length; i++) {
+      imgs[i].setAttribute('draggable', 'true');
+      imgs[i].style.webkitUserDrag = 'element';
     }
   }
-  document.addEventListener('pointerup', function (e) { endImgDrag(e, false); }, true);
-  document.addEventListener('pointercancel', function (e) { endImgDrag(e, true); }, true);
-  // Suppress the browser's own image drag so it doesn't fight ours.
+  document.addEventListener('DOMContentLoaded', ensureDraggable);
+  window.addEventListener('load', ensureDraggable);
+
   document.addEventListener('dragstart', function (e) {
-    if (findImageSrc(e.target)) e.preventDefault();
+    var info = findImageSrc(e.target);
+    if (!info || !info.src || !e.dataTransfer) return;
+    try {
+      e.dataTransfer.effectAllowed = 'copy';
+      e.dataTransfer.setData('text/uri-list', info.src);
+      e.dataTransfer.setData('text/plain', info.src);
+      e.dataTransfer.setData('application/x-mindspace-image', JSON.stringify(info));
+    } catch (er) {}
   }, true);
 
   // ---- extraction mode ----------------------------------------------------

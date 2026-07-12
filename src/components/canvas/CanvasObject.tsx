@@ -1,12 +1,11 @@
 'use client';
 
 import React, { useRef, useCallback, useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { useCollabStore } from '@/store/collabStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
-import { getSnapPoints, randomStickyColor, screenToCanvas } from '@/lib/utils';
+import { getSnapPoints, randomStickyColor } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import VoiceNoteBlock from './VoiceNoteBlock';
 import FileBlock from './FileBlock';
@@ -61,7 +60,9 @@ function normalizeBrowserUrl(raw: string): string {
   if (!val) return '';
   if (/^https?:\/\//i.test(val)) return val;
   if (!val.includes(' ') && /^[^\s.]+\.[^\s]+/.test(val)) return 'https://' + val;
-  return 'https://www.google.com/search?q=' + encodeURIComponent(val);
+  // Google actively blocks framing/proxying; DuckDuckGo's HTML endpoint is
+  // built for no-JS clients and proxies cleanly, so use it for search.
+  return 'https://duckduckgo.com/html/?q=' + encodeURIComponent(val);
 }
 
 /** Read tabs from the object's style, falling back to a single tab from content. */
@@ -337,8 +338,6 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const [browserExtract, setBrowserExtract] = useState(false);
   const browserExtractCount = useRef(0);
   const [loadingTabs, setLoadingTabs] = useState<Record<string, boolean>>({});
-  const [dragGhost, setDragGhost] = useState<{ src: string; x: number; y: number } | null>(null);
-  const dragState = useRef<{ src: string; w: number; h: number; rect: DOMRect | null } | null>(null);
 
   // Bridge messages coming from proxied pages inside the browser iframe(s).
   useEffect(() => {
@@ -355,7 +354,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       const info = infoForSource(e.source);
       if (!info) return;
       const d = e.data as
-        | { __ms?: number; type?: string; url?: string; title?: string; kind?: string; src?: string; text?: string; w?: number; h?: number; x?: number; y?: number }
+        | { __ms?: number; type?: string; url?: string; title?: string; kind?: string; src?: string; text?: string; w?: number; h?: number }
         | null;
       if (!d || d.__ms !== 1) return;
       const { tabs, activeId } = readBrowserTabs(obj);
@@ -385,30 +384,6 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         } else if (d.kind === 'text' && d.text) {
           addObject({ type: 'sticky', x: bx, y: by, width: 240, height: 200, content: d.text, style: { color: randomStickyColor() } });
         }
-      } else if (d.type === 'img-drag-start' && d.src) {
-        const rect = info.el.getBoundingClientRect();
-        dragState.current = { src: d.src, w: d.w || 0, h: d.h || 0, rect };
-        setDragGhost({ src: d.src, x: rect.left + (d.x || 0), y: rect.top + (d.y || 0) });
-      } else if (d.type === 'img-drag-move') {
-        const st = dragState.current;
-        if (st && st.rect) setDragGhost({ src: st.src, x: st.rect.left + (d.x || 0), y: st.rect.top + (d.y || 0) });
-      } else if (d.type === 'img-drag-end') {
-        const st = dragState.current;
-        dragState.current = null;
-        setDragGhost(null);
-        if (st && st.rect) {
-          const screenX = st.rect.left + (d.x || 0);
-          const screenY = st.rect.top + (d.y || 0);
-          const cam = useCanvasStore.getState().camera;
-          const world = screenToCanvas(screenX, screenY, cam);
-          const ratio = st.w && st.h ? st.h / st.w : 0.66;
-          const w = 300;
-          const h = Math.max(80, Math.round(w * ratio)) || 200;
-          addObject({ type: 'image', x: world.x - w / 2, y: world.y - h / 2, width: w, height: h, content: st.src });
-        }
-      } else if (d.type === 'img-drag-cancel') {
-        dragState.current = null;
-        setDragGhost(null);
       }
     };
     window.addEventListener('message', handler);
@@ -1477,9 +1452,9 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const interactionBlocked = isDragging || isResizing || !isSelected;
 
         const quickLinks = [
+          { label: 'DuckDuckGo', url: 'https://duckduckgo.com/html/' },
           { label: 'Wikipedia', url: 'https://www.wikipedia.org' },
           { label: 'YouTube', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
-          { label: 'Google', url: 'https://www.google.com' },
           { label: 'Hacker News', url: 'https://news.ycombinator.com' },
         ];
 
@@ -1651,28 +1626,6 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                 <div className="absolute inset-0 z-20" style={{ cursor: isSelected ? 'default' : 'pointer' }} />
               )}
             </div>
-
-            {/* Ghost image following the cursor while dragging out of the frame */}
-            {dragGhost && typeof document !== 'undefined' && createPortal(
-              <img
-                src={dragGhost.src}
-                alt=""
-                style={{
-                  position: 'fixed',
-                  left: dragGhost.x,
-                  top: dragGhost.y,
-                  transform: 'translate(-50%, -50%)',
-                  maxWidth: 150,
-                  maxHeight: 150,
-                  pointerEvents: 'none',
-                  zIndex: 2147483000,
-                  opacity: 0.85,
-                  borderRadius: 8,
-                  boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
-                }}
-              />,
-              document.body
-            )}
           </div>
         );
       }

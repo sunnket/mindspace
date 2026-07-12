@@ -13,6 +13,7 @@ const inFlight = new Set<string>();
 export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   const { style } = obj;
   const updateObject = useCanvasStore((s) => s.updateObject);
+  const addObject = useCanvasStore((s) => s.addObject);
 
   const url = (style?.linkUrl as string) || '';
   const isLinkLoading = (style?.linkLoading as boolean) ?? false;
@@ -375,6 +376,32 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
             <line x1="10" y1="14" x2="21" y2="3"></line>
           </svg>
         </a>
+
+        {/* Surf this site inside an embedded browser block on the canvas */}
+        {url && (
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() =>
+              addObject({
+                type: 'browser',
+                x: obj.x + obj.width + 40,
+                y: obj.y,
+                width: 800,
+                height: 600,
+                content: url,
+              })
+            }
+            className="px-3.5 py-1.5 rounded-full bg-white/60 dark:bg-white/5 border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent-light)] hover:bg-white/90 text-[10px] font-bold tracking-wider uppercase transition-all shadow-sm active:scale-95 flex items-center gap-1 cursor-pointer"
+            style={{ fontFamily: "'Outfit', sans-serif" }}
+          >
+            Surf
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+          </button>
+        )}
 
         {/* Play Embed Player Option (YouTube, Spotify, Vimeo etc.) */}
         {embedUrl && (
