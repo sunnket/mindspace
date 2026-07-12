@@ -144,7 +144,7 @@ interface BrowserViewProps {
 function BrowserView({ id, url, active, vw, vh, onNavigate, onLoading, registerControl }: BrowserViewProps) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -162,15 +162,27 @@ function BrowserView({ id, url, active, vw, vh, onNavigate, onLoading, registerC
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
+  /**
+   * The page behind this tab is gone (dev server restarted, Chrome died, idle
+   * sweeper reclaimed it). Throw the dead session away and start another —
+   * throttled, so a burst of failing frames can't spin up a storm of them.
+   */
+  const lastRecovery = useRef(0);
+  const recoverSession = useCallback(() => {
+    const now = Date.now();
+    if (now - lastRecovery.current < 4000) return;
+    lastRecovery.current = now;
+    sessionRef.current = null;
+    setSessionId(null);
+    setAttempt((a) => a + 1);
+  }, []);
+
   /** Fold a server reply (the live page's url + title) back into the tab. */
   const apply = useCallback(
     (d: Record<string, unknown> | null) => {
       if (!d) return;
       if (d.expired) {
-        // Session died under us (server restart, idle sweep) — build a new one.
-        sessionRef.current = null;
-        setSessionId(null);
-        setAttempt((a) => a + 1);
+        recoverSession();
         return;
       }
       if (typeof d.url === 'string' && d.url && d.url !== 'about:blank') {
@@ -179,50 +191,59 @@ function BrowserView({ id, url, active, vw, vh, onNavigate, onLoading, registerC
       }
       refresh();
     },
-    [id, onNavigate, refresh]
+    [id, onNavigate, refresh, recoverSession]
   );
 
-  // One session per tab, held for the tab's lifetime.
+  // One session per tab, held for the tab's lifetime. Launching Chrome — or
+  // catching a dev server mid-restart — can take a beat, so a start that comes
+  // back empty is retried before we give up and show an error.
   useEffect(() => {
     let cancelled = false;
     let started: string | null = null;
+    let timer: NodeJS.Timeout | null = null;
 
     onLoading(id, true);
 
-    browserPost({
-      action: 'start',
-      url: urlRef.current,
-      width: Math.round(sizeRef.current.vw),
-      height: Math.round(sizeRef.current.vh),
-    }).then((d) => {
-      const newId = typeof d?.sessionId === 'string' ? d.sessionId : null;
-      const landed = typeof d?.url === 'string' && d.url ? d.url : '';
-      const title = typeof d?.title === 'string' ? d.title : '';
-
-      if (!newId) {
-        if (!cancelled) {
-          setFailed(true);
-          onLoading(id, false);
-        }
-        return;
-      }
+    const tryStart = async (triesLeft: number) => {
+      const d = await browserPost({
+        action: 'start',
+        url: urlRef.current,
+        width: Math.round(sizeRef.current.vw),
+        height: Math.round(sizeRef.current.vh),
+      });
       if (cancelled) {
         // A session opened by a run that's already torn down still has a live
         // Chrome page behind it — close it rather than orphan it.
-        browserPost({ action: 'stop', sessionId: newId });
+        if (typeof d?.sessionId === 'string') browserPost({ action: 'stop', sessionId: d.sessionId });
         return;
       }
 
+      const newId = typeof d?.sessionId === 'string' ? d.sessionId : null;
+      if (!newId) {
+        if (triesLeft > 0) {
+          timer = setTimeout(() => tryStart(triesLeft - 1), 1500);
+          return;
+        }
+        setFailed(typeof d?.error === 'string' ? d.error : 'Could not reach the browser service.');
+        onLoading(id, false);
+        return;
+      }
+
+      const landed = typeof d?.url === 'string' && d.url ? d.url : '';
       started = newId;
       sessionRef.current = newId;
       liveUrl.current = landed || urlRef.current;
+      setFailed(null);
       setSessionId(newId);
       onLoading(id, false);
-      if (landed) onNavigate(id, landed, title);
-    });
+      if (landed) onNavigate(id, landed, typeof d?.title === 'string' ? d.title : '');
+    };
+
+    tryStart(2);
 
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
       const dead = started ?? sessionRef.current;
       if (dead) browserPost({ action: 'stop', sessionId: dead });
       sessionRef.current = null;
@@ -366,11 +387,12 @@ function BrowserView({ id, url, active, vw, vh, onNavigate, onLoading, registerC
       }}
     >
       {failed ? (
-        <div className="flex flex-col items-center justify-center gap-3 h-full w-full bg-neutral-50 text-neutral-500 text-xs">
-          <span>Couldn&apos;t open that page.</span>
+        <div className="flex flex-col items-center justify-center gap-3 h-full w-full bg-neutral-50 text-neutral-500 text-xs px-6 text-center">
+          <span className="font-medium text-neutral-700">Couldn&apos;t open that page.</span>
+          <span className="max-w-[80%] text-[11px] text-neutral-400 break-words">{failed}</span>
           <button
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={() => { setFailed(false); setAttempt((a) => a + 1); }}
+            onClick={() => { setFailed(null); setAttempt((a) => a + 1); }}
             className="px-3 py-1.5 rounded-full bg-white border border-neutral-200 font-medium hover:border-blue-400 hover:text-blue-600"
           >
             Retry
@@ -384,6 +406,10 @@ function BrowserView({ id, url, active, vw, vh, onNavigate, onLoading, registerC
           // frame maps 1:1 onto it and pointer coordinates stay honest.
           className="w-full h-full select-none"
           draggable={false}
+          // A frame that 404s means the page behind this tab is gone — the server
+          // restarted, or the idle sweeper reclaimed it. Rebuild it silently
+          // instead of leaving a broken image sitting there.
+          onError={recoverSession}
         />
       ) : (
         <div className="flex items-center justify-center h-full w-full bg-neutral-50 text-neutral-400">

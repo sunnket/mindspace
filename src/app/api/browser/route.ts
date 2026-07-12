@@ -7,6 +7,8 @@ export const runtime = 'nodejs'; // Required for Puppeteer
 interface Session {
   page: Page;
   lastActive: number;
+  /** Last frame we managed to capture, replayed if a screenshot blips. */
+  lastFrame?: Buffer;
 }
 
 // One Chrome for the whole server, one Page per browser block. Sessions live on
@@ -25,15 +27,37 @@ const IDLE_MS = 10 * 60 * 1000;
 async function getBrowser(): Promise<Browser> {
   const existing = globalAny.browserInstance;
   if (existing) {
-    const browser = await existing;
-    if (browser.connected) return browser;
+    try {
+      const browser = await existing;
+      if (browser.connected) return browser;
+    } catch {
+      // A failed launch must never be cached — otherwise one bad launch poisons
+      // every browser block until the server restarts.
+    }
+    globalAny.browserInstance = null;
   }
-  const launched = puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  });
+
+  const launched = puppeteer
+    .launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    })
+    .catch((e) => {
+      globalAny.browserInstance = null;
+      throw e;
+    });
+
   globalAny.browserInstance = launched;
-  return launched;
+  const browser = await launched;
+
+  // If Chrome dies (crash, machine sleep, someone kills it), drop the handle and
+  // the pages that pointed into it so the next request launches a fresh one.
+  browser.once('disconnected', () => {
+    globalAny.browserInstance = null;
+    sessions.clear();
+  });
+
+  return browser;
 }
 
 // Reap idle pages. The Chrome instance itself is kept warm — relaunching it on
@@ -77,8 +101,15 @@ async function settle(page: Page, ms = 600) {
 }
 
 async function newSession(url: string, width: number, height: number) {
-  const browser = await getBrowser();
-  const page = await browser.newPage();
+  let page: Page;
+  try {
+    page = await (await getBrowser()).newPage();
+  } catch {
+    // The cached Chrome was dead (or died mid-call). getBrowser has dropped it
+    // by now, so one more try gets a freshly launched one.
+    globalAny.browserInstance = null;
+    page = await (await getBrowser()).newPage();
+  }
 
   await page.setViewport({ width, height, deviceScaleFactor: 1 });
   await page.setUserAgent(
@@ -222,7 +253,10 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// One frame of the live page.
+// One frame of the live page. A 404 here is the client's signal that the page is
+// gone for good and the tab should rebuild its session, so it is reserved for
+// exactly that: a screenshot that merely blipped (mid-navigation, mid-paint) is
+// retried, and failing that we hold the last frame rather than cry session-death.
 export async function GET(req: NextRequest) {
   const sessionId = req.nextUrl.searchParams.get('sessionId');
   if (!sessionId) return new NextResponse('Missing sessionId', { status: 400 });
@@ -230,20 +264,36 @@ export async function GET(req: NextRequest) {
   const session = touch(sessionId);
   if (!session) return new NextResponse('Session not found', { status: 404 });
 
+  const shoot = () =>
+    session.page.screenshot({ type: 'jpeg', quality: 60, optimizeForSpeed: true });
+
+  let frame: Buffer | null = null;
   try {
-    const screenshot = await session.page.screenshot({
-      type: 'jpeg',
-      quality: 60,
-      optimizeForSpeed: true,
-    });
-    return new NextResponse(Buffer.from(screenshot), {
-      headers: {
-        'Content-Type': 'image/jpeg',
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-      },
-    });
-  } catch (error) {
-    console.error('Screenshot error:', error);
-    return new NextResponse('Screenshot failed', { status: 500 });
+    frame = Buffer.from(await shoot());
+  } catch {
+    await sleep(150);
+    try {
+      frame = Buffer.from(await shoot());
+    } catch (error) {
+      // A closed page can never come back — that IS session death.
+      if (session.page.isClosed()) {
+        sessions.delete(sessionId);
+        return new NextResponse('Session not found', { status: 404 });
+      }
+      console.error('Screenshot error:', error instanceof Error ? error.message : error);
+    }
   }
+
+  // Replay the previous frame rather than serve nothing: an empty response would
+  // trip the client's <img> error path and it would rebuild a perfectly live page.
+  const body = frame ?? session.lastFrame;
+  if (!body) return new NextResponse(null, { status: 204 });
+  if (frame) session.lastFrame = frame;
+
+  return new NextResponse(new Uint8Array(body), {
+    headers: {
+      'Content-Type': 'image/jpeg',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+    },
+  });
 }
