@@ -8,6 +8,7 @@ import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import WorkflowMenu from './WorkflowMenu';
 import CanvasBackgroundPanel from './CanvasBackgroundPanel';
 import ShapePreview from '@/components/canvas/ShapePreview';
+import { RELAX_EFFECTS, RELAX_EFFECT_LIST } from '@/lib/relaxEffects';
 
 const FRAME_COLORS = [
   { name: 'Terracotta', hex: '#C97B4B' },
@@ -71,6 +72,10 @@ export default function FloatingToolbar() {
   const [showWorkflowMenu, setShowWorkflowMenu] = useState(false);
   const [showBgOptions, setShowBgOptions] = useState(false);
   const [showRelaxOptions, setShowRelaxOptions] = useState(false);
+
+  const relaxEffect = useCanvasStore((s) => s.relaxEffect);
+  const setRelaxEffect = useCanvasStore((s) => s.setRelaxEffect);
+  const activeRelax = relaxEffect ? RELAX_EFFECTS[relaxEffect] : null;
 
   const [selectedShapeDomain, setSelectedShapeDomain] = useState<'all' | 'brainstorm' | 'code' | 'love' | 'usecase' | 'story' | 'system'>('all');
   const selectedShapeType = useCanvasStore((s) => s.selectedShapeType);
@@ -971,30 +976,45 @@ export default function FloatingToolbar() {
             <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider px-1">
               Stress Reliefer
             </span>
-            <button
-              className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-xs font-semibold bg-[var(--accent-subtle)] text-[var(--accent)] border border-[var(--accent-light)] transition-all hover:bg-[var(--accent-subtle)]/80"
-              onClick={() => {
-                // Same burst the canvas click fires, centred on the viewport, so
-                // the button does something instead of just describing itself.
-                const { camera } = useCanvasStore.getState();
-                window.dispatchEvent(
-                  new CustomEvent('spawn-flower-burst', {
-                    detail: {
-                      x: (window.innerWidth / 2 - camera.x) / camera.zoom,
-                      y: (window.innerHeight / 2 - camera.y) / camera.zoom,
-                    },
-                  })
+
+            <div className="grid grid-cols-3 gap-1.5">
+              {RELAX_EFFECT_LIST.map((fx) => {
+                const active = relaxEffect === fx.id;
+                return (
+                  <button
+                    key={fx.id}
+                    title={fx.label}
+                    onClick={() => {
+                      setRelaxEffect(fx.id);
+                      // Fire a preview at the centre of the viewport so picking an
+                      // effect shows you what it is instead of just naming it.
+                      const { camera } = useCanvasStore.getState();
+                      window.dispatchEvent(
+                        new CustomEvent('spawn-relax-burst', {
+                          detail: {
+                            x: (window.innerWidth / 2 - camera.x) / camera.zoom,
+                            y: (window.innerHeight / 2 - camera.y) / camera.zoom,
+                          },
+                        })
+                      );
+                    }}
+                    className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-lg border transition-all ${
+                      active
+                        ? 'bg-[var(--accent-subtle)] text-[var(--accent)] border-[var(--accent-light)] shadow-sm'
+                        : 'bg-transparent text-[var(--text-secondary)] border-transparent hover:bg-[var(--bg-tertiary)]'
+                    }`}
+                  >
+                    <span className="text-base leading-none">{fx.glyph}</span>
+                    <span className="text-[9px] font-semibold leading-tight text-center">{fx.label}</span>
+                  </button>
                 );
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 0 0 9.8 19.8 4 4 0 0 0 12 19a4 4 0 0 0 2.2.8 4 4 0 0 0 5.767-2.317 4 4 0 0 0 .556-6.588 4 4 0 0 0-2.526-5.77A3 3 0 0 0 12 5z" />
-              </svg>
-              🌸 Flower Burst
-            </button>
+              })}
+            </div>
+
             <p className="text-[10px] text-[var(--text-muted)] text-center leading-relaxed">
-              Click anywhere on the canvas to pop out and scatter blooming flowers and leaves. A cinematic, calming 10-second effect.
+              {activeRelax
+                ? `${activeRelax.blurb} Click anywhere on the canvas — it runs for 10 seconds.`
+                : 'Pick an effect, then click anywhere on the canvas to let it go.'}
             </p>
           </motion.div>
         )}

@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CanvasObjectData, DrawingStroke, ConnectionData, Scene, CommentThread } from '@/lib/db';
 import type { CanvasOp } from '@/lib/collab/types';
 import { CanvasBackground, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
+import type { RelaxEffectId } from '@/lib/relaxEffects';
 
 export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax';
 
@@ -215,6 +216,11 @@ interface CanvasStore {
   slashMenu: { objectId: string; query: string; x: number; y: number } | null;
   setSlashMenu: (menu: { objectId: string; query: string; x: number; y: number } | null) => void;
   
+  // Stress Reliefer. Null until the user actually picks an effect — entering
+  // relax mode alone must not arm the canvas or swap the cursor.
+  relaxEffect: RelaxEffectId | null;
+  setRelaxEffect: (effect: RelaxEffectId | null) => void;
+
   // Shape settings
   selectedShapeType: string;
   setSelectedShapeType: (type: string) => void;
@@ -1046,6 +1052,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   slashMenu: null,
   setSlashMenu: (menu) => set({ slashMenu: menu }),
   
+  // Stress Reliefer
+  relaxEffect: null,
+  setRelaxEffect: (relaxEffect) => set({ relaxEffect }),
+
   // Shape settings
   selectedShapeType: 'square' as any,
   setSelectedShapeType: (selectedShapeType) => set({ selectedShapeType }),

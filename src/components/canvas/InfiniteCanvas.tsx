@@ -21,7 +21,7 @@ import {
   COLLAB_SESSION_ID_PREFIX,
 } from '@/lib/db';
 import CanvasObject from './CanvasObject';
-import FlowerParticlesLayer from './FlowerParticlesLayer';
+import RelaxEffectsLayer from './RelaxEffectsLayer';
 import DrawingLayer from './DrawingLayer';
 import ConnectionsLayer from './ConnectionsLayer';
 import FloatingToolbar from '@/components/ui/FloatingToolbar';
@@ -104,6 +104,7 @@ export default function InfiniteCanvas() {
   const strokes = useCanvasStore((s) => s.strokes);
   const setStrokes = useCanvasStore((s) => s.setStrokes);
   const mode = useCanvasStore((s) => s.mode);
+  const relaxEffect = useCanvasStore((s) => s.relaxEffect);
   const setMode = useCanvasStore((s) => s.setMode);
   const previousMode = useCanvasStore((s) => s.previousMode);
   const setPreviousMode = useCanvasStore((s) => s.setPreviousMode);
@@ -567,7 +568,13 @@ export default function InfiniteCanvas() {
               setEditingId(obj.id);
               setMode('select');
             } else if (mode === 'relax') {
-              window.dispatchEvent(new CustomEvent('spawn-flower-burst', { detail: { x: worldPos.x, y: worldPos.y } }));
+              // No-op until an effect is picked, so a stray click can't fire a
+              // burst the user never chose.
+              if (useCanvasStore.getState().relaxEffect) {
+                window.dispatchEvent(
+                  new CustomEvent('spawn-relax-burst', { detail: { x: worldPos.x, y: worldPos.y } })
+                );
+              }
             } else {
               const ts = useCanvasStore.getState().textStyle;
               const obj = addObject({
@@ -951,7 +958,9 @@ export default function InfiniteCanvas() {
       {/* Canvas container */}
       <div
         ref={containerRef}
-        className={`canvas-container paper-texture mode-${mode}`}
+        className={`canvas-container paper-texture mode-${mode}${
+          mode === 'relax' && relaxEffect ? ` relax-${relaxEffect}` : ''
+        }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -984,7 +993,7 @@ export default function InfiniteCanvas() {
           ))}
 
           {/* Cinematic Stress Reliefer particles */}
-          <FlowerParticlesLayer />
+          <RelaxEffectsLayer />
         </div>
 
         {/* Drawing layer (SVG overlay) */}
