@@ -973,7 +973,19 @@ export default function FloatingToolbar() {
             </span>
             <button
               className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-xs font-semibold bg-[var(--accent-subtle)] text-[var(--accent)] border border-[var(--accent-light)] transition-all hover:bg-[var(--accent-subtle)]/80"
-              onClick={() => {}}
+              onClick={() => {
+                // Same burst the canvas click fires, centred on the viewport, so
+                // the button does something instead of just describing itself.
+                const { camera } = useCanvasStore.getState();
+                window.dispatchEvent(
+                  new CustomEvent('spawn-flower-burst', {
+                    detail: {
+                      x: (window.innerWidth / 2 - camera.x) / camera.zoom,
+                      y: (window.innerHeight / 2 - camera.y) / camera.zoom,
+                    },
+                  })
+                );
+              }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="3" />
