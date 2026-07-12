@@ -50,42 +50,12 @@ export default function FlowerParticlesLayer() {
   const [particles, setParticles] = useState<FlowerParticle[]>([]);
   const emittersRef = useRef<Emitter[]>([]);
   const particlesRef = useRef<FlowerParticle[]>([]);
-
-  // Sync ref to state to avoid stale closure issues in the animation loop
-  useEffect(() => {
-    particlesRef.current = particles;
-  }, [particles]);
+  const isLoopingRef = useRef(false);
+  const animFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const handleSpawn = (e: Event) => {
-      const customEvent = e as CustomEvent<{ x: number; y: number }>;
-      const { x, y } = customEvent.detail;
-      
-      const now = Date.now();
-      const newEmitter: Emitter = {
-        id: Math.random().toString(36).substring(2),
-        x,
-        y,
-        startTime: now,
-        endTime: now + 10000, // 10 seconds lifetime
-        lastSpawnTime: 0,
-      };
-      
-      emittersRef.current.push(newEmitter);
-    };
-
-    window.addEventListener('spawn-flower-burst', handleSpawn);
-    return () => {
-      window.removeEventListener('spawn-flower-burst', handleSpawn);
-    };
-  }, []);
-
-  useEffect(() => {
-    let animationFrameId: number;
-
     const updateLoop = () => {
       const now = Date.now();
-      let stateChanged = false;
 
       // 1. Spawning from emitters
       if (emittersRef.current.length > 0) {
@@ -106,14 +76,12 @@ export default function FlowerParticlesLayer() {
               const angle = Math.random() * Math.PI * 2;
               
               // Velocity: pop out fast, then slow down
-              // 2 to 3 cm is about 75-115px.
-              // To travel 75-115px before fading under friction (0.95), initial velocity should be around 5 to 9 px/frame
-              const speed = 4 + Math.random() * 6;
+              const speed = 3 + Math.random() * 5;
               const vx = Math.cos(angle) * speed;
               const vy = Math.sin(angle) * speed;
               
               const particle: FlowerParticle = {
-                id: Math.random().toString(36).substring(2) + '-' + now,
+                id: Math.random().toString(36).substring(2) + '-' + now + '-' + Math.random(),
                 startX: emitter.x,
                 startY: emitter.y,
                 x: emitter.x + (Math.random() - 0.5) * 15,
@@ -121,9 +89,9 @@ export default function FlowerParticlesLayer() {
                 vx,
                 vy,
                 rotation: Math.random() * 360,
-                spin: (Math.random() - 0.5) * 4, // spin speed
+                spin: (Math.random() - 0.5) * 4,
                 scale: 0,
-                maxScale: 0.5 + Math.random() * 0.7, // size between 20px and 45px depending on SVG
+                maxScale: 0.5 + Math.random() * 0.7,
                 opacity: 1,
                 svgPath,
                 createdAt: now,
@@ -135,7 +103,6 @@ export default function FlowerParticlesLayer() {
               
               newParticles.push(particle);
             }
-            stateChanged = true;
           }
         });
 
@@ -145,7 +112,7 @@ export default function FlowerParticlesLayer() {
       }
 
       // 2. Physics & Animation Update
-      if (particlesRef.current.length > 0 || emittersRef.current.length > 0) {
+      if (particlesRef.current.length > 0) {
         const nextParticles = particlesRef.current
           .map((p) => {
             const age = now - p.createdAt;
@@ -155,7 +122,7 @@ export default function FlowerParticlesLayer() {
 
             // Physics with friction
             const nextVx = p.vx * 0.95;
-            // Gentle upward drift (gravity is negative Y in screen space)
+            // Gentle upward drift
             const nextVy = (p.vy * 0.95) - 0.05;
             
             // Sway calculation (horizontal wave)
@@ -169,7 +136,6 @@ export default function FlowerParticlesLayer() {
             let scale = p.maxScale;
             if (progress < 0.15) {
               const scaleProgress = progress / 0.15;
-              // Bounce ease out
               scale = p.maxScale * (1 - Math.pow(1 - scaleProgress, 3));
             }
 
@@ -188,7 +154,6 @@ export default function FlowerParticlesLayer() {
               rotation: p.rotation + p.spin,
               scale,
               opacity,
-              // Apply sway relative to the current position
               displayX: nextX + sway,
               displayY: nextY,
             };
@@ -197,22 +162,52 @@ export default function FlowerParticlesLayer() {
 
         particlesRef.current = nextParticles;
         setParticles(nextParticles);
-      } else if (particles.length > 0) {
-        // Clear list if empty
+      } else {
         setParticles([]);
       }
 
-      animationFrameId = requestAnimationFrame(updateLoop);
+      if (particlesRef.current.length > 0 || emittersRef.current.length > 0) {
+        animFrameRef.current = requestAnimationFrame(updateLoop);
+      } else {
+        isLoopingRef.current = false;
+      }
     };
 
-    animationFrameId = requestAnimationFrame(updateLoop);
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [particles.length]);
+    const handleSpawn = (e: Event) => {
+      const customEvent = e as CustomEvent<{ x: number; y: number }>;
+      const { x, y } = customEvent.detail;
+      
+      const now = Date.now();
+      const newEmitter: Emitter = {
+        id: Math.random().toString(36).substring(2),
+        x,
+        y,
+        startTime: now,
+        endTime: now + 10000, // 10 seconds lifetime
+        lastSpawnTime: 0,
+      };
+      
+      emittersRef.current.push(newEmitter);
+      
+      if (!isLoopingRef.current) {
+        isLoopingRef.current = true;
+        animFrameRef.current = requestAnimationFrame(updateLoop);
+      }
+    };
+
+    window.addEventListener('spawn-flower-burst', handleSpawn);
+    
+    return () => {
+      window.removeEventListener('spawn-flower-burst', handleSpawn);
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+      }
+    };
+  }, []);
 
   return (
-    <div className="absolute inset-0 pointer-events-none z-[9999]">
+    <>
       {particles.map((p) => {
-        // Use custom display coordinates which include the sway calculation
         const x = (p as any).displayX ?? p.x;
         const y = (p as any).displayY ?? p.y;
         
@@ -231,10 +226,11 @@ export default function FlowerParticlesLayer() {
               opacity: p.opacity,
               filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.12))',
               willChange: 'transform, opacity, left, top',
+              pointerEvents: 'none',
             }}
           />
         );
       })}
-    </div>
+    </>
   );
 }
