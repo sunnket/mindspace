@@ -108,14 +108,102 @@ function readBrowserTabs(obj: CanvasObjectData): { tabs: BrowserTab[]; activeId:
   return { tabs: [{ id, url: obj.content || BROWSER_DEFAULT_URL, title: '' }], activeId: id };
 }
 
-function browserTabLabel(t: BrowserTab): string {
-  if (t.title && t.title.trim()) return t.title.trim();
-  if (!t.url) return 'New Tab';
+function browserTabLabel(tab: BrowserTab): string {
+  if (tab.title) return tab.title;
+  if (!tab.url) return 'New Tab';
   try {
-    return new URL(t.url).hostname.replace(/^www\./, '');
+    return new URL(tab.url).hostname.replace(/^www\./, '');
   } catch {
-    return t.url;
+    return tab.url.slice(0, 30);
   }
+}
+
+function PuppeteerRenderer({ url, width, height, isActive, id, onLoading }: { url: string; width: number; height: number; isActive: boolean; id: string; onLoading: (loading: boolean) => void; }) {
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  // Initialize session
+  useEffect(() => {
+    if (!url || !isActive) return;
+    let mounted = true;
+    onLoading(true);
+    fetch('/api/browser', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'start', url, width, height })
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (mounted && d.sessionId) {
+          setSessionId(d.sessionId);
+          onLoading(false);
+        }
+      })
+      .catch(() => mounted && onLoading(false));
+
+    return () => {
+      mounted = false;
+      if (sessionId) {
+        fetch('/api/browser', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'stop', sessionId }),
+          keepalive: true
+        }).catch(() => {});
+      }
+    };
+  }, [url, isActive]); // Only run on mount / url change
+
+  // Poll for screenshots
+  useEffect(() => {
+    if (!sessionId || !isActive) return;
+    const interval = setInterval(() => setTick(t => t + 1), 1000); // 1 FPS for performance
+    return () => clearInterval(interval);
+  }, [sessionId, isActive]);
+
+  const interact = (event: any) => {
+    if (!sessionId) return;
+    fetch('/api/browser', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'interact', sessionId, event })
+    }).then(() => setTick(t => t + 1)); // Trigger immediate re-render
+  };
+
+  if (!url || !isActive) return null;
+
+  return (
+    <div 
+      className="absolute inset-0 w-full h-full bg-white outline-none"
+      tabIndex={0}
+      onClick={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        interact({ type: 'click', x: e.clientX - rect.left, y: e.clientY - rect.top });
+      }}
+      onWheel={(e) => {
+        e.stopPropagation();
+        interact({ type: 'wheel', deltaY: e.deltaY });
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        interact({ type: 'keydown', key: e.key });
+      }}
+    >
+      {sessionId ? (
+        <img 
+          src={`/api/browser?sessionId=${sessionId}&tick=${tick}`} 
+          alt="Browser" 
+          className="w-full h-full object-contain object-top"
+          draggable={false}
+        />
+      ) : (
+        <div className="flex items-center justify-center h-full w-full bg-neutral-50 text-neutral-400">
+          <div className="animate-spin w-6 h-6 border-2 border-neutral-300 border-t-blue-500 rounded-full" />
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Detect a search-engine query URL and pull out the query text. */
@@ -1531,7 +1619,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
         const stop = (e: React.MouseEvent) => e.stopPropagation();
         const postActive = (action: string, extra: Record<string, unknown> = {}) => {
-          browserIframeRefs.current[activeId]?.contentWindow?.postMessage({ __ms: 1, action, ...extra }, '*');
+          console.log("Puppeteer browser command ignored:", action);
         };
 
         const persistTabs = (nextTabs: BrowserTab[], nextActive: string) => {
@@ -1728,20 +1816,16 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   ) : null;
                 }
                 return (
-                  <iframe
-                    key={t.id}
-                    ref={(el) => { browserIframeRefs.current[t.id] = el; }}
-                    src={browserSrcFor(t.url)}
-                    title="Embedded browser"
-                    className="absolute inset-0 w-full h-full border-none bg-white"
-                    style={{ visibility: active ? 'visible' : 'hidden', zIndex: active ? 1 : 0 }}
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads allow-presentation allow-popups-to-escape-sandbox"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-                    allowFullScreen
-                    referrerPolicy="no-referrer"
-                    onLoad={() => setLoadingTabs((m) => ({ ...m, [t.id]: false }))}
-                    onMouseDown={stop}
-                  />
+                  <div key={t.id} style={{ visibility: active ? 'visible' : 'hidden', zIndex: active ? 1 : 0 }} className="absolute inset-0 w-full h-full bg-white">
+                    <PuppeteerRenderer 
+                      id={t.id}
+                      url={t.url} 
+                      width={obj.width || 800} 
+                      height={(obj.height || 600) - 72} 
+                      isActive={active}
+                      onLoading={(loading) => setLoadingTabs((m) => ({ ...m, [t.id]: loading }))}
+                    />
+                  </div>
                 );
               })}
               {browserExtract && (
