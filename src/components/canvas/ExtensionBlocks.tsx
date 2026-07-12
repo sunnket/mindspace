@@ -160,7 +160,7 @@ export function CountdownBlock({ obj }: { obj: CanvasObjectData }) {
 
       <div className="flex justify-center items-center my-2.5 relative shrink-0">
         <svg width="72" height="72" className="-rotate-90">
-          <circle cx="36" cy="36" r={radius} fill="transparent" stroke="rgba(90,62,40,0.08)" strokeWidth="5" />
+          <circle cx="36" cy="36" r={radius} fill="transparent" stroke="var(--track)" strokeWidth="5" />
           <circle
             cx="36" cy="36" r={radius}
             fill="transparent" stroke={tint} strokeWidth="5"
@@ -182,7 +182,7 @@ export function CountdownBlock({ obj }: { obj: CanvasObjectData }) {
           { val: timeLeft.minutes, label: 'min' },
           { val: timeLeft.seconds, label: 'sec' },
         ].map((digit, i) => (
-          <div key={i} className="rounded-xl py-1.5" style={{ background: 'var(--well)', boxShadow: 'inset 0 1.5px 4px rgba(90,62,40,0.08)' }}>
+          <div key={i} className="rounded-xl py-1.5" style={{ background: 'var(--well)', boxShadow: 'var(--well-inset)' }}>
             <span className="block text-base font-extrabold tabular-nums leading-tight">{String(digit.val).padStart(2, '0')}</span>
             <span className="block text-[8px] text-[var(--text-tertiary)] uppercase tracking-widest font-bold">{digit.label}</span>
           </div>
@@ -581,7 +581,7 @@ export function FocusTimerBlock({ obj }: { obj: CanvasObjectData }) {
       className="h-8 px-4 rounded-full text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
       style={primary
         ? { background: tint, color: '#fff', boxShadow: `0 6px 14px -6px ${tint}AA, inset 0 1px 0 rgba(255,255,255,0.3)` }
-        : { background: 'var(--well)', color: 'var(--text-secondary)', boxShadow: 'inset 0 1.5px 4px rgba(90,62,40,0.08)' }}
+        : { background: 'var(--well)', color: 'var(--text-secondary)', boxShadow: 'var(--well-inset)' }}
     >
       {children}
     </button>
@@ -703,7 +703,7 @@ export function DecisionBlock({ obj }: { obj: CanvasObjectData }) {
                 background: won ? tint : active ? `${tint}33` : 'var(--well)',
                 color: won ? '#fff' : 'var(--text-primary)',
                 transform: active || won ? 'scale(1.06)' : 'scale(1)',
-                boxShadow: won ? `0 6px 14px -6px ${tint}AA` : 'inset 0 1px 3px rgba(90,62,40,0.07)',
+                boxShadow: won ? `0 6px 14px -6px ${tint}AA` : 'var(--well-inset)',
               }}
             >
               <input
@@ -827,7 +827,7 @@ export function ProgressBlock({ obj }: { obj: CanvasObjectData }) {
           aria-valuemax={100}
           aria-label="Progress"
           className="relative h-6 rounded-full cursor-ew-resize touch-none"
-          style={{ background: 'var(--well)', boxShadow: 'inset 0 2px 5px rgba(90,62,40,0.12)' }}
+          style={{ background: 'var(--well)', boxShadow: 'var(--well-inset-deep)' }}
         >
           <div
             className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-150"
@@ -858,7 +858,7 @@ export function ProgressBlock({ obj }: { obj: CanvasObjectData }) {
               onClick={(e) => { stop(e); patch({ progressValue: Math.max(0, Math.min(100, value + step)) }); }}
               onMouseDown={stop} onPointerDown={stop}
               className="px-2 py-1 rounded-lg text-[9.5px] font-extrabold tabular-nums text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
-              style={{ background: 'var(--well)', boxShadow: 'inset 0 1px 3px rgba(90,62,40,0.07)' }}
+              style={{ background: 'var(--well)', boxShadow: 'var(--well-inset)' }}
             >
               {step > 0 ? `+${step}` : step}
             </button>

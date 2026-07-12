@@ -4,7 +4,7 @@ import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
-import { screenToCanvas, clamp } from '@/lib/utils';
+import { screenToCanvas, clamp, fitImageBox } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import { ingestFile } from '@/lib/fileIngest';
 import { applyCanvasTheme, resetCanvasTheme, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
@@ -854,29 +854,35 @@ export default function InfiniteCanvas() {
       const centerX = (window.innerWidth / 2 - camera.x) / camera.zoom;
       const centerY = (window.innerHeight / 2 - camera.y) / camera.zoom;
 
+      /* ONE paste = ONE image. A single copied picture arrives as SEVERAL
+         clipboard entries — Chrome carries it as image/png AND text/html with an
+         <img> in it, some apps offer image/png and image/jpeg of the same bitmap.
+         Adding an object per entry is what multiplied the image on the canvas.
+         So: take the first image entry and ignore the rest. */
       const items = Array.from(e.clipboardData?.items || []);
-      let handledImage = false;
-      items.forEach((item) => {
-        if (item.type.startsWith('image/')) {
-          const file = item.getAsFile();
-          if (file) {
-            handledImage = true;
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-              addObject({
-                type: 'image',
-                x: centerX,
-                y: centerY,
-                width: 300,
-                height: 200,
-                content: ev.target?.result as string,
-              });
-            };
-            reader.readAsDataURL(file);
-          }
-        }
-      });
-      if (handledImage) return;
+      const imageItem = items.find((it) => it.kind === 'file' && it.type.startsWith('image/'));
+      const file = imageItem?.getAsFile() ?? null;
+
+      if (file) {
+        e.preventDefault(); // never let the bitmap also land as junk in a text field
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+          const src = ev.target?.result as string;
+          if (!src) return;
+          // Size it from the image's REAL pixels, at its own aspect ratio.
+          const { width, height } = await fitImageBox(src);
+          addObject({
+            type: 'image',
+            x: centerX - width / 2,
+            y: centerY - height / 2,
+            width,
+            height,
+            content: src,
+          });
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
 
       // Don't hijack pastes into a text field — only turn a URL pasted onto the
       // bare canvas into a link-preview card (typing a URL into a block + Enter

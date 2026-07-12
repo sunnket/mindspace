@@ -1,4 +1,5 @@
 import { useCanvasStore } from '@/store/canvasStore';
+import { fitImageBox } from '@/lib/utils';
 
 /**
  * Drops any file onto the canvas and makes it readable by the agent.
@@ -44,7 +45,10 @@ export async function ingestFile(file: File, x: number, y: number): Promise<void
   if (file.type.startsWith('image/')) {
     try {
       const dataUrl = await readAsDataURL(file);
-      store.addObject({ type: 'image', x, y, width: 300, height: 200, content: dataUrl });
+      // Box it at the picture's own aspect ratio — a flat 300x200 distorted
+      // every portrait and screenshot that landed here.
+      const { width, height } = await fitImageBox(dataUrl);
+      store.addObject({ type: 'image', x, y, width, height, content: dataUrl });
     } catch {
       /* ignore unreadable image */
     }

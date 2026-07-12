@@ -6,6 +6,39 @@ export function clamp(value: number, min: number, max: number): number {
 }
 
 /**
+ * The canvas box an image should occupy: its OWN aspect ratio, scaled to fit
+ * within a sane maximum. Every path that puts a picture on the canvas (paste,
+ * file drop, drag-in) goes through this — they each used to hardcode 300x200,
+ * which squashed anything that wasn't 3:2.
+ *
+ * Never rejects: an image the browser can't decode still gets a usable box.
+ */
+export function fitImageBox(
+  src: string,
+  maxW = 420,
+  maxH = 420,
+): Promise<{ width: number; height: number }> {
+  return new Promise((resolve) => {
+    const fallback = { width: 300, height: 200 };
+    if (typeof window === 'undefined' || !src) return resolve(fallback);
+
+    const probe = new window.Image();
+    probe.onload = () => {
+      const nw = probe.naturalWidth;
+      const nh = probe.naturalHeight;
+      if (!nw || !nh) return resolve(fallback);
+      const scale = Math.min(1, maxW / nw, maxH / nh);
+      resolve({
+        width: Math.max(40, Math.round(nw * scale)),
+        height: Math.max(40, Math.round(nh * scale)),
+      });
+    };
+    probe.onerror = () => resolve(fallback);
+    probe.src = src;
+  });
+}
+
+/**
  * Convert screen coordinates to canvas (world) coordinates
  */
 export function screenToCanvas(

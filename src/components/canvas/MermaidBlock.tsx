@@ -3,6 +3,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 import { CanvasObjectData } from '@/lib/db';
+import { useCanvasStore } from '@/store/canvasStore';
+import { paperColor, isDarkColor, readableInk } from '@/lib/canvasTheme';
 
 export default function MermaidBlock({
   obj,
@@ -19,34 +21,66 @@ export default function MermaidBlock({
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Initialize mermaid exactly once
-  useEffect(() => {
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: 'base',
-      themeVariables: {
-        fontFamily: "'Inter', sans-serif",
-      },
-    });
-  }, []);
+  // The diagram is baked into an SVG at render time, so it can't inherit the
+  // theme through CSS like every other block — it has to be RE-RENDERED whenever
+  // the canvas background changes. Without this the diagram kept whatever colors
+  // it was first drawn with: black-on-white nodes sitting invisibly on dark paper.
+  const canvasBackground = useCanvasStore((s) => s.canvasBackground);
+  const paper = paperColor(canvasBackground);
+  const dark = isDarkColor(paper);
 
-  // Render diagram when not editing
+  // Render diagram when not editing, and again on every theme change.
   useEffect(() => {
     let isMounted = true;
-    
+
     const renderDiagram = async () => {
       if (!obj.content || obj.content.trim() === '') {
         setSvgContent('');
         setError(null);
         return;
       }
-      
+
       try {
-        // Use a unique but deterministic ID for the SVG
-        const id = `mermaid-${obj.id.replace(/[^a-zA-Z0-9]/g, '')}`;
-        // Render the mermaid syntax
+        const ink = readableInk(paper);
+        // Node surfaces are lifted off the paper rather than a fixed white/grey,
+        // so the diagram reads as part of whatever canvas it's sitting on.
+        const surface = dark ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.92)';
+        const line = dark ? 'rgba(244,239,232,0.45)' : 'rgba(45,42,38,0.35)';
+        const accent = canvasBackground.accent || '#C97B4B';
+
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'base',
+          darkMode: dark,
+          themeVariables: {
+            fontFamily: "'Inter', sans-serif",
+            background: 'transparent',
+            // Nodes
+            primaryColor: surface,
+            primaryTextColor: ink,
+            primaryBorderColor: accent,
+            secondaryColor: dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+            secondaryTextColor: ink,
+            tertiaryColor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+            tertiaryTextColor: ink,
+            // Edges, arrows and their labels
+            lineColor: line,
+            textColor: ink,
+            mainBkg: surface,
+            nodeBorder: accent,
+            nodeTextColor: ink,
+            edgeLabelBackground: dark ? '#221F1C' : '#FFFDFA',
+            // Clusters / subgraphs
+            clusterBkg: dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+            clusterBorder: line,
+            titleColor: ink,
+          },
+        });
+
+        // Re-key the SVG per theme so mermaid can't hand back a cached render.
+        const id = `mermaid-${obj.id.replace(/[^a-zA-Z0-9]/g, '')}-${dark ? 'd' : 'l'}`;
         const { svg } = await mermaid.render(id, obj.content);
-        
+
         if (isMounted) {
           setSvgContent(svg);
           setError(null);
@@ -58,14 +92,16 @@ export default function MermaidBlock({
         }
       }
     };
-    
+
     if (!isEditing) {
       renderDiagram();
     }
-  }, [obj.content, obj.id, isEditing]);
+
+    return () => { isMounted = false; };
+  }, [obj.content, obj.id, isEditing, paper, dark, canvasBackground.accent]);
 
   return (
-    <div className="w-full h-full flex flex-col relative rounded-[20px] bg-[var(--bg-glass)] backdrop-blur-xl border border-white/20 shadow-xl overflow-hidden group">
+    <div className="w-full h-full flex flex-col relative rounded-[20px] bg-[var(--bg-glass)] backdrop-blur-xl border border-[var(--border-strong)] shadow-xl overflow-hidden group">
       {isEditing ? (
         <textarea
           ref={innerRef as any}

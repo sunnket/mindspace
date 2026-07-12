@@ -39,6 +39,13 @@
   
   /* Recessed sub-surface inside cards (poll tracks, progress bars, wells) */
   --well: #F5EFE7;
+  /* The "sunken" shadow that gives a well its depth, and the neutral rail a
+     chart/progress/donut draws its unfilled portion on. Both were hardcoded
+     warm-brown (rgba(90,62,40,…)) inside the widgets, which is dark-on-dark —
+     it vanished the moment the canvas went dark. They flip with the theme now. */
+  --well-inset: inset 0 1.5px 4px rgba(90, 62, 40, 0.08);
+  --well-inset-deep: inset 0 2px 5px rgba(90, 62, 40, 0.12);
+  --track: rgba(90, 62, 40, 0.08);
 
   --sticky-yellow: #FFF8DC;
   --sticky-pink: #FFE4E6;
@@ -509,7 +516,12 @@ html, body {
 .image-block img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* CONTAIN, never cover: cover crops whatever doesn't match the block's aspect
+     ratio, which silently mangled pasted screenshots and portraits (the block
+     was a fixed 3:2 box, the picture was not). The whole picture is always
+     visible now — pasted blocks are already sized to the image's true ratio, so
+     there's nothing to letterbox unless the user resizes the box themselves. */
+  object-fit: contain;
   display: block;
 }
 
@@ -588,6 +600,9 @@ html, body {
    ============================================ */
 :root[data-canvas-theme="dark"] {
   --well: rgba(255, 255, 255, 0.07);
+  --well-inset: inset 0 1.5px 4px rgba(0, 0, 0, 0.45);
+  --well-inset-deep: inset 0 2px 6px rgba(0, 0, 0, 0.55);
+  --track: rgba(255, 255, 255, 0.14);
 }
 :root[data-canvas-theme="dark"] .focus-overlay {
   background: rgba(10, 10, 12, 0.72);

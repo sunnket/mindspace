@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { v4 as uuidv4 } from 'uuid';
 import { useCanvasStore } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
+import { Occupancy, rectOf, isBackdrop, settle, fitFrame } from '@/lib/canvasLayout';
 
 interface Action {
   type:
@@ -135,43 +136,6 @@ function makeActionScanner(onAction: (a: Action) => void) {
   };
 }
 
-interface Rect { x: number; y: number; w: number; h: number; }
-
-// Relocation breathing room. Only applied when a block is actually moved to
-// clear a genuine overlap — near-but-not-touching layouts are left untouched.
-const PACK_GAP = 52;
-
-/** True only on a genuine overlap (a few px of real intersection), so the
- *  model's intended spacing between adjacent cards is preserved. */
-function rectsOverlap(a: Rect, b: Rect): boolean {
-  const tol = 6;
-  return (
-    a.x + tol < b.x + b.w && b.x + tol < a.x + a.w &&
-    a.y + tol < b.y + b.h && b.y + tol < a.y + a.h
-  );
-}
-
-/** The model reports a nominal height, but text/heading/sticky blocks auto-grow
- *  to fit their content when rendered. Estimate the real height so neighbours
- *  reserve enough vertical room and don't get written over. */
-function packHeight(objData: Partial<CanvasObjectData>): number {
-  const base = Number(objData.height) || 100;
-  const t = objData.type;
-  if (t === 'heading' || t === 'text' || t === 'sticky') {
-    const content = String(objData.content || '');
-    const w = Number(objData.width) || 200;
-    // Estimate rendered height GENEROUSLY (over-reserve) — headings render at
-    // ~2.2rem and everything auto-grows, so under-reserving is what caused the
-    // agent to write blocks over its own text. Better to leave a gap than overlap.
-    const charPx = t === 'heading' ? 20 : 8.6; // avg glyph advance
-    const lineH = t === 'heading' ? 46 : 26;
-    const perLine = Math.max(6, Math.floor((w - 24) / charPx));
-    const lines = content.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / perLine)), 0);
-    const pad = t === 'sticky' ? 40 : 30;
-    return Math.max(base, lines * lineH + pad);
-  }
-  return base;
-}
 
 /**
  * Guaranteed local build. When every model is unreachable we still put something
@@ -309,45 +273,60 @@ export default function AgentOverlay() {
     let executed = 0;
 
     /* --- collision-free layout ---------------------------------------------
-       The model supplies layout INTENT (columns, rows, structure); the client
-       guarantees nothing overlaps. Existing content counts as occupied, so new
-       work lands in free space beside it. The whole build is shifted as one
-       block (preserving the model's relative structure) via `placeOffset`, then
-       any genuine residual overlap is resolved by pushing the block down. Frames
-       are backdrops — they neither block nor get pushed, so framed items stay
-       inside them. */
-    const occupied: Rect[] = visibleObjects
-      .filter((o) => o.type !== 'frame')
-      .map((o) => ({ x: o.x, y: o.y, w: o.width, h: o.height }));
+       The model supplies layout INTENT (columns, rows, structure); the CLIENT
+       guarantees nothing overlaps. This is deterministic on purpose: no amount
+       of prompting makes a language model reliably solve 2D packing against
+       auto-growing text, so we never trust its coordinates as final.
+
+       Occupancy is keyed by object id (see canvasLayout.Occupancy) so MOVING a
+       block updates its footprint instead of leaving a ghost at the old spot —
+       and every rect uses the block's MEASURED rendered height, not the nominal
+       one it was stored with. Those two facts are what let "organize my canvas"
+       (a pile of UPDATE_OBJECT moves) come out clean.
+
+       Frames are backdrops: they neither block nor get pushed, so framed items
+       stay inside their frame.
+
+       The whole new build is shifted as one block via `placeOffset`, preserving
+       the model's relative structure, then any residual overlap is resolved by
+       pushing down. */
+    const occupancy = new Occupancy(visibleObjects);
+    /** Everything the agent touched — the only blocks the settle pass may move. */
+    const touched = new Set<string>();
     let placeOffset: { dx: number; dy: number } | null = null;
 
-    const resolveDown = (r: Rect): Rect => {
-      const out = { ...r };
-      let guard = 0;
-      while (guard++ < 600) {
-        const hit = occupied.find((o) => rectsOverlap(out, o));
-        if (!hit) break;
-        out.y = hit.y + hit.h + PACK_GAP;
-      }
-      return out;
-    };
-
-    // Returns the collision-free position for a new object and reserves its space.
+    // Collision-free position for a NEW object. Space is reserved by the caller
+    // once the object exists and has a real id (so the rect can be re-keyed if
+    // the block is later moved).
     const placeFor = (objData: Partial<CanvasObjectData>): { x: number; y: number } => {
-      const w = Number(objData.width) || 200;
-      const h = packHeight(objData);
       const ix = Math.round(Number(objData.x) || 0);
       const iy = Math.round(Number(objData.y) || 0);
+
+      // Anchor the build: the first block decides how far the WHOLE plan shifts
+      // to reach free space, so the model's internal spacing survives intact.
       if (placeOffset === null) {
-        const anchor = resolveDown({ x: ix, y: iy, w, h });
+        const anchor = occupancy.resolveDown(rectOf(objData));
         placeOffset = { dx: anchor.x - ix, dy: anchor.y - iy };
       }
-      let r: Rect = { x: ix + placeOffset.dx, y: iy + placeOffset.dy, w, h };
-      if (objData.type !== 'frame') {
-        r = resolveDown(r);
-        occupied.push(r);
-      }
-      return { x: r.x, y: r.y };
+
+      const shifted = { ...objData, x: ix + placeOffset.dx, y: iy + placeOffset.dy };
+      if (isBackdrop(shifted)) return { x: shifted.x, y: shifted.y };
+
+      const free = occupancy.resolveDown(rectOf(shifted));
+      return { x: free.x, y: free.y };
+    };
+
+    /* Reposition an EXISTING object. This is the path "organize / tidy / group
+       this" takes, and until now it wrote the model's raw coordinates straight
+       to the store with no collision check at all — which is exactly how blocks
+       landed on top of each other during a reorganize. Now a move is packed
+       against everything else, using real heights. */
+    const moveTo = (obj: CanvasObjectData, next: Partial<CanvasObjectData>): { x: number; y: number } => {
+      const merged = { ...obj, ...next };
+      occupancy.remove(obj.id); // vacate the old spot before re-packing
+      const free = occupancy.resolveDown(rectOf(merged), obj.id);
+      occupancy.setRect(obj.id, free);
+      return { x: free.x, y: free.y };
     };
 
     let panned = false;
@@ -443,6 +422,10 @@ export default function AgentOverlay() {
               style,
             });
             if (action.tempId) idMap[action.tempId] = spawned.id;
+            // Reserve its footprint under the REAL id, so if a later action moves
+            // this block the old rect is vacated instead of haunting the board.
+            occupancy.set(spawned);
+            touched.add(spawned.id);
             // Kick off async media resolution (image generate / search / geocoding).
             if (wantsGen && genPrompt.trim()) {
               void resolveGenImage(spawned.id, genPrompt.trim(), style.imageStyle as string | undefined);
@@ -462,16 +445,42 @@ export default function AgentOverlay() {
             if (!targetId || !updates) break;
             const existing = live().objects.find((o) => o.id === targetId);
             if (!existing) break;
-            live().updateObject(targetId, {
+
+            const merged: Partial<CanvasObjectData> = {
               ...updates,
               style: updates.style ? { ...existing.style, ...updates.style } : existing.style,
-            });
+            };
+
+            // A MOVE (this is what "organize / tidy / group my canvas" is made
+            // of) gets packed against the rest of the board, with real heights,
+            // exactly like a new block would. The model's coordinates are its
+            // INTENT — the ordering and grouping it wants — not the last word on
+            // where the block physically lands.
+            const wantsMove = updates.x !== undefined || updates.y !== undefined;
+            if (wantsMove && !isBackdrop(existing)) {
+              const pos = moveTo(existing, merged);
+              merged.x = pos.x;
+              merged.y = pos.y;
+            } else if (wantsMove) {
+              merged.x = Math.round(Number(updates.x ?? existing.x));
+              merged.y = Math.round(Number(updates.y ?? existing.y));
+            }
+
+            live().updateObject(targetId, merged);
+            touched.add(targetId);
+            // Content or size changed → the block's real footprint changed too.
+            if (!wantsMove) occupancy.set({ ...existing, ...merged });
             executed++;
             break;
           }
           case 'DELETE_OBJECT': {
             const targetId = resolveId(action.id);
-            if (targetId && live().objects.some((o) => o.id === targetId)) { live().removeObject(targetId); executed++; }
+            if (targetId && live().objects.some((o) => o.id === targetId)) {
+              live().removeObject(targetId);
+              occupancy.remove(targetId); // its space is free again
+              touched.delete(targetId);
+              executed++;
+            }
             break;
           }
           case 'CREATE_CONNECTION': {
@@ -532,7 +541,60 @@ export default function AgentOverlay() {
       }
     };
 
+    /* --- final settle -------------------------------------------------------
+       The last word on layout. Everything above packs blocks using ESTIMATED
+       heights, because a block's true height isn't knowable until it has
+       rendered. By now it has: React has committed, every text/heading/sticky
+       has measured itself through the ResizeObserver in CanvasObject and grown
+       to its real size.
+
+       So re-run the de-overlap against those real measurements and fix whatever
+       the estimate got wrong. Only blocks the agent itself touched may move —
+       the user's untouched work never shifts under them. Then re-fit any frame
+       the agent drew so its backdrop still contains its (now taller) contents.
+
+       This is what makes "no text over text" a guarantee rather than a hope. */
+    const settleLayout = () => {
+      if (touched.size === 0) return;
+
+      // Two frames out: let the store commit and the ResizeObservers report the
+      // heights of anything that just grew.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const state = useCanvasStore.getState();
+        const board = state.objects.filter(
+          (o) => o.parentId === activeParent && !o.style?.isMinimized
+        );
+
+        const moves = settle(board, touched);
+        for (const m of moves) state.updateObject(m.id, { x: m.x, y: m.y });
+
+        if (moves.length) {
+          console.debug(`[Agent] settle: nudged ${moves.length} block(s) clear of an overlap`);
+        }
+
+        // Re-fit the agent's frames around their (settled, real-height) contents.
+        const after = useCanvasStore.getState().objects.filter(
+          (o) => o.parentId === activeParent && !o.style?.isMinimized
+        );
+        for (const frame of after) {
+          if (frame.type !== 'frame' || !touched.has(frame.id)) continue;
+          const inside = after.filter(
+            (o) =>
+              o.id !== frame.id &&
+              o.type !== 'frame' &&
+              o.x >= frame.x - 24 &&
+              o.y >= frame.y - 24 &&
+              o.x < frame.x + frame.width + 24 &&
+              o.y < frame.y + frame.height + 24
+          );
+          const fit = fitFrame(frame, inside);
+          if (fit) useCanvasStore.getState().updateObject(frame.id, fit);
+        }
+      }));
+    };
+
     const finishSuccess = () => {
+      settleLayout();
       addLog('[Success] Done.');
       setAgentState({ agentStatus: 'success', agentRunning: false });
       runningRef.current = false;
@@ -819,9 +881,13 @@ export default function AgentOverlay() {
           filesContext: filesContext || undefined,
           canvas: {
             isDark: store.canvasBackground.dark,
+            // Send the height each block ACTUALLY renders at, not the nominal one
+            // it was stored with. A note created as height:120 that grew to 600px
+            // of text has to look 600px tall to the model, or it plans the next
+            // block 200px down — straight through the middle of the note.
             objects: visibleObjects.map((o) => ({
               id: o.id, type: o.type, x: o.x, y: o.y,
-              width: o.width, height: o.height, content: o.content, style: o.style,
+              width: o.width, height: Math.round(rectOf(o).h), content: o.content, style: o.style,
             })),
             connections: visibleConnections.map((c) => ({ id: c.id, fromId: c.fromId, toId: c.toId })),
           },

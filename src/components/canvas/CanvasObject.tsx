@@ -7,6 +7,7 @@ import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import { getSnapPoints, randomStickyColor } from '@/lib/utils';
 import { ensureReadableInk, readableInk, paperColor } from '@/lib/canvasTheme';
+import { reportMeasuredHeight, forgetMeasuredHeight } from '@/lib/canvasLayout';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import VoiceNoteBlock from './VoiceNoteBlock';
 import FileBlock from './FileBlock';
@@ -19,6 +20,34 @@ import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
 import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock } from './ExtensionBlocks';
+
+/**
+ * The DOM range at a viewport point. Two engines, two spellings: Firefox ships
+ * the standard `caretPositionFromPoint`, WebKit/Blink the older
+ * `caretRangeFromPoint`. Returns null when the point hits no text.
+ */
+function caretRangeFromPoint(clientX: number, clientY: number): Range | null {
+  const doc = document as Document & {
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+  try {
+    if (typeof doc.caretPositionFromPoint === 'function') {
+      const pos = doc.caretPositionFromPoint(clientX, clientY);
+      if (!pos?.offsetNode) return null;
+      const range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      range.collapse(true);
+      return range;
+    }
+    if (typeof doc.caretRangeFromPoint === 'function') {
+      return doc.caretRangeFromPoint(clientX, clientY);
+    }
+  } catch {
+    /* offset out of range for the node under the cursor — fall back to end */
+  }
+  return null;
+}
 
 // ---- Embedded browser helpers --------------------------------------------
 interface BrowserTab {
@@ -434,7 +463,10 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 });
   const contentRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const displayRef = useRef<HTMLDivElement>(null);
   const latestContent = useRef(obj.content || '');
+  /** Where the click that opened edit mode landed, so the caret goes THERE. */
+  const caretPoint = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (isEditing) {
@@ -900,6 +932,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       setFocusedId(obj.id);
 
       if (obj.type === 'text' || obj.type === 'sticky' || obj.type === 'card' || obj.type === 'shape') {
+        caretPoint.current = { x: e.clientX, y: e.clientY };
         setEditingId(obj.id);
       }
     },
@@ -924,6 +957,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         Object.entries(obj.style || {}).some(([k, v]) => /^is[A-Z]/.test(k) && Boolean(v)) &&
         !obj.style?.isQuote;
       if (isSelected && obj.type !== 'image' && !isFunctionalBlock) {
+        caretPoint.current = { x: e.clientX, y: e.clientY };
         setEditingId(obj.id);
       }
     },
@@ -955,6 +989,58 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     updateObject(obj.id, updates);
   }, [obj.id, obj.type, updateObject, obj.style?.isCheckpoint, obj.style?.isResized]);
 
+  /* ---- Truthful heights -------------------------------------------------
+     text / heading / sticky blocks grow to fit whatever content they hold, so
+     a stored `height` is only a floor — content set programmatically (the AI
+     agent, a paste, an import) routinely renders far taller than the height it
+     was created with. Left alone, the text spills out of its box and over
+     whatever sits below, and every layout consumer (the agent's collision
+     solver, the snapshot we hand the model) reasons from a height that was
+     never true.
+
+     So measure what actually rendered: publish it to the layout registry, and
+     grow the stored height to match. Growth only — a block never shrinks under
+     a user's chosen size. Not while editing (the editable element handles its
+     own sizing, and the display node isn't mounted). */
+  const growsToFit = obj.type === 'text' || obj.type === 'heading' || obj.type === 'sticky';
+
+  useEffect(() => {
+    const el = displayRef.current;
+    // Stand down while the user is dragging the resize handle — otherwise we'd
+    // grow the block back on every mousemove and fight their drag. The block
+    // re-measures the moment they let go, so text still never ends up clipped.
+    if (!growsToFit || isEditing || isResizing || !el || obj.style?.isCheckpoint) return;
+
+    const measure = () => {
+      const node = displayRef.current;
+      if (!node) return;
+      // offsetTop/offsetHeight are LAYOUT px — immune to the canvas's zoom
+      // transform — and offsetTop already includes any wrapper padding (the
+      // sticky's shell), so mirroring it gives symmetric bottom padding.
+      const inset = node.offsetTop;
+      const needed = Math.ceil(node.offsetHeight + inset * 2);
+      if (needed <= 0) return;
+
+      reportMeasuredHeight(obj.id, needed);
+
+      const live = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+      if (live && needed > live.height + 2) {
+        updateObject(obj.id, { height: needed });
+      }
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+    // obj.height is a dependency on purpose: the stored height can be reset out
+    // from under us (the IndexedDB load resolving after mount, a collab sync, an
+    // undo). Re-measuring whenever it changes means a block ALWAYS ends up tall
+    // enough for its text, no matter who last wrote the height.
+  }, [growsToFit, isEditing, isResizing, obj.id, obj.content, obj.width, obj.height, obj.style?.fontSize, obj.style?.fontFamily, obj.style?.isCheckpoint, updateObject]);
+
+  useEffect(() => () => forgetMeasuredHeight(obj.id), [obj.id]);
+
   useEffect(() => {
     if (isEditing && contentRef.current) {
       const target = contentRef.current as any;
@@ -965,13 +1051,31 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       }
       latestContent.current = obj.content || '';
       contentRef.current.focus();
-      
-      // Move cursor to end
-      const range = document.createRange();
+
+      // Put the caret WHERE THE USER CLICKED. Entering edit mode swaps the
+      // rendered markup for a raw-text editable, which destroys the browser's
+      // own caret placement — so we re-derive it from the click point against
+      // the freshly-mounted text. Only when there's no click to honour (slash
+      // command, programmatic focus) does the caret fall to the end.
       const sel = window.getSelection();
-      if (contentRef.current.childNodes.length > 0) {
+      const pt = caretPoint.current;
+      caretPoint.current = null;
+
+      let placed = false;
+      if (pt && sel) {
+        const range = caretRangeFromPoint(pt.x, pt.y);
+        // Guard: only trust a hit that actually landed inside THIS block.
+        if (range && contentRef.current.contains(range.startContainer)) {
+          sel.removeAllRanges();
+          sel.addRange(range);
+          placed = true;
+        }
+      }
+
+      if (!placed && contentRef.current.childNodes.length > 0) {
+        const range = document.createRange();
         range.selectNodeContents(contentRef.current);
-        range.collapse(false);
+        range.collapse(false); // caret to end
         sel?.removeAllRanges();
         sel?.addRange(range);
       }
@@ -1682,6 +1786,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         ) : (
           <div
             key="display"
+            ref={displayRef}
             className="text-block-display break-words select-none"
             style={{
               fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '15px',
@@ -1721,6 +1826,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             ) : (
               <div
                 key="display"
+                ref={displayRef}
                 className="text-block-display select-none"
                 style={{
                   fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
@@ -1785,6 +1891,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             ) : (
               <div
                 key="display"
+                ref={displayRef}
                 className="text-block-display select-none"
                 style={{
                   fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
