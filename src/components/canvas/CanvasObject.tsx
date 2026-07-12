@@ -5,7 +5,7 @@ import { useCollabStore } from '@/store/collabStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
-import { getSnapPoints } from '@/lib/utils';
+import { getSnapPoints, randomStickyColor } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import VoiceNoteBlock from './VoiceNoteBlock';
 import FileBlock from './FileBlock';
@@ -257,6 +257,78 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+
+  // ---- Embedded browser block state -------------------------------------
+  const browserIframeRef = useRef<HTMLIFrameElement>(null);
+  const browserInitial = obj.content || 'https://www.wikipedia.org';
+  const [browserLoadUrl, setBrowserLoadUrl] = useState(browserInitial);
+  const [browserCurrentUrl, setBrowserCurrentUrl] = useState(browserInitial);
+  const [browserUrlDraft, setBrowserUrlDraft] = useState(browserInitial);
+  const [browserLoading, setBrowserLoading] = useState(true);
+  const [browserExtract, setBrowserExtract] = useState(false);
+  const browserExtractCount = useRef(0);
+
+  // Bridge messages coming from the proxied page inside the browser iframe.
+  useEffect(() => {
+    if (obj.type !== 'browser') return;
+    const handler = (e: MessageEvent) => {
+      const win = browserIframeRef.current?.contentWindow;
+      if (!win || e.source !== win) return;
+      const d = e.data as
+        | { __ms?: number; type?: string; url?: string; kind?: string; src?: string; text?: string; w?: number; h?: number }
+        | null;
+      if (!d || d.__ms !== 1) return;
+
+      if (d.type === 'nav' && typeof d.url === 'string') {
+        setBrowserCurrentUrl(d.url);
+        setBrowserUrlDraft(d.url);
+        setBrowserLoading(false);
+        if (d.url !== obj.content) updateObject(obj.id, { content: d.url });
+      } else if (d.type === 'extract-off') {
+        setBrowserExtract(false);
+      } else if (d.type === 'extract') {
+        const n = browserExtractCount.current++;
+        const bx = obj.x + obj.width + 48;
+        const by = obj.y + (n % 6) * 44 + Math.floor(n / 6) * 280;
+        if (d.kind === 'image' && d.src) {
+          const ratio = d.w && d.h ? d.h / d.w : 0.66;
+          const w = 300;
+          addObject({
+            type: 'image',
+            x: bx,
+            y: by,
+            width: w,
+            height: Math.max(80, Math.round(w * ratio)) || 200,
+            content: d.src,
+          });
+        } else if (d.kind === 'text' && d.text) {
+          addObject({
+            type: 'sticky',
+            x: bx,
+            y: by,
+            width: 240,
+            height: 200,
+            content: d.text,
+            style: { color: randomStickyColor() },
+          });
+        }
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [obj.type, obj.id, obj.x, obj.y, obj.width, obj.content, addObject, updateObject]);
+
+  // Follow external URL changes (e.g. agent-created browser, programmatic nav).
+  useEffect(() => {
+    if (obj.type !== 'browser') return;
+    if (obj.content && obj.content !== browserLoadUrl && obj.content !== browserCurrentUrl) {
+      setBrowserLoadUrl(obj.content);
+      setBrowserCurrentUrl(obj.content);
+      setBrowserUrlDraft(obj.content);
+      setBrowserLoading(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obj.content, obj.type]);
   const hoverTimeout = useRef<NodeJS.Timeout | null>(null);
   const editingCommentId = useCanvasStore((s) => s.editingCommentId);
   const setEditingCommentId = useCanvasStore((s) => s.setEditingCommentId);
@@ -1257,52 +1329,163 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       }
 
       case 'browser': {
-        const url = obj.content || 'https://wikipedia.org';
-        const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
-        
+        // Video providers ship framable /embed/ players — load those directly so
+        // playback actually works, instead of routing the heavy SPA through the
+        // proxy. Everything else goes through the reverse proxy.
+        const toEmbed = (raw: string): string | null => {
+          try {
+            const u = new URL(raw);
+            const host = u.hostname.replace(/^www\./, '');
+            if (host === 'youtube.com' || host === 'm.youtube.com') {
+              if (u.pathname.startsWith('/embed/')) return raw;
+              const v = u.searchParams.get('v');
+              if (v) return `https://www.youtube.com/embed/${v}`;
+              const shorts = u.pathname.match(/^\/shorts\/([^/?]+)/);
+              if (shorts) return `https://www.youtube.com/embed/${shorts[1]}`;
+            }
+            if (host === 'youtu.be') {
+              const id = u.pathname.slice(1);
+              if (id) return `https://www.youtube.com/embed/${id}`;
+            }
+            if (host === 'vimeo.com') {
+              const id = u.pathname.split('/').filter(Boolean)[0];
+              if (id && /^\d+$/.test(id)) return `https://player.vimeo.com/video/${id}`;
+            }
+          } catch {
+            /* not a URL yet */
+          }
+          return null;
+        };
+        const embedSrc = toEmbed(browserLoadUrl);
+        const isEmbed = !!embedSrc;
+        const proxySrc = embedSrc || `/api/proxy?url=${encodeURIComponent(browserLoadUrl)}`;
+
+        const postToFrame = (action: string, extra: Record<string, unknown> = {}) => {
+          browserIframeRef.current?.contentWindow?.postMessage({ __ms: 1, action, ...extra }, '*');
+        };
+
+        const navigate = (raw: string) => {
+          let val = raw.trim();
+          if (!val) return;
+          if (!/^https?:\/\//i.test(val)) {
+            if (!val.includes(' ') && /^[^\s.]+\.[^\s]+$/.test(val)) {
+              val = 'https://' + val;
+            } else {
+              val = 'https://www.google.com/search?q=' + encodeURIComponent(val);
+            }
+          }
+          if (val === browserLoadUrl) {
+            postToFrame('reload');
+          } else {
+            setBrowserLoadUrl(val);
+          }
+          setBrowserCurrentUrl(val);
+          setBrowserUrlDraft(val);
+          setBrowserLoading(true);
+          updateObject(obj.id, { content: val });
+        };
+
+        const toggleExtract = () => {
+          const on = !browserExtract;
+          setBrowserExtract(on);
+          postToFrame('extract', { on });
+        };
+
+        const btn =
+          'w-7 h-7 flex items-center justify-center rounded-md text-neutral-500 hover:text-neutral-800 hover:bg-neutral-200/70 transition-colors disabled:opacity-30 disabled:pointer-events-none';
+        const stop = (e: React.MouseEvent) => e.stopPropagation();
+
+        // Block iframe interaction while the block is being manipulated or is
+        // not the active selection (first click selects, then you can surf).
+        const interactionBlocked = isDragging || isResizing || !isSelected;
+
         return (
           <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-[var(--border-strong)] bg-white shadow-xl">
-            {/* Browser Top Bar */}
-            <div 
-              className="h-9 bg-neutral-100 flex items-center px-2 gap-2 border-b border-neutral-200"
-              onMouseDown={(e) => {
-                // Let the object drag on the top bar, but let the input field work
-                if ((e.target as HTMLElement).tagName !== 'INPUT') {
-                  // The drag handler handles moving, so just stop propagation isn't needed here if we want drag.
-                  // Actually, let the default handleMouseDown run.
-                }
-              }}
-            >
-              <div className="flex gap-1.5 px-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-red-400"></div>
-                <div className="w-2.5 h-2.5 rounded-full bg-yellow-400"></div>
-                <div className="w-2.5 h-2.5 rounded-full bg-green-400"></div>
+            {/* Chrome / toolbar — also the drag handle */}
+            <div className="h-10 shrink-0 bg-neutral-100 flex items-center px-2 gap-1 border-b border-neutral-200">
+              <button className={btn} title="Back" onMouseDown={stop} onClick={() => postToFrame('back')}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+              </button>
+              <button className={btn} title="Forward" onMouseDown={stop} onClick={() => postToFrame('forward')}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+              </button>
+              <button
+                className={btn}
+                title="Reload"
+                onMouseDown={stop}
+                onClick={() => { setBrowserLoading(true); postToFrame('reload'); }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
+              </button>
+
+              <div className="flex-1 relative mx-1">
+                <input
+                  type="text"
+                  value={browserUrlDraft}
+                  onChange={(e) => setBrowserUrlDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      (e.target as HTMLInputElement).blur();
+                      navigate(browserUrlDraft);
+                    } else if (e.key === 'Escape') {
+                      setBrowserUrlDraft(browserCurrentUrl);
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  onMouseDown={stop}
+                  onFocus={(e) => e.currentTarget.select()}
+                  spellCheck={false}
+                  placeholder="Search or enter address"
+                  className="w-full bg-white border border-neutral-200 rounded-full pl-8 pr-3 py-1 text-xs text-neutral-700 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200 font-medium truncate"
+                />
+                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                {browserLoading && (
+                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 border-2 border-neutral-300 border-t-blue-500 rounded-full animate-spin" />
+                )}
               </div>
-              <input 
-                type="text" 
-                defaultValue={url}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    let val = (e.target as HTMLInputElement).value;
-                    if (!val.startsWith('http')) val = 'https://' + val;
-                    updateObject(obj.id, { content: val });
-                  }
-                }}
-                onMouseDown={(e) => e.stopPropagation()} // Stop drag when clicking input
-                className="flex-1 bg-white border border-neutral-200 rounded px-2 py-0.5 text-xs text-neutral-600 outline-none focus:border-blue-400 font-medium"
-              />
+
+              <button
+                className={`${btn} ${browserExtract ? 'bg-blue-500 text-white hover:bg-blue-600 hover:text-white' : ''}`}
+                title={isEmbed ? 'Extract not available on video embeds' : browserExtract ? 'Exit extract mode' : 'Extract images & text to canvas'}
+                disabled={isEmbed}
+                onMouseDown={stop}
+                onClick={toggleExtract}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><line x1="20" y1="4" x2="8.12" y2="15.88" /><line x1="14.47" y1="14.48" x2="20" y2="20" /><line x1="8.12" y1="8.12" x2="12" y2="12" /></svg>
+              </button>
+              <button
+                className={btn}
+                title="Open in new tab"
+                onMouseDown={stop}
+                onClick={() => window.open(browserCurrentUrl, '_blank', 'noopener')}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+              </button>
             </div>
-            {/* Browser Iframe */}
-            <div className="flex-1 relative bg-white">
+
+            {/* Viewport */}
+            <div className="flex-1 relative bg-white overflow-hidden">
               <iframe
-                src={proxyUrl}
-                className="absolute inset-0 w-full h-full border-none"
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                onMouseDown={(e) => e.stopPropagation()} // Let user interact inside iframe
+                ref={browserIframeRef}
+                src={proxySrc}
+                title="Embedded browser"
+                className="absolute inset-0 w-full h-full border-none bg-white"
+                sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-presentation"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                allowFullScreen
+                referrerPolicy="no-referrer"
+                onLoad={() => setBrowserLoading(false)}
+                onMouseDown={stop}
               />
-              {isDragging && (
-                <div className="absolute inset-0 z-10" /> 
-                // Invisible shield when dragging so iframe doesn't swallow mouse events
+              {browserExtract && (
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 px-3 py-1 rounded-full bg-blue-500 text-white text-[11px] font-semibold shadow-lg pointer-events-none">
+                  Click any image or text to grab it
+                </div>
+              )}
+              {interactionBlocked && (
+                // Transparent shield: swallows iframe events while dragging /
+                // resizing, and lets a first click select the block.
+                <div className="absolute inset-0 z-20" style={{ cursor: isSelected ? 'default' : 'pointer' }} />
               )}
             </div>
           </div>
