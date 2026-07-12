@@ -49,6 +49,13 @@ function caretRangeFromPoint(clientX: number, clientY: number): Range | null {
   return null;
 }
 
+/**
+ * A drag has to end even if something between the object and the window calls
+ * stopPropagation on mouseup — listening in the capture phase runs us before
+ * any of them, so an object can never get stuck to the cursor.
+ */
+const END_DRAG = { capture: true } as const;
+
 // ---- Embedded browser helpers --------------------------------------------
 interface BrowserTab {
   id: string;
@@ -57,32 +64,6 @@ interface BrowserTab {
 }
 
 const BROWSER_DEFAULT_URL = 'https://www.wikipedia.org';
-
-/** Turn known video-provider URLs into their framable /embed/ player. */
-function browserToEmbed(raw: string): string | null {
-  try {
-    const u = new URL(raw);
-    const host = u.hostname.replace(/^www\./, '');
-    if (host === 'youtube.com' || host === 'm.youtube.com') {
-      if (u.pathname.startsWith('/embed/')) return raw;
-      const v = u.searchParams.get('v');
-      if (v) return `https://www.youtube.com/embed/${v}`;
-      const shorts = u.pathname.match(/^\/shorts\/([^/?]+)/);
-      if (shorts) return `https://www.youtube.com/embed/${shorts[1]}`;
-    }
-    if (host === 'youtu.be') {
-      const id = u.pathname.slice(1);
-      if (id) return `https://www.youtube.com/embed/${id}`;
-    }
-    if (host === 'vimeo.com') {
-      const id = u.pathname.split('/').filter(Boolean)[0];
-      if (id && /^\d+$/.test(id)) return `https://player.vimeo.com/video/${id}`;
-    }
-  } catch {
-    /* not a url yet */
-  }
-  return null;
-}
 
 /** Normalise whatever the user typed into a navigable https URL or a search. */
 function normalizeBrowserUrl(raw: string): string {
@@ -118,83 +99,290 @@ function browserTabLabel(tab: BrowserTab): string {
   }
 }
 
-function PuppeteerRenderer({ url, width, height, isActive, id, onLoading }: { url: string; width: number; height: number; isActive: boolean; id: string; onLoading: (loading: boolean) => void; }) {
+/** Commands the block's toolbar can send to whichever tab is on screen. */
+interface BrowserControl {
+  command: (action: 'back' | 'forward' | 'reload') => void;
+  extract: () => Promise<BrowserExtract | null>;
+}
+
+interface BrowserExtract {
+  images?: { src: string; w: number; h: number }[];
+  texts?: string[];
+}
+
+async function browserPost(body: Record<string, unknown>) {
+  try {
+    const res = await fetch('/api/browser', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+interface BrowserViewProps {
+  id: string;
+  url: string;
+  /** Only the visible tab streams frames — background tabs keep their page alive. */
+  active: boolean;
+  /** Viewport size in CSS pixels; mirrored onto the headless page. */
+  vw: number;
+  vh: number;
+  onNavigate: (tabId: string, url: string, title: string) => void;
+  onLoading: (tabId: string, loading: boolean) => void;
+  registerControl: (tabId: string, control: BrowserControl | null) => void;
+}
+
+/**
+ * A real Chrome page, driven server-side and streamed here as JPEG frames.
+ * Clicks, scrolls and keystrokes are forwarded to it — so this browses like a
+ * browser, with no iframe and therefore no X-Frame-Options wall.
+ */
+function BrowserView({ id, url, active, vw, vh, onNavigate, onLoading, registerControl }: BrowserViewProps) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
-  // Initialize session
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const sessionRef = useRef<string | null>(null);
+  /** Where the headless page actually is — so a URL it reports back to us (a
+   *  redirect, or a link the user clicked) doesn't bounce us into re-navigating. */
+  const liveUrl = useRef('');
+  /** Latest props, readable from event handlers and one-shot effects. */
+  const urlRef = useRef(url);
+  const sizeRef = useRef({ vw, vh });
   useEffect(() => {
-    if (!url || !isActive) return;
-    let mounted = true;
-    onLoading(true);
-    fetch('/api/browser', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'start', url, width, height })
-    })
-      .then(r => r.json())
-      .then(d => {
-        if (mounted && d.sessionId) {
-          setSessionId(d.sessionId);
-          onLoading(false);
+    urlRef.current = url;
+    sizeRef.current = { vw, vh };
+  }, [url, vw, vh]);
+
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
+
+  /** Fold a server reply (the live page's url + title) back into the tab. */
+  const apply = useCallback(
+    (d: Record<string, unknown> | null) => {
+      if (!d) return;
+      if (d.expired) {
+        // Session died under us (server restart, idle sweep) — build a new one.
+        sessionRef.current = null;
+        setSessionId(null);
+        setAttempt((a) => a + 1);
+        return;
+      }
+      if (typeof d.url === 'string' && d.url && d.url !== 'about:blank') {
+        liveUrl.current = d.url;
+        onNavigate(id, d.url, typeof d.title === 'string' ? d.title : '');
+      }
+      refresh();
+    },
+    [id, onNavigate, refresh]
+  );
+
+  // One session per tab, held for the tab's lifetime.
+  useEffect(() => {
+    let cancelled = false;
+    let started: string | null = null;
+
+    onLoading(id, true);
+
+    browserPost({
+      action: 'start',
+      url: urlRef.current,
+      width: Math.round(sizeRef.current.vw),
+      height: Math.round(sizeRef.current.vh),
+    }).then((d) => {
+      const newId = typeof d?.sessionId === 'string' ? d.sessionId : null;
+      const landed = typeof d?.url === 'string' && d.url ? d.url : '';
+      const title = typeof d?.title === 'string' ? d.title : '';
+
+      if (!newId) {
+        if (!cancelled) {
+          setFailed(true);
+          onLoading(id, false);
         }
-      })
-      .catch(() => mounted && onLoading(false));
+        return;
+      }
+      if (cancelled) {
+        // A session opened by a run that's already torn down still has a live
+        // Chrome page behind it — close it rather than orphan it.
+        browserPost({ action: 'stop', sessionId: newId });
+        return;
+      }
+
+      started = newId;
+      sessionRef.current = newId;
+      liveUrl.current = landed || urlRef.current;
+      setSessionId(newId);
+      onLoading(id, false);
+      if (landed) onNavigate(id, landed, title);
+    });
 
     return () => {
-      mounted = false;
-      if (sessionId) {
-        fetch('/api/browser', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'stop', sessionId }),
-          keepalive: true
-        }).catch(() => {});
-      }
+      cancelled = true;
+      const dead = started ?? sessionRef.current;
+      if (dead) browserPost({ action: 'stop', sessionId: dead });
+      sessionRef.current = null;
     };
-  }, [url, isActive]); // Only run on mount / url change
+  }, [id, attempt, onLoading, onNavigate]);
 
-  // Poll for screenshots
+  // The address bar (or a restored canvas) points somewhere else — go there.
   useEffect(() => {
-    if (!sessionId || !isActive) return;
-    const interval = setInterval(() => setTick(t => t + 1), 1000); // 1 FPS for performance
-    return () => clearInterval(interval);
-  }, [sessionId, isActive]);
+    if (!sessionId || !url || url === liveUrl.current) return;
+    onLoading(id, true);
+    browserPost({ action: 'goto', sessionId, url }).then((d) => {
+      apply(d);
+      onLoading(id, false);
+    });
+  }, [url, sessionId, id, apply, onLoading]);
 
-  const interact = (event: any) => {
+  // Stream frames for the visible tab only.
+  useEffect(() => {
+    if (!sessionId || !active) return;
+    const iv = setInterval(() => {
+      if (!document.hidden) refresh();
+    }, 700);
+    return () => clearInterval(iv);
+  }, [sessionId, active, refresh]);
+
+  // Keep the headless viewport the same size as this box, so a click at (x, y)
+  // here is a click at (x, y) there.
+  useEffect(() => {
     if (!sessionId) return;
-    fetch('/api/browser', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'interact', sessionId, event })
-    }).then(() => setTick(t => t + 1)); // Trigger immediate re-render
+    const t = setTimeout(() => {
+      browserPost({ action: 'resize', sessionId, width: Math.round(vw), height: Math.round(vh) }).then(refresh);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [vw, vh, sessionId, refresh]);
+
+  // Hand back/forward/reload/extract to the block's toolbar.
+  useEffect(() => {
+    registerControl(id, {
+      command: (action) => {
+        const sid = sessionRef.current;
+        if (!sid) return;
+        onLoading(id, true);
+        browserPost({ action, sessionId: sid }).then((d) => {
+          apply(d);
+          onLoading(id, false);
+        });
+      },
+      extract: async () => {
+        const sid = sessionRef.current;
+        if (!sid) return null;
+        return (await browserPost({ action: 'extract', sessionId: sid })) as BrowserExtract | null;
+      },
+    });
+    return () => registerControl(id, null);
+  }, [id, sessionId, registerControl, apply, onLoading]);
+
+  const interact = useCallback(
+    (event: Record<string, unknown>) => {
+      const sid = sessionRef.current;
+      if (!sid) return;
+      browserPost({ action: 'interact', sessionId: sid, event }).then(apply);
+      refresh();
+      // The page reacts a beat after the input lands — grab that frame too.
+      setTimeout(refresh, 160);
+    },
+    [apply, refresh]
+  );
+
+  /** Screen pixels → page pixels. Measures the rendered frame, so it stays
+   *  correct at any camera zoom. */
+  const toPage = (clientX: number, clientY: number) => {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    if (!rect?.width || !rect?.height) return { x: 0, y: 0 };
+    return {
+      x: Math.round(((clientX - rect.left) / rect.width) * sizeRef.current.vw),
+      y: Math.round(((clientY - rect.top) / rect.height) * sizeRef.current.vh),
+    };
   };
 
-  if (!url || !isActive) return null;
+  // Wheel events fire far faster than a round trip — batch them.
+  const wheelAccum = useRef(0);
+  const wheelTimer = useRef<NodeJS.Timeout | null>(null);
+  const scrollBy = useCallback(
+    (deltaY: number) => {
+      wheelAccum.current += deltaY;
+      if (wheelTimer.current) return;
+      wheelTimer.current = setTimeout(() => {
+        const d = wheelAccum.current;
+        wheelAccum.current = 0;
+        wheelTimer.current = null;
+        if (d) interact({ type: 'wheel', deltaY: d });
+      }, 70);
+    },
+    [interact]
+  );
+
+  // Wheel has to be a native, non-passive listener on this element: the canvas
+  // pans/zooms from its OWN native wheel listener on an ancestor, which runs
+  // before React's delegated one — a React onWheel handler would stop the event
+  // too late and the canvas would slide away under the page you're scrolling.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      scrollBy(e.deltaY);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [scrollBy]);
+
+  useEffect(() => () => { if (wheelTimer.current) clearTimeout(wheelTimer.current); }, []);
 
   return (
-    <div 
+    <div
+      ref={viewportRef}
       className="absolute inset-0 w-full h-full bg-white outline-none"
       tabIndex={0}
-      onClick={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        interact({ type: 'click', x: e.clientX - rect.left, y: e.clientY - rect.top });
-      }}
-      onWheel={(e) => {
+      // Swallow the press so the block doesn't drag out from under you while
+      // you browse, and take focus so typing reaches the page.
+      onMouseDown={(e) => {
         e.stopPropagation();
-        interact({ type: 'wheel', deltaY: e.deltaY });
+        viewportRef.current?.focus({ preventScroll: true });
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        interact({ type: 'click', ...toPage(e.clientX, e.clientY) });
       }}
       onKeyDown={(e) => {
+        // Also stops canvas shortcuts (Delete, etc.) from firing as you type.
         e.stopPropagation();
-        e.preventDefault();
-        interact({ type: 'keydown', key: e.key });
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        if (e.key.length === 1) {
+          e.preventDefault();
+          interact({ type: 'text', text: e.key });
+        } else if (BROWSER_KEYS.has(e.key)) {
+          e.preventDefault();
+          interact({ type: 'key', key: e.key });
+        }
       }}
     >
-      {sessionId ? (
-        <img 
-          src={`/api/browser?sessionId=${sessionId}&tick=${tick}`} 
-          alt="Browser" 
-          className="w-full h-full object-contain object-top"
+      {failed ? (
+        <div className="flex flex-col items-center justify-center gap-3 h-full w-full bg-neutral-50 text-neutral-500 text-xs">
+          <span>Couldn&apos;t open that page.</span>
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => { setFailed(false); setAttempt((a) => a + 1); }}
+            className="px-3 py-1.5 rounded-full bg-white border border-neutral-200 font-medium hover:border-blue-400 hover:text-blue-600"
+          >
+            Retry
+          </button>
+        </div>
+      ) : sessionId ? (
+        <img
+          src={`/api/browser?sessionId=${sessionId}&t=${tick}`}
+          alt=""
+          // Fill, not contain: the page viewport tracks this box exactly, so the
+          // frame maps 1:1 onto it and pointer coordinates stay honest.
+          className="w-full h-full select-none"
           draggable={false}
         />
       ) : (
@@ -206,33 +394,11 @@ function PuppeteerRenderer({ url, width, height, isActive, id, onLoading }: { ur
   );
 }
 
-/** Detect a search-engine query URL and pull out the query text. */
-function browserSearchQuery(url: string): string | null {
-  try {
-    const u = new URL(url);
-    const host = u.hostname.replace(/^www\./, '');
-    const q = u.searchParams.get('q') || u.searchParams.get('query');
-    const isSearchHost =
-      ((host === 'bing.com' || host === 'google.com' || host === 'startpage.com' || host === 'search.brave.com') &&
-        /\/search|\/sp\//.test(u.pathname)) ||
-      host === 'duckduckgo.com' ||
-      host.endsWith('.duckduckgo.com');
-    if (isSearchHost && q) return q;
-  } catch {
-    /* not a url */
-  }
-  return null;
-}
-
-function browserSrcFor(url: string): string {
-  const embed = browserToEmbed(url);
-  if (embed) return embed;
-  // Search engines block proxied browser sessions with CAPTCHAs, so route
-  // searches to our own server-rendered results page instead.
-  const q = browserSearchQuery(url);
-  if (q) return `/api/search?q=${encodeURIComponent(q)}`;
-  return `/api/proxy?url=${encodeURIComponent(url)}`;
-}
+/** Non-printable keys worth forwarding to the page. */
+const BROWSER_KEYS = new Set([
+  'Enter', 'Backspace', 'Tab', 'Delete', 'Escape', 'ArrowUp', 'ArrowDown',
+  'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown',
+]);
 
 interface CommentBubbleProps {
   obj: CanvasObjectData;
@@ -475,63 +641,44 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const [isHovered, setIsHovered] = useState(false);
 
   // ---- Embedded browser block state -------------------------------------
-  const browserIframeRefs = useRef<Record<string, HTMLIFrameElement | null>>({});
+  /** Live handles onto each tab's headless page, published by <BrowserView>. */
+  const browserControls = useRef<Record<string, BrowserControl | null>>({});
   const [browserUrlDraft, setBrowserUrlDraft] = useState('');
   const [browserDraftFocused, setBrowserDraftFocused] = useState(false);
-  const [browserExtract, setBrowserExtract] = useState(false);
-  const browserExtractCount = useRef(0);
+  const [browserExtracting, setBrowserExtracting] = useState(false);
   const [loadingTabs, setLoadingTabs] = useState<Record<string, boolean>>({});
 
-  // Bridge messages coming from proxied pages inside the browser iframe(s).
-  useEffect(() => {
-    if (obj.type !== 'browser') return;
-    const infoForSource = (source: unknown) => {
-      const map = browserIframeRefs.current;
-      for (const id in map) {
-        const el = map[id];
-        if (el && el.contentWindow === source) return { id, el };
-      }
-      return null;
-    };
-    const handler = (e: MessageEvent) => {
-      const info = infoForSource(e.source);
-      if (!info) return;
-      const d = e.data as
-        | { __ms?: number; type?: string; url?: string; title?: string; kind?: string; src?: string; text?: string; w?: number; h?: number }
-        | null;
-      if (!d || d.__ms !== 1) return;
-      const { tabs, activeId } = readBrowserTabs(obj);
+  const registerBrowserControl = useCallback((tabId: string, control: BrowserControl | null) => {
+    if (control) browserControls.current[tabId] = control;
+    else delete browserControls.current[tabId];
+  }, []);
 
-      if (d.type === 'nav' && typeof d.url === 'string') {
-        setLoadingTabs((m) => ({ ...m, [info.id]: false }));
-        const nextTabs = tabs.map((t) =>
-          t.id === info.id ? { ...t, url: d.url as string, title: d.title || t.title } : t
-        );
-        const patch: Partial<CanvasObjectData> = {
-          style: { ...(obj.style || {}), tabs: nextTabs, activeTab: activeId },
-        };
-        if (info.id === activeId) {
-          patch.content = d.url;
-          if (!browserDraftFocused) setBrowserUrlDraft(d.url);
-        }
-        updateObject(obj.id, patch);
-      } else if (d.type === 'extract-off') {
-        setBrowserExtract(false);
-      } else if (d.type === 'extract') {
-        const n = browserExtractCount.current++;
-        const bx = obj.x + obj.width + 48;
-        const by = obj.y + (n % 6) * 44 + Math.floor(n / 6) * 280;
-        if (d.kind === 'image' && d.src) {
-          const ratio = d.w && d.h ? d.h / d.w : 0.66;
-          addObject({ type: 'image', x: bx, y: by, width: 300, height: Math.max(80, Math.round(300 * ratio)) || 200, content: d.src });
-        } else if (d.kind === 'text' && d.text) {
-          addObject({ type: 'sticky', x: bx, y: by, width: 240, height: 200, content: d.text, style: { color: randomStickyColor() } });
-        }
-      }
-    };
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, [obj, addObject, updateObject, browserDraftFocused]);
+  const setTabLoading = useCallback((tabId: string, loading: boolean) => {
+    setLoadingTabs((m) => (m[tabId] === loading ? m : { ...m, [tabId]: loading }));
+  }, []);
+
+  /** The headless page moved (redirect, link click, form submit) — mirror that
+   *  into the tab strip and the address bar. Reads live store state so it never
+   *  writes back a stale tab list. */
+  const handleBrowserNavigate = useCallback(
+    (tabId: string, url: string, title: string) => {
+      const state = useCanvasStore.getState();
+      const live = state.objects.find((o) => o.id === obj.id);
+      if (!live) return;
+
+      const { tabs, activeId } = readBrowserTabs(live);
+      const current = tabs.find((t) => t.id === tabId);
+      if (!current || (current.url === url && (current.title || '') === title)) return;
+
+      const nextTabs = tabs.map((t) => (t.id === tabId ? { ...t, url, title } : t));
+      const patch: Partial<CanvasObjectData> = {
+        style: { ...(live.style || {}), tabs: nextTabs, activeTab: activeId },
+      };
+      if (tabId === activeId) patch.content = url;
+      state.updateObject(obj.id, patch);
+    },
+    [obj.id]
+  );
   const hoverTimeout = useRef<NodeJS.Timeout | null>(null);
   const editingCommentId = useCanvasStore((s) => s.editingCommentId);
   const setEditingCommentId = useCanvasStore((s) => s.setEditingCommentId);
@@ -718,7 +865,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       const handleMouseUp = () => {
         setIsDragging(false);
         window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
+        window.removeEventListener('mouseup', handleMouseUp, END_DRAG);
 
         const zone = document.getElementById('minimize-hotzone');
         const label = document.getElementById('minimize-hotzone-label');
@@ -788,7 +935,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       };
 
       window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('mouseup', handleMouseUp, END_DRAG);
     },
     [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex, addObject]
   );
@@ -1614,12 +1761,12 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const { tabs, activeId } = readBrowserTabs(obj);
         const activeTab = tabs.find((t) => t.id === activeId) || tabs[0];
         const activeUrl = activeTab.url;
-        const isEmbed = !!browserToEmbed(activeUrl);
         const activeLoading = !!loadingTabs[activeId];
 
         const stop = (e: React.MouseEvent) => e.stopPropagation();
-        const postActive = (action: string, extra: Record<string, unknown> = {}) => {
-          console.log("Puppeteer browser command ignored:", action);
+        /** Drive the headless page behind the visible tab. */
+        const postActive = (action: 'back' | 'forward' | 'reload') => {
+          browserControls.current[activeId]?.command(action);
         };
 
         const persistTabs = (nextTabs: BrowserTab[], nextActive: string) => {
@@ -1633,11 +1780,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const navigate = (raw: string) => {
           const val = normalizeBrowserUrl(raw);
           if (!val) return;
-          if (val === activeTab.url) {
-            postActive('reload');
-          }
-          setLoadingTabs((m) => ({ ...m, [activeId]: true }));
           setBrowserDraftFocused(false);
+          if (val === activeTab.url) {
+            // Same address: nothing for the tab to react to, so reload instead.
+            postActive('reload');
+            return;
+          }
+          setTabLoading(activeId, true);
           persistTabs(tabs.map((t) => (t.id === activeId ? { ...t, url: val } : t)), activeId);
         };
 
@@ -1655,21 +1804,61 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           const idx = tabs.findIndex((t) => t.id === id);
           const nextTabs = tabs.filter((t) => t.id !== id);
           const nextActive = id === activeId ? nextTabs[Math.max(0, idx - 1)].id : activeId;
-          delete browserIframeRefs.current[id];
           persistTabs(nextTabs, nextActive);
         };
 
-        const toggleExtract = () => {
-          const on = !browserExtract;
-          setBrowserExtract(on);
-          postActive('extract', { on });
+        // Pull the page's images and paragraphs onto the canvas as real objects.
+        const runExtract = async () => {
+          const control = browserControls.current[activeId];
+          if (!control || browserExtracting) return;
+          setBrowserExtracting(true);
+          try {
+            const data = await control.extract();
+            const images = data?.images || [];
+            const texts = data?.texts || [];
+            let n = 0;
+            const place = () => {
+              const spot = {
+                x: obj.x + obj.width + 48 + (n % 2) * 320,
+                y: obj.y + Math.floor(n / 2) * 260,
+              };
+              n++;
+              return spot;
+            };
+            images.slice(0, 6).forEach((img) => {
+              const ratio = img.w && img.h ? img.h / img.w : 0.66;
+              const { x, y } = place();
+              addObject({
+                type: 'image',
+                x,
+                y,
+                width: 280,
+                height: Math.max(80, Math.round(280 * ratio)),
+                content: img.src,
+              });
+            });
+            texts.slice(0, 4).forEach((text) => {
+              const { x, y } = place();
+              addObject({
+                type: 'sticky',
+                x,
+                y,
+                width: 240,
+                height: 200,
+                content: text,
+                style: { color: randomStickyColor() },
+              });
+            });
+          } finally {
+            setBrowserExtracting(false);
+          }
         };
 
         const btn =
           'w-7 h-7 flex items-center justify-center rounded-md text-neutral-500 hover:text-neutral-800 hover:bg-neutral-200/70 transition-colors disabled:opacity-30 disabled:pointer-events-none';
         const inputValue = browserDraftFocused ? browserUrlDraft : activeUrl;
 
-        // Block iframe interaction while the block is being manipulated or is
+        // Swallow page interaction while the block is being manipulated or is
         // not the active selection (first click selects, then you can surf).
         const interactionBlocked = isDragging || isResizing || !isSelected;
 
@@ -1773,11 +1962,11 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               </div>
 
               <button
-                className={`${btn} ${browserExtract ? 'bg-blue-500 text-white hover:bg-blue-600 hover:text-white' : ''}`}
-                title={isEmbed || !activeUrl ? 'Extract not available here' : browserExtract ? 'Exit extract mode' : 'Extract images & text to canvas'}
-                disabled={isEmbed || !activeUrl}
+                className={`${btn} ${browserExtracting ? 'bg-blue-500 text-white hover:bg-blue-600 hover:text-white' : ''}`}
+                title={!activeUrl ? 'Nothing to extract yet' : 'Pull this page\'s images & text onto the canvas'}
+                disabled={!activeUrl || browserExtracting}
                 onMouseDown={stop}
-                onClick={toggleExtract}
+                onClick={runExtract}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><line x1="20" y1="4" x2="8.12" y2="15.88" /><line x1="14.47" y1="14.48" x2="20" y2="20" /><line x1="8.12" y1="8.12" x2="12" y2="12" /></svg>
               </button>
@@ -1791,7 +1980,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               </button>
             </div>
 
-            {/* Viewport — one iframe per tab (kept mounted to preserve state) */}
+            {/* Viewport — one headless page per tab, kept mounted so switching
+                tabs doesn't throw away where you'd browsed to. */}
             <div className="flex-1 relative bg-white overflow-hidden">
               {tabs.map((t) => {
                 const active = t.id === activeId;
@@ -1817,29 +2007,32 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                 }
                 return (
                   <div key={t.id} style={{ visibility: active ? 'visible' : 'hidden', zIndex: active ? 1 : 0 }} className="absolute inset-0 w-full h-full bg-white">
-                    <PuppeteerRenderer 
+                    <BrowserView
                       id={t.id}
-                      url={t.url} 
-                      width={obj.width || 800} 
-                      height={(obj.height || 600) - 72} 
-                      isActive={active}
-                      onLoading={(loading) => setLoadingTabs((m) => ({ ...m, [t.id]: loading }))}
+                      url={t.url}
+                      active={active}
+                      // 72px of chrome above: the tab strip (32) + toolbar (40).
+                      vw={Math.max(200, Math.round(obj.width || 800))}
+                      vh={Math.max(200, Math.round((obj.height || 600) - 72))}
+                      onNavigate={handleBrowserNavigate}
+                      onLoading={setTabLoading}
+                      registerControl={registerBrowserControl}
                     />
                   </div>
                 );
               })}
-              {browserExtract && (
+              {browserExtracting && (
                 <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 px-3 py-1 rounded-full bg-blue-500 text-white text-[11px] font-semibold shadow-lg pointer-events-none">
-                  Click any image or text to grab it
+                  Pulling images & text onto the canvas…
                 </div>
               )}
-              {!browserExtract && isSelected && !isDragging && !isResizing && activeUrl && (
+              {!browserExtracting && isSelected && !isDragging && !isResizing && activeUrl && (
                 <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-full bg-black/55 text-white text-[10px] font-medium shadow pointer-events-none">
-                  Drag any image out onto the canvas
+                  Click, scroll and type — this is a real browser
                 </div>
               )}
               {interactionBlocked && (
-                // Transparent shield: swallows iframe events while dragging /
+                // Transparent shield: swallows page events while dragging /
                 // resizing, and lets a first click select the block.
                 <div className="absolute inset-0 z-20" style={{ cursor: isSelected ? 'default' : 'pointer' }} />
               )}
@@ -3424,7 +3617,6 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         }
       } : { duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
       onMouseDown={handleMouseDown}
-      onMouseUp={(e) => e.stopPropagation()}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onMouseEnter={() => {
