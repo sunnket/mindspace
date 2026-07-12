@@ -1,103 +1,365 @@
 /**
  * Sound for the Stress Reliefer effects.
  *
- * The pop and the chime are synthesised rather than shipped as files: they need
- * to fire dozens of times a second with a different pitch each time, and a
- * single sample retriggered at speed sounds like a machine gun. Rain is a real
- * recording because you cannot fake ten seconds of ASMR downpour with two
- * oscillators.
+ * Almost everything here is synthesised rather than shipped as a file. These
+ * sounds fire dozens of times a second and need a different pitch each time — a
+ * single sample retriggered at speed sounds like a machine gun, which is the
+ * opposite of ASMR. Rain is the one recording, because you cannot fake a minute
+ * of downpour with two oscillators.
  *
- * Everything here is lazy. An AudioContext may only be created from a user
- * gesture, and these are all click-driven, so first use is always safe.
+ * Everything runs through a shared bus with a plate-style reverb on a send. The
+ * reverb is what makes these read as "in a room" instead of "in a browser", and
+ * it is the single biggest reason the pops and chimes feel good rather than
+ * cheap. Voices choose how wet they want to be.
+ *
+ * All lazy: an AudioContext may only be created from a user gesture, and every
+ * one of these is click-driven, so first use is always safe.
  */
 
 const RAIN_SRC = '/mixkit-rain-and-thunder-storm-2390.wav';
 
 /** Pentatonic — any two notes sound good together, so mashing the canvas stays musical. */
-const PENTATONIC = [523.25, 587.33, 698.46, 783.99, 880.0, 1046.5];
+export const PENTATONIC = [523.25, 587.33, 698.46, 783.99, 880.0, 1046.5, 1174.66];
 
 let ctx: AudioContext | null = null;
+let dry: GainNode | null = null;
+let wet: GainNode | null = null;
 let rainEl: HTMLAudioElement | null = null;
 let rainFade: number | null = null;
+
+/** A decaying noise burst is a perfectly good impulse response for a soft plate. */
+function buildReverb(ac: AudioContext): ConvolverNode {
+  const seconds = 2.6;
+  const len = Math.floor(ac.sampleRate * seconds);
+  const buf = ac.createBuffer(2, len, ac.sampleRate);
+  for (let c = 0; c < 2; c++) {
+    const data = buf.getChannelData(c);
+    for (let i = 0; i < len; i++) {
+      // Exponential decay, slightly different per channel so the tail is wide.
+      const decay = Math.pow(1 - i / len, 2.6 + c * 0.2);
+      data[i] = (Math.random() * 2 - 1) * decay;
+    }
+  }
+  const conv = ac.createConvolver();
+  conv.buffer = buf;
+  return conv;
+}
 
 function audioCtx(): AudioContext | null {
   if (typeof window === 'undefined') return null;
   if (!ctx) {
-    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    const Ctor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return null;
     ctx = new Ctor();
+
+    dry = ctx.createGain();
+    dry.gain.value = 0.9;
+    dry.connect(ctx.destination);
+
+    const send = ctx.createGain();
+    send.gain.value = 0.85;
+    const conv = buildReverb(ctx);
+    wet = ctx.createGain();
+    wet.gain.value = 1;
+    wet.connect(conv).connect(send).connect(ctx.destination);
   }
   if (ctx.state === 'suspended') void ctx.resume();
   return ctx;
 }
 
 /**
- * Bubble pop. A pitch drop gives the "thup", a short filtered noise burst gives
- * the wet click on the front. Small bubbles pop higher than big ones.
+ * A voice's output stage. `wetness` is how much of it goes to the reverb send —
+ * percussive things want a hint, bells and water want a lot.
+ */
+function voiceOut(ac: AudioContext, wetness: number): GainNode {
+  const out = ac.createGain();
+  out.gain.value = 1;
+  out.connect(dry!);
+  const send = ac.createGain();
+  send.gain.value = wetness;
+  out.connect(send).connect(wet!);
+  return out;
+}
+
+/** Short burst of noise, shaped by a filter. The raw material for most of these. */
+function noise(ac: AudioContext, seconds: number, curve = 1): AudioBufferSourceNode {
+  const src = ac.createBufferSource();
+  const len = Math.max(1, Math.floor(ac.sampleRate * seconds));
+  const buf = ac.createBuffer(1, len, ac.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, curve);
+  }
+  src.buffer = buf;
+  return src;
+}
+
+/* ----------------------------------------------------------------- bubbles */
+
+/**
+ * Bubble pop. The pitch drop is the "thup", the filtered noise on the front is
+ * the wet click of the film breaking. Small bubbles pop higher than big ones —
+ * that mapping is most of what makes it feel physical.
  */
 export function playPop(size = 40) {
   const ac = audioCtx();
   if (!ac) return;
   const t = ac.currentTime;
-
-  // 18px bubble -> ~880Hz, 80px bubble -> ~260Hz.
-  const base = 950 - Math.min(1, (size - 18) / 62) * 690;
+  const out = voiceOut(ac, 0.28);
+  const base = 950 - Math.min(1, (size - 18) / 74) * 700;
 
   const osc = ac.createOscillator();
-  const gain = ac.createGain();
+  const g = ac.createGain();
   osc.type = 'sine';
-  osc.frequency.setValueAtTime(base * 1.6, t);
-  osc.frequency.exponentialRampToValueAtTime(base * 0.45, t + 0.09);
-  gain.gain.setValueAtTime(0.0001, t);
-  gain.gain.exponentialRampToValueAtTime(0.32, t + 0.006);
-  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
-  osc.connect(gain).connect(ac.destination);
+  osc.frequency.setValueAtTime(base * 1.7, t);
+  osc.frequency.exponentialRampToValueAtTime(base * 0.4, t + 0.1);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.3, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+  osc.connect(g).connect(out);
   osc.start(t);
-  osc.stop(t + 0.15);
+  osc.stop(t + 0.16);
 
-  const noise = ac.createBufferSource();
-  const buf = ac.createBuffer(1, ac.sampleRate * 0.05, ac.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
-  noise.buffer = buf;
-
+  const n = noise(ac, 0.05, 3);
   const band = ac.createBiquadFilter();
   band.type = 'bandpass';
-  band.frequency.value = base * 2.2;
-  band.Q.value = 1.1;
-
-  const nGain = ac.createGain();
-  nGain.gain.setValueAtTime(0.16, t);
-  nGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
-
-  noise.connect(band).connect(nGain).connect(ac.destination);
-  noise.start(t);
-  noise.stop(t + 0.06);
+  band.frequency.value = base * 2.4;
+  band.Q.value = 1.2;
+  const ng = ac.createGain();
+  ng.gain.setValueAtTime(0.14, t);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+  n.connect(band).connect(ng).connect(out);
+  n.start(t);
+  n.stop(t + 0.06);
 }
 
-/** Soft water-drop chime for the ripples. Fundamental plus a fifth, long tail. */
+/** Bubble wrap. Drier, crisper and higher than a soap bubble — a snap, not a thup. */
+export function playSnap() {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 0.16);
+
+  const n = noise(ac, 0.035, 6);
+  const hp = ac.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 1400 + Math.random() * 900;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.4, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
+  n.connect(hp).connect(g).connect(out);
+  n.start(t);
+  n.stop(t + 0.04);
+
+  // A tiny pitched tick under the noise gives the snap a body.
+  const osc = ac.createOscillator();
+  const og = ac.createGain();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(420 + Math.random() * 260, t);
+  osc.frequency.exponentialRampToValueAtTime(140, t + 0.05);
+  og.gain.setValueAtTime(0.18, t);
+  og.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+  osc.connect(og).connect(out);
+  osc.start(t);
+  osc.stop(t + 0.07);
+}
+
+/* ------------------------------------------------------------------- water */
+
+/** Soft water-drop chime for the ripples. */
 export function playChime() {
   const ac = audioCtx();
   if (!ac) return;
   const t = ac.currentTime;
+  const out = voiceOut(ac, 0.9);
   const root = PENTATONIC[(Math.random() * PENTATONIC.length) | 0];
 
   for (const [freq, level, type] of [
-    [root, 0.16, 'sine'],
-    [root * 1.5, 0.05, 'triangle'],
+    [root, 0.15, 'sine'],
+    [root * 1.5, 0.045, 'triangle'],
   ] as [number, number, OscillatorType][]) {
     const osc = ac.createOscillator();
-    const gain = ac.createGain();
+    const g = ac.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, t);
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(level, t + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
-    osc.connect(gain).connect(ac.destination);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(level, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+    osc.connect(g).connect(out);
     osc.start(t);
-    osc.stop(t + 1.5);
+    osc.stop(t + 1.6);
   }
 }
+
+/** Ink hitting water: a deep, round plop with a long wet tail. */
+export function playPlop() {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 1);
+
+  const osc = ac.createOscillator();
+  const g = ac.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(rand(420, 620), t);
+  osc.frequency.exponentialRampToValueAtTime(rand(70, 110), t + 0.16);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.34, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+  osc.connect(g).connect(out);
+  osc.start(t);
+  osc.stop(t + 0.4);
+
+  const n = noise(ac, 0.12, 2);
+  const lp = ac.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 900;
+  const ng = ac.createGain();
+  ng.gain.setValueAtTime(0.1, t);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+  n.connect(lp).connect(ng).connect(out);
+  n.start(t);
+  n.stop(t + 0.13);
+}
+
+/* ------------------------------------------------------------------- chimes */
+
+/**
+ * Wind chime rod. Real bells are inharmonic — their overtones are not whole
+ * multiples of the fundamental — so these ratios are deliberately "wrong". Use
+ * 2x and 3x here and it stops sounding like metal and starts sounding like an
+ * organ.
+ */
+export function playBell(freq: number) {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 1);
+
+  const partials: [number, number, number][] = [
+    [1, 0.2, 3.4],
+    [2.76, 0.09, 2.4],
+    [5.4, 0.05, 1.6],
+    [8.9, 0.02, 1.0],
+  ];
+
+  for (const [ratio, level, secs] of partials) {
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq * ratio, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(level, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + secs);
+    osc.connect(g).connect(out);
+    osc.start(t);
+    osc.stop(t + secs + 0.1);
+  }
+
+  // The little metallic "tick" of the strike itself.
+  const n = noise(ac, 0.03, 5);
+  const bp = ac.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = freq * 5;
+  bp.Q.value = 0.8;
+  const ng = ac.createGain();
+  ng.gain.setValueAtTime(0.09, t);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+  n.connect(bp).connect(ng).connect(out);
+  n.start(t);
+  n.stop(t + 0.04);
+}
+
+/* ---------------------------------------------------------------- fireworks */
+
+const rand = (a: number, b: number) => a + Math.random() * (b - a);
+
+/** The whistle of the shell going up. Quiet — it's the anticipation, not the event. */
+export function playLaunch() {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 0.5);
+  const dur = rand(0.7, 0.95);
+
+  const osc = ac.createOscillator();
+  const g = ac.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(rand(380, 520), t);
+  osc.frequency.exponentialRampToValueAtTime(rand(1100, 1500), t + dur);
+
+  // A touch of vibrato stops it sounding like a test tone.
+  const lfo = ac.createOscillator();
+  const lfoGain = ac.createGain();
+  lfo.frequency.value = 11;
+  lfoGain.gain.value = 22;
+  lfo.connect(lfoGain).connect(osc.frequency);
+  lfo.start(t);
+  lfo.stop(t + dur);
+
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.05, t + 0.1);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(g).connect(out);
+  osc.start(t);
+  osc.stop(t + dur + 0.05);
+}
+
+/**
+ * The burst: a low chest thump, a bright shell of noise, and then the crackle
+ * raining down after it. The delay between the flash and the crackle is what
+ * makes it feel like it's happening far away and high up.
+ */
+export function playBoom() {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 0.75);
+
+  const osc = ac.createOscillator();
+  const g = ac.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(rand(90, 130), t);
+  osc.frequency.exponentialRampToValueAtTime(rand(32, 45), t + 0.35);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.4, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  osc.connect(g).connect(out);
+  osc.start(t);
+  osc.stop(t + 0.55);
+
+  const n = noise(ac, 0.45, 2.2);
+  const lp = ac.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(2600, t);
+  lp.frequency.exponentialRampToValueAtTime(320, t + 0.45);
+  const ng = ac.createGain();
+  ng.gain.setValueAtTime(0.26, t);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+  n.connect(lp).connect(ng).connect(out);
+  n.start(t);
+  n.stop(t + 0.5);
+
+  // Crackle: a scatter of tiny high pops over the following second.
+  const count = 22 + ((Math.random() * 14) | 0);
+  for (let i = 0; i < count; i++) {
+    const at = t + 0.1 + Math.random() * 1.0;
+    const c = noise(ac, 0.02, 6);
+    const hp = ac.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = rand(2200, 5200);
+    const cg = ac.createGain();
+    cg.gain.setValueAtTime(rand(0.05, 0.13), at);
+    cg.gain.exponentialRampToValueAtTime(0.0001, at + 0.02);
+    c.connect(hp).connect(cg).connect(out);
+    c.start(at);
+    c.stop(at + 0.03);
+  }
+}
+
+/* --------------------------------------------------------------------- rain */
 
 function clearRainFade() {
   if (rainFade !== null) {
@@ -122,7 +384,7 @@ export function startRain() {
   const target = 0.55;
   rainFade = window.setInterval(() => {
     if (!rainEl) return clearRainFade();
-    rainEl.volume = Math.min(target, rainEl.volume + 0.04);
+    rainEl.volume = Math.min(target, rainEl.volume + 0.03);
     if (rainEl.volume >= target) clearRainFade();
   }, 60);
 }
@@ -132,7 +394,7 @@ export function stopRain() {
   clearRainFade();
   rainFade = window.setInterval(() => {
     if (!rainEl) return clearRainFade();
-    rainEl.volume = Math.max(0, rainEl.volume - 0.03);
+    rainEl.volume = Math.max(0, rainEl.volume - 0.02);
     if (rainEl.volume <= 0.001) {
       rainEl.pause();
       rainEl.currentTime = 0;

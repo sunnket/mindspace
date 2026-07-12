@@ -67,6 +67,34 @@ export default function RelaxIcon({ id, size = 18 }: { id: RelaxEffectId; size?:
         </svg>
       );
 
+    case 'bubblewrap':
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="2.9" />
+          <circle cx="16.8" cy="7" r="2.9" />
+          <circle cx="7" cy="16.8" r="2.9" />
+          <circle cx="16.8" cy="16.8" r="2.9" opacity="0.35" />
+        </svg>
+      );
+
+    case 'chimes':
+      return (
+        <svg {...common}>
+          <path d="M3.5 4h17" />
+          <path d="M7 4.5v14" />
+          <path d="M12 4.5v10.5" />
+          <path d="M17 4.5v7" />
+        </svg>
+      );
+
+    case 'ink':
+      return (
+        <svg {...common}>
+          <path d="M12 3.5c3.6 4.2 5.6 6.9 5.6 9.4a5.6 5.6 0 1 1-11.2 0c0-2.5 2-5.2 5.6-9.4Z" />
+          <path d="M9.4 13.6a2.6 2.6 0 0 0 2.6 2.6" opacity="0.6" />
+        </svg>
+      );
+
     case 'ripples':
       return (
         <svg {...common}>

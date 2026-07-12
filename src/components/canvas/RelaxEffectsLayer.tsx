@@ -67,6 +67,13 @@ export default function RelaxEffectsLayer() {
             return { w: window.innerWidth, h: window.innerHeight };
           },
           spawn: (x, y, n, kind, tint) => spawn(fx, x, y, n, kind, tint),
+          clear: () => {
+            liveRef.current = liveRef.current.filter((l) => {
+              if (l.fx.id !== fx.id) return true;
+              l.p.el.remove();
+              return false;
+            });
+          },
         };
         apis.set(fx.id, api);
       }
@@ -80,10 +87,13 @@ export default function RelaxEffectsLayer() {
     };
 
     const pop = (l: Live) => {
-      if (l.p.kind !== 0) return; // shards aren't clickable
+      if (l.p.kind !== 0) return; // debris isn't clickable
       l.fx.onPop?.(l.p, apiFor(l.fx));
-      // Retire it immediately rather than animating a "popping" state: the shards
-      // it throws off are the pop, and a lingering husk reads as a missed click.
+
+      // Chimes ring and keep swinging; bubbles are destroyed by the click. The
+      // default is destroy — the debris an effect throws off *is* the pop, and a
+      // lingering husk reads as a missed click.
+      if (l.fx.consumeOnPop === false) return;
       l.p.el.remove();
       liveRef.current = liveRef.current.filter((x) => x !== l);
     };
@@ -98,15 +108,18 @@ export default function RelaxEffectsLayer() {
       const api = apiFor(fx);
 
       for (let i = 0; i < count; i++) {
-        const p = fx.create(x, y, now, api, kind, tint);
+        const p = fx.create(x, y, now, api, kind, tint, i);
         const live: Live = { p, fx };
         if (fx.interactive && p.kind === 0) {
           p.el.style.pointerEvents = 'auto';
-          p.el.addEventListener('pointerdown', (e) => {
+          const hit = (e: Event) => {
             e.stopPropagation();
             e.preventDefault();
             pop(live);
-          });
+          };
+          p.el.addEventListener('pointerdown', hit);
+          // Sweeping the cursor through a rack of chimes should play them.
+          if (fx.hover) p.el.addEventListener('pointerenter', hit);
         }
         host.appendChild(p.el);
         liveRef.current.push(live);

@@ -21,9 +21,29 @@
  *     under the cursor when the canvas moves.
  */
 
-import { playChime, playPop, startRain, stopRain } from './relaxAudio';
+import {
+  PENTATONIC,
+  playBell,
+  playBoom,
+  playChime,
+  playLaunch,
+  playPlop,
+  playPop,
+  playSnap,
+  startRain,
+  stopRain,
+} from './relaxAudio';
 
-export type RelaxEffectId = 'flowers' | 'rain' | 'fireworks' | 'galaxy' | 'bubbles' | 'ripples';
+export type RelaxEffectId =
+  | 'flowers'
+  | 'rain'
+  | 'fireworks'
+  | 'galaxy'
+  | 'bubbles'
+  | 'bubblewrap'
+  | 'chimes'
+  | 'ink'
+  | 'ripples';
 
 export interface Particle {
   el: HTMLElement;
@@ -49,6 +69,8 @@ export interface Particle {
 
 export interface EffectApi {
   spawn: (x: number, y: number, n: number, kind?: number, tint?: string) => void;
+  /** drop every particle this effect currently owns — used to re-lay a fresh grid */
+  clear: () => void;
   /** fixed, viewport-sized overlay — for weather, veils and lightning */
   screen: HTMLElement;
   viewport: { w: number; h: number };
@@ -69,7 +91,22 @@ export interface RelaxEffect {
   maxParticles: number;
   /** particles take clicks — the pop games */
   interactive?: boolean;
-  create: (x: number, y: number, now: number, api: EffectApi, kind?: number, tint?: string) => Particle;
+  /** interactive particles also fire on pointer-enter, so sweeping the cursor
+   *  across them plays them (wind chimes) */
+  hover?: boolean;
+  /** false keeps the particle alive after a click — a chime rings, it doesn't
+   *  vanish. Defaults to true: clicking a bubble destroys it. */
+  consumeOnPop?: boolean;
+  create: (
+    x: number,
+    y: number,
+    now: number,
+    api: EffectApi,
+    kind?: number,
+    tint?: string,
+    /** position within this spawn batch — lets an effect lay out a grid */
+    index?: number
+  ) => Particle;
   step: (p: Particle, t: number, now: number, api: EffectApi) => void;
   /** fires when a particle reaches the end of its life (fireworks shell -> sparks) */
   onDeath?: (p: Particle, api: EffectApi) => void;
@@ -184,13 +221,16 @@ const flowers: RelaxEffect = {
 
 /* --------------------------------------------------------------------- rain */
 
+/** Every timer the storm owns, so onStop can kill the lot. */
+let stormTimers: number[] = [];
+
 const rain: RelaxEffect = {
   id: 'rain',
   label: 'Rainfall',
-  blurb: 'A downpour sweeps the whole canvas, with real rain on the soundtrack. Lightning cracks once, a couple of seconds in.',
+  blurb: 'A full minute of downpour across the whole canvas, with real rain on the soundtrack and lightning cracking overhead every so often.',
   space: 'screen',
   flash: '',
-  burstMs: 12_000,
+  burstMs: 60_000,
   openingPop: 160,
   spawnEveryMs: 40,
   spawnPerTick: 9,
@@ -211,26 +251,30 @@ const rain: RelaxEffect = {
       veil.style.opacity = '1';
     });
 
-    // The bolt, two seconds in, once per storm.
-    window.setTimeout(() => {
+    const strike = () => {
       if (!veil.isConnected) return; // storm already over
 
-      const strike = document.createElement('div');
-      strike.dataset.lightning = '';
-      strike.style.cssText =
+      const bolt = document.createElement('div');
+      bolt.dataset.lightning = '';
+      // Throw the bolt somewhere new each time, and flip it now and then, so a
+      // minute of storm doesn't replay the same photograph.
+      const flip = Math.random() < 0.5 ? -1 : 1;
+      const cx = 25 + Math.random() * 50;
+      bolt.style.cssText =
         'position:absolute;inset:0;pointer-events:none;opacity:0;' +
+        `transform:scaleX(${flip});` +
         // thunder.svg is a solid-black potrace trace, so it is used as a mask and
         // lit from behind rather than drawn directly.
-        "-webkit-mask:url('/thunder.svg') no-repeat center 12%/70% auto;" +
-        "mask:url('/thunder.svg') no-repeat center 12%/70% auto;" +
+        `-webkit-mask:url('/thunder.svg') no-repeat ${cx}% 10%/${60 + Math.random() * 25}% auto;` +
+        `mask:url('/thunder.svg') no-repeat ${cx}% 10%/${60 + Math.random() * 25}% auto;` +
         'background:linear-gradient(180deg, #ffffff 0%, #dceaff 45%, #9ec5ff 100%);' +
         'filter:drop-shadow(0 0 40px rgba(190, 225, 255, 0.9));';
-      api.screen.appendChild(strike);
+      api.screen.appendChild(bolt);
 
       const glow = document.createElement('div');
       glow.style.cssText =
         'position:absolute;inset:0;pointer-events:none;opacity:0;' +
-        'background:radial-gradient(ellipse at 50% 10%, rgba(215,235,255,0.75), transparent 62%);';
+        `background:radial-gradient(ellipse at ${cx}% 10%, rgba(215,235,255,0.75), transparent 62%);`;
       api.screen.appendChild(glow);
 
       // Real lightning stutters — bright, gone, brighter, gone, then an afterglow.
@@ -248,16 +292,24 @@ const rain: RelaxEffect = {
       ];
       const timing: KeyframeAnimationOptions = { duration: 1400, easing: 'linear' };
 
-      const a1 = strike.animate(flicker, timing);
+      const a1 = bolt.animate(flicker, timing);
       const a2 = glow.animate(flicker, timing);
-      a1.onfinish = () => strike.remove();
-      a1.oncancel = () => strike.remove();
+      a1.onfinish = () => bolt.remove();
+      a1.oncancel = () => bolt.remove();
       a2.onfinish = () => glow.remove();
       a2.oncancel = () => glow.remove();
-    }, 2000);
+
+      // The thunder is already in the rain recording, so no extra boom here —
+      // just keep the sky busy for as long as the storm lasts.
+      stormTimers.push(window.setTimeout(strike, rand(9000, 16000)));
+    };
+
+    stormTimers.push(window.setTimeout(strike, 2000));
   },
   onStop(api) {
     stopRain();
+    for (const id of stormTimers) clearTimeout(id);
+    stormTimers = [];
     const veil = api.screen.querySelector<HTMLElement>('[data-rain-veil]');
     if (!veil) return;
     veil.style.opacity = '0';
@@ -325,6 +377,7 @@ const fireworks: RelaxEffect = {
     const color = tint ?? pick(FIREWORK_COLORS);
 
     if (kind === SHELL) {
+      playLaunch();
       const el = document.createElement('div');
       baseStyle(el, 5, `border-radius:50%;background:#fff;box-shadow:0 0 12px 3px ${color};`);
       // Long enough to clear the launch point and hang at the top of the climb.
@@ -401,6 +454,7 @@ const fireworks: RelaxEffect = {
   },
   onDeath(p, api) {
     if (p.kind !== SHELL) return;
+    playBoom();
     api.spawn(p.x, p.y, 90, SPARK, p.tint);
   },
 };
@@ -464,14 +518,17 @@ const SHARD = 1;
 const bubbles: RelaxEffect = {
   id: 'bubbles',
   label: 'Bubble Pop',
-  blurb: 'Bubbles drift up across the screen. Pop every one of them — they burst with a satisfying little thup.',
+  blurb: 'A handful of bubbles drift up across the screen. Hunt down every last one — each bursts with a satisfying little thup.',
   space: 'screen',
   flash: '',
-  burstMs: 9_000,
-  openingPop: 14,
-  spawnEveryMs: 420,
-  spawnPerTick: 2,
-  maxParticles: 260,
+  // Sparse and slow on purpose. The satisfaction is in clearing the screen, and
+  // you can't clear a screen that refills faster than you can pop it — so only a
+  // few are ever in play, and they hang around long enough to be caught.
+  burstMs: 45_000,
+  openingPop: 9,
+  spawnEveryMs: 2200,
+  spawnPerTick: 1,
+  maxParticles: 30,
   interactive: true,
   create(x, y, now, api, kind = BUBBLE, tint) {
     if (kind === SHARD) {
@@ -488,16 +545,25 @@ const bubbles: RelaxEffect = {
       return p;
     }
 
-    const size = rand(34, 92);
+    const size = rand(40, 96);
     const el = document.createElement('div');
+    // Background-agnostic by construction. Rather than painting a pale bubble and
+    // hoping the canvas behind it is dark, this refracts whatever is actually
+    // there: backdrop-filter bends and brightens the background, the rim is drawn
+    // in both a dark and a light stroke so one of them always has contrast, and
+    // the fill is mostly transparent. It reads on the cream paper and on the dark
+    // board without changing a thing. Affordable because only ~30 exist at once.
     baseStyle(
       el,
       size,
       'border-radius:50%;cursor:pointer;' +
-        'border:1.5px solid rgba(190,225,255,0.75);' +
-        'background:radial-gradient(circle at 30% 27%, rgba(255,255,255,0.95), rgba(255,255,255,0.14) 36%,' +
-        ' rgba(150,220,255,0.24) 56%, rgba(255,175,240,0.28) 74%, rgba(190,255,235,0.14) 92%);' +
-        'box-shadow:inset 0 0 18px rgba(255,255,255,0.45), 0 0 16px rgba(150,210,255,0.35);'
+        'backdrop-filter:blur(2px) saturate(1.5) brightness(1.08);' +
+        '-webkit-backdrop-filter:blur(2px) saturate(1.5) brightness(1.08);' +
+        'border:1px solid rgba(255,255,255,0.55);' +
+        'background:radial-gradient(circle at 32% 28%, rgba(255,255,255,0.75), rgba(255,255,255,0.06) 34%,' +
+        ' rgba(120,200,255,0.14) 55%, rgba(255,150,230,0.16) 74%, rgba(160,255,225,0.10) 90%);' +
+        'box-shadow:inset -6px -8px 18px rgba(70,110,160,0.28), inset 6px 8px 20px rgba(255,255,255,0.40),' +
+        ' 0 0 14px rgba(140,200,255,0.30), 0 2px 10px rgba(0,0,0,0.16);'
     );
 
     // Spread across the viewport rather than piling up on the cursor — the point
@@ -510,7 +576,7 @@ const bubbles: RelaxEffect = {
       Math.min(w - size, Math.max(0, px)),
       Math.min(h - size, Math.max(0, py)),
       size,
-      rand(9000, 15000),
+      rand(17000, 27000),
       now
     );
     p.kind = BUBBLE;
@@ -546,6 +612,268 @@ const bubbles: RelaxEffect = {
   onPop(p, api) {
     playPop(p.size);
     api.spawn(p.x + p.size / 2, p.y + p.size / 2, 9, SHARD);
+  },
+};
+
+/* -------------------------------------------------------------- bubble wrap */
+
+const CELL = 88;
+/** Grid geometry for the current sheet — set in onBurst, read back in create. */
+let wrap = { cols: 0, ox: 0, oy: 0 };
+
+const POPPED = 1;
+
+const bubblewrap: RelaxEffect = {
+  id: 'bubblewrap',
+  label: 'Bubble Wrap',
+  blurb: 'A whole sheet of it. Work your way across and pop every blister — each one snaps. Click the canvas again for a fresh sheet.',
+  space: 'screen',
+  flash: '',
+  // The sheet is laid by hand in onBurst, so there is nothing to emit.
+  burstMs: 0,
+  openingPop: 0,
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: 900,
+  interactive: true,
+  onBurst(_x, _y, api) {
+    const { w, h } = api.viewport;
+    const cols = Math.max(3, Math.floor((w - 60) / CELL));
+    const rows = Math.max(3, Math.floor((h - 150) / CELL));
+    wrap = {
+      cols,
+      ox: (w - cols * CELL) / 2 + CELL / 2,
+      oy: (h - rows * CELL) / 2 + CELL / 2 - 20,
+    };
+    // A fresh sheet, not a second sheet stacked on the first.
+    api.clear();
+    api.spawn(0, 0, cols * rows, 0);
+  },
+  create(x, y, now, _api, kind = 0, _tint, index = 0) {
+    if (kind === POPPED) {
+      // The spent blister, left where it died. The sheet keeps a record of what
+      // you've already been through — which is most of the point of bubble wrap.
+      const size = 58;
+      const el = document.createElement('div');
+      baseStyle(
+        el,
+        size,
+        'border-radius:50%;' +
+          'background:radial-gradient(circle at 50% 45%, rgba(90,120,160,0.20), rgba(90,120,160,0.06) 70%);' +
+          'box-shadow:inset 0 4px 10px rgba(0,0,0,0.30), inset 0 -2px 6px rgba(255,255,255,0.18);'
+      );
+      const p = particle(el, x, y, size, 120_000, now);
+      p.kind = POPPED;
+      return p;
+    }
+
+    const size = 58;
+    const el = document.createElement('div');
+    el.style.cursor = 'pointer';
+    baseStyle(
+      el,
+      size,
+      'border-radius:50%;cursor:pointer;' +
+        'backdrop-filter:blur(1.5px) brightness(1.06);' +
+        '-webkit-backdrop-filter:blur(1.5px) brightness(1.06);' +
+        'border:1px solid rgba(255,255,255,0.5);' +
+        'background:radial-gradient(circle at 34% 30%, rgba(255,255,255,0.82), rgba(255,255,255,0.10) 42%,' +
+        ' rgba(150,205,255,0.16) 70%);' +
+        'box-shadow:inset -4px -6px 12px rgba(60,100,150,0.25), inset 4px 6px 12px rgba(255,255,255,0.45),' +
+        ' 0 2px 6px rgba(0,0,0,0.18);'
+    );
+
+    const col = index % wrap.cols;
+    const row = Math.floor(index / wrap.cols);
+    const p = particle(el, wrap.ox + col * CELL, wrap.oy + row * CELL, size, 120_000, now);
+    p.kind = 0;
+    // Stagger the pop-in so the sheet unrolls diagonally instead of appearing.
+    p.a = (col + row) * 22;
+    p.b = rand(0.96, 1.04); // no two blisters are quite the same size
+    return p;
+  },
+  step(p, t, now) {
+    if (p.kind === POPPED) {
+      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(0.86)`;
+      p.el.style.opacity = '0.85';
+      return;
+    }
+
+    const age = now - p.born - p.a;
+    if (age < 0) {
+      p.el.style.opacity = '0';
+      return;
+    }
+    const intro = Math.min(1, age / 260);
+    const scale = p.b * (0.6 + popIn(intro, 1) * 0.4);
+
+    p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${scale})`;
+    p.el.style.opacity = String(intro);
+  },
+  onPop(p, api) {
+    playSnap();
+    api.spawn(p.x, p.y, 1, POPPED);
+  },
+};
+
+/* ------------------------------------------------------------------- chimes */
+
+const ROD_COUNT = 9;
+const RACK_TOP = 74; // where the beam hangs
+const BEAM = 1;
+
+const rackSpread = (w: number) => Math.min(w - 140, 620);
+const rodX = (w: number, index: number) =>
+  w / 2 - rackSpread(w) / 2 + (index / (ROD_COUNT - 1)) * rackSpread(w);
+
+const chimes: RelaxEffect = {
+  id: 'chimes',
+  label: 'Wind Chimes',
+  blurb: 'A rack of chimes hangs over the canvas. Sweep your cursor through them and they swing and ring — every note is in key.',
+  space: 'screen',
+  flash: '',
+  burstMs: 0,
+  openingPop: ROD_COUNT,
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: 14,
+  interactive: true,
+  hover: true, // sweeping the cursor across the rack plays it like an instrument
+  consumeOnPop: false, // a chime rings and keeps swinging; it doesn't vanish
+  onBurst(_x, _y, api) {
+    api.clear();
+    // The beam is a particle rather than loose furniture, so the engine tears it
+    // down with everything else when the tool is put away.
+    api.spawn(0, 0, 1, BEAM);
+  },
+  create(_x, _y, now, api, kind = 0, _tint, index = 0) {
+    const { w } = api.viewport;
+
+    if (kind === BEAM) {
+      const spread = rackSpread(w) + 46;
+      const el = document.createElement('div');
+      baseStyle(
+        el,
+        spread,
+        'height:7px;border-radius:4px;' +
+          'background:linear-gradient(180deg, #d9c3a5 0%, #a98963 40%, #7d6244 100%);' +
+          'box-shadow:0 3px 10px rgba(0,0,0,0.35);'
+      );
+      const p = particle(el, w / 2 - spread / 2, RACK_TOP - 7, spread, 60_000, now);
+      p.kind = BEAM;
+      return p;
+    }
+
+    // Longest rod on the left, shortest on the right, so a left-to-right sweep
+    // runs up the scale.
+    const len = 270 - index * 21;
+    const width = 14 - index * 0.6;
+    const el = document.createElement('div');
+    baseStyle(
+      el,
+      width,
+      `height:${len}px;border-radius:${width}px;cursor:pointer;transform-origin:50% 0;` +
+        'background:linear-gradient(180deg, #f4f8fc 0%, #bcc9d7 16%, #8fa1b4 45%, #dae4ee 74%, #94a5b7 100%);' +
+        'box-shadow:0 0 12px rgba(180,215,255,0.4), inset -2px 0 3px rgba(0,0,0,0.28),' +
+        ' inset 2px 0 3px rgba(255,255,255,0.65);'
+    );
+
+    const p = particle(el, rodX(w, index), RACK_TOP, width, 60_000, now);
+    p.kind = 0;
+    p.a = 0; // swing angle, degrees
+    p.b = 0; // angular velocity
+    p.c = 0; // last strike time, for the retrigger cooldown
+    p.d = PENTATONIC[index % PENTATONIC.length] / (index < 5 ? 2 : 1); // longer rod, lower note
+    return p;
+  },
+  step(p, t) {
+    const fade = Math.min(1, t * 40) * (t > 0.94 ? (1 - t) / 0.06 : 1);
+
+    if (p.kind === BEAM) {
+      p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+      p.el.style.opacity = String(fade);
+      return;
+    }
+
+    // Damped pendulum. There is no driving force — a rod only ever moves because
+    // you hit it, and then it rings itself out.
+    const accel = -p.a * 0.012;
+    p.b = (p.b + accel) * 0.985;
+    p.a += p.b;
+
+    p.el.style.transform = `translate3d(${p.x}px, ${RACK_TOP - 4}px, 0) rotate(${p.a}deg)`;
+    p.el.style.opacity = String(fade);
+  },
+  onPop(p) {
+    const now = performance.now();
+    // Without a cooldown, a cursor jittering on one rod machine-guns the note.
+    if (now - p.c < 260) return;
+    p.c = now;
+    playBell(p.d);
+    p.b += rand(0.55, 1.1) * (Math.random() < 0.5 ? -1 : 1);
+  },
+};
+
+/* ---------------------------------------------------------------------- ink */
+
+const INK_COLORS = ['#6DD3FF', '#B48CFF', '#FF7BC8', '#5AE6C0', '#FFC46B', '#8FA3FF'];
+
+const ink: RelaxEffect = {
+  id: 'ink',
+  label: 'Ink Bloom',
+  blurb: 'Drop ink into still water and watch it unfurl. Deep, slow, and impossible to rush.',
+  space: 'world',
+  flash: '',
+  burstMs: 0,
+  openingPop: 18,
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: 220,
+  onBurst() {
+    playPlop();
+  },
+  create(x, y, now) {
+    // Luminous ink, not black ink. Real ink would vanish against the dark canvas;
+    // this reads like dye lit from behind, which works on either background.
+    const color = pick(INK_COLORS);
+    const size = rand(34, 96);
+    const el = document.createElement('div');
+    // The edge falls off fast. Soften it further and the clouds all melt into one
+    // featureless glow instead of reading as separate plumes drifting apart.
+    baseStyle(
+      el,
+      size,
+      'border-radius:50%;mix-blend-mode:screen;' +
+        `background:radial-gradient(circle at 50% 50%, ${color}E6 0%, ${color}A0 36%, ${color}42 62%, transparent 78%);`
+    );
+
+    const p = particle(el, x + rand(-26, 26), y + rand(-26, 26), size, rand(4500, 7500), now);
+    const angle = Math.random() * Math.PI * 2;
+    const speed = rand(0.6, 2.9);
+    p.vx = Math.cos(angle) * speed;
+    p.vy = Math.sin(angle) * speed;
+    p.a = rand(1.5, 2.7); // how far it swells
+    p.b = rand(0.25, 0.7); // curl frequency
+    p.c = rand(0, Math.PI * 2);
+    p.d = rand(-0.4, 0.4); // slow rotation
+    return p;
+  },
+  step(p, t, now) {
+    // Ink in still water spreads fast at first and then almost stops. Everything
+    // here is decelerating — nothing in this effect is allowed to feel urgent.
+    p.vx *= 0.985;
+    p.vy *= 0.985;
+    const curl = Math.sin(now / 1000 * p.b + p.c) * 0.35;
+    p.x += p.vx + curl * 0.4;
+    p.y += p.vy + Math.cos(now / 1000 * p.b + p.c) * 0.25;
+
+    const swell = 1 + (1 - Math.pow(1 - t, 2.2)) * p.a;
+    const opacity = t < 0.12 ? t / 0.12 : 1 - Math.pow((t - 0.12) / 0.88, 1.7);
+
+    p.el.style.transform =
+      `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) ` +
+      `rotate(${p.d * t * 90}deg) scale(${swell})`;
+    p.el.style.opacity = String(Math.max(0, opacity) * 0.85);
   },
 };
 
@@ -602,9 +930,9 @@ const ripples: RelaxEffect = {
 /* -------------------------------------------------------------------------- */
 
 export const RELAX_EFFECTS: Record<RelaxEffectId, RelaxEffect> = {
-  flowers, rain, fireworks, galaxy, bubbles, ripples,
+  flowers, rain, fireworks, galaxy, bubbles, bubblewrap, chimes, ink, ripples,
 };
 
 export const RELAX_EFFECT_LIST: RelaxEffect[] = [
-  flowers, rain, fireworks, galaxy, bubbles, ripples,
+  flowers, rain, fireworks, galaxy, bubbles, bubblewrap, chimes, ink, ripples,
 ];
