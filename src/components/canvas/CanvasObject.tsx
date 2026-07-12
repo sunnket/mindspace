@@ -128,6 +128,8 @@ interface BrowserViewProps {
   url: string;
   /** Only the visible tab streams frames — background tabs keep their page alive. */
   active: boolean;
+  /** Whether the user is actually working in this block right now. */
+  focused: boolean;
   /** Viewport size in CSS pixels; mirrored onto the headless page. */
   vw: number;
   vh: number;
@@ -141,7 +143,7 @@ interface BrowserViewProps {
  * Clicks, scrolls and keystrokes are forwarded to it — so this browses like a
  * browser, with no iframe and therefore no X-Frame-Options wall.
  */
-function BrowserView({ id, url, active, vw, vh, onNavigate, onLoading, registerControl }: BrowserViewProps) {
+function BrowserView({ id, url, active, focused, vw, vh, onNavigate, onLoading, registerControl }: BrowserViewProps) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [failed, setFailed] = useState<string | null>(null);
@@ -260,14 +262,16 @@ function BrowserView({ id, url, active, vw, vh, onNavigate, onLoading, registerC
     });
   }, [url, sessionId, id, apply, onLoading]);
 
-  // Stream frames for the visible tab only.
+  // Stream frames for the visible tab only, and stream them harder while the user
+  // is actually in the block. Every frame is a screenshot the server has to take
+  // (a billed function call, once deployed), so an idle block ticks over slowly.
   useEffect(() => {
     if (!sessionId || !active) return;
     const iv = setInterval(() => {
       if (!document.hidden) refresh();
-    }, 700);
+    }, focused ? 700 : 2000);
     return () => clearInterval(iv);
-  }, [sessionId, active, refresh]);
+  }, [sessionId, active, focused, refresh]);
 
   // Keep the headless viewport the same size as this box, so a click at (x, y)
   // here is a click at (x, y) there.
@@ -2037,6 +2041,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                       id={t.id}
                       url={t.url}
                       active={active}
+                      focused={isSelected}
                       // 72px of chrome above: the tab strip (32) + toolbar (40).
                       vw={Math.max(200, Math.round(obj.width || 800))}
                       vh={Math.max(200, Math.round((obj.height || 600) - 72))}

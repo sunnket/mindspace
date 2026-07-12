@@ -1,8 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
-import puppeteer, { Browser, Page } from 'puppeteer';
+import type { Browser, Page } from 'puppeteer-core';
 import { v4 as uuidv4 } from 'uuid';
 
 export const runtime = 'nodejs'; // Required for Puppeteer
+// Launching Chromium cold, then loading a page, comfortably outruns the default
+// serverless limit.
+export const maxDuration = 60;
+
+/**
+ * On Lambda (which is what a Vercel function is) there is no Chrome: Puppeteer's
+ * download lives in ~/.cache on the *build* machine and never ships in the
+ * bundle, so `puppeteer.launch()` fails with "Could not find Chrome". There we
+ * launch @sparticuz/chromium, a Chromium built to run inside the function.
+ * Everywhere else — your machine, a plain Node server — we use the real
+ * Puppeteer and the Chrome it downloaded.
+ */
+const IS_LAMBDA =
+  !!process.env.AWS_LAMBDA_FUNCTION_NAME || (!!process.env.VERCEL && process.platform === 'linux');
+
+async function launchBrowser(): Promise<Browser> {
+  if (IS_LAMBDA) {
+    const [{ default: chromium }, { default: core }] = await Promise.all([
+      import('@sparticuz/chromium'),
+      import('puppeteer-core'),
+    ]);
+    return core.launch({
+      args: chromium.args,
+      executablePath: await chromium.executablePath(),
+      headless: true,
+    });
+  }
+
+  const { default: puppeteer } = await import('puppeteer');
+  return puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  }) as unknown as Browser;
+}
 
 interface Session {
   page: Page;
@@ -37,15 +71,10 @@ async function getBrowser(): Promise<Browser> {
     globalAny.browserInstance = null;
   }
 
-  const launched = puppeteer
-    .launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    })
-    .catch((e) => {
-      globalAny.browserInstance = null;
-      throw e;
-    });
+  const launched = launchBrowser().catch((e: unknown) => {
+    globalAny.browserInstance = null;
+    throw e;
+  });
 
   globalAny.browserInstance = launched;
   const browser = await launched;
