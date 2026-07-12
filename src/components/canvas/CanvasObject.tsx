@@ -3424,6 +3424,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         }
       } : { duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
       onMouseDown={handleMouseDown}
+      onMouseUp={(e) => e.stopPropagation()}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onMouseEnter={() => {

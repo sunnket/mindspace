@@ -253,13 +253,13 @@ function compactSnapshot(objects: SnapshotObject[], agentX: number, agentY: numb
       } else if (s.isCountdown) {
         content = `[COUNTDOWN: "${s.countdownTitle}" → ${s.countdownDate}]`;
       } else if (s.isMermaid) {
-        content = `[MERMAID DIAGRAM] ${(o.content || '').slice(0, 200)}`;
+        content = `[MERMAID DIAGRAM] ${(o.content || '').slice(0, 1000)}`;
       } else if (s.isCode) {
-        content = `[CODE] ${(o.content || '').slice(0, 400)}`;
+        content = `[CODE] ${(o.content || '').slice(0, 1500)}`;
       } else if (s.isQuote) {
-        content = `[QUOTE] ${(o.content || '').slice(0, 300)}`;
+        content = `[QUOTE] ${(o.content || '').slice(0, 800)}`;
       } else {
-        content = (o.content || '').slice(0, 600);
+        content = (o.content || '').slice(0, 3000);
       }
     }
     return {
