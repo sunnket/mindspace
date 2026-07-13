@@ -249,7 +249,14 @@ export default function AgentOverlay() {
     // them. Use an explicit arg (the file card's "Ask AI" button) if given;
     // otherwise pull from the selected file, else the file(s) nearest to where
     // the agent was invoked. Cap the total so we never blow the model context.
-    const FILES_BUDGET = 26_000;
+    /* How much of the dropped file(s) the agent actually gets to read.
+       This was 26k characters — about twelve pages — so any real document was
+       silently cut off a fifth of the way in and the agent answered from the
+       opening chapter as if it were the whole book. Every model in the chain
+       carries a 128k-token window; 120k characters is roughly 30k tokens, which
+       leaves ample room for the system prompt, the canvas snapshot and the reply,
+       and lets a normal report, paper or contract go in whole. */
+    const FILES_BUDGET = 120_000;
     let filesContext = (filesContextArg || '').slice(0, FILES_BUDGET);
     if (!filesContext) {
       const fileBlocks = visibleObjects.filter(
@@ -428,6 +435,43 @@ export default function AgentOverlay() {
       }
     };
 
+    /* Every link the agent places gets checked the moment it lands, and a dead
+       one is taken away again.
+
+       Validation used to run at the very END of the stream, from a JSON.parse
+       that threw on any fenced response — so in practice it never ran, and even
+       when it did, its idea of "fixing" a broken link was to leave the card
+       sitting there wearing an error state. Neither is what anyone wants: if the
+       URL doesn't resolve, the card should not be on the board at all. The links
+       that remain are the ones that work. */
+    const linkChecks: Promise<void>[] = [];
+    const verifyLink = (id: string, rawUrl: string) => {
+      const url = normalizeUrl(rawUrl);
+      if (!url) return;
+
+      linkChecks.push(
+        (async () => {
+          try {
+            const res = await fetch(`/api/link-validate?url=${encodeURIComponent(url)}`, {
+              signal: abortRef.current?.signal,
+            });
+            if (!res.ok) return; // can't tell — give the link the benefit of the doubt
+            const json = await res.json();
+            if (json?.valid !== false) return;
+
+            const card = live().objects.find((o) => o.id === id);
+            if (!card) return;
+            addLog(`[Agent] Dropped a dead link (${json.reason || 'unreachable'}): ${url}`);
+            live().removeObject(id);
+            occupancy.remove(id);
+            touched.delete(id);
+          } catch {
+            /* validation is best-effort — never take a card away on our own error */
+          }
+        })()
+      );
+    };
+
     const runAction = (action: Action) => {
       try {
         switch (action.type) {
@@ -499,6 +543,11 @@ export default function AgentOverlay() {
               void resolveGenImage(spawned.id, genPrompt.trim(), style.imageStyle as string | undefined);
             } else if (imageQuery.trim()) {
               void resolveImage(spawned.id, imageQuery.trim());
+            }
+            // Check the link the moment the card lands. A dead one is removed
+            // again before the run finishes, so it never survives on the board.
+            if (od.type === 'card' && style.isLinkPreview && typeof style.linkUrl === 'string') {
+              verifyLink(spawned.id, style.linkUrl);
             }
             if (od.type === 'card' && style.isMap && !style.mapLat && typeof style.mapQuery === 'string' && style.mapQuery.trim()) {
               void resolveMap(spawned.id, (style.mapQuery as string).trim());
@@ -983,61 +1032,26 @@ export default function AgentOverlay() {
 
       if (!runningRef.current) return;
 
-      // After streaming is done, process memory instructions & validate newly created links
+      // Every link card fired off its own check the moment it landed (verifyLink).
+      // Let those finish before we call the run done, so a dead card is gone from
+      // the board before the user is told the agent is finished.
+      if (linkChecks.length) {
+        addLog('[Agent] Checking every link works…');
+        await Promise.all(linkChecks);
+      }
+
+      if (!runningRef.current) return;
+
+      // After streaming is done, process memory instructions
       try {
         /* The prompt says "no markdown fences" and the model wraps the whole
            thing in ```json anyway — often enough that JSON.parse threw on every
-           such run and everything below (link validation, memories) was silently
-           skipped. The streaming scanner never cared, because it hunts for the
-           actions array rather than parsing the document, which is why the board
-           still built and this failure stayed invisible. Take the fence off. */
+           such run and everything below was silently skipped. The streaming
+           scanner never cared, because it hunts for the actions array rather than
+           parsing the document, which is why the board still built and this
+           failure stayed invisible. Take the fence off. */
         const payload = JSON.parse(stripCodeFence(fullResponse));
-        
-        /* 1. Link validation.
-           This has never actually run. It matched on style.isLink (no link card
-           has ever carried that flag — it's isLinkPreview), and then compared
-           `vJson.status` against 'dead' when /api/link-validate returns no
-           `status` field at all; it answers { valid, reason, platform }. So the
-           condition was false every single time and a URL the model invented sat
-           on the board looking perfectly real until you clicked it.
 
-           Now every link card the agent creates is checked in parallel, and a
-           dead one is flipped into the card's real error state — which says what
-           went wrong and offers Open URL / Retry — rather than pretending. */
-        const linkActions = (payload.actions || []).filter(
-          (a: any) => a.type === 'CREATE_OBJECT' && a.objData?.style?.isLinkPreview && a.objData?.style?.linkUrl
-        );
-
-        await Promise.all(
-          linkActions.map(async (action: any) => {
-            const url = normalizeUrl(String(action.objData.style.linkUrl));
-            if (!url) return;
-            try {
-              const vRes = await fetch(`/api/link-validate?url=${encodeURIComponent(url)}`);
-              if (!vRes.ok) return;
-              const vJson = await vRes.json();
-              if (vJson.valid !== false) return;
-
-              const createdObj = live().objects.find(
-                (o) => o.style?.isLinkPreview && o.style?.linkUrl === url
-              );
-              if (!createdObj) return;
-
-              addLog(`[Agent] Dropped a dead link: ${vJson.reason || 'unreachable'}`);
-              live().updateObject(createdObj.id, {
-                style: {
-                  ...createdObj.style,
-                  linkLoading: false,
-                  linkResolved: true,
-                  linkError: true,
-                  linkErrorReason: vJson.reason || 'This link is broken',
-                },
-              });
-            } catch { /* validation is best-effort — never block the build on it */ }
-          })
-        );
-
-        // 2. Memory Processing
         if (payload.memories && Array.isArray(payload.memories)) {
           for (const mem of payload.memories) {
             if (mem.forget) {

@@ -314,13 +314,22 @@ function MessageBubble({ message, mine, mode }: { message: ChatMessage; mine: bo
   );
 }
 
-/** Downloads a private attachment and drops it onto the currently-open
- * canvas at the viewport center — the chat-side half of the "Add to
- * canvas" pattern used for the collab-session fix. Only meaningful in
- * overlay mode, where a canvas is actually behind the panel. */
-async function addAttachmentToCanvas(attachment: ChatAttachment, url: string | null) {
+/** Downloads a private attachment and drops it onto the currently-open canvas.
+ *
+ * `at` is where the user let go, in SCREEN coordinates; without one it lands in
+ * the middle of the view (the click-to-add path). Only meaningful in overlay
+ * mode, where a canvas is actually behind the panel. */
+async function addAttachmentToCanvas(
+  attachment: ChatAttachment,
+  url: string | null,
+  at?: { x: number; y: number },
+) {
   const camera = useCanvasStore.getState().camera;
-  const center = screenToCanvas(window.innerWidth / 2, window.innerHeight / 2, camera);
+  const center = screenToCanvas(
+    at?.x ?? window.innerWidth / 2,
+    at?.y ?? window.innerHeight / 2,
+    camera,
+  );
   if (attachment.kind === 'canvas-object' && attachment.snapshot) {
     useCanvasStore.getState().addObject({
       ...attachment.snapshot,
@@ -338,6 +347,91 @@ async function addAttachmentToCanvas(attachment: ChatAttachment, url: string | n
   } catch (err) {
     console.error('[chat] add attachment to canvas failed:', err);
   }
+}
+
+/**
+ * Drag an attachment out of the chat and drop it exactly where you want it.
+ *
+ * Clicking still works and still lands it in the middle of the view — that path
+ * is unchanged. This adds the one everybody reaches for first: pick the thing
+ * up, carry it out over the board, let go. A ghost follows the cursor so you can
+ * see where it's going to land, and letting go back inside the panel cancels.
+ *
+ * Pointer events, not HTML5 drag-and-drop: the canvas's own onDrop is built for
+ * files and URLs coming in from outside the app, and teaching it a second,
+ * in-app protocol would mean two ways to describe the same drop.
+ */
+function useDragToCanvas(label: string, onDrop: (at: { x: number; y: number }) => void, enabled: boolean) {
+  const [dragging, setDragging] = useState(false);
+  const movedRef = useRef(false);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (!enabled || e.button !== 0) return;
+    const start = { x: e.clientX, y: e.clientY };
+    movedRef.current = false;
+
+    let ghost: HTMLDivElement | null = null;
+
+    const move = (ev: PointerEvent) => {
+      if (!movedRef.current) {
+        if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 6) return;
+        movedRef.current = true;
+        setDragging(true);
+
+        ghost = document.createElement('div');
+        ghost.textContent = label;
+        ghost.style.cssText =
+          'position:fixed;z-index:9999;pointer-events:none;padding:7px 13px;border-radius:999px;' +
+          'font:600 11px/1 Outfit,sans-serif;color:#fff;background:var(--accent);' +
+          'box-shadow:0 12px 28px -10px rgba(0,0,0,0.55);transform:translate(-50%,-50%) scale(0.9);' +
+          'opacity:0;transition:opacity 120ms ease, transform 120ms ease;white-space:nowrap;max-width:220px;' +
+          'overflow:hidden;text-overflow:ellipsis;';
+        document.body.appendChild(ghost);
+        requestAnimationFrame(() => {
+          if (!ghost) return;
+          ghost.style.opacity = '1';
+          ghost.style.transform = 'translate(-50%,-50%) scale(1)';
+        });
+      }
+      if (ghost) {
+        ghost.style.left = `${ev.clientX}px`;
+        ghost.style.top = `${ev.clientY}px`;
+      }
+    };
+
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      ghost?.remove();
+      ghost = null;
+      setDragging(false);
+
+      if (!movedRef.current) return; // a plain click — onClick still handles it
+
+      // Let go back over the chat and nothing happens: that's the cancel gesture.
+      const panel = document.getElementById('chat-panel-container');
+      const r = panel?.getBoundingClientRect();
+      const overPanel =
+        !!r && ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
+      if (overPanel) return;
+
+      onDrop({ x: ev.clientX, y: ev.clientY });
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  /** Swallow the click that a browser fires after a drag's pointerup. */
+  const onClickCapture = (e: React.MouseEvent) => {
+    if (movedRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      movedRef.current = false;
+    }
+  };
+
+  return { onPointerDown, onClickCapture, dragging };
 }
 
 function AddToCanvasButton({ onClick }: { onClick: () => void }) {
@@ -366,6 +460,18 @@ function AttachmentBubble({ attachment, mine, mode }: { attachment: ChatAttachme
     return () => { cancelled = true; };
   }, [attachment.path, uploading, isCanvasObject]);
 
+  // Tap → centre of the view. Drag → wherever you let go.
+  const drag = useDragToCanvas(
+    attachment.name,
+    (at) => addAttachmentToCanvas(attachment, url, at),
+    canAddToCanvas && !uploading,
+  );
+  const dragProps = canAddToCanvas
+    ? { onPointerDown: drag.onPointerDown, onClickCapture: drag.onClickCapture }
+    : {};
+  const dragClass = drag.dragging ? 'opacity-40' : '';
+  const hint = canAddToCanvas ? 'Tap or drag onto the canvas' : 'Open a canvas to add this';
+
   if (uploading) {
     return (
       <div className={`w-40 h-28 rounded-2xl flex items-center justify-center text-[10px] font-semibold ${mine ? 'bg-[var(--accent)]/60 text-white' : 'clay-inset text-[var(--text-tertiary)]'}`}>
@@ -380,15 +486,13 @@ function AttachmentBubble({ attachment, mine, mode }: { attachment: ChatAttachme
         <span className="text-[18px] shrink-0">📦</span>
         <div className="min-w-0">
           <p className="text-[11px] font-semibold truncate">{attachment.name}</p>
-          <p className={`text-[9px] ${mine ? 'text-white/80' : 'text-[var(--text-tertiary)]'}`}>
-            {canAddToCanvas ? 'Tap to add to canvas' : 'Open a canvas to add this'}
-          </p>
+          <p className={`text-[9px] ${mine ? 'text-white/80' : 'text-[var(--text-tertiary)]'}`}>{hint}</p>
         </div>
       </>
     );
-    const className = `flex items-center gap-2 px-3 py-2 rounded-2xl max-w-[220px] ${mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'} ${canAddToCanvas ? 'cursor-pointer hover:brightness-95' : ''}`;
+    const className = `flex items-center gap-2 px-3 py-2 rounded-2xl max-w-[220px] transition-opacity ${mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'} ${canAddToCanvas ? 'cursor-grab active:cursor-grabbing hover:brightness-95' : ''} ${dragClass}`;
     return canAddToCanvas ? (
-      <button onClick={() => addAttachmentToCanvas(attachment, null)} className={className}>{body}</button>
+      <button {...dragProps} onClick={() => addAttachmentToCanvas(attachment, null)} className={className}>{body}</button>
     ) : (
       <div className={className}>{body}</div>
     );
@@ -396,11 +500,18 @@ function AttachmentBubble({ attachment, mine, mode }: { attachment: ChatAttachme
 
   if (attachment.kind === 'image') {
     return url ? (
-      <a href={url} target="_blank" rel="noreferrer" className="relative block max-w-[220px] rounded-2xl overflow-hidden">
+      <div
+        {...dragProps}
+        // A drag ends in a click, which the capture handler above swallows — so
+        // this only opens the picture when you actually clicked it.
+        onClick={() => window.open(url, '_blank', 'noopener')}
+        className={`relative block max-w-[220px] rounded-2xl overflow-hidden transition-opacity ${canAddToCanvas ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${dragClass}`}
+        title={hint}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt={attachment.name} className="w-full h-auto object-cover" />
+        <img src={url} alt={attachment.name} className="w-full h-auto object-cover" draggable={false} />
         {canAddToCanvas && <AddToCanvasButton onClick={() => addAttachmentToCanvas(attachment, url)} />}
-      </a>
+      </div>
     ) : (
       <div className="w-40 h-28 rounded-2xl clay-inset animate-pulse" />
     );
@@ -408,8 +519,12 @@ function AttachmentBubble({ attachment, mine, mode }: { attachment: ChatAttachme
 
   if (attachment.kind === 'video') {
     return url ? (
-      <div className="relative max-w-[240px]">
+      <div className={`relative max-w-[240px] transition-opacity ${dragClass}`}>
         <video src={url} controls className="w-full rounded-2xl" />
+        {canAddToCanvas && (
+          // The player owns its own clicks, so the drag handle is the badge.
+          <span {...dragProps} className="absolute inset-x-0 top-0 h-8 cursor-grab active:cursor-grabbing" title={hint} />
+        )}
         {canAddToCanvas && <AddToCanvasButton onClick={() => addAttachmentToCanvas(attachment, url)} />}
       </div>
     ) : (
@@ -418,12 +533,11 @@ function AttachmentBubble({ attachment, mine, mode }: { attachment: ChatAttachme
   }
 
   return (
-    <div className="relative max-w-[220px]">
-      <a
-        href={url || undefined}
-        target="_blank"
-        rel="noreferrer"
-        className={`flex items-center gap-2 px-3 py-2 rounded-2xl ${mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'}`}
+    <div className={`relative max-w-[220px] transition-opacity ${dragClass}`}>
+      <div
+        {...dragProps}
+        title={hint}
+        className={`flex items-center gap-2 px-3 py-2 rounded-2xl ${mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'} ${canAddToCanvas ? 'cursor-grab active:cursor-grabbing' : ''}`}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
@@ -432,7 +546,7 @@ function AttachmentBubble({ attachment, mine, mode }: { attachment: ChatAttachme
           <p className="text-[11px] font-semibold truncate">{attachment.name}</p>
           <p className={`text-[9px] ${mine ? 'text-white/80' : 'text-[var(--text-tertiary)]'}`}>{formatBytes(attachment.size)}</p>
         </div>
-      </a>
+      </div>
       {canAddToCanvas && (
         <button
           onClick={() => addAttachmentToCanvas(attachment, url)}

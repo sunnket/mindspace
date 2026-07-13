@@ -13,8 +13,14 @@ interface VoiceState {
   error: string | null;
   /** The block the dictation is being typed into. */
   targetId: string | null;
+  /** The recogniser has actually started (onstart fired), not just been asked to. */
+  live: boolean;
+  /** The recogniser has the microphone open and is taking audio. */
+  hearing: boolean;
 
   setIsListening: (val: boolean) => void;
+  setLive: (val: boolean) => void;
+  setHearing: (val: boolean) => void;
   /** Append a finalised phrase. */
   appendTranscript: (val: string) => void;
   setInterimTranscript: (val: string) => void;
@@ -35,8 +41,12 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   unsupported: false,
   error: null,
   targetId: null,
+  live: false,
+  hearing: false,
 
   setIsListening: (val) => set({ isListening: val }),
+  setLive: (val) => set({ live: val }),
+  setHearing: (val) => set({ hearing: val }),
 
   /* Append, don't overwrite.
      This used to be a plain setter that REPLACED the transcript with whatever
@@ -57,8 +67,11 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   setTargetId: (id) => set({ targetId: id }),
 
   beginSession: (targetId) =>
-    set({ targetId, transcript: '', interimTranscript: '', isPaused: false, error: null }),
+    set({ targetId, transcript: '', interimTranscript: '', isPaused: false, error: null, live: false, hearing: false }),
 
   reset: () =>
-    set({ transcript: '', interimTranscript: '', isListening: false, isPaused: false, targetId: null, error: null }),
+    set({
+      transcript: '', interimTranscript: '', isListening: false, isPaused: false,
+      targetId: null, error: null, live: false, hearing: false,
+    }),
 }));

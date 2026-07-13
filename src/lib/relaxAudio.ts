@@ -449,6 +449,101 @@ export function playSparkle() {
   osc.stop(t + 1);
 }
 
+/* ------------------------------------------------------------------- japan */
+
+/** Hirajoshi — the classic Japanese pentatonic. Every pair of notes consoles. */
+export const HIRAJOSHI = [261.63, 277.18, 349.23, 392.0, 415.3, 523.25, 554.37, 698.46];
+
+/**
+ * A koto pluck, by Karplus-Strong.
+ *
+ * A plucked string is not a sine with an envelope on it, and it never sounds
+ * like one. It's a burst of noise trapped in a delay line the length of the
+ * string, averaged with itself on every lap — which rounds off the high partials
+ * a little faster than the low ones, exactly as a real string loses them. Five
+ * lines of arithmetic and it sounds like wood and silk instead of a synthesiser.
+ */
+export function playKoto(freq: number, level = 0.34) {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 0.9);
+
+  const sr = ac.sampleRate;
+  const N = Math.max(2, Math.round(sr / freq)); // delay line = one wavelength
+  const dur = 2.6;
+  const len = Math.floor(sr * dur);
+
+  const line = new Float32Array(N);
+  for (let i = 0; i < N; i++) line[i] = Math.random() * 2 - 1;
+  // Smooth the excitation twice: a hard noise burst is a harpsichord, a soft one
+  // is a finger. The koto is plucked with a plectrum but voiced warm.
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 1; i < N; i++) line[i] = (line[i] + line[i - 1]) * 0.5;
+  }
+
+  const buf = ac.createBuffer(1, len, sr);
+  const data = buf.getChannelData(0);
+  const damp = 0.9965; // string loss per lap — this IS the decay time
+  let idx = 0;
+  for (let i = 0; i < len; i++) {
+    const cur = line[idx];
+    const next = line[(idx + 1) % N];
+    line[idx] = (cur + next) * 0.5 * damp;
+    data[i] = cur;
+    idx = (idx + 1) % N;
+  }
+  // Take the click off the front and the cliff off the back.
+  for (let i = 0; i < len; i++) {
+    data[i] *= Math.min(1, i / 240) * Math.pow(1 - i / len, 0.7);
+  }
+
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  const lp = ac.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 4200;
+  const g = ac.createGain();
+  g.gain.value = level;
+  src.connect(lp).connect(g).connect(out);
+  src.start(t);
+}
+
+/** Shishi-odoshi: the hollow knock of a bamboo pipe tipping onto a stone. */
+export function playBamboo() {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 0.95);
+  const pitch = rand(300, 420);
+
+  // The knock: noise rung through a high-Q band = a hollow tube.
+  const n = noise(ac, 0.06, 7);
+  const bp = ac.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = pitch * 2.4;
+  bp.Q.value = 7;
+  const ng = ac.createGain();
+  ng.gain.setValueAtTime(0.3, t);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+  n.connect(bp).connect(ng).connect(out);
+  n.start(t);
+  n.stop(t + 0.2);
+
+  // The body of the wood under it.
+  const osc = ac.createOscillator();
+  const g = ac.createGain();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(pitch, t);
+  osc.frequency.exponentialRampToValueAtTime(pitch * 0.55, t + 0.14);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.22, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+  osc.connect(g).connect(out);
+  osc.start(t);
+  osc.stop(t + 0.35);
+}
+
 /* ---------------------------------------------------------------- ambiences */
 
 /**
@@ -460,12 +555,13 @@ export function playSparkle() {
  * incommensurable rates (0.09 Hz and 0.13 Hz). They drift in and out of phase
  * and never quite repeat, so the sea keeps breathing unevenly, the way it does.
  */
-type AmbienceId = 'ocean' | 'wind';
+type AmbienceId = 'ocean' | 'wind' | 'drone';
 
 interface Ambience {
-  src: AudioBufferSourceNode;
+  src: AudioBufferSourceNode | null;
   gain: GainNode;
   lfos: OscillatorNode[];
+  voices: OscillatorNode[];
   fade: number | null;
 }
 
@@ -499,6 +595,48 @@ function brownNoiseLoop(ac: AudioContext, seconds = 8): AudioBufferSourceNode {
 export function startAmbience(id: AmbienceId) {
   const ac = audioCtx();
   if (!ac || ambiences.has(id)) return;
+
+  /* The drone is a different animal: a low chord, not weather. Three voices a
+     few cents apart beat slowly against each other, which is what gives a pad
+     its slow shimmer — perfectly tuned unisons just sound thin. */
+  if (id === 'drone') {
+    const out = voiceOut(ac, 1);
+    const gain = ac.createGain();
+    gain.gain.value = 0;
+    gain.connect(out);
+
+    const voices: OscillatorNode[] = [];
+    for (const [freq, level, type] of [
+      [55, 0.5, 'sine'],
+      [82.41, 0.3, 'sine'],
+      [110.3, 0.22, 'triangle'],  // ~2 cents sharp of 110 — the beat is the point
+      [164.81, 0.1, 'sine'],
+    ] as [number, number, OscillatorType][]) {
+      const osc = ac.createOscillator();
+      const g = ac.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      g.gain.value = level;
+      osc.connect(g).connect(gain);
+      osc.start();
+      voices.push(osc);
+    }
+
+    // A slow tremolo so the pad breathes rather than sits.
+    const breath = ac.createOscillator();
+    const breathDepth = ac.createGain();
+    breath.frequency.value = 0.07;
+    breathDepth.gain.value = 0.05;
+    breath.connect(breathDepth).connect(gain.gain);
+    breath.start();
+
+    const now = ac.currentTime;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.14, now + 4);
+
+    ambiences.set(id, { src: null, gain, lfos: [breath], voices, fade: null });
+    return;
+  }
 
   const src = brownNoiseLoop(ac);
   const out = voiceOut(ac, id === 'ocean' ? 0.55 : 0.3);
@@ -552,7 +690,7 @@ export function startAmbience(id: AmbienceId) {
   gain.gain.setValueAtTime(0.0001, now);
   gain.gain.linearRampToValueAtTime(target, now + 2.5);
 
-  ambiences.set(id, { src, gain, lfos: [swell, surge], fade: null });
+  ambiences.set(id, { src, gain, lfos: [swell, surge], voices: [], fade: null });
 }
 
 export function stopAmbience(id: AmbienceId) {
@@ -571,8 +709,9 @@ export function stopAmbience(id: AmbienceId) {
 
   window.setTimeout(() => {
     try {
-      a.src.stop();
+      a.src?.stop();
       for (const lfo of a.lfos) lfo.stop();
+      for (const v of a.voices) v.stop();
     } catch {
       /* already stopped */
     }

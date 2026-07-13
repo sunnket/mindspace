@@ -5,68 +5,67 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useVoiceStore } from '@/store/voiceStore';
 import { useCanvasStore } from '@/store/canvasStore';
 
+/**
+ * The dictation HUD: the orb, the live caption, and the code that types what you
+ * say into the target block.
+ *
+ * This used to open its OWN microphone stream — getUserMedia({ audio: true }) —
+ * purely to drive the waveform bars. That is almost certainly why voice typing
+ * never worked: SpeechRecognition opens the microphone too, and on Windows a
+ * second capture of the same device routinely loses the race. The symptom is
+ * exactly what was reported — the orb appears, the bars sit flat at their idle
+ * height (no audio is reaching the analyser at all), and the recogniser dies
+ * with an error.
+ *
+ * So the orb no longer touches the microphone. It animates from the recogniser's
+ * own signals — audiostart/audioend, and words arriving — which is the only
+ * thing the levels were ever standing in for.
+ */
+
+const BARS = 10;
+
 export default function VoiceOrb() {
   const isListening = useVoiceStore((s) => s.isListening);
   const transcript = useVoiceStore((s) => s.transcript);
   const interimTranscript = useVoiceStore((s) => s.interimTranscript);
   const targetId = useVoiceStore((s) => s.targetId);
   const error = useVoiceStore((s) => s.error);
+  const live = useVoiceStore((s) => s.live);
+  const hearing = useVoiceStore((s) => s.hearing);
   const updateObject = useCanvasStore((s) => s.updateObject);
 
-  const [waveformData, setWaveformData] = useState<number[]>(new Array(10).fill(2));
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const animationRef = useRef<number | null>(null);
+  const [wave, setWave] = useState<number[]>(() => new Array(BARS).fill(3));
 
-  // Audio analysis for the waveform
+  /* The bars breathe while the mic is open and leap when words come in. It's an
+     honest signal — it tracks the recogniser rather than the room — and it costs
+     a requestAnimationFrame instead of a second microphone. */
+  const speechAt = useRef(0);
+  useEffect(() => {
+    speechAt.current = performance.now();
+  }, [interimTranscript, transcript]);
+
   useEffect(() => {
     if (!isListening) {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-      analyserRef.current = null;
-      // Release the mic and the audio graph — a leaked AudioContext keeps the
-      // browser's recording indicator lit long after you've stopped.
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-      audioContextRef.current?.close().catch(() => {});
-      audioContextRef.current = null;
-      setWaveformData(new Array(10).fill(2));
+      setWave(new Array(BARS).fill(3));
       return;
     }
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const analyser = audioContext.createAnalyser();
-        audioContext.createMediaStreamSource(stream).connect(analyser);
-        analyser.fftSize = 32;
-
-        streamRef.current = stream;
-        audioContextRef.current = audioContext;
-        analyserRef.current = analyser;
-
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        const tick = () => {
-          if (!analyserRef.current) return;
-          analyserRef.current.getByteFrequencyData(data);
-          setWaveformData(Array.from(data.slice(0, 10)).map((v) => Math.max(2, v / 15)));
-          animationRef.current = requestAnimationFrame(tick);
-        };
-        tick();
-      } catch (e) {
-        console.error('Audio capture failed', e);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [isListening]);
+    let raf = 0;
+    const tick = () => {
+      const now = performance.now();
+      const excited = now - speechAt.current < 700 ? 1 : 0.18;
+      const amp = (hearing ? 1 : 0.35) * excited;
+      setWave(
+        Array.from({ length: BARS }, (_, i) => {
+          const phase = now / 190 + i * 0.7;
+          const envelope = 0.55 + 0.45 * Math.sin((i / (BARS - 1)) * Math.PI); // taller in the middle
+          return 3 + Math.abs(Math.sin(phase)) * 22 * amp * envelope;
+        })
+      );
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isListening, hearing]);
 
   /* Type what's being said into the target block, live.
      The base content is captured ONCE, when the session's target is set — read
@@ -94,40 +93,40 @@ export default function VoiceOrb() {
   // An error is worth reading, not worth living with.
   useEffect(() => {
     if (!error) return;
-    const t = setTimeout(() => useVoiceStore.getState().setError(null), 6000);
+    const t = setTimeout(() => useVoiceStore.getState().setError(null), 7000);
     return () => clearTimeout(t);
   }, [error]);
 
-  const caption = error || interimTranscript;
+  const heard = interimTranscript || transcript;
+  const status = error
+    ? error
+    : !live
+      ? 'Starting the microphone…'
+      : heard || 'Listening — start speaking';
 
   return (
     <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[200] pointer-events-none">
       <div className="relative flex flex-col items-center">
-        {/* Captions / errors */}
+        {/* Caption: what it heard, what it's doing, or what actually went wrong */}
         <AnimatePresence>
-          {(isListening || error) && caption && (
+          {(isListening || error) && (
             <motion.div
               initial={{ opacity: 0, y: -20, scale: 0.9 }}
               animate={{ opacity: 1, y: -40, scale: 1 }}
               exit={{ opacity: 0, y: -20, scale: 0.9 }}
-              className={`absolute max-w-[70vw] text-center bg-white/10 backdrop-blur-3xl px-6 py-3 rounded-2xl text-sm font-medium tracking-wide shadow-[0_8px_32px_rgba(0,0,0,0.1)] border ${
+              className={`absolute w-max max-w-[70vw] text-center bg-[var(--bg-card)] backdrop-blur-3xl px-6 py-3 rounded-2xl text-sm font-medium tracking-wide shadow-[var(--shadow-lg)] border ${
                 error
-                  ? 'text-red-500 border-red-400/30'
-                  : 'text-[var(--text-primary)] border-white/20 whitespace-nowrap'
+                  ? 'text-red-500 border-red-400/40'
+                  : 'text-[var(--text-primary)] border-[var(--border-strong)]'
               }`}
             >
-              {error ? (
-                error
-              ) : (
-                <>
-                  <span className="opacity-40">Listening…</span>
-                  <span className="ml-2">{interimTranscript}</span>
-                  <motion.span
-                    animate={{ opacity: [0, 1, 0] }}
-                    transition={{ duration: 1.5, repeat: Infinity }}
-                    className="ml-2 inline-block w-2 h-2 rounded-full bg-[var(--accent)]"
-                  />
-                </>
+              {status}
+              {!error && (
+                <motion.span
+                  animate={{ opacity: [0, 1, 0] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                  className="ml-2 inline-block w-2 h-2 rounded-full bg-[var(--accent)] align-middle"
+                />
               )}
             </motion.div>
           )}
@@ -142,10 +141,8 @@ export default function VoiceOrb() {
               exit={{ opacity: 0, scale: 0.5 }}
               className="relative w-20 h-20 rounded-full bg-white/5 backdrop-blur-2xl shadow-[0_8px_32px_rgba(var(--accent-rgb),0.15)] border border-white/20 flex items-center justify-center overflow-hidden"
             >
-              {/* Inner Soft Glow */}
               <div className="absolute inset-0 bg-[var(--accent)] opacity-[0.05]" />
 
-              {/* Pulse Rings - Soft & Cinematic */}
               <motion.div
                 initial={{ scale: 1, opacity: 0.3 }}
                 animate={{ scale: 2.2, opacity: 0 }}
@@ -159,13 +156,12 @@ export default function VoiceOrb() {
                 className="absolute inset-0 rounded-full border border-[var(--accent)] opacity-10"
               />
 
-              {/* Waveform Bars */}
-              <div className="flex items-center justify-center gap-[3px] z-10">
-                {waveformData.map((h, i) => (
-                  <motion.div
+              <div className="flex items-end justify-center gap-[3px] z-10 h-8">
+                {wave.map((h, i) => (
+                  <div
                     key={i}
-                    animate={{ height: h * 2.5 }}
                     className="w-[3px] bg-[var(--accent)] rounded-full opacity-80"
+                    style={{ height: h }}
                   />
                 ))}
               </div>

@@ -154,5 +154,38 @@ export default function RelaxIcon({ id, size = 18 }: { id: RelaxEffectId; size?:
           <circle cx="4.6" cy="7.2" r="1.2" opacity="0.4" />
         </svg>
       );
+
+    case 'gate':
+      return (
+        <svg {...common}>
+          {/* the swooping roof, then the wall of characters under it */}
+          <path d="M2.6 8.4c2.6-.3 4-1.5 5.6-3.1 1.5-1.5 5.9-1.5 7.6 0 1.6 1.6 3 2.8 5.6 3.1" />
+          <path d="M4.6 10.6h14.8" />
+          <path d="M7 14h2M11 14h2M15 14h2M7 17.6h2M11 17.6h2M15 17.6h2" opacity="0.7" />
+        </svg>
+      );
+
+    case 'pendulums':
+      return (
+        <svg {...common}>
+          <path d="M3 4.4h18" />
+          <path d="M7 4.6 5.4 13" />
+          <path d="M12 4.6v11.6" />
+          <path d="M17 4.6l1.6 8.4" />
+          <circle cx="5" cy="14.6" r="1.6" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="17.8" r="1.6" fill="currentColor" stroke="none" />
+          <circle cx="18.9" cy="14.6" r="1.6" fill="currentColor" stroke="none" />
+        </svg>
+      );
+
+    case 'aurora':
+      return (
+        <svg {...common}>
+          <path d="M4.6 3.6c-1 4.2-1 9.6 1.2 15.4" />
+          <path d="M10 3c-.8 4.8-.4 10 1.6 16" opacity="0.75" />
+          <path d="M15.6 3.6c-.6 4.6.2 9.8 2 14.8" opacity="0.5" />
+          <path d="M20.4 5c-.4 3.8 0 7.6 1 11" opacity="0.35" />
+        </svg>
+      );
   }
 }

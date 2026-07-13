@@ -89,6 +89,76 @@ async function extractDocx(buf: Uint8Array): Promise<Extracted> {
   return { text: (value || '').trim(), meta: { kind: 'Word document' } };
 }
 
+/**
+ * Legacy .doc — the pre-2007 binary Word format.
+ *
+ * It was never handled at all: it isn't a zip, so it fell through to the
+ * "decode it as UTF-8 and see" branch, produced mostly control bytes, failed the
+ * printable-ratio test and came back as an empty binary file. Dropping a Word
+ * document on the canvas and having the agent say it can't read it is exactly
+ * the bug that was reported. .doc is an OLE compound file; word-extractor walks
+ * the streams properly rather than guessing at the bytes.
+ */
+async function extractDoc(buf: Uint8Array): Promise<Extracted> {
+  const WordExtractor = (await import('word-extractor')).default;
+  const doc = await new WordExtractor().extract(Buffer.from(buf));
+  const body = (doc.getBody() || '').trim();
+  const footnotes = (doc.getFootnotes() || '').trim();
+  const text = [body, footnotes && `--- Footnotes ---\n${footnotes}`].filter(Boolean).join('\n\n');
+  return { text, meta: { kind: 'Word document (legacy .doc)' } };
+}
+
+/** Rich Text Format: strip the control words and unescape the literals. */
+function extractRtf(buf: Uint8Array): Extracted {
+  const raw = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+  const text = raw
+    /* Whole groups that never contain body text. These are written `{\fonttbl…}`
+       — ONE backslash — and they nest one level deep (`{\fonttbl{\f0 Times;}}`),
+       so the pattern has to allow a single inner group or the font names leak
+       into the extracted prose. */
+    .replace(
+      /\{\\\*?\\?(?:fonttbl|colortbl|stylesheet|info|generator|pict|filetbl|listtable|rsidtbl)(?:[^{}]|\{[^{}]*\})*\}/g,
+      ' ',
+    )
+    .replace(/\\u(-?\d+)\??/g, (_, code) => {
+      const n = Number(code);
+      return String.fromCharCode(n < 0 ? n + 65536 : n);
+    })
+    .replace(/\\'([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\par[d]?\b/g, '\n')
+    .replace(/\\tab\b/g, '\t')
+    .replace(/\\[a-z]+-?\d*\s?/gi, '') // any remaining control word
+    .replace(/[{}]/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return { text, meta: { kind: 'Rich Text document' } };
+}
+
+/** OpenDocument (.odt / .ods / .odp) — a zip whose body lives in content.xml. */
+async function extractOpenDocument(buf: Uint8Array, ext: string): Promise<Extracted> {
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(buf);
+  const content = zip.files['content.xml'];
+  if (!content) return { text: '', meta: { kind: 'OpenDocument', binary: true } };
+
+  const xml = await content.async('string');
+  // ODF marks paragraphs with <text:p> and cells with <table:table-cell>; keeping
+  // the paragraph breaks is what makes the result readable rather than one blob.
+  const text = xml
+    .replace(/<text:line-break\/>/g, '\n')
+    .replace(/<\/(?:text:p|text:h|table:table-row)>/g, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  const kind = ext === 'ods' ? 'OpenDocument spreadsheet' : ext === 'odp' ? 'OpenDocument presentation' : 'OpenDocument text';
+  return { text, meta: { kind } };
+}
+
 async function extractZipLike(buf: Uint8Array, ext: string): Promise<Extracted> {
   const JSZip = (await import('jszip')).default;
   const zip = await JSZip.loadAsync(buf);
@@ -163,6 +233,9 @@ export async function POST(req: NextRequest) {
     const ext = extOf(name);
     const mime = file.type || '';
     const buf = new Uint8Array(await file.arrayBuffer());
+    // A .docx is a zip; a .doc is an OLE compound file. Some exports mislabel one
+    // as the other, so trust the bytes over the extension: "PK" means it's a zip.
+    const isZipBytes = buf[0] === 0x50 && buf[1] === 0x4b;
     // Capture size up front: some parsers (pdf.js) transfer the ArrayBuffer to a
     // worker, neutering `buf` so its length reads 0 afterwards.
     const sizeBytes = buf.byteLength || file.size;
@@ -172,7 +245,13 @@ export async function POST(req: NextRequest) {
       if (ext === 'pdf' || mime === 'application/pdf') {
         extracted = await extractPdf(buf);
       } else if (ext === 'docx' || mime.includes('wordprocessingml')) {
-        extracted = await extractDocx(buf);
+        extracted = isZipBytes ? await extractDocx(buf) : await extractDoc(buf);
+      } else if (ext === 'doc' || mime === 'application/msword') {
+        extracted = isZipBytes ? await extractDocx(buf) : await extractDoc(buf);
+      } else if (ext === 'rtf' || mime.includes('rtf')) {
+        extracted = extractRtf(buf);
+      } else if (['odt', 'ods', 'odp'].includes(ext) || mime.includes('opendocument')) {
+        extracted = await extractOpenDocument(buf, ext);
       } else if (['pptx', 'xlsx', 'zip'].includes(ext) || mime.includes('presentationml') || mime.includes('spreadsheetml') || mime.includes('zip')) {
         extracted = await extractZipLike(buf, ext === '' ? 'zip' : ext);
       } else if (TEXT_EXTS.has(ext) || mime.startsWith('text/') || mime.includes('json') || mime.includes('xml') || mime.includes('javascript')) {

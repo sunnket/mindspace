@@ -28,10 +28,39 @@ let wantListening = false;
  *  LAST one goes away — the toolbar and the orb both mount it, and either one
  *  unmounting must not cut the other's session off. */
 let mounted = 0;
+/** Consecutive `network` errors. Chrome's speech backend hiccups; it recovers. */
+let networkRetries = 0;
 
 function getRecognitionCtor(): any {
   if (typeof window === 'undefined') return null;
   return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
+}
+
+/**
+ * Dictate in the user's own language. Hardcoding en-US made an Indian-English or
+ * Hindi speaker fight the recogniser for every sentence; the browser already
+ * knows what they speak.
+ */
+function recognitionLang(): string {
+  if (typeof navigator === 'undefined') return 'en-US';
+  return navigator.language || 'en-US';
+}
+
+/** Plain English for the error codes the Web Speech API throws. */
+function describeError(code: string): string {
+  switch (code) {
+    case 'not-allowed':
+    case 'service-not-allowed':
+      return 'Microphone blocked. Allow mic access for this site, then hit voice typing again.';
+    case 'audio-capture':
+      return 'No microphone found. Check that one is plugged in and not in use by another app.';
+    case 'network':
+      return 'Speech service unreachable. Check your connection — retrying…';
+    case 'language-not-supported':
+      return `Your browser can't dictate in ${recognitionLang()}. Try switching Chrome to English.`;
+    default:
+      return `Voice typing error: ${code}`;
+  }
 }
 
 export const useSpeechRecognition = () => {
@@ -111,10 +140,25 @@ export const useSpeechRecognition = () => {
       recognition = new Ctor();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = 'en-US';
+      recognition.maxAlternatives = 1;
+      recognition.lang = recognitionLang();
+
+      recognition.onstart = () => {
+        const store = useVoiceStore.getState();
+        store.setError(null);
+        store.setLive(true);
+      };
+
+      recognition.onaudiostart = () => {
+        useVoiceStore.getState().setHearing(true);
+      };
+      recognition.onaudioend = () => {
+        useVoiceStore.getState().setHearing(false);
+      };
 
       recognition.onresult = (event: any) => {
         const store = useVoiceStore.getState();
+        networkRetries = 0; // it's working — forget any earlier wobble
         let interim = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const result = event.results[i];
@@ -123,29 +167,44 @@ export const useSpeechRecognition = () => {
           else interim += text;
         }
         store.setInterimTranscript(interim);
-        if (interim || event.results.length) store.setIsPaused(false);
+        store.setIsPaused(false);
       };
 
       recognition.onerror = (event: any) => {
         const store = useVoiceStore.getState();
-        if (event.error === 'no-speech') {
+        const code = String(event?.error || 'unknown');
+
+        // A silence isn't a failure — onend restarts us and we keep listening.
+        if (code === 'no-speech') {
           store.setIsPaused(true);
-          return; // onend will restart us
-        }
-        if (event.error === 'aborted') return;
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          wantListening = false;
-          store.setError('Microphone blocked. Allow mic access for this site and try again.');
-          store.setIsListening(false);
           return;
         }
-        store.setError(`Voice typing hit an error: ${event.error}`);
+        // We aborted it ourselves (stop(), or a restart racing a stop).
+        if (code === 'aborted') return;
+
+        /* Chrome's speech backend drops out on a flaky connection and throws
+           `network`. It almost always comes straight back, so ride it out
+           rather than tearing the session down under the user — onend is about
+           to restart us anyway. */
+        if (code === 'network' && networkRetries < 4) {
+          networkRetries += 1;
+          store.setError(describeError(code));
+          return;
+        }
+
+        // Anything else is terminal for this session. Say what it actually was —
+        // the old message swallowed the code and left nothing to act on.
+        wantListening = false;
+        store.setError(describeError(code));
+        store.setIsListening(false);
+        store.setLive(false);
       };
 
       // Chrome ends a continuous session on its own every minute or so, and
       // after every silence. Restart it so dictation actually stays on until
       // the user says stop.
       recognition.onend = () => {
+        useVoiceStore.getState().setLive(false);
         if (!wantListening) return;
         restartTimer = setTimeout(() => {
           if (!wantListening) return;
@@ -157,6 +216,9 @@ export const useSpeechRecognition = () => {
         }, 250);
       };
     }
+
+    recognition.lang = recognitionLang();
+    networkRetries = 0;
 
     try {
       recognition.start();

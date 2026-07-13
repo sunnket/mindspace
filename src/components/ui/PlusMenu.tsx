@@ -61,39 +61,22 @@ export default function PlusMenu() {
       }
     : screenToCanvas(plusMenuPos.x, plusMenuPos.y, camera);
 
+  /** Drop the block in and put the caret in it — you came here to write. */
+  const spawnEditable = (partial: Parameters<typeof addObject>[0]) => {
+    const block = addObject(partial);
+    useCanvasStore.getState().setSelectedId(block.id);
+    useCanvasStore.getState().setEditingId(block.id);
+  };
+
   const items = [
     {
-      icon: (<MenuIcon><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></MenuIcon>),
-      label: 'Image',
-      action: () => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'image/*';
-        input.onchange = (e) => {
-          const file = (e.target as HTMLInputElement).files?.[0];
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-              addObject({
-                type: 'image',
-                x: canvasPos.x,
-                y: canvasPos.y,
-                width: 300,
-                height: 200,
-                content: ev.target?.result as string,
-              });
-            };
-            reader.readAsDataURL(file);
-          }
-        };
-        input.click();
-      },
-    },
-    {
+      // "Image" is gone from this menu: Drop a File already takes an image and
+      // gives it the same rich image block, plus everything else. Two entries for
+      // one job is just a fork in the road with no destination.
       icon: (<MenuIcon><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z" /><path d="M9 13h6" /><path d="M9 17h4" /></MenuIcon>),
       label: 'Drop a File',
       action: () => {
-        // Any file type — pdf, docx, pptx, xlsx, zip, code… The agent reads it.
+        // Any file type — image, pdf, doc, docx, pptx, xlsx, zip, code… The agent reads it.
         const input = document.createElement('input');
         input.type = 'file';
         input.multiple = true;
@@ -113,7 +96,7 @@ export default function PlusMenu() {
         // Seed the first bullet and drop straight into editing — Enter then
         // carries the bullet onto each new line (see the list-continuation
         // handler in CanvasObject).
-        const block = addObject({
+        spawnEditable({
           type: 'text',
           x: canvasPos.x,
           y: canvasPos.y,
@@ -121,8 +104,6 @@ export default function PlusMenu() {
           height: 44,
           content: '- ',
         });
-        useCanvasStore.getState().setSelectedId(block.id);
-        useCanvasStore.getState().setEditingId(block.id);
       },
     },
     {
@@ -136,7 +117,7 @@ export default function PlusMenu() {
       icon: (<MenuIcon><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3z" /><path d="M15 3v6h6" /></MenuIcon>),
       label: 'Sticky Note',
       action: () => {
-        addObject({
+        spawnEditable({
           type: 'sticky',
           x: canvasPos.x,
           y: canvasPos.y,
@@ -158,7 +139,7 @@ export default function PlusMenu() {
       icon: (<MenuIcon><rect x="3" y="5" width="18" height="14" rx="2" /><line x1="7" y1="10" x2="17" y2="10" /><line x1="7" y1="14" x2="13" y2="14" /></MenuIcon>),
       label: 'Card',
       action: () => {
-        addObject({
+        spawnEditable({
           type: 'card',
           x: canvasPos.x,
           y: canvasPos.y,
@@ -210,20 +191,6 @@ export default function PlusMenu() {
           height: 150,
           content: '',
           style: { isVoiceNote: true },
-        });
-      },
-    },
-    {
-      icon: (<MenuIcon><circle cx="12" cy="12" r="10" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /><line x1="2" y1="12" x2="22" y2="12" /></MenuIcon>),
-      label: 'Browser',
-      action: () => {
-        addObject({
-          type: 'browser',
-          x: canvasPos.x,
-          y: canvasPos.y,
-          width: 800,
-          height: 600,
-          content: 'https://wikipedia.org',
         });
       },
     },

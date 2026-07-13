@@ -22,11 +22,14 @@
  */
 
 import {
+  HIRAJOSHI,
   PENTATONIC,
+  playBamboo,
   playBell,
   playBoom,
   playChime,
   playHandpan,
+  playKoto,
   playLaunch,
   playPlop,
   playPop,
@@ -53,7 +56,10 @@ export type RelaxEffectId =
   | 'handpan'
   | 'snow'
   | 'fireflies'
-  | 'lanterns';
+  | 'lanterns'
+  | 'gate'
+  | 'pendulums'
+  | 'aurora';
 
 export interface Particle {
   el: HTMLElement;
@@ -84,6 +90,8 @@ export interface EffectApi {
   /** fixed, viewport-sized overlay — for weather, veils and lightning */
   screen: HTMLElement;
   viewport: { w: number; h: number };
+  /** live cursor position in SCREEN px — for effects the user pushes around */
+  pointer: { x: number; y: number };
 }
 
 export interface RelaxEffect {
@@ -964,106 +972,222 @@ const ripples: RelaxEffect = {
 
 /* ------------------------------------------------------------------- ocean */
 
-const WAVE = 0;
-const FOAM = 1;
+const SWASH = 0;   // the thin sheet of water that runs up the sand
+const FOAM = 1;    // bubbles riding the leading edge
+const WETLINE = 2; // the dark mark the sheet leaves as it drains back
+const GLINT = 3;   // sun on the water further out
 
+/**
+ * A shore, not a pulsing blob.
+ *
+ * The first version rose a flat ellipse up the screen and dropped it back, which
+ * is nothing like what water does. What actually happens at a waterline is a
+ * SWASH — a thin, fast sheet racing up the sand with a foaming leading edge —
+ * and then a BACKWASH, slower and reluctant, that drains under the next one and
+ * leaves the sand dark behind it. Those two motions are asymmetric (fast in,
+ * slow out), they overlap, and the leading edge is where all the detail lives.
+ * Everything below is built around that.
+ */
 const ocean: RelaxEffect = {
   id: 'ocean',
   label: 'Ocean Shore',
-  blurb: 'Stand at the waterline. Waves roll up the sand, hiss into foam and drain away — for a full minute, with real surf underneath.',
+  blurb: 'Stand at the waterline. Sheets of water race up the sand, hiss into foam, and drag back out under the next one. A full minute of it, over real surf.',
   space: 'screen',
   flash: '',
   burstMs: 60_000,
   openingPop: 2,
-  spawnEveryMs: 2600,
+  spawnEveryMs: 2100,
   spawnPerTick: 1,
-  maxParticles: 140,
+  maxParticles: 260,
   onStart(_x, _y, api) {
     startAmbience('ocean');
 
-    // The water itself: a still band across the bottom that the waves run out of.
-    // Without it the crests look like they're arriving from nowhere.
+    const { h } = api.viewport;
+
+    // The sea beyond the break: a deep band with a paler horizon, so the swash
+    // is arriving FROM somewhere instead of materialising out of the floor.
     const sea = document.createElement('div');
     sea.dataset.sea = '';
     sea.style.cssText =
-      'position:absolute;left:0;right:0;bottom:0;height:34%;pointer-events:none;opacity:0;' +
-      'transition:opacity 1400ms ease;' +
-      'background:linear-gradient(180deg, rgba(28,78,120,0) 0%, rgba(30,92,140,0.34) 40%, rgba(24,70,112,0.62) 100%);';
+      `position:absolute;left:0;right:0;bottom:0;height:${Math.round(h * 0.46)}px;pointer-events:none;opacity:0;` +
+      'transition:opacity 1600ms ease;' +
+      'background:' +
+      // the wet sand it runs out over
+      'linear-gradient(180deg, rgba(0,0,0,0) 62%, rgba(60,42,26,0.22) 100%),' +
+      // the water
+      'linear-gradient(180deg, rgba(150,200,230,0.30) 0%, rgba(46,110,158,0.55) 14%,' +
+      ' rgba(28,84,132,0.62) 42%, rgba(24,74,118,0.40) 72%, rgba(30,86,126,0.10) 100%);';
     api.screen.appendChild(sea);
-    requestAnimationFrame(() => { sea.style.opacity = '1'; });
+
+    // The break line: a soft white band out where the waves are turning over.
+    const surf = document.createElement('div');
+    surf.dataset.surf = '';
+    surf.style.cssText =
+      `position:absolute;left:-5%;right:-5%;bottom:${Math.round(h * 0.40)}px;height:14px;pointer-events:none;opacity:0;` +
+      'transition:opacity 1600ms ease;filter:blur(4px);' +
+      'background:linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.55) 55%, rgba(255,255,255,0) 100%);';
+    api.screen.appendChild(surf);
+
+    requestAnimationFrame(() => {
+      sea.style.opacity = '1';
+      surf.style.opacity = '1';
+    });
   },
   onStop(api) {
     stopAmbience('ocean');
-    const sea = api.screen.querySelector<HTMLElement>('[data-sea]');
-    if (!sea) return;
-    sea.style.opacity = '0';
-    window.setTimeout(() => sea.remove(), 1500);
+    for (const sel of ['[data-sea]', '[data-surf]']) {
+      const el = api.screen.querySelector<HTMLElement>(sel);
+      if (!el) continue;
+      el.style.opacity = '0';
+      window.setTimeout(() => el.remove(), 1700);
+    }
   },
-  create(x, y, now, api, kind = WAVE) {
+  create(x, y, now, api, kind = SWASH) {
     const { w, h } = api.viewport;
 
     if (kind === FOAM) {
-      const size = rand(3, 9);
+      const size = rand(2, 7);
       const el = document.createElement('div');
-      baseStyle(el, size, 'border-radius:50%;background:rgba(255,255,255,0.85);');
-      const p = particle(el, x + rand(-w * 0.5, w * 0.5), y + rand(-6, 10), size, rand(900, 1800), now);
+      baseStyle(
+        el,
+        size,
+        'border-radius:50%;background:rgba(255,255,255,0.92);' +
+          'box-shadow:0 0 4px rgba(255,255,255,0.6);'
+      );
+      const p = particle(el, x, y + rand(-4, 8), size, rand(700, 1500), now);
       p.kind = FOAM;
-      p.vx = rand(-0.25, 0.25);
-      p.vy = rand(-0.12, 0.18);
+      // Foam rides the sheet forward, then sits and pops where it's stranded.
+      p.vx = rand(-0.5, 0.5);
+      p.vy = rand(-0.5, 0.1);
+      p.a = rand(0.85, 1);
       return p;
     }
 
-    // A crest: a very wide, very flat ellipse. It is scaled, never resized —
-    // width is set once and the whole run happens on the compositor.
-    const width = w * rand(1.05, 1.35);
+    if (kind === WETLINE) {
+      const el = document.createElement('div');
+      const width = w * 1.1;
+      baseStyle(
+        el,
+        width,
+        'height:70px;border-radius:50% 50% 0 0 / 26% 26% 0 0;' +
+          'background:linear-gradient(180deg, rgba(70,48,30,0.30) 0%, rgba(70,48,30,0.10) 60%, rgba(70,48,30,0) 100%);'
+      );
+      const p = particle(el, (w - width) / 2, y, width, rand(2600, 4200), now);
+      p.kind = WETLINE;
+      return p;
+    }
+
+    if (kind === GLINT) {
+      const size = rand(2, 5);
+      const el = document.createElement('div');
+      baseStyle(el, size, 'border-radius:50%;background:rgba(255,255,255,0.9);');
+      const p = particle(el, rand(0, w), h - rand(h * 0.12, h * 0.42), size, rand(900, 2200), now);
+      p.kind = GLINT;
+      p.c = rand(2, 5); // twinkle rate
+      p.d = rand(0, Math.PI * 2);
+      return p;
+    }
+
+    /* The swash sheet. Wide, LOW, with a hard bright leading edge and almost
+       nothing behind it — that thin bright line is the whole illusion. The gentle
+       dome (border-radius on the top corners only) makes the middle of the sheet
+       run further up the beach than its ends, which is what a real one does. */
+    const width = w * rand(1.15, 1.45);
     const el = document.createElement('div');
     baseStyle(
       el,
       width,
-      'height:120px;border-radius:50%;' +
-        'background:linear-gradient(180deg, rgba(255,255,255,0.82) 0%, rgba(214,238,255,0.55) 22%,' +
-        ' rgba(120,180,225,0.30) 55%, rgba(40,100,150,0.10) 100%);' +
-        'box-shadow:0 -2px 18px rgba(190,230,255,0.35);'
+      'height:200px;border-radius:50% 50% 0 0 / 30% 30% 0 0;' +
+        'background:' +
+        'linear-gradient(180deg,' +
+        ' rgba(255,255,255,0.95) 0px, rgba(255,255,255,0.85) 3px,' +
+        ' rgba(232,248,255,0.62) 9px, rgba(186,224,246,0.42) 22px,' +
+        ' rgba(130,186,222,0.26) 60px, rgba(70,140,190,0.12) 130px,' +
+        ' rgba(40,110,165,0.02) 200px);' +
+        'box-shadow:0 -3px 22px rgba(210,240,255,0.35);'
     );
 
-    const p = particle(el, (w - width) / 2, h, width, rand(9000, 13000), now);
-    p.kind = WAVE;
-    p.a = rand(0.20, 0.40) * h; // how far up the shore this one reaches
-    p.b = rand(0.9, 1.25); // vertical squash — no two crests are the same weight
-    p.c = 0; // has it broken yet (foam is thrown once, at the peak)
+    const p = particle(el, (w - width) / 2, h, width, rand(6500, 9500), now);
+    p.kind = SWASH;
+    p.a = rand(0.16, 0.36) * h; // how far up the sand this one reaches
+    p.b = rand(-24, 24);        // a little lateral drift — the sea isn't square-on
+    p.c = 0;                    // foam thrown yet?
+    p.d = 0;                    // wet line laid yet?
     return p;
   },
-  step(p, t, _now, api) {
+  step(p, t, now, api) {
+    const { w, h } = api.viewport;
+
     if (p.kind === FOAM) {
+      p.vx *= 0.94;
+      p.vy *= 0.94;
       p.x += p.vx;
       p.y += p.vy;
-      p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) scale(${1 - t * 0.6})`;
-      p.el.style.opacity = String((1 - t) * 0.8);
+      // Bubbles don't fade evenly — they hold, then pop.
+      const life = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
+      p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) scale(${0.6 + life * 0.4})`;
+      p.el.style.opacity = String(life * p.a);
       return;
     }
 
-    /* Run up, hold, drain back. The rise is fast and eased-out (a wave arrives in
-       a rush) and the retreat is slow and eased-in (it drains reluctantly) — get
-       those two the same way round and it reads as a pulsing blob, not the sea. */
-    const RISE = 0.34;
+    if (p.kind === WETLINE) {
+      // Sand dries from the top down: the mark shrinks back as it fades.
+      p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) scaleY(${1 - t * 0.35})`;
+      p.el.style.opacity = String((1 - t) * 0.75);
+      return;
+    }
+
+    if (p.kind === GLINT) {
+      const tw = Math.pow((Math.sin(now / 1000 * p.c + p.d) + 1) / 2, 3);
+      p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+      p.el.style.opacity = String(tw * (t > 0.8 ? (1 - t) / 0.2 : Math.min(1, t * 5)) * 0.8);
+      return;
+    }
+
+    /* Swash in, backwash out. The asymmetry is everything: the run-up is fast and
+       eased-OUT (the sheet arrives with momentum and decelerates as the beach
+       drags on it) and the retreat is slow and eased-IN (it hesitates at the top,
+       then gathers pace as gravity takes it). Swap those two easings and it reads
+       as a pulse, which is exactly what the first version looked like. */
+    const RISE = 0.22; // the run-up is a fifth of the cycle; the drain is the rest
     let reach: number;
+    let speed: number;
     if (t < RISE) {
       const k = t / RISE;
-      reach = (1 - Math.pow(1 - k, 2.6)) * p.a;
+      reach = (1 - Math.pow(1 - k, 3)) * p.a;
+      speed = 1 - k;
     } else {
       const k = (t - RISE) / (1 - RISE);
-      reach = (1 - Math.pow(k, 2.2)) * p.a;
+      reach = (1 - Math.pow(k, 1.7)) * p.a;
+      speed = 0;
     }
 
-    // At the top of the run the wave breaks — throw the foam once.
-    if (p.c === 0 && t >= RISE * 0.9) {
+    const edgeY = h - reach; // where the leading edge is, in screen px
+
+    // Sun on the water further out. Cheap, and it stops the sea behind the break
+    // reading as a flat painted band.
+    if (Math.random() < 0.09) api.spawn(0, 0, 1, GLINT);
+
+    // Foam is torn off the edge for as long as the sheet is still moving up.
+    if (speed > 0.15 && Math.random() < 0.6) {
+      api.spawn(rand(w * 0.08, w * 0.92), edgeY, 1, FOAM);
+    }
+
+    // At the top of the run, the sheet stalls: throw a burst of foam along the
+    // whole edge and stain the sand behind it.
+    if (p.c === 0 && t >= RISE) {
       p.c = 1;
-      api.spawn(api.viewport.w / 2, api.viewport.h - reach, 14, FOAM);
+      for (let i = 0; i < 26; i++) api.spawn(rand(0, w), edgeY, 1, FOAM);
+    }
+    if (p.d === 0 && t >= RISE * 0.55) {
+      p.d = 1;
+      api.spawn(0, edgeY, 1, WETLINE);
     }
 
-    const y = p.y - reach - 60;
-    p.el.style.transform = `translate3d(${p.x}px, ${y}px, 0) scaleY(${p.b})`;
-    p.el.style.opacity = String(Math.min(1, t * 6) * (t > 0.8 ? (1 - t) / 0.2 : 1) * 0.9);
+    const drift = p.b * t;
+    const y = edgeY - 4; // the sheet's own top edge sits on the waterline
+    p.el.style.transform = `translate3d(${p.x + drift}px, ${y}px, 0)`;
+    p.el.style.opacity = String(Math.min(1, t * 14) * (t > 0.75 ? (1 - t) / 0.25 : 1));
   },
 };
 
@@ -1363,14 +1487,388 @@ const lanterns: RelaxEffect = {
   },
 };
 
+/* -------------------------------------------------------------------- gate */
+
+/** A wall of characters under a palace roof. Sweep the cursor and it scatters. */
+const GLYPHS =
+  '静心安寧和風雅道無為自然山水雲月花鳥虚実空明清幽玄寂閑遠深淡柔剛動止行観思夢光影露霜雪春秋夏冬海川林森石砂庭門橋灯茶禅悟慈悲縁夕朝夜星天地人';
+
+const GATE_CHAR = 0;
+const GATE_ROOF = 1;
+
+/** Grid geometry for the current wall — laid in onBurst, read back in create. */
+let gateGrid = { cols: 0, rows: 0, ox: 0, oy: 0, step: 26, top: 0 };
+/** Rate-limits the koto so a fast sweep is a run of notes, not a machine gun. */
+let lastKoto = 0;
+
+/** One swooping tier of a Chinese palace roof. Concave, with upturned eaves. */
+function roofTier(cx: number, halfW: number, top: number, eave: number): string {
+  const fascia = 13;
+  return [
+    `M ${cx - halfW} ${eave}`,
+    `C ${cx - halfW * 0.74} ${eave - 8} ${cx - halfW * 0.54} ${top + 30} ${cx - halfW * 0.3} ${top + 4}`,
+    `L ${cx + halfW * 0.3} ${top + 4}`,
+    `C ${cx + halfW * 0.54} ${top + 30} ${cx + halfW * 0.74} ${eave - 8} ${cx + halfW} ${eave}`,
+    `L ${cx + halfW - 12} ${eave + fascia}`,
+    `C ${cx + halfW * 0.62} ${eave + fascia - 5} ${cx + halfW * 0.46} ${top + 38} ${cx + halfW * 0.26} ${top + 16}`,
+    `L ${cx - halfW * 0.26} ${top + 16}`,
+    `C ${cx - halfW * 0.46} ${top + 38} ${cx - halfW * 0.62} ${eave + fascia - 5} ${cx - halfW + 12} ${eave + fascia}`,
+    'Z',
+  ].join(' ');
+}
+
+function gateRoofSvg(): string {
+  const ridgeOrnaments = Array.from({ length: 7 }, (_, i) => {
+    const x = 176 + i * 24;
+    return `<circle cx="${x}" cy="30" r="3.4" fill="#F6D77A"/>`;
+  }).join('');
+
+  return `
+<svg viewBox="0 0 640 230" width="100%" height="100%" preserveAspectRatio="xMidYMax meet" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tileG" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F7D978"/>
+      <stop offset="0.42" stop-color="#E0A93A"/>
+      <stop offset="1" stop-color="#A86E17"/>
+    </linearGradient>
+    <linearGradient id="beamG" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9C352C"/>
+      <stop offset="1" stop-color="#5E1B16"/>
+    </linearGradient>
+  </defs>
+
+  <!-- upper tier -->
+  <rect x="284" y="24" width="72" height="12" rx="5" fill="url(#tileG)"/>
+  ${ridgeOrnaments}
+  <path d="${roofTier(320, 148, 34, 84)}" fill="url(#tileG)"/>
+  <rect x="196" y="96" width="248" height="15" rx="3" fill="url(#beamG)"/>
+  <rect x="196" y="111" width="248" height="5" rx="2" fill="#C9A24A" opacity="0.7"/>
+
+  <!-- lower tier -->
+  <path d="${roofTier(320, 250, 126, 182)}" fill="url(#tileG)"/>
+  <rect x="96" y="194" width="448" height="17" rx="3" fill="url(#beamG)"/>
+  <rect x="96" y="211" width="448" height="6" rx="2" fill="#C9A24A" opacity="0.7"/>
+</svg>`;
+}
+
+const gate: RelaxEffect = {
+  id: 'gate',
+  label: 'Gate of Stillness',
+  blurb: 'A hall of characters beneath a golden roof. Run the cursor through them — they scatter, they settle, and every one you touch plucks a koto string.',
+  space: 'screen',
+  flash: '',
+  burstMs: 0, // the wall is laid by hand; nothing to emit
+  openingPop: 0,
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: 700,
+  interactive: true,
+  consumeOnPop: false, // you push a character aside; you don't destroy it
+  onStart() {
+    startAmbience('wind');
+  },
+  onStop() {
+    stopAmbience('wind');
+  },
+  onBurst(_x, _y, api) {
+    const { w, h } = api.viewport;
+
+    const step = 26;
+    const roofH = Math.min(230, h * 0.3);
+    const top = Math.max(70, h * 0.06) + roofH - 18; // the wall starts under the eaves
+    const cols = Math.max(8, Math.floor(Math.min(w * 0.52, 460) / step));
+    const rows = Math.max(6, Math.floor((h - top - 90) / step));
+
+    gateGrid = {
+      cols,
+      rows,
+      step,
+      top,
+      ox: (w - cols * step) / 2 + step / 2,
+      oy: top + step / 2,
+    };
+
+    api.clear();
+    api.spawn(0, 0, 1, GATE_ROOF);
+    api.spawn(0, 0, cols * rows, GATE_CHAR);
+  },
+  create(_x, _y, now, api, kind = GATE_CHAR, _tint, index = 0) {
+    const { w, h } = api.viewport;
+
+    if (kind === GATE_ROOF) {
+      const width = Math.min(w * 0.92, 760);
+      const height = width * (230 / 640);
+      const el = document.createElement('div');
+      baseStyle(el, width, `height:${height}px;filter:drop-shadow(0 26px 34px rgba(0,0,0,0.45));`);
+      el.innerHTML = gateRoofSvg();
+      const p = particle(el, (w - width) / 2, Math.max(70, h * 0.06) - 20, width, 600_000, now);
+      p.kind = GATE_ROOF;
+      return p;
+    }
+
+    const col = index % gateGrid.cols;
+    const row = Math.floor(index / gateGrid.cols);
+    const hx = gateGrid.ox + col * gateGrid.step;
+    const hy = gateGrid.oy + row * gateGrid.step;
+
+    const el = document.createElement('div');
+    baseStyle(
+      el,
+      gateGrid.step - 4,
+      `height:${gateGrid.step - 4}px;cursor:pointer;` +
+        'display:flex;align-items:center;justify-content:center;' +
+        `font:400 ${gateGrid.step - 8}px/1 "Noto Serif SC","Songti SC","SimSun",serif;` +
+        'color:rgba(38,30,24,0.92);text-shadow:0 1px 0 rgba(255,255,255,0.35);'
+    );
+    el.textContent = GLYPHS[(row * gateGrid.cols + col * 7) % GLYPHS.length];
+
+    const p = particle(el, hx, hy, gateGrid.step - 4, 600_000, now);
+    p.kind = GATE_CHAR;
+    p.a = hx; // home
+    p.b = hy;
+    p.c = 0; // was it displaced last frame? (edge-triggers the note)
+    p.d = HIRAJOSHI[(col + row) % HIRAJOSHI.length];
+    // Stagger the fade-in so the wall writes itself in, column by column.
+    p.vx = 0;
+    p.vy = 0;
+    p.spin = (col + row) * 16; // reused as the intro delay, in ms
+    return p;
+  },
+  step(p, t, now, api) {
+    if (p.kind === GATE_ROOF) {
+      p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+      p.el.style.opacity = String(Math.min(1, t * 400));
+      return;
+    }
+
+    const age = now - p.born - p.spin;
+    if (age < 0) {
+      p.el.style.opacity = '0';
+      return;
+    }
+    const intro = Math.min(1, age / 420);
+
+    /* Cursor physics. Two forces and a drag, which is all a settling object ever
+       needs: the cursor SHOVES a character away with a force that falls off to
+       nothing at the edge of its reach, a spring hauls it back to the square it
+       belongs in, and friction stops the pair of them arguing forever. */
+    const dx = p.x - api.pointer.x;
+    const dy = p.y - api.pointer.y;
+    const dist = Math.hypot(dx, dy);
+    const REACH = 116;
+
+    if (dist < REACH && dist > 0.01) {
+      const push = Math.pow(1 - dist / REACH, 2) * 3.4;
+      p.vx += (dx / dist) * push;
+      p.vy += (dy / dist) * push;
+    }
+
+    p.vx += (p.a - p.x) * 0.045; // spring home
+    p.vy += (p.b - p.y) * 0.045;
+    p.vx *= 0.86; // friction
+    p.vy *= 0.86;
+
+    p.x += p.vx;
+    p.y += p.vy;
+
+    const disp = Math.hypot(p.x - p.a, p.y - p.b);
+
+    /* Pluck the string as the character is knocked loose, ONCE per disturbance —
+       an edge trigger, not a level one, or brushing past a hundred of them would
+       fire a hundred notes a frame. */
+    if (disp > 9 && p.c === 0) {
+      p.c = 1;
+      if (now - lastKoto > 55) {
+        lastKoto = now;
+        playKoto(p.d, 0.2 + Math.min(0.18, disp / 260));
+      }
+    } else if (disp < 3) {
+      p.c = 0;
+    }
+
+    // It leans into the shove, and it dims as it strays from home — the wall
+    // "heals" back to full ink as everything settles.
+    const lean = (p.x - p.a) * 0.6;
+    p.el.style.transform =
+      `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) ` +
+      `rotate(${lean}deg) scale(${intro * (1 + Math.min(0.25, disp / 200))})`;
+    p.el.style.opacity = String(intro * (0.55 + 0.45 * Math.max(0, 1 - disp / 90)));
+  },
+  onPop(p) {
+    // A deliberate click rings it properly and knocks it further than a brush.
+    playKoto(p.d, 0.4);
+    p.vx += rand(-7, 7);
+    p.vy += rand(-9, 3);
+    if (Math.random() < 0.18) playBamboo();
+  },
+};
+
+/* --------------------------------------------------------- pendulum waves */
+
+const PEND_COUNT = 15;
+/** Seconds for the whole rack to come back into phase. The magic number. */
+const PEND_CYCLE = 32;
+const PEND_TOP = 92;
+
+const pendulums: RelaxEffect = {
+  id: 'pendulums',
+  label: 'Pendulum Waves',
+  blurb: 'Fifteen pendulums, each a fraction slower than the last. They start together, unravel into snakes and chaos, and — exactly on time — fall back into step.',
+  space: 'screen',
+  flash: '',
+  burstMs: 0,
+  openingPop: PEND_COUNT,
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: PEND_COUNT + 2,
+  onBurst(_x, _y, api) {
+    api.clear();
+  },
+  create(_x, _y, now, api, _kind = 0, _tint, index = 0) {
+    const { w, h } = api.viewport;
+
+    /* The whole trick, in one line: pendulum i completes exactly (BASE + i)
+       swings per cycle. They therefore ALL return to their start together every
+       PEND_CYCLE seconds, and everything in between — the travelling wave, the
+       double snake, the apparent chaos — is that one integer relationship
+       unwinding. Nothing here is animating "a wave"; the wave is emergent. */
+    const swings = 26 + index;
+    const freq = swings / PEND_CYCLE;
+
+    // A real pendulum's period goes as √L, so the lengths must follow 1/f².
+    const maxLen = Math.min(h - PEND_TOP - 120, 460);
+    const len = maxLen * Math.pow((26 / PEND_CYCLE) / freq, 2);
+
+    const spread = Math.min(w - 160, 620);
+    const px = w / 2 - spread / 2 + (index / (PEND_COUNT - 1)) * spread;
+
+    const hue = 190 + index * 9;
+    const el = document.createElement('div');
+    baseStyle(
+      el,
+      2,
+      `height:${len}px;transform-origin:50% 0;` +
+        'background:linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0.15));'
+    );
+    const bob = document.createElement('div');
+    bob.style.cssText =
+      'position:absolute;left:50%;top:100%;width:20px;height:20px;margin:-10px 0 0 -10px;' +
+      'border-radius:50%;pointer-events:none;' +
+      `background:radial-gradient(circle at 35% 32%, #ffffff 0%, hsl(${hue} 85% 70%) 38%, hsl(${hue} 75% 46%) 100%);` +
+      `box-shadow:0 0 14px 2px hsl(${hue} 90% 65% / 0.55);`;
+    el.appendChild(bob);
+
+    const p = particle(el, px, PEND_TOP, 2, 600_000, now);
+    p.a = len;
+    p.b = freq;
+    p.c = 1; // sign of the swing last frame — edge-triggers the chime
+    p.d = PENTATONIC[index % PENTATONIC.length] * (index >= PENTATONIC.length ? 2 : 1);
+    return p;
+  },
+  step(p, t, now) {
+    const elapsed = (now - p.born) / 1000;
+    const angle = 34 * Math.cos(2 * Math.PI * p.b * elapsed);
+
+    // Chime as it passes through the bottom, one direction only — chiming on
+    // both would double every note and turn the pattern to mush.
+    const side = Math.sign(angle) || 1;
+    if (side !== p.c) {
+      p.c = side;
+      if (side > 0) playBell(p.d);
+    }
+
+    p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) rotate(${angle}deg)`;
+    p.el.style.opacity = String(Math.min(1, t * 300));
+  },
+};
+
+/* ------------------------------------------------------------------ aurora */
+
+const AURORA_HUES = [150, 165, 185, 275, 300];
+
+const aurora: RelaxEffect = {
+  id: 'aurora',
+  label: 'Aurora',
+  blurb: 'Curtains of light over a dark sky. They fold, drift and dissolve, and there is nothing to do but watch them.',
+  space: 'screen',
+  flash: '',
+  burstMs: 45_000,
+  openingPop: 5,
+  spawnEveryMs: 2400,
+  spawnPerTick: 1,
+  maxParticles: 26,
+  onStart(_x, _y, api) {
+    startAmbience('drone');
+
+    const sky = document.createElement('div');
+    sky.dataset.sky = '';
+    sky.style.cssText =
+      'position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity 1800ms ease;' +
+      'background:radial-gradient(ellipse at 50% 110%, rgba(12,24,44,0.35) 0%, rgba(4,8,18,0.82) 70%);';
+    api.screen.appendChild(sky);
+    requestAnimationFrame(() => { sky.style.opacity = '1'; });
+  },
+  onStop(api) {
+    stopAmbience('drone');
+    const sky = api.screen.querySelector<HTMLElement>('[data-sky]');
+    if (!sky) return;
+    sky.style.opacity = '0';
+    window.setTimeout(() => sky.remove(), 1900);
+  },
+  create(_x, _y, now, api) {
+    const { w, h } = api.viewport;
+    const hue = pick(AURORA_HUES);
+    const width = rand(w * 0.18, w * 0.42);
+
+    /* A curtain, not a glowing rectangle. The vertical gradient does the work:
+       bright and hard at the top where the sheet is edge-on to you, streaked and
+       thinning downward, gone before it reaches the ground. The heavy blur and
+       `screen` blending are what let two curtains cross and get BRIGHTER, which
+       is the thing your eye actually recognises as an aurora. */
+    const el = document.createElement('div');
+    baseStyle(
+      el,
+      width,
+      `height:${Math.round(h * 0.72)}px;mix-blend-mode:screen;filter:blur(22px);` +
+        'background:linear-gradient(180deg,' +
+        ` hsl(${hue} 95% 72% / 0) 0%,` +
+        ` hsl(${hue} 95% 74% / 0.55) 12%,` +
+        ` hsl(${hue} 90% 62% / 0.42) 34%,` +
+        ` hsl(${hue + 25} 85% 55% / 0.20) 62%,` +
+        ` hsl(${hue + 40} 80% 50% / 0) 100%);`
+    );
+
+    const p = particle(el, rand(-w * 0.1, w * 0.9), rand(-40, 40), width, rand(14000, 22000), now);
+    p.a = rand(0.06, 0.16); // fold rate
+    p.b = rand(6, 20); // fold depth, in degrees of skew
+    p.c = rand(0, Math.PI * 2);
+    p.vx = rand(-0.22, 0.22); // the whole curtain drifts sideways
+    return p;
+  },
+  step(p, t, now) {
+    p.x += p.vx;
+    const s = now / 1000;
+    // Two skews at unrelated rates = a sheet folding, rather than a slab leaning.
+    const skew = Math.sin(s * p.a * Math.PI * 2 + p.c) * p.b
+      + Math.sin(s * p.a * 2.7 + p.c) * (p.b * 0.3);
+    const stretch = 1 + Math.sin(s * p.a * 1.7 + p.c) * 0.12;
+
+    p.el.style.transform =
+      `translate3d(${p.x}px, ${p.y}px, 0) skewX(${skew}deg) scaleY(${stretch})`;
+    // Long, slow breaths in and out — a curtain never snaps on.
+    p.el.style.opacity = String(Math.min(1, t * 5) * (t > 0.6 ? (1 - t) / 0.4 : 1));
+  },
+};
+
 /* -------------------------------------------------------------------------- */
 
 export const RELAX_EFFECTS: Record<RelaxEffectId, RelaxEffect> = {
   flowers, rain, fireworks, galaxy, bubbles, bubblewrap, chimes, ink, ripples,
-  ocean, handpan, snow, fireflies, lanterns,
+  ocean, handpan, snow, fireflies, lanterns, gate, pendulums, aurora,
 };
 
 export const RELAX_EFFECT_LIST: RelaxEffect[] = [
-  flowers, rain, fireworks, galaxy, bubbles, bubblewrap, chimes, ink, ripples,
-  ocean, handpan, snow, fireflies, lanterns,
+  gate, ocean, aurora, pendulums, handpan, chimes,
+  flowers, fireworks, lanterns, fireflies, galaxy, ink, ripples,
+  bubbles, bubblewrap, rain, snow,
 ];

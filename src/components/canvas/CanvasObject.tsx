@@ -988,7 +988,17 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         obj.type === 'card' &&
         Object.entries(obj.style || {}).some(([k, v]) => /^is[A-Z]/.test(k) && Boolean(v)) &&
         !obj.style?.isQuote;
-      if (isSelected && obj.type !== 'image' && !isFunctionalBlock) {
+
+      /* An EMPTY block goes straight into edit on the first click.
+         It used to take two — click to select, click again to type — and a blank
+         block that never got typed into is auto-cleaned the moment you click
+         away. So the actual experience of adding a card was: click it, click
+         somewhere else, watch it vanish, never having been given a chance to
+         write in it. There is nothing to select on an empty block anyway. */
+      const isBlank = !(obj.content || '').trim();
+      const canType = obj.type !== 'image' && !isFunctionalBlock;
+
+      if (canType && (isSelected || isBlank)) {
         caretPoint.current = { x: e.clientX, y: e.clientY };
         setEditingId(obj.id);
       }

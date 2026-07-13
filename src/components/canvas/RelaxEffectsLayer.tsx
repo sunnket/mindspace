@@ -58,11 +58,23 @@ export default function RelaxEffectsLayer() {
 
     const apis = new Map<string, EffectApi>();
 
+    /* Where the cursor is, in screen px. Effects the user physically pushes
+       around (the gate's characters) read this every frame, so it's a plain ref
+       written from one passive listener — never React state, which would
+       re-render the whole canvas on every mouse move. */
+    const pointer = { x: -9999, y: -9999 };
+    const trackPointer = (e: PointerEvent) => {
+      pointer.x = e.clientX;
+      pointer.y = e.clientY;
+    };
+    window.addEventListener('pointermove', trackPointer, { passive: true });
+
     const apiFor = (fx: RelaxEffect): EffectApi => {
       let api = apis.get(fx.id);
       if (!api) {
         api = {
           screen,
+          pointer,
           get viewport() {
             return { w: window.innerWidth, h: window.innerHeight };
           },
@@ -263,6 +275,7 @@ export default function RelaxEffectsLayer() {
     window.addEventListener('spawn-relax-burst', handleBurst);
     return () => {
       window.removeEventListener('spawn-relax-burst', handleBurst);
+      window.removeEventListener('pointermove', trackPointer);
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
       runningRef.current = false;

@@ -199,22 +199,26 @@ export default function FloatingToolbar() {
     },
     {
       id: 'arrow',
+      // A connector, not a compass needle: a line with a real head on it, which
+      // is what the tool actually draws.
       label: 'Arrow (A)',
       icon: (
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="5" y1="19" x2="19" y2="5" />
-          <polyline points="9 5 19 5 19 15" />
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 18c3.6-8.4 9.6-12 17.2-12" />
+          <path d="M14.6 3.4 20.6 6l-2.4 6" />
         </svg>
       ),
     },
     {
       id: 'shape',
+      // Three shapes crammed into 18px read as a smudge. One clean square with a
+      // circle and a triangle tucked behind it says "shapes" and stays legible.
       label: 'Shape (S)',
       icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="2" y="11" width="9" height="9" rx="1.5" />
-          <circle cx="17" cy="16" r="4.5" />
-          <polygon points="12,2 21,11 3,11" />
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="16.2" cy="7.8" r="4.6" opacity="0.55" />
+          <path d="M6.6 3.6 11.4 12H1.8Z" opacity="0.55" />
+          <rect x="5" y="10.6" width="11.4" height="10.4" rx="2.4" fill="var(--bg-glass)" />
         </svg>
       ),
     },
@@ -232,13 +236,15 @@ export default function FloatingToolbar() {
     },
     {
       id: 'relax' as any,
+      // A lotus on water. The old glyph was three lumpy leaves that read as a
+      // blob at 17px and told you nothing about what the tool was for.
       label: 'Stress Reliefer',
       icon: (
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 2C12 2 9 6 9 10C9 14.5 12 17 12 17C12 17 15 14.5 15 10C15 6 12 2 12 2Z" />
-          <path d="M12 17C12 17 6 16 4 12C2 8 6 6 6 6C6 6 9 9 10 12" />
-          <path d="M12 17C12 17 18 16 20 12C22 8 18 6 18 6C18 6 15 9 14 12" />
-          <circle cx="12" cy="17" r="1" fill="currentColor" />
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 4.2c1.9 2 2.9 4.1 2.9 6.4 0 2.3-1 4-2.9 5.2-1.9-1.2-2.9-2.9-2.9-5.2 0-2.3 1-4.4 2.9-6.4Z" />
+          <path d="M9.1 15.8C6.4 15.4 4.6 14 3.6 11.6c2.4-1 4.5-.6 6.2 1.2" />
+          <path d="M14.9 15.8c2.7-.4 4.5-1.8 5.5-4.2-2.4-1-4.5-.6-6.2 1.2" />
+          <path d="M3.4 19.4c1.6-.9 3-.9 4.3 0 1.4-.9 2.8-.9 4.3 0 1.4-.9 2.8-.9 4.3 0 1.3-.9 2.7-.9 4.3 0" opacity="0.65" />
         </svg>
       ),
     },
@@ -399,8 +405,15 @@ export default function FloatingToolbar() {
           }`}
           title="Add a thread"
         >
+          {/* A pin dropped on the board — which is literally what this does —
+              rather than a generic speech bubble indistinguishable from the
+              "all threads" button next to it. */}
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            <path d="M17.2 6.6 15 4.4M14.2 3.6l6.2 6.2" />
+            <path d="M15.6 5 9.9 8.1a2 2 0 0 0-.9 2.4l.6 1.6-3.7 3.7 6.3 6.3" opacity="0" />
+            <path d="M16.4 5.8 10.3 8.6a1.8 1.8 0 0 0-.9 2.3l1 2.2-4.1 4.1" />
+            <path d="M18.2 7.6l-2.5 6.4a1.8 1.8 0 0 1-2.4 1l-2.1-1" />
+            <path d="M5.4 18.6 3 21" />
           </svg>
           {openThreadCount > 0 && (
             <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 rounded-full bg-[var(--accent)] text-white text-[8px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">{openThreadCount}</span>
@@ -422,8 +435,11 @@ export default function FloatingToolbar() {
           }`}
           title="All threads"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><circle cx="3.5" cy="6" r="1" fill="currentColor" /><circle cx="3.5" cy="12" r="1" fill="currentColor" /><circle cx="3.5" cy="18" r="1" fill="currentColor" />
+          {/* Stacked conversations — a list of threads, not a list of anything. */}
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20.4 12.4a1.9 1.9 0 0 1-1.9 1.9H9.6L6 17.6V6.3a1.9 1.9 0 0 1 1.9-1.9h10.6a1.9 1.9 0 0 1 1.9 1.9Z" />
+            <path d="M3 8.6v9.8a1.9 1.9 0 0 0 1.9 1.9h9.7" opacity="0.45" />
+            <path d="M9.6 8.3h7.2M9.6 11.1h4.4" opacity="0.8" />
           </svg>
         </motion.button>
 
