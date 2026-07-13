@@ -236,15 +236,14 @@ export default function FloatingToolbar() {
     },
     {
       id: 'relax' as any,
-      // A lotus on water. The old glyph was three lumpy leaves that read as a
-      // blob at 17px and told you nothing about what the tool was for.
       label: 'Stress Reliefer',
       icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 4.2c1.9 2 2.9 4.1 2.9 6.4 0 2.3-1 4-2.9 5.2-1.9-1.2-2.9-2.9-2.9-5.2 0-2.3 1-4.4 2.9-6.4Z" />
-          <path d="M9.1 15.8C6.4 15.4 4.6 14 3.6 11.6c2.4-1 4.5-.6 6.2 1.2" />
-          <path d="M14.9 15.8c2.7-.4 4.5-1.8 5.5-4.2-2.4-1-4.5-.6-6.2 1.2" />
-          <path d="M3.4 19.4c1.6-.9 3-.9 4.3 0 1.4-.9 2.8-.9 4.3 0 1.4-.9 2.8-.9 4.3 0 1.3-.9 2.7-.9 4.3 0" opacity="0.65" />
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <ellipse cx="11" cy="12.5" rx="7.2" ry="3.8" transform="rotate(20 11 12.5)" />
+          <ellipse cx="13" cy="11.5" rx="6.8" ry="4.2" transform="rotate(-40 13 11.5)" />
+          <ellipse cx="12" cy="12" rx="7.5" ry="3.5" transform="rotate(70 12 12)" />
+          <ellipse cx="11.5" cy="11" rx="6.2" ry="3.2" transform="rotate(-75 11.5 11)" />
+          <ellipse cx="12.5" cy="13" rx="5.5" ry="2.8" transform="rotate(130 12.5 13)" />
         </svg>
       ),
     },
