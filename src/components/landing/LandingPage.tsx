@@ -40,9 +40,7 @@ type WorkspaceWithStats = CanvasState & {
 
 type SidebarTab = 'home' | 'favorites' | 'images' | 'checkpoints' | 'chat' | 'archive' | 'deleted';
 type SortMode = 'recent' | 'name' | 'cards';
-type Category = 'all' | 'work' | 'personal' | 'study';
 
-const CATEGORY_SEQUENCE = ['personal', 'work', 'study'] as const;
 
 const spring = { type: 'spring' as const, stiffness: 260, damping: 26 };
 
@@ -272,7 +270,10 @@ export default function LandingPage() {
   const [workspaces, setWorkspaces] = useState<WorkspaceWithStats[]>([]);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState<Category>('all');
+  const [activeCategory, setActiveCategory] = useState<string>('all');
+  const [categories, setCategories] = useState<string[]>(['personal', 'work', 'study']);
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [editingCategoryValue, setEditingCategoryValue] = useState('');
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('home');
   const chatUnread = useChatUnreadTotal();
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
@@ -335,6 +336,15 @@ export default function LandingPage() {
     localStorage.setItem('mindspace_visit_count', visits.toString());
     setGreeting(pickGreeting(visits));
 
+    const storedCategories = localStorage.getItem('mindspace_categories');
+    if (storedCategories) {
+      try {
+        setCategories(JSON.parse(storedCategories));
+      } catch {
+        // default
+      }
+    }
+
     seedDatabaseIfEmpty().then(refresh).catch(console.error);
   }, [refresh]);
 
@@ -388,13 +398,63 @@ export default function LandingPage() {
       themeColor: '#FAF6F1',
       camera: { x: 0, y: 0, zoom: 1 },
       lastModified: Date.now(),
-      category: activeCategory === 'all' ? 'personal' : activeCategory,
+      category: activeCategory === 'all' ? (categories[0] || 'personal') : activeCategory,
       isFavorite: false,
       deleted: false,
       archived: false,
     };
     await saveCanvasState(newCanvas);
     router.push(`/canvas?id=${newId}`);
+  };
+
+  const saveCategories = (newCats: string[]) => {
+    setCategories(newCats);
+    localStorage.setItem('mindspace_categories', JSON.stringify(newCats));
+  };
+
+  const addCategory = () => {
+    const baseName = 'new category';
+    let newName = baseName;
+    let counter = 1;
+    while (categories.includes(newName)) {
+      newName = `${baseName} ${counter}`;
+      counter++;
+    }
+    const newCats = [...categories, newName];
+    saveCategories(newCats);
+    setActiveCategory(newName);
+    setEditingCategory(newName);
+    setEditingCategoryValue(newName);
+  };
+
+  const handleRenameCategory = async (oldName: string, newName: string) => {
+    const finalNewName = newName.trim().toLowerCase();
+    if (!finalNewName || finalNewName === 'all' || finalNewName === oldName) {
+      setEditingCategory(null);
+      return;
+    }
+    if (categories.includes(finalNewName)) {
+      alert('Category name already exists!');
+      setEditingCategory(null);
+      return;
+    }
+
+    const newCats = categories.map(c => c === oldName ? finalNewName : c);
+    saveCategories(newCats);
+
+    if (activeCategory === oldName) {
+      setActiveCategory(finalNewName);
+    }
+
+    const updatedWorkspaces: WorkspaceWithStats[] = workspaces.map(ws => {
+      if (ws.category === oldName) {
+        updateCanvasMeta(ws.id, { category: finalNewName });
+        return { ...ws, category: finalNewName };
+      }
+      return ws;
+    });
+    setWorkspaces(updatedWorkspaces);
+    setEditingCategory(null);
   };
 
   const handleUsernameSave = () => {
@@ -423,9 +483,10 @@ export default function LandingPage() {
   };
   const cycleCategory = (e: React.MouseEvent, ws: WorkspaceWithStats) => {
     e.stopPropagation();
-    const current = (ws.category as typeof CATEGORY_SEQUENCE[number]) || 'personal';
-    const idx = CATEGORY_SEQUENCE.indexOf(current);
-    const next = CATEGORY_SEQUENCE[(idx + 1) % CATEGORY_SEQUENCE.length];
+    if (categories.length === 0) return;
+    const current = ws.category || categories[0];
+    const idx = categories.indexOf(current);
+    const next = categories[idx === -1 ? 0 : (idx + 1) % categories.length];
     patchWorkspace(ws.id, { category: next });
   };
   const handleColorCycle = async (e: React.MouseEvent, ws: WorkspaceWithStats) => {
@@ -525,12 +586,16 @@ export default function LandingPage() {
     return list;
   }, [workspaces, activeSidebarTab, activeCategory, searchQuery, sortMode]);
 
-  const counts = {
-    all: nonDeleted.length,
-    work: nonDeleted.filter((w) => w.category === 'work').length,
-    personal: nonDeleted.filter((w) => w.category === 'personal').length,
-    study: nonDeleted.filter((w) => w.category === 'study').length,
-  };
+  const counts = useMemo(() => {
+    const activeCanvases = workspaces.filter((w) => !w.deleted && !w.archived);
+    const obj: Record<string, number> = {
+      all: activeCanvases.length,
+    };
+    categories.forEach((cat) => {
+      obj[cat] = activeCanvases.filter((w) => w.category === cat).length;
+    });
+    return obj;
+  }, [workspaces, categories]);
 
   const canvasTitleById = useMemo(() => {
     const map = new Map<string, string>();
@@ -991,13 +1056,43 @@ export default function LandingPage() {
 
               {/* Category pills (home only) */}
               {activeSidebarTab === 'home' && (
-                <div className="flex flex-wrap gap-2" role="tablist" aria-label="Category filter">
-                  {(['all', 'work', 'personal', 'study'] as Category[]).map((cat) => (
+                <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Category filter">
+                  {/* ALL button */}
+                  <button
+                    role="tab"
+                    aria-selected={activeCategory === 'all'}
+                    onClick={() => setActiveCategory('all')}
+                    className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+                      activeCategory === 'all' ? 'text-white' : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {activeCategory === 'all' && (
+                      <motion.span
+                        layoutId="category-thumb"
+                        transition={spring}
+                        className="absolute inset-0 bg-[#2D2A26] dark:bg-[var(--accent)] rounded-full shadow-[0_8px_16px_-6px_rgba(45,42,38,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]"
+                      />
+                    )}
+                    <span className="relative">all</span>
+                    <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === 'all' ? 'bg-white/20' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
+                      {counts.all}
+                    </span>
+                  </button>
+
+                  {/* Dynamic Category Pills */}
+                  {categories.map((cat) => (
                     <button
                       key={cat}
                       role="tab"
                       aria-selected={activeCategory === cat}
-                      onClick={() => setActiveCategory(cat)}
+                      onClick={() => {
+                        if (activeCategory === cat) {
+                          setEditingCategory(cat);
+                          setEditingCategoryValue(cat);
+                        } else {
+                          setActiveCategory(cat);
+                        }
+                      }}
                       className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
                         activeCategory === cat ? 'text-white' : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
@@ -1009,12 +1104,37 @@ export default function LandingPage() {
                           className="absolute inset-0 bg-[#2D2A26] dark:bg-[var(--accent)] rounded-full shadow-[0_8px_16px_-6px_rgba(45,42,38,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]"
                         />
                       )}
-                      <span className="relative">{cat}</span>
+                      {editingCategory === cat ? (
+                        <input
+                          type="text"
+                          value={editingCategoryValue}
+                          onChange={(e) => setEditingCategoryValue(e.target.value)}
+                          onBlur={() => handleRenameCategory(cat, editingCategoryValue)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameCategory(cat, editingCategoryValue);
+                            if (e.key === 'Escape') setEditingCategory(null);
+                          }}
+                          className="bg-transparent text-white font-bold outline-none border-b border-white/50 w-24 text-[11px] uppercase tracking-wider relative z-10"
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <span className="relative">{cat}</span>
+                      )}
                       <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === cat ? 'bg-white/20' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
-                        {counts[cat]}
+                        {counts[cat] || 0}
                       </span>
                     </button>
                   ))}
+
+                  {/* Add Custom Category button */}
+                  <button
+                    onClick={addCategory}
+                    title="Add Category"
+                    className="w-7 h-7 rounded-full bg-[rgba(var(--accent-rgb),0.08)] hover:bg-[rgba(var(--accent-rgb),0.13)] border border-[var(--accent)]/20 flex items-center justify-center text-[var(--accent)] cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ml-1 shrink-0"
+                  >
+                    {ICONS.plus}
+                  </button>
                 </div>
               )}
 
@@ -1045,15 +1165,19 @@ export default function LandingPage() {
                                   ? 'bg-[#E0F2FE] text-[#3B7DA8]'
                                   : ws.category === 'study'
                                   ? 'bg-[#F3E8FF] text-[#8B5FBF]'
-                                  : 'bg-[#FDEBD8] text-[var(--accent)]'
+                                  : ws.category === 'personal'
+                                  ? 'bg-[#FDEBD8] text-[var(--accent)]'
+                                  : 'bg-[#DCFCE7] text-[#15803D]'
                               } shadow-[inset_0_1px_0_rgba(255,255,255,0.8),0_4px_10px_-4px_rgba(90,62,40,0.2)]`}
                             >
                               {ws.category === 'work' ? (
                                 <Icon><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></Icon>
                               ) : ws.category === 'study' ? (
                                 <Icon><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></Icon>
-                              ) : (
+                              ) : ws.category === 'personal' ? (
                                 <Icon d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                              ) : (
+                                <Icon><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z" /><line x1="7" y1="7" x2="7.01" y2="7" /></Icon>
                               )}
                             </button>
 
