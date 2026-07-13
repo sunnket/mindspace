@@ -186,7 +186,7 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
             </button>
             <button
               onClick={() => handleOpenAuth('signup')}
-              className="bg-[var(--accent)] hover:bg-[var(--accent-subtle)] text-white hover:text-[var(--accent)] border border-transparent hover:border-[var(--accent)] px-4 py-1.5 text-xs font-medium rounded-xl transition-all shadow-sm focus:outline-none cursor-pointer"
+              className="bg-[var(--accent)]/12 text-[var(--accent)] hover:bg-[var(--accent)]/20 border border-[var(--accent)]/15 px-4 py-1.5 text-xs font-extrabold rounded-xl transition-all shadow-sm focus:outline-none cursor-pointer"
             >
               Sign Up
             </button>
