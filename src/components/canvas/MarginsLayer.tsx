@@ -133,8 +133,8 @@ export default function MarginsLayer() {
       {/* Draft popover */}
       {draft && (
         <ThreadPopover screen={toScreen(draft)} onClose={() => setDraft(null)}>
-          <div className="flex flex-col gap-2">
-            <span className="text-[10px] uppercase font-extrabold tracking-wider text-[var(--text-tertiary)]">New thread</span>
+          <div className="flex flex-col gap-3 p-0.5">
+            <span className="text-[10px] uppercase font-extrabold tracking-[0.16em] text-[var(--text-secondary)] select-none">New Thread</span>
             <textarea
               autoFocus
               value={draftText}
@@ -142,11 +142,11 @@ export default function MarginsLayer() {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitDraft(); } if (e.key === 'Escape') setDraft(null); }}
               placeholder="Leave a note…"
               rows={3}
-              className="w-full resize-none clay-inset rounded-xl px-4 py-2.5 text-[12px] leading-relaxed outline-none focus:ring-2 focus:ring-[var(--accent)]/35"
+              className="w-full resize-none rounded-xl border border-[var(--border)] bg-black/5 dark:bg-black/25 px-3 py-2 text-[12px] leading-relaxed outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/35 text-[var(--text-primary)] placeholder-[var(--text-muted)]"
             />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setDraft(null)} className="px-3 py-1.5 rounded-full text-[11px] font-bold text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer">Cancel</button>
-              <button onClick={submitDraft} className="px-3.5 py-1.5 rounded-full text-[11px] font-bold text-white bg-[var(--accent)] hover:brightness-105 cursor-pointer">Post</button>
+            <div className="flex justify-end gap-2 mt-1">
+              <button onClick={() => setDraft(null)} className="px-3.5 py-1.5 rounded-full text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer shrink-0">Cancel</button>
+              <button onClick={submitDraft} className="px-4 py-1.5 rounded-full text-[11px] font-bold text-white bg-[var(--accent)] hover:brightness-105 transition-all cursor-pointer shrink-0">Post</button>
             </div>
           </div>
         </ThreadPopover>
@@ -158,8 +158,8 @@ export default function MarginsLayer() {
         if (!w) return null;
         return (
           <ThreadPopover screen={toScreen(w)} onClose={() => setActiveThreadId(null)}>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] uppercase font-extrabold tracking-wider text-[var(--text-tertiary)]">
+            <div className="flex items-center justify-between mb-2 p-0.5">
+              <span className="text-[10px] uppercase font-extrabold tracking-[0.16em] text-[var(--text-secondary)] select-none">
                 Thread · {activeThread.replies.length}
               </span>
               <div className="flex items-center gap-1">
@@ -192,11 +192,11 @@ export default function MarginsLayer() {
                 onChange={(e) => setReplyText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && replyText.trim()) { addReply(activeThread.id, { author: authorName(), text: replyText.trim() }); setReplyText(''); } }}
                 placeholder="Reply…"
-                className="flex-1 min-w-0 clay-inset rounded-full px-4 py-1.5 text-[12px] outline-none focus:ring-2 focus:ring-[var(--accent)]/35"
+                className="flex-1 min-w-0 rounded-full border border-[var(--border)] bg-black/5 dark:bg-black/25 px-4 py-1.5 text-[12px] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/35 text-[var(--text-primary)] placeholder-[var(--text-muted)]"
               />
               <button
                 onClick={() => { if (replyText.trim()) { addReply(activeThread.id, { author: authorName(), text: replyText.trim() }); setReplyText(''); } }}
-                className="w-8 h-8 shrink-0 rounded-full bg-[var(--accent)] text-white flex items-center justify-center hover:brightness-105 cursor-pointer"
+                className="w-8 h-8 shrink-0 rounded-full bg-[var(--accent)] text-white flex items-center justify-center hover:brightness-105 transition-all cursor-pointer"
                 aria-label="Send reply"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
