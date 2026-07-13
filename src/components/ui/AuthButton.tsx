@@ -61,7 +61,7 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
   return (
     <>
       <div 
-        className={isInline ? "relative flex items-center gap-3 pointer-events-auto" : "fixed top-12 right-10 z-50 pointer-events-auto flex items-center gap-3"} 
+        className={isInline ? "relative flex items-center gap-3 pointer-events-auto z-50" : "fixed top-12 right-10 z-50 pointer-events-auto flex items-center gap-3"} 
         ref={dropdownRef}
       >
         {loading ? (
@@ -103,7 +103,7 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.95 }}
                   transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-                  className="absolute right-0 mt-2.5 w-56 glass-panel border border-white/20 dark:border-white/10 p-2.5 shadow-xl rounded-xl"
+                  className="absolute right-0 mt-2.5 w-56 glass-panel border border-white/20 dark:border-white/10 p-2.5 shadow-xl rounded-xl z-50"
                   style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
                 >
                   {/* Dropdown Header */}

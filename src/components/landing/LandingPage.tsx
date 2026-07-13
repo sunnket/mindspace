@@ -790,7 +790,7 @@ export default function LandingPage() {
                       whileHover={{ y: -1 }}
                       whileTap={{ scale: 0.97 }}
                       transition={spring}
-                      className="mt-1 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[var(--accent)] text-white text-xs font-bold tracking-wide shadow-[0_10px_22px_-8px_rgba(var(--accent-rgb),0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
+                      className="mt-1 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[var(--accent)]/12 text-[var(--accent)] hover:bg-[var(--accent)]/20 border border-[var(--accent)]/15 text-xs font-extrabold tracking-wide cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 shadow-sm"
                     >
                       Open canvas {ICONS.arrowRight}
                     </motion.button>
