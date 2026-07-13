@@ -654,7 +654,7 @@ export default function LandingPage() {
 
       {/* ---------- Main ---------- */}
       <main className="flex-1 min-h-screen h-screen overflow-y-auto">
-        <div className="w-full max-w-6xl mx-auto px-6 md:px-10 pt-10 pb-28 flex flex-col gap-12">
+        <div className="w-full max-w-5xl mx-auto px-6 md:px-10 pt-10 pb-28 flex flex-col gap-12">
 
           {/* Header */}
           <header className="flex flex-col lg:flex-row lg:justify-between lg:items-end gap-6 w-full">
@@ -1013,7 +1013,7 @@ export default function LandingPage() {
                                 aria-selected={sortMode === mode}
                                 onClick={() => { setSortMode(mode); setSortMenuOpen(false); }}
                                 className={`w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold transition-colors cursor-pointer ${
-                                  sortMode === mode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-secondary)] hover:bg-black/5'
+                                  sortMode === mode ? 'bg-[var(--accent)]/15 text-[var(--accent)] font-extrabold' : 'text-[var(--text-secondary)] hover:bg-black/5'
                                 }`}
                               >
                                 {mode === 'recent' ? 'Most recent' : mode === 'name' ? 'Name a → z' : 'Most cards'}
@@ -1063,18 +1063,18 @@ export default function LandingPage() {
                     aria-selected={activeCategory === 'all'}
                     onClick={() => setActiveCategory('all')}
                     className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
-                      activeCategory === 'all' ? 'text-white' : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      activeCategory === 'all' ? 'text-[var(--accent)] font-extrabold' : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                     }`}
                   >
                     {activeCategory === 'all' && (
                       <motion.span
                         layoutId="category-thumb"
                         transition={spring}
-                        className="absolute inset-0 bg-[#2D2A26] dark:bg-[var(--accent)] rounded-full shadow-[0_8px_16px_-6px_rgba(45,42,38,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]"
+                        className="absolute inset-0 bg-[var(--accent)]/12 border border-[var(--accent)]/20 rounded-full"
                       />
                     )}
                     <span className="relative">all</span>
-                    <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === 'all' ? 'bg-white/20' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
+                    <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === 'all' ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
                       {counts.all}
                     </span>
                   </button>
@@ -1094,14 +1094,14 @@ export default function LandingPage() {
                         }
                       }}
                       className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
-                        activeCategory === cat ? 'text-white' : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        activeCategory === cat ? 'text-[var(--accent)] font-extrabold' : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
                     >
                       {activeCategory === cat && (
                         <motion.span
                           layoutId="category-thumb"
                           transition={spring}
-                          className="absolute inset-0 bg-[#2D2A26] dark:bg-[var(--accent)] rounded-full shadow-[0_8px_16px_-6px_rgba(45,42,38,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]"
+                          className="absolute inset-0 bg-[var(--accent)]/12 border border-[var(--accent)]/20 rounded-full"
                         />
                       )}
                       {editingCategory === cat ? (
@@ -1114,14 +1114,14 @@ export default function LandingPage() {
                             if (e.key === 'Enter') handleRenameCategory(cat, editingCategoryValue);
                             if (e.key === 'Escape') setEditingCategory(null);
                           }}
-                          className="bg-transparent text-white font-bold outline-none border-b border-white/50 w-24 text-[11px] uppercase tracking-wider relative z-10"
+                          className="bg-transparent text-[var(--accent)] font-bold outline-none border-b border-[var(--accent)]/50 w-24 text-[11px] uppercase tracking-wider relative z-10"
                           autoFocus
                           onClick={(e) => e.stopPropagation()}
                         />
                       ) : (
                         <span className="relative">{cat}</span>
                       )}
-                      <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === cat ? 'bg-white/20' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
+                      <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === cat ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
                         {counts[cat] || 0}
                       </span>
                     </button>
@@ -1399,19 +1399,16 @@ export default function LandingPage() {
       {/* ---------- FAB ---------- */}
       <motion.button
         onClick={openNewCanvas}
-        whileHover={{ scale: 1.06, y: -2 }}
-        whileTap={{ scale: 0.94 }}
+        whileHover={{ scale: 1.08, y: -2 }}
+        whileTap={{ scale: 0.92 }}
         transition={spring}
         aria-label="Create new canvas"
-        className="fixed bottom-8 right-8 h-14 pl-4 pr-5 bg-[var(--accent)] text-white rounded-full flex items-center gap-2 z-50 cursor-pointer shadow-[0_16px_32px_-10px_rgba(var(--accent-rgb),0.65),inset_0_1.5px_0_rgba(255,255,255,0.35)] hover:brightness-105 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
+        className="fixed bottom-8 right-8 w-14 h-14 rounded-full bg-[var(--accent)]/12 text-[var(--accent)] border border-[var(--accent)]/15 flex items-center justify-center z-50 cursor-pointer shadow-[0_12px_24px_-8px_rgba(var(--accent-rgb),0.3)] hover:bg-[var(--accent)]/20 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
           <line x1="12" y1="5" x2="12" y2="19" />
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
-        <span className="text-xs font-extrabold uppercase tracking-widest max-w-0 overflow-hidden group-hover:max-w-[110px] transition-[max-width] duration-300 whitespace-nowrap">
-          new canvas
-        </span>
       </motion.button>
     </div>
   );
@@ -1545,7 +1542,7 @@ function EmptyState({
           whileHover={{ y: -1 }}
           whileTap={{ scale: 0.97 }}
           transition={spring}
-          className="mt-5 px-5 py-2.5 bg-[var(--accent)] text-white text-xs font-bold rounded-full cursor-pointer shadow-[0_10px_22px_-8px_rgba(var(--accent-rgb),0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
+          className="mt-5 px-5 py-2.5 bg-[var(--accent)]/12 text-[var(--accent)] hover:bg-[var(--accent)]/20 border border-[var(--accent)]/15 text-xs font-extrabold rounded-full cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 shadow-sm"
         >
           {action.label}
         </motion.button>
