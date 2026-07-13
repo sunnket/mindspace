@@ -323,6 +323,7 @@ export default function LandingPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
     const storedUsername = localStorage.getItem('username');
     if (storedUsername) {
@@ -573,19 +574,6 @@ export default function LandingPage() {
           aria-label="Main navigation"
           className="clay-card ml-4 rounded-[26px] py-5 px-2.5 flex flex-col items-center gap-1.5 max-h-[calc(100vh-48px)]"
         >
-          <button
-            onClick={() => { setActiveSidebarTab('home'); setActiveCategory('all'); }}
-            aria-label="mindspace home"
-            className="w-11 h-11 mb-3 rounded-2xl bg-[var(--accent)] flex items-center justify-center text-white shadow-[0_8px_18px_-6px_rgba(var(--accent-rgb),0.55),inset_0_1px_0_rgba(255,255,255,0.35)] cursor-pointer hover:brightness-105 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <rect x="3" y="3" width="7" height="7" rx="2" />
-              <rect x="14" y="3" width="7" height="7" rx="2" />
-              <rect x="3" y="14" width="7" height="7" rx="2" />
-              <rect x="14" y="14" width="7" height="7" rx="2" />
-            </svg>
-          </button>
-
           <DockButton label="Home" active={activeSidebarTab === 'home'} onClick={() => setActiveSidebarTab('home')} icon={ICONS.home} />
           <DockButton label="Favorites" active={activeSidebarTab === 'favorites'} onClick={() => setActiveSidebarTab('favorites')} icon={ICONS.heart} />
           <DockButton label="Images" active={activeSidebarTab === 'images'} onClick={() => setActiveSidebarTab('images')} icon={ICONS.image} />
