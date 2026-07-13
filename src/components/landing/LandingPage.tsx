@@ -654,7 +654,7 @@ export default function LandingPage() {
 
       {/* ---------- Main ---------- */}
       <main className="flex-1 min-h-screen h-screen overflow-y-auto">
-        <div className="w-full pl-6 md:pl-10 pr-14 pt-10 pb-28 flex flex-col gap-12">
+        <div className="w-full max-w-[1380px] mx-auto pl-6 md:pl-16 pr-6 md:pr-16 pt-10 pb-28 flex flex-col gap-12">
 
           {/* Header */}
           <header className="flex flex-col lg:flex-row lg:justify-between lg:items-end gap-6 w-full">
@@ -1403,7 +1403,7 @@ export default function LandingPage() {
         whileTap={{ scale: 0.92 }}
         transition={spring}
         aria-label="Create new canvas"
-        className="fixed bottom-8 right-14 w-14 h-14 rounded-full bg-[var(--accent)]/12 text-[var(--accent)] border border-[var(--accent)]/15 flex items-center justify-center z-50 cursor-pointer shadow-[0_12px_24px_-8px_rgba(var(--accent-rgb),0.3)] hover:bg-[var(--accent)]/20 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+        className="fixed bottom-8 right-16 w-14 h-14 rounded-full bg-[var(--accent)]/12 text-[var(--accent)] border border-[var(--accent)]/15 flex items-center justify-center z-50 cursor-pointer shadow-[0_12px_24px_-8px_rgba(var(--accent-rgb),0.3)] hover:bg-[var(--accent)]/20 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
           <line x1="12" y1="5" x2="12" y2="19" />
