@@ -242,7 +242,7 @@ export default function TourPlayer({
         </button>
 
         <button onClick={togglePlay} aria-label={playing ? 'Pause' : 'Play'}
-          className="w-11 h-11 rounded-full bg-[var(--accent)] text-white flex items-center justify-center shadow-[0_8px_18px_-6px_rgba(201,123,75,0.6)] hover:brightness-105 transition-all cursor-pointer">
+          className="w-11 h-11 rounded-full bg-[var(--accent)] text-white flex items-center justify-center shadow-[0_8px_18px_-6px_rgba(var(--accent-rgb),0.6)] hover:brightness-105 transition-all cursor-pointer">
           {playing ? (
             <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
           ) : (
@@ -266,7 +266,7 @@ export default function TourPlayer({
                 onClick={() => stepTo(i)}
                 aria-label={`Go to ${s.name}`}
                 className="h-1 rounded-full flex-1 transition-colors cursor-pointer"
-                style={{ background: i === index ? 'var(--accent)' : i < index ? 'rgba(201,123,75,0.35)' : 'rgba(90,62,40,0.15)' }}
+                style={{ background: i === index ? 'var(--accent)' : i < index ? 'rgba(var(--accent-rgb),0.35)' : 'rgba(90,62,40,0.15)' }}
               />
             ))}
           </div>

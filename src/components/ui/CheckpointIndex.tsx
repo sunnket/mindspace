@@ -154,7 +154,7 @@ export default function CheckpointIndex() {
                 onClick={() => handleGoToCheckpoint(checkpoint)}
                 className={`rounded-full transition-all duration-300 ${
                   isActive 
-                    ? 'bg-[var(--accent)] shadow-[0_0_12px_rgba(201,123,75,0.75)]' 
+                    ? 'bg-[var(--accent)] shadow-[0_0_12px_rgba(var(--accent-rgb),0.75)]' 
                     : 'bg-[var(--text-secondary)] dark:bg-white/40 opacity-70 hover:opacity-100'
                 }`}
                 animate={{

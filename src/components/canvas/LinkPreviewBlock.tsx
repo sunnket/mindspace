@@ -6,6 +6,19 @@ import { useCanvasStore } from '@/store/canvasStore';
 import { linkPreviewStyle, isUrl } from '@/lib/linkPreview';
 import { motion } from 'framer-motion';
 
+/**
+ * The card's surface. Every state (loading, error, player, preview) wears it.
+ *
+ * It used to be `bg-[rgba(255,252,248,0.35)] dark:bg-black/15` with a
+ * `dark:border-white/5` hairline — which is a translucent BLACK card, edged in
+ * 5%-white, sitting on a near-black canvas. It was, quite literally, invisible:
+ * the agent would report placing a link and the user would find nothing there.
+ * The theme's own card tokens are used instead, so the card has a real surface
+ * and a real edge against whatever paper it lands on.
+ */
+const CARD_SURFACE =
+  'bg-[var(--bg-card)] border border-[var(--border-strong)] backdrop-blur-2xl shadow-[var(--shadow-md)]';
+
 // Dedupes concurrent hydration requests across mounts (viewport culling can
 // remount the same card mid-fetch). One in-flight request per object id.
 const inFlight = new Set<string>();
@@ -162,7 +175,7 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   if (!url) {
     return (
       <div
-        className="w-full h-full p-4 rounded-2xl bg-[rgba(255,252,248,0.4)] dark:bg-black/15 backdrop-blur-2xl border border-white/25 dark:border-white/5 flex flex-col justify-center gap-3 pointer-events-auto"
+        className={`w-full h-full p-4 rounded-2xl flex flex-col justify-center gap-3 pointer-events-auto ${CARD_SURFACE}`}
         style={{ fontFamily: "'Outfit', sans-serif" }}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -208,7 +221,7 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   if (isLinkLoading && !isLinkError) {
     return (
       <div
-        className="w-full h-full p-4 rounded-2xl bg-white/20 dark:bg-black/10 backdrop-blur-xl border border-white/20 flex flex-col justify-between select-none"
+        className={`w-full h-full p-4 rounded-2xl flex flex-col justify-between select-none ${CARD_SURFACE}`}
         style={{ fontFamily: "'Outfit', sans-serif" }}
       >
         {/* Shimmer Header */}
@@ -237,7 +250,7 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   if (isLinkError) {
     return (
       <div
-        className="w-full h-full p-4 rounded-2xl bg-white/10 dark:bg-black/10 backdrop-blur-xl border border-red-500/20 flex flex-col justify-between"
+        className="w-full h-full p-4 rounded-2xl bg-[var(--bg-card)] backdrop-blur-2xl border border-red-500/40 shadow-[var(--shadow-md)] flex flex-col justify-between"
         style={{ fontFamily: "'Outfit', sans-serif" }}
       >
         <div className="flex items-center gap-2">
@@ -280,7 +293,7 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   if (isPlaying) {
     return (
       <div
-        className="w-full h-full p-1.5 rounded-2xl bg-white/20 dark:bg-black/20 backdrop-blur-2xl border border-white/25 flex flex-col pointer-events-auto"
+        className={`w-full h-full p-1.5 rounded-2xl flex flex-col pointer-events-auto ${CARD_SURFACE}`}
         style={{ fontFamily: "'Outfit', sans-serif" }}
       >
         {/* Compact Close Player Header */}
@@ -332,10 +345,10 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
         transform: `perspective(800px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
         transition: 'transform 0.15s cubic-bezier(0.25, 1, 0.5, 1)',
       }}
-      className="w-full h-full p-4 rounded-2xl bg-[rgba(255,252,248,0.35)] dark:bg-black/15 backdrop-blur-2xl border border-white/20 dark:border-white/5 flex flex-col justify-between hover:shadow-[0_20px_50px_rgba(201,123,75,0.15)] transition-shadow select-none group relative overflow-hidden"
+      className={`w-full h-full p-4 rounded-2xl flex flex-col justify-between hover:shadow-[0_20px_50px_rgba(var(--accent-rgb),0.22)] transition-shadow select-none group relative overflow-hidden ${CARD_SURFACE}`}
     >
       {/* Background Soft Glow Pattern */}
-      <div className="absolute -inset-10 bg-[radial-gradient(circle_at_top_right,rgba(201,123,75,0.06),transparent_60%)] pointer-events-none z-0" />
+      <div className="absolute -inset-10 bg-[radial-gradient(circle_at_top_right,rgba(var(--accent-rgb),0.06),transparent_60%)] pointer-events-none z-0" />
 
       {/* Header Info */}
       <div className="relative z-10 flex items-center justify-between select-none">

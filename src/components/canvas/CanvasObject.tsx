@@ -604,7 +604,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const label = document.getElementById('minimize-hotzone-label');
         if (zone) {
           zone.style.borderColor = overMinimizeZone ? 'var(--accent)' : 'transparent';
-          zone.style.background = overMinimizeZone ? 'rgba(201,123,75,0.08)' : 'transparent';
+          zone.style.background = overMinimizeZone ? 'rgba(var(--accent-rgb),0.08)' : 'transparent';
         }
         if (label) label.style.opacity = overMinimizeZone ? '1' : '0';
 
@@ -612,8 +612,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const wlabel = document.getElementById('warp-hotzone-label');
         if (wzone) {
           wzone.style.opacity = draggedFar && canWarp ? '1' : '0';
-          wzone.style.borderColor = overWarpZone ? 'var(--accent)' : 'rgba(201,123,75,0.28)';
-          wzone.style.background = overWarpZone ? 'rgba(201,123,75,0.12)' : 'transparent';
+          wzone.style.borderColor = overWarpZone ? 'var(--accent)' : 'rgba(var(--accent-rgb),0.28)';
+          wzone.style.background = overWarpZone ? 'rgba(var(--accent-rgb),0.12)' : 'transparent';
         }
         if (wlabel) wlabel.style.opacity = overWarpZone ? '1' : '0.55';
 
@@ -670,7 +670,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         if (label) label.style.opacity = '0';
         const wzone = document.getElementById('warp-hotzone');
         const wlabel = document.getElementById('warp-hotzone-label');
-        if (wzone) { wzone.style.opacity = '0'; wzone.style.borderColor = 'rgba(201,123,75,0.28)'; wzone.style.background = 'transparent'; }
+        if (wzone) { wzone.style.opacity = '0'; wzone.style.borderColor = 'rgba(var(--accent-rgb),0.28)'; wzone.style.background = 'transparent'; }
         if (wlabel) wlabel.style.opacity = '0.55';
         
         const chatPanel = document.getElementById('chat-panel-container');
@@ -2383,7 +2383,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                     style={{
                       backgroundColor: shapeBg,
                       border: `${shapeStroke}px ${cssBorderStyle} ${shapeBorder}`,
-                      boxShadow: isSelected ? '0 0 15px rgba(201, 123, 75, 0.2)' : 'var(--shadow-sm)',
+                      boxShadow: isSelected ? '0 0 15px rgba(var(--accent-rgb), 0.2)' : 'var(--shadow-sm)',
                       backdropFilter: 'blur(10px)',
                     }}
                   />
@@ -2394,7 +2394,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                     style={{
                       backgroundColor: shapeBg,
                       border: `${shapeStroke}px ${cssBorderStyle} ${shapeBorder}`,
-                      boxShadow: isSelected ? '0 0 15px rgba(201, 123, 75, 0.2)' : 'var(--shadow-sm)',
+                      boxShadow: isSelected ? '0 0 15px rgba(var(--accent-rgb), 0.2)' : 'var(--shadow-sm)',
                       backdropFilter: 'blur(10px)',
                     }}
                   />
@@ -3299,7 +3299,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   style={{ 
                     backgroundColor: shapeBg, 
                     border: `1.5px solid ${shapeBorder}`, 
-                    boxShadow: isSelected ? '0 0 12px rgba(201, 123, 75, 0.2)' : 'var(--shadow-sm)' 
+                    boxShadow: isSelected ? '0 0 12px rgba(var(--accent-rgb), 0.2)' : 'var(--shadow-sm)' 
                   }} 
                 />
               )}
@@ -3420,7 +3420,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         top: obj.y,
         width: obj.width,
         height: obj.height,
-        zIndex: isDragging ? 1000 : isSelected ? 100 : obj.zIndex || 1,
+        /* `obj.zIndex || 1` promoted a backdrop's honest 0 to a 1 — and selecting
+           a frame lifted it to 100, straight over the cards it wraps, so its own
+           contents became unclickable the moment you touched it. A frame stays
+           where it belongs: behind. */
+        zIndex: obj.type === 'frame'
+          ? (obj.zIndex ?? 0)
+          : (isDragging ? 1000 : isSelected ? 100 : (obj.zIndex ?? 1)),
         cursor: mode === 'connector' ? 'grab' : isEditing ? 'text' : isDragging ? 'grabbing' : 'pointer',
         // Per-object opacity + custom text color set from the selection panel.
         opacity: (obj.style?.opacity as number | undefined) ?? undefined,
@@ -3434,13 +3440,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               : 'rgba(0,0,0,0)'),
         boxShadow: obj.type === 'arrow' ? 'none' : ((connectorSelectedIds.includes(obj.id) || mode === 'connector')
           ? (connectorSelectedIds.includes(obj.id)
-            ? '0 0 50px rgba(201, 123, 75, 0.4), 0 8px 32px rgba(0,0,0,0.15)'
-            : '0 0 40px rgba(201, 123, 75, 0.25), 0 8px 32px rgba(0,0,0,0.1)')
+            ? '0 0 50px rgba(var(--accent-rgb), 0.4), 0 8px 32px rgba(0,0,0,0.15)'
+            : '0 0 40px rgba(var(--accent-rgb), 0.25), 0 8px 32px rgba(0,0,0,0.1)')
           : 'none'),
         border: obj.type === 'arrow' ? 'none' : (connectorSelectedIds.includes(obj.id)
-          ? '3px solid rgba(201, 123, 75, 0.8)'
+          ? '3px solid rgba(var(--accent-rgb), 0.8)'
           : mode === 'connector' 
-          ? '2px solid rgba(201, 123, 75, 0.5)'
+          ? '2px solid rgba(var(--accent-rgb), 0.5)'
           : 'none'),
         pointerEvents: (mode === 'draw' || mode === 'arrow') ? 'none' : 'auto',
         willChange: 'transform, left, top',

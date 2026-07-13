@@ -103,5 +103,56 @@ export default function RelaxIcon({ id, size = 18 }: { id: RelaxEffectId; size?:
           <circle cx="12" cy="12" r="9.4" opacity="0.4" />
         </svg>
       );
+
+    case 'ocean':
+      return (
+        <svg {...common}>
+          <path d="M2.5 16.5c1.6 0 1.6-1.8 3.2-1.8s1.6 1.8 3.2 1.8 1.6-1.8 3.2-1.8 1.6 1.8 3.2 1.8 1.6-1.8 3.2-1.8 1.6 1.8 3.2 1.8" />
+          <path d="M2.5 20.4c1.6 0 1.6-1.8 3.2-1.8s1.6 1.8 3.2 1.8 1.6-1.8 3.2-1.8 1.6 1.8 3.2 1.8 1.6-1.8 3.2-1.8 1.6 1.8 3.2 1.8" opacity="0.5" />
+          <circle cx="17.5" cy="6.5" r="2.8" />
+        </svg>
+      );
+
+    case 'handpan':
+      return (
+        <svg {...common}>
+          <ellipse cx="12" cy="12.5" rx="9.2" ry="7.6" />
+          <circle cx="12" cy="12.5" r="2.2" />
+          <circle cx="12" cy="6.6" r="1" fill="currentColor" stroke="none" />
+          <circle cx="18" cy="12.5" r="1" fill="currentColor" stroke="none" />
+          <circle cx="6" cy="12.5" r="1" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="18.4" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      );
+
+    case 'snow':
+      return (
+        <svg {...common}>
+          <path d="M12 2.8v18.4M4 7.4l16 9.2M20 7.4 4 16.6" />
+          <path d="m9.6 4.4 2.4 2.2 2.4-2.2M9.6 19.6l2.4-2.2 2.4 2.2" />
+        </svg>
+      );
+
+    case 'fireflies':
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="8.5" r="1.9" />
+          <circle cx="16.5" cy="6.8" r="1.3" opacity="0.7" />
+          <circle cx="15.2" cy="15.4" r="2.2" />
+          <circle cx="6.6" cy="16.8" r="1.3" opacity="0.7" />
+          <path d="M8 5.4v-1.6M15.2 12v-1.6" opacity="0.5" />
+        </svg>
+      );
+
+    case 'lanterns':
+      return (
+        <svg {...common}>
+          <path d="M8.4 9.2c0-2.2 1.6-4 3.6-4s3.6 1.8 3.6 4c0 2.6-1.4 4.6-3.6 6.4-2.2-1.8-3.6-3.8-3.6-6.4Z" />
+          <path d="M10.2 16.6h3.6" />
+          <path d="M12 19v2.2" opacity="0.6" />
+          <circle cx="19.4" cy="5.4" r="1.5" opacity="0.55" />
+          <circle cx="4.6" cy="7.2" r="1.2" opacity="0.4" />
+        </svg>
+      );
   }
 }

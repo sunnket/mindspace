@@ -111,7 +111,7 @@ export default function MinimizeDock() {
       <div
         id="warp-hotzone"
         className="fixed top-[238px] left-4 w-[196px] h-[156px] z-[100] pointer-events-none rounded-[28px] border-2 border-dashed flex items-center justify-center transition-all duration-150"
-        style={{ borderColor: 'rgba(201,123,75,0.28)', background: 'transparent', opacity: 0 }}
+        style={{ borderColor: 'rgba(var(--accent-rgb),0.28)', background: 'transparent', opacity: 0 }}
       >
         <div
           id="warp-hotzone-label"

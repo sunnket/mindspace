@@ -67,7 +67,7 @@ function BlockShell({
 }) {
   return (
     <div
-      className="flex flex-col h-full w-full rounded-2xl p-4 pointer-events-auto bg-[#FFFDFA] dark:bg-[var(--bg-secondary)] border border-[rgba(201,123,75,0.16)] dark:border-white/10 shadow-[inset_0_1.5px_0_rgba(255,255,255,0.95),0_14px_28px_-14px_rgba(90,62,40,0.22),0_3px_8px_-4px_rgba(90,62,40,0.08)] dark:shadow-[0_14px_28px_-14px_rgba(0,0,0,0.6),0_3px_8px_-4px_rgba(0,0,0,0.5)]"
+      className="flex flex-col h-full w-full rounded-2xl p-4 pointer-events-auto bg-[#FFFDFA] dark:bg-[var(--bg-secondary)] border border-[rgba(var(--accent-rgb),0.16)] dark:border-white/10 shadow-[inset_0_1.5px_0_rgba(255,255,255,0.95),0_14px_28px_-14px_rgba(90,62,40,0.22),0_3px_8px_-4px_rgba(90,62,40,0.08)] dark:shadow-[0_14px_28px_-14px_rgba(0,0,0,0.6),0_3px_8px_-4px_rgba(0,0,0,0.5)]"
       style={{
         color: 'var(--text-primary)',
         fontFamily: "'Outfit', sans-serif",

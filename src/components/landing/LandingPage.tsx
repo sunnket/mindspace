@@ -576,7 +576,7 @@ export default function LandingPage() {
           <button
             onClick={() => { setActiveSidebarTab('home'); setActiveCategory('all'); }}
             aria-label="mindspace home"
-            className="w-11 h-11 mb-3 rounded-2xl bg-[var(--accent)] flex items-center justify-center text-white shadow-[0_8px_18px_-6px_rgba(201,123,75,0.55),inset_0_1px_0_rgba(255,255,255,0.35)] cursor-pointer hover:brightness-105 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
+            className="w-11 h-11 mb-3 rounded-2xl bg-[var(--accent)] flex items-center justify-center text-white shadow-[0_8px_18px_-6px_rgba(var(--accent-rgb),0.55),inset_0_1px_0_rgba(255,255,255,0.35)] cursor-pointer hover:brightness-105 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <rect x="3" y="3" width="7" height="7" rx="2" />
@@ -702,7 +702,7 @@ export default function LandingPage() {
               >
                 <div className="clay-card rounded-[28px] p-7 md:p-9 grid grid-cols-1 md:grid-cols-[3fr_2fr] gap-8 items-center relative overflow-hidden group">
                   {/* soft accent bloom */}
-                  <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-[radial-gradient(circle,rgba(201,123,75,0.10),transparent_65%)] pointer-events-none" />
+                  <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-[radial-gradient(circle,rgba(var(--accent-rgb),0.10),transparent_65%)] pointer-events-none" />
 
                   <div className="flex flex-col items-start gap-5 min-w-0">
                     <span className="inline-flex items-center gap-2 text-[10px] text-[var(--accent)] uppercase font-extrabold tracking-[0.18em]">
@@ -737,7 +737,7 @@ export default function LandingPage() {
                       whileHover={{ y: -1 }}
                       whileTap={{ scale: 0.97 }}
                       transition={spring}
-                      className="mt-1 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[var(--accent)] text-white text-xs font-bold tracking-wide shadow-[0_10px_22px_-8px_rgba(201,123,75,0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
+                      className="mt-1 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[var(--accent)] text-white text-xs font-bold tracking-wide shadow-[0_10px_22px_-8px_rgba(var(--accent-rgb),0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
                     >
                       Open canvas {ICONS.arrowRight}
                     </motion.button>
@@ -1291,7 +1291,7 @@ export default function LandingPage() {
         whileTap={{ scale: 0.94 }}
         transition={spring}
         aria-label="Create new canvas"
-        className="fixed bottom-8 right-8 h-14 pl-4 pr-5 bg-[var(--accent)] text-white rounded-full flex items-center gap-2 z-50 cursor-pointer shadow-[0_16px_32px_-10px_rgba(201,123,75,0.65),inset_0_1.5px_0_rgba(255,255,255,0.35)] hover:brightness-105 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
+        className="fixed bottom-8 right-8 h-14 pl-4 pr-5 bg-[var(--accent)] text-white rounded-full flex items-center gap-2 z-50 cursor-pointer shadow-[0_16px_32px_-10px_rgba(var(--accent-rgb),0.65),inset_0_1.5px_0_rgba(255,255,255,0.35)] hover:brightness-105 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
           <line x1="12" y1="5" x2="12" y2="19" />
@@ -1433,7 +1433,7 @@ function EmptyState({
           whileHover={{ y: -1 }}
           whileTap={{ scale: 0.97 }}
           transition={spring}
-          className="mt-5 px-5 py-2.5 bg-[var(--accent)] text-white text-xs font-bold rounded-full cursor-pointer shadow-[0_10px_22px_-8px_rgba(201,123,75,0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
+          className="mt-5 px-5 py-2.5 bg-[var(--accent)] text-white text-xs font-bold rounded-full cursor-pointer shadow-[0_10px_22px_-8px_rgba(var(--accent-rgb),0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
         >
           {action.label}
         </motion.button>

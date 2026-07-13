@@ -146,7 +146,7 @@ export default function CollabBar() {
               onClick={togglePresent}
               title={amPresenting ? 'Stop presenting' : 'Present — everyone follows your view'}
               className={`h-7 px-3 rounded-full flex items-center gap-1.5 text-[10px] font-bold shrink-0 transition-all cursor-pointer ${
-                amPresenting ? 'bg-[var(--accent)] text-white shadow-[0_4px_10px_-4px_rgba(201,123,75,0.6)]' : 'text-[var(--text-secondary)] hover:bg-white/60'
+                amPresenting ? 'bg-[var(--accent)] text-white shadow-[0_4px_10px_-4px_rgba(var(--accent-rgb),0.6)]' : 'text-[var(--text-secondary)] hover:bg-white/60'
               }`}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

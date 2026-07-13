@@ -649,7 +649,7 @@ export default function TrashPile() {
               onClick={() => setIsTrashOpen(!isTrashOpen)}
               title={`${pileCards.length} deleted item${pileCards.length !== 1 ? 's' : ''} — click to view`}
               style={{
-                filter: isTrashOpen ? 'drop-shadow(0 0 8px rgba(201,123,75,0.4))' : 'none'
+                filter: isTrashOpen ? 'drop-shadow(0 0 8px rgba(var(--accent-rgb),0.4))' : 'none'
               }}
             >
               <svg viewBox="0 0 56 56" className="w-full h-full drop-shadow-xl" fill="none">

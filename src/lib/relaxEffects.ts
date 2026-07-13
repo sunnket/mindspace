@@ -26,11 +26,16 @@ import {
   playBell,
   playBoom,
   playChime,
+  playHandpan,
   playLaunch,
   playPlop,
   playPop,
   playSnap,
+  playSparkle,
+  playWhoosh,
+  startAmbience,
   startRain,
+  stopAmbience,
   stopRain,
 } from './relaxAudio';
 
@@ -43,7 +48,12 @@ export type RelaxEffectId =
   | 'bubblewrap'
   | 'chimes'
   | 'ink'
-  | 'ripples';
+  | 'ripples'
+  | 'ocean'
+  | 'handpan'
+  | 'snow'
+  | 'fireflies'
+  | 'lanterns';
 
 export interface Particle {
   el: HTMLElement;
@@ -166,24 +176,49 @@ const FLOWER_SVGS = [
   '/flowers/yves_guillou_Dahlia.svg',
 ];
 
+/* Warm the SVGs into the browser's cache the first time the effect is armed.
+   Without this, the opening 40 blooms each kick off their own request for a file
+   nobody has fetched yet, and the burst stutters on its first frame. */
+let flowersPreloaded = false;
+function preloadFlowers() {
+  if (flowersPreloaded || typeof Image === 'undefined') return;
+  flowersPreloaded = true;
+  for (const src of FLOWER_SVGS) {
+    const img = new Image();
+    img.src = src;
+  }
+}
+
 const flowers: RelaxEffect = {
   id: 'flowers',
   label: 'Flower Burst',
-  blurb: 'Hundreds of blooms pop from your cursor and drift away on the breeze.',
+  blurb: 'Blooms pop from your cursor and drift away on the breeze.',
   space: 'world',
   flash: 'rgba(255, 140, 170, 0.55)',
   burstMs: 10_000,
-  openingPop: 55,
-  spawnEveryMs: 50,
-  spawnPerTick: 3,
-  maxParticles: 900,
+  /* Cut back from 55/3/900.
+     Every bloom carried `filter: drop-shadow(…)`, and a CSS filter forces the
+     compositor to give that element its OWN render surface. Nine hundred of them
+     meant nine hundred surfaces, so tapping four or five spots at once — which is
+     exactly what people do with this one — dropped the frame rate through the
+     floor. The shadow is gone and the ceiling is less than half what it was; the
+     burst still reads as "a lot of flowers" and it now holds 60fps while you
+     hammer the canvas. (RelaxEffectsLayer also divides the emission rate between
+     concurrent taps, so N bursts cost about what one used to.) */
+  openingPop: 40,
+  spawnEveryMs: 55,
+  spawnPerTick: 2,
+  maxParticles: 420,
+  onStart() {
+    preloadFlowers();
+  },
   create(x, y, now) {
     const size = rand(26, 64);
     const el = document.createElement('img');
     (el as HTMLImageElement).src = pick(FLOWER_SVGS);
     (el as HTMLImageElement).alt = '';
     (el as HTMLImageElement).draggable = false;
-    baseStyle(el, size, 'filter:drop-shadow(0 3px 5px rgba(0,0,0,0.18));');
+    baseStyle(el, size);
 
     const p = particle(el, x + rand(-10, 10), y + rand(-10, 10), size, rand(3200, 5200), now);
     const angle = Math.random() * Math.PI * 2;
@@ -927,12 +962,415 @@ const ripples: RelaxEffect = {
   },
 };
 
+/* ------------------------------------------------------------------- ocean */
+
+const WAVE = 0;
+const FOAM = 1;
+
+const ocean: RelaxEffect = {
+  id: 'ocean',
+  label: 'Ocean Shore',
+  blurb: 'Stand at the waterline. Waves roll up the sand, hiss into foam and drain away — for a full minute, with real surf underneath.',
+  space: 'screen',
+  flash: '',
+  burstMs: 60_000,
+  openingPop: 2,
+  spawnEveryMs: 2600,
+  spawnPerTick: 1,
+  maxParticles: 140,
+  onStart(_x, _y, api) {
+    startAmbience('ocean');
+
+    // The water itself: a still band across the bottom that the waves run out of.
+    // Without it the crests look like they're arriving from nowhere.
+    const sea = document.createElement('div');
+    sea.dataset.sea = '';
+    sea.style.cssText =
+      'position:absolute;left:0;right:0;bottom:0;height:34%;pointer-events:none;opacity:0;' +
+      'transition:opacity 1400ms ease;' +
+      'background:linear-gradient(180deg, rgba(28,78,120,0) 0%, rgba(30,92,140,0.34) 40%, rgba(24,70,112,0.62) 100%);';
+    api.screen.appendChild(sea);
+    requestAnimationFrame(() => { sea.style.opacity = '1'; });
+  },
+  onStop(api) {
+    stopAmbience('ocean');
+    const sea = api.screen.querySelector<HTMLElement>('[data-sea]');
+    if (!sea) return;
+    sea.style.opacity = '0';
+    window.setTimeout(() => sea.remove(), 1500);
+  },
+  create(x, y, now, api, kind = WAVE) {
+    const { w, h } = api.viewport;
+
+    if (kind === FOAM) {
+      const size = rand(3, 9);
+      const el = document.createElement('div');
+      baseStyle(el, size, 'border-radius:50%;background:rgba(255,255,255,0.85);');
+      const p = particle(el, x + rand(-w * 0.5, w * 0.5), y + rand(-6, 10), size, rand(900, 1800), now);
+      p.kind = FOAM;
+      p.vx = rand(-0.25, 0.25);
+      p.vy = rand(-0.12, 0.18);
+      return p;
+    }
+
+    // A crest: a very wide, very flat ellipse. It is scaled, never resized —
+    // width is set once and the whole run happens on the compositor.
+    const width = w * rand(1.05, 1.35);
+    const el = document.createElement('div');
+    baseStyle(
+      el,
+      width,
+      'height:120px;border-radius:50%;' +
+        'background:linear-gradient(180deg, rgba(255,255,255,0.82) 0%, rgba(214,238,255,0.55) 22%,' +
+        ' rgba(120,180,225,0.30) 55%, rgba(40,100,150,0.10) 100%);' +
+        'box-shadow:0 -2px 18px rgba(190,230,255,0.35);'
+    );
+
+    const p = particle(el, (w - width) / 2, h, width, rand(9000, 13000), now);
+    p.kind = WAVE;
+    p.a = rand(0.20, 0.40) * h; // how far up the shore this one reaches
+    p.b = rand(0.9, 1.25); // vertical squash — no two crests are the same weight
+    p.c = 0; // has it broken yet (foam is thrown once, at the peak)
+    return p;
+  },
+  step(p, t, _now, api) {
+    if (p.kind === FOAM) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) scale(${1 - t * 0.6})`;
+      p.el.style.opacity = String((1 - t) * 0.8);
+      return;
+    }
+
+    /* Run up, hold, drain back. The rise is fast and eased-out (a wave arrives in
+       a rush) and the retreat is slow and eased-in (it drains reluctantly) — get
+       those two the same way round and it reads as a pulsing blob, not the sea. */
+    const RISE = 0.34;
+    let reach: number;
+    if (t < RISE) {
+      const k = t / RISE;
+      reach = (1 - Math.pow(1 - k, 2.6)) * p.a;
+    } else {
+      const k = (t - RISE) / (1 - RISE);
+      reach = (1 - Math.pow(k, 2.2)) * p.a;
+    }
+
+    // At the top of the run the wave breaks — throw the foam once.
+    if (p.c === 0 && t >= RISE * 0.9) {
+      p.c = 1;
+      api.spawn(api.viewport.w / 2, api.viewport.h - reach, 14, FOAM);
+    }
+
+    const y = p.y - reach - 60;
+    p.el.style.transform = `translate3d(${p.x}px, ${y}px, 0) scaleY(${p.b})`;
+    p.el.style.opacity = String(Math.min(1, t * 6) * (t > 0.8 ? (1 - t) / 0.2 : 1) * 0.9);
+  },
+};
+
+/* ----------------------------------------------------------------- handpan */
+
+/** A ring of tone fields, plus the dome in the middle. */
+const PAD_COUNT = 8;
+const DOME = 1;
+
+const handpan: RelaxEffect = {
+  id: 'handpan',
+  label: 'Handpan',
+  blurb: 'A real instrument, tuned so it cannot sound wrong. Tap the tone fields — every note is in key, so play as fast or as slow as you like.',
+  space: 'screen',
+  flash: '',
+  burstMs: 0,
+  openingPop: PAD_COUNT,
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: 12,
+  interactive: true,
+  consumeOnPop: false, // you strike a pan; you don't destroy it
+  onBurst(_x, _y, api) {
+    api.clear();
+    api.spawn(0, 0, 1, DOME);
+  },
+  create(_x, _y, now, api, kind = 0, _tint, index = 0) {
+    const { w, h } = api.viewport;
+    const cx = w / 2;
+    const cy = h / 2;
+    const radius = Math.min(w, h) * 0.26;
+
+    if (kind === DOME) {
+      const size = radius * 0.62;
+      const el = document.createElement('div');
+      baseStyle(
+        el,
+        size,
+        'border-radius:50%;cursor:pointer;' +
+          'background:radial-gradient(circle at 38% 32%, #e9eef4 0%, #9fb0c2 34%, #5d6f83 72%, #3d4c5c 100%);' +
+          'box-shadow:inset -6px -8px 20px rgba(0,0,0,0.35), inset 6px 8px 20px rgba(255,255,255,0.35),' +
+          ' 0 18px 40px -14px rgba(0,0,0,0.55);'
+      );
+      const p = particle(el, cx - size / 2, cy - size / 2, size, 600_000, now);
+      p.kind = DOME;
+      p.d = PENTATONIC[0] / 2; // the ding: the pan's root, an octave down
+      return p;
+    }
+
+    // Tone fields around the rim. Going anticlockwise from the top puts the low
+    // notes on one side and the high on the other, so a sweep is a scale.
+    const angle = -Math.PI / 2 + (index / PAD_COUNT) * Math.PI * 2;
+    const size = radius * rand(0.34, 0.4);
+    const el = document.createElement('div');
+    baseStyle(
+      el,
+      size,
+      'border-radius:50%;cursor:pointer;' +
+        'background:radial-gradient(circle at 40% 34%, #dfe7ef 0%, #a8b8c8 38%, #6b7d90 78%, #4a5a6b 100%);' +
+        'box-shadow:inset -4px -5px 12px rgba(0,0,0,0.30), inset 4px 5px 12px rgba(255,255,255,0.40),' +
+        ' 0 10px 24px -10px rgba(0,0,0,0.5);'
+    );
+
+    const p = particle(
+      el,
+      cx + Math.cos(angle) * radius - size / 2,
+      cy + Math.sin(angle) * radius * 0.86 - size / 2,
+      size,
+      600_000,
+      now
+    );
+    p.kind = 0;
+    p.a = 0; // strike energy, decays to nothing
+    p.c = 0; // last strike, for the retrigger cooldown
+    p.d = PENTATONIC[index % PENTATONIC.length] * (index >= PENTATONIC.length ? 2 : 1);
+    return p;
+  },
+  step(p, t) {
+    // A struck field swells and settles. That's the whole animation: the sound is
+    // the point, the motion just has to confirm you hit the thing you aimed at.
+    // (A filter here would break rule 2 for a hot particle system — but a pan is
+    // nine nodes that never move, so the flash costs nothing. `b` remembers what
+    // we last wrote, so an idle pan isn't restyled sixty times a second.)
+    p.a *= 0.9;
+    const glow = p.a > 0.02 ? 1 + p.a * 0.5 : 1;
+    if (glow !== p.b) {
+      p.b = glow;
+      p.el.style.filter = glow > 1 ? `brightness(${glow})` : '';
+    }
+    p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) scale(${1 + p.a * 0.12})`;
+    p.el.style.opacity = String(Math.min(1, t * 200));
+  },
+  onPop(p) {
+    const now = performance.now();
+    if (now - p.c < 90) return; // a jittering cursor must not machine-gun a note
+    p.c = now;
+    p.a = 1;
+    playHandpan(p.d);
+  },
+};
+
+/* -------------------------------------------------------------------- snow */
+
+const snow: RelaxEffect = {
+  id: 'snow',
+  label: 'Snowfall',
+  blurb: 'Everything goes quiet. Snow drifts down across the whole canvas for a minute, with a soft wind behind it.',
+  space: 'screen',
+  flash: '',
+  burstMs: 60_000,
+  openingPop: 90,
+  spawnEveryMs: 120,
+  spawnPerTick: 3,
+  maxParticles: 320,
+  onStart() {
+    startAmbience('wind');
+  },
+  onStop() {
+    stopAmbience('wind');
+  },
+  create(_x, _y, now, api) {
+    const { w, h } = api.viewport;
+    const size = rand(3, 9);
+    const el = document.createElement('div');
+    baseStyle(
+      el,
+      size,
+      'border-radius:50%;background:rgba(255,255,255,0.92);' +
+        'box-shadow:0 0 6px rgba(255,255,255,0.7);'
+    );
+
+    const p = particle(el, rand(-40, w + 40), rand(-h * 0.4, -20), size, rand(9000, 16000), now);
+    // Big flakes are near, so they fall faster and are brighter; small ones hang
+    // back. That single correlation is what gives the fall any depth at all.
+    const near = (size - 3) / 6;
+    p.vy = 0.5 + near * 1.5;
+    p.vx = rand(-0.25, 0.25);
+    p.b = 0.35 + near * 0.55; // opacity
+    p.c = rand(0.15, 0.5); // drift frequency
+    p.d = rand(0, Math.PI * 2);
+    p.a = rand(14, 46); // drift amplitude
+    return p;
+  },
+  step(p, t, now, api) {
+    p.y += p.vy;
+    p.x += p.vx;
+
+    if (p.y > api.viewport.h + 20) {
+      p.y = rand(-60, -10);
+      p.x = rand(-40, api.viewport.w + 40);
+    }
+
+    const drift = Math.sin(now / 1000 * p.c + p.d) * p.a;
+    p.el.style.transform = `translate3d(${p.x + drift}px, ${p.y}px, 0)`;
+    p.el.style.opacity = String(p.b * (t > 0.94 ? (1 - t) / 0.06 : Math.min(1, t * 12)));
+  },
+};
+
+/* --------------------------------------------------------------- fireflies */
+
+const FIREFLY_COLORS = ['#FFF3A0', '#D9FF9E', '#FFE68A', '#C8FFB0'];
+const GLOW = 1;
+
+const fireflies: RelaxEffect = {
+  id: 'fireflies',
+  label: 'Fireflies',
+  blurb: 'Dusk in a field. They wander, they pulse, they blink out. Catch one and it flares and rings.',
+  space: 'world',
+  flash: '',
+  burstMs: 45_000,
+  openingPop: 14,
+  spawnEveryMs: 1600,
+  spawnPerTick: 1,
+  maxParticles: 46,
+  interactive: true,
+  create(x, y, now, api, kind = 0, tint) {
+    if (kind === GLOW) {
+      const size = rand(3, 7);
+      const el = document.createElement('div');
+      baseStyle(el, size, `border-radius:50%;background:${tint ?? '#FFF3A0'};box-shadow:0 0 8px ${tint ?? '#FFF3A0'};`);
+      const p = particle(el, x, y, size, rand(400, 800), now);
+      p.kind = GLOW;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = rand(1.5, 5);
+      p.vx = Math.cos(angle) * speed;
+      p.vy = Math.sin(angle) * speed;
+      return p;
+    }
+
+    const color = pick(FIREFLY_COLORS);
+    const size = rand(9, 15);
+    const el = document.createElement('div');
+    baseStyle(
+      el,
+      size,
+      'border-radius:50%;cursor:pointer;' +
+        `background:radial-gradient(circle at 50% 50%, #ffffff 0%, ${color} 40%, ${color}00 72%);` +
+        `box-shadow:0 0 16px 4px ${color}88;`
+    );
+
+    const p = particle(el, x + rand(-260, 260), y + rand(-200, 200), size, rand(14000, 22000), now);
+    p.kind = 0;
+    p.tint = color;
+    // A firefly doesn't fly in a straight line; it wanders. Two sine drifts at
+    // unrelated rates, one per axis, is a cheap and convincing wander.
+    p.a = rand(30, 90); // wander radius x
+    p.b = rand(24, 70); // wander radius y
+    p.c = rand(0.1, 0.28); // wander rate
+    p.d = rand(0, Math.PI * 2);
+    p.vx = rand(0.4, 1.3); // pulse rate of the glow
+    return p;
+  },
+  step(p, t, now) {
+    if (p.kind === GLOW) {
+      p.vx *= 0.92;
+      p.vy *= 0.92;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${1 - t})`;
+      p.el.style.opacity = String(1 - t);
+      return;
+    }
+
+    const s = now / 1000;
+    const wx = p.x + Math.sin(s * p.c + p.d) * p.a + Math.sin(s * p.c * 2.7 + p.d) * (p.a * 0.25);
+    const wy = p.y + Math.cos(s * p.c * 1.3 + p.d) * p.b;
+
+    // The pulse: on, off, on. Never fully out, or you'd be trying to click a
+    // target that isn't there.
+    const pulse = 0.35 + 0.65 * Math.pow((Math.sin(s * p.vx * 2 + p.d) + 1) / 2, 2);
+    const fade = t < 0.05 ? t / 0.05 : t > 0.9 ? (1 - t) / 0.1 : 1;
+
+    p.el.style.transform = `translate3d(${wx - p.size / 2}px, ${wy - p.size / 2}px, 0) scale(${0.85 + pulse * 0.3})`;
+    p.el.style.opacity = String(pulse * fade);
+  },
+  onPop(p, api) {
+    playSparkle();
+    api.spawn(p.x, p.y, 8, GLOW, p.tint);
+  },
+};
+
+/* ---------------------------------------------------------------- lanterns */
+
+const LANTERN_COLORS = ['#FFB65C', '#FF8E53', '#FFD08A', '#FF7043'];
+
+const lanterns: RelaxEffect = {
+  id: 'lanterns',
+  label: 'Sky Lanterns',
+  blurb: 'Let them go. Paper lanterns lift off, sway on the warm air and shrink away into the dark.',
+  space: 'world',
+  flash: 'rgba(255, 182, 92, 0.35)',
+  burstMs: 12_000,
+  openingPop: 6,
+  spawnEveryMs: 900,
+  spawnPerTick: 1,
+  maxParticles: 60,
+  onBurst() {
+    playWhoosh();
+  },
+  create(x, y, now) {
+    const color = pick(LANTERN_COLORS);
+    const w = rand(26, 46);
+    const h = w * 1.28;
+    const el = document.createElement('div');
+    baseStyle(
+      el,
+      w,
+      `height:${h}px;border-radius:46% 46% 38% 38%/38% 38% 52% 52%;` +
+        `background:radial-gradient(ellipse at 50% 68%, #FFF6E0 0%, ${color} 42%, ${color}CC 78%, ${color}66 100%);` +
+        `box-shadow:0 0 26px 6px ${color}55, inset 0 -6px 12px ${color}AA;` +
+        'border-top:2px solid rgba(255,240,210,0.55);'
+    );
+
+    const p = particle(el, x + rand(-90, 90), y + rand(-20, 30), w, rand(11000, 17000), now);
+    p.a = h;
+    // Rise rate. Big lanterns are nearer, so they climb faster and look bigger —
+    // the same near/far trick the snow uses, and it's what gives the sky depth.
+    p.vy = -(0.45 + (w - 26) / 20 * 0.55);
+    p.b = rand(18, 46); // sway amplitude
+    p.c = rand(0.12, 0.3); // sway rate
+    p.d = rand(0, Math.PI * 2);
+    p.spin = rand(-0.25, 0.25);
+    return p;
+  },
+  step(p, t, now) {
+    p.y += p.vy;
+    const sway = Math.sin(now / 1000 * p.c + p.d) * p.b;
+    p.rot += p.spin;
+
+    // Shrink as it climbs — it isn't getting smaller, it's getting further away.
+    const scale = 1 - t * 0.45;
+    const glow = 0.9 + Math.sin(now / 1000 * 3 + p.d) * 0.1; // the flame guttering
+
+    p.el.style.transform =
+      `translate3d(${p.x + sway - p.size / 2}px, ${p.y - p.a / 2}px, 0) rotate(${p.rot}deg) scale(${scale})`;
+    p.el.style.opacity = String(Math.min(1, t * 8) * (t > 0.7 ? (1 - t) / 0.3 : 1) * glow);
+  },
+};
+
 /* -------------------------------------------------------------------------- */
 
 export const RELAX_EFFECTS: Record<RelaxEffectId, RelaxEffect> = {
   flowers, rain, fireworks, galaxy, bubbles, bubblewrap, chimes, ink, ripples,
+  ocean, handpan, snow, fireflies, lanterns,
 };
 
 export const RELAX_EFFECT_LIST: RelaxEffect[] = [
   flowers, rain, fireworks, galaxy, bubbles, bubblewrap, chimes, ink, ripples,
+  ocean, handpan, snow, fireflies, lanterns,
 ];

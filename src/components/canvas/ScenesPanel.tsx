@@ -34,7 +34,7 @@ function ScenePreview({ scene, objects, w = 148, h = 92 }: { scene: Scene; objec
         const fill =
           o.type === 'heading' ? 'var(--accent)' :
           o.type === 'sticky' ? ((o.style?.color as string) || '#F5C563') :
-          o.type === 'shape' ? ((o.style?.color as string) || 'rgba(201,123,75,0.4)') :
+          o.type === 'shape' ? ((o.style?.color as string) || 'rgba(var(--accent-rgb),0.4)') :
           o.type === 'frame' ? 'transparent' :
           '#FFFFFF';
         return (
@@ -124,7 +124,7 @@ function SceneList({ onPlay }: { onPlay: () => void }) {
         <h3 className="text-[11px] uppercase font-extrabold tracking-[0.16em] text-[var(--text-secondary)]">Scenes</h3>
         <button
           onClick={() => addScene()}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold cursor-pointer hover:brightness-105 transition-all shadow-[0_6px_14px_-6px_rgba(201,123,75,0.6)]"
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold cursor-pointer hover:brightness-105 transition-all shadow-[0_6px_14px_-6px_rgba(var(--accent-rgb),0.6)]"
         >
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
           Capture view
@@ -185,7 +185,7 @@ function SceneList({ onPlay }: { onPlay: () => void }) {
       {ordered.length > 0 && (
         <button
           onClick={onPlay}
-          className="shrink-0 w-full py-2.5 rounded-full bg-[var(--accent)] text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer hover:brightness-105 transition-all shadow-[0_10px_22px_-8px_rgba(201,123,75,0.6),inset_0_1px_0_rgba(255,255,255,0.3)]"
+          className="shrink-0 w-full py-2.5 rounded-full bg-[var(--accent)] text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer hover:brightness-105 transition-all shadow-[0_10px_22px_-8px_rgba(var(--accent-rgb),0.6),inset_0_1px_0_rgba(255,255,255,0.3)]"
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5l12 7-12 7z" /></svg>
           Play tour

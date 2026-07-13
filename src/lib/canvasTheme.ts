@@ -100,6 +100,66 @@ export function contrastRatio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+/* ---------------------- hue math (for the accent) ---------------------- */
+
+function hexToHsl(hex: string): { h: number; s: number; l: number } {
+  const { r, g, b } = hexToRgb(hex);
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return { h: 0, s: 0, l };
+
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
+  else if (max === gn) h = ((bn - rn) / d + 2) / 6;
+  else h = ((rn - gn) / d + 4) / 6;
+  return { h, s, l };
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const hue = ((h % 1) + 1) % 1;
+  if (s === 0) {
+    const v = Math.round(l * 255);
+    return rgbToHex(v, v, v);
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const channel = (t: number) => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  return rgbToHex(channel(hue + 1 / 3) * 255, channel(hue) * 255, channel(hue - 1 / 3) * 255);
+}
+
+/**
+ * An accent that belongs to the chosen paper.
+ *
+ * Presets ship their own accent, but a hand-picked colour didn't — it fell
+ * through to the app's terracotta, so choosing a green canvas left the whole
+ * toolbar, the selected-tool pills and every highlight glowing orange. The
+ * accent is now DERIVED whenever one isn't given: same hue as the paper, pushed
+ * to a vivid, legible tone against it. A grey or near-white paper has no hue to
+ * borrow, so those keep the warm default.
+ */
+export function deriveAccent(color: string, darkPaper: boolean): string {
+  const { h, s } = hexToHsl(color);
+  if (s < 0.09) return darkPaper ? '#E8A97B' : DEFAULT_ACCENT;
+  const sat = Math.min(0.82, Math.max(0.58, s * 1.15));
+  // On dark paper the accent has to out-light the background; on light paper it
+  // has to out-dark it. Either way it lands well clear of the paper's own tone.
+  return hslToHex(h, sat, darkPaper ? 0.66 : 0.46);
+}
+
 /** Legible ink (near-black or warm off-white) for a given background hex. */
 export function readableInk(bgHex: string): string {
   return isDarkColor(bgHex) ? '#F4EFE8' : '#2D2A26';
@@ -158,7 +218,6 @@ export function presetById(id: string): CanvasThemePreset | undefined {
  * the theme at once.
  */
 export function deriveThemeVars(bg: CanvasBackground): Record<string, string> {
-  const accent = bg.accent || DEFAULT_ACCENT;
   const neutralLight = '#FAF6F1';
   const neutralDark = '#0D0C0B';
   const inferredDark = bg.dark ?? isDarkColor(bg.color);
@@ -167,6 +226,10 @@ export function deriveThemeVars(bg: CanvasBackground): Record<string, string> {
   // The paper: neutral faded toward the chosen color by the opacity/intensity.
   const primary = mixHex(neutral, bg.color, clamp01(bg.opacity));
   const dark = isDarkColor(primary);
+
+  // No accent given (any hand-picked colour) → take one from the paper's own hue,
+  // so the whole UI re-tunes to the background instead of staying terracotta.
+  const accent = bg.accent || deriveAccent(bg.color, dark);
 
   const accentRgb = hexToRgb(accent);
   const accentRgbStr = `${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}`;

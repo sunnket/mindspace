@@ -51,7 +51,7 @@ function PortalCard({ target, index, onPick }: { target: WarpTarget; index: numb
           className="w-24 h-24 rounded-full opacity-70 group-hover:opacity-100 transition-opacity"
           style={{
             background:
-              'conic-gradient(from 0deg, rgba(201,123,75,0.05), rgba(232,169,123,0.55), rgba(74,144,217,0.5), rgba(201,123,75,0.05))',
+              'conic-gradient(from 0deg, rgba(var(--accent-rgb),0.05), rgba(232,169,123,0.55), rgba(74,144,217,0.5), rgba(var(--accent-rgb),0.05))',
             filter: 'blur(6px)',
           }}
           animate={{ rotate: 360 }}
@@ -255,7 +255,7 @@ export default function WarpPortal() {
                 style={{
                   left: center.x, top: center.y,
                   width: 280, height: 280, x: '-50%', y: '-50%',
-                  background: 'conic-gradient(from 0deg, rgba(201,123,75,0.0), rgba(232,169,123,0.8), rgba(74,144,217,0.7), rgba(201,123,75,0.0))',
+                  background: 'conic-gradient(from 0deg, rgba(var(--accent-rgb),0.0), rgba(232,169,123,0.8), rgba(74,144,217,0.7), rgba(var(--accent-rgb),0.0))',
                   filter: 'blur(4px)',
                 }}
                 initial={{ scale: 0.2, opacity: 0, rotate: 0 }}

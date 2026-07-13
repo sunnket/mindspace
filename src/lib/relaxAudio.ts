@@ -359,6 +359,226 @@ export function playBoom() {
   }
 }
 
+/* ------------------------------------------------------------------ handpan */
+
+/**
+ * A handpan note. Unlike the wind chime, a handpan is nearly HARMONIC — its
+ * overtones sit close to whole multiples of the fundamental, which is why it
+ * sings rather than clangs. Soft mallet attack, long bloom, drenched in reverb.
+ */
+export function playHandpan(freq: number) {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 1);
+
+  const partials: [number, number, number][] = [
+    [1, 0.26, 3.6],
+    [2, 0.1, 2.6],
+    [3, 0.045, 1.7],
+    [4.02, 0.018, 1.1], // just off 4 — the tiny detune is the metal in it
+  ];
+
+  for (const [ratio, level, secs] of partials) {
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq * ratio, t);
+    g.gain.setValueAtTime(0.0001, t);
+    // A slow attack (12ms, not 4) is the difference between a struck bell and a
+    // hand on steel.
+    g.gain.exponentialRampToValueAtTime(level, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + secs);
+    osc.connect(g).connect(out);
+    osc.start(t);
+    osc.stop(t + secs + 0.1);
+  }
+
+  const n = noise(ac, 0.04, 4);
+  const lp = ac.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = freq * 4;
+  const ng = ac.createGain();
+  ng.gain.setValueAtTime(0.05, t);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+  n.connect(lp).connect(ng).connect(out);
+  n.start(t);
+  n.stop(t + 0.05);
+}
+
+/** A lantern catching the air — breathy, rising, gone. */
+export function playWhoosh() {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 0.6);
+  const dur = rand(0.5, 0.8);
+
+  const n = noise(ac, dur, 1.4);
+  const bp = ac.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.Q.value = 1.1;
+  bp.frequency.setValueAtTime(rand(240, 380), t);
+  bp.frequency.exponentialRampToValueAtTime(rand(900, 1400), t + dur);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.11, t + dur * 0.35);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  n.connect(bp).connect(g).connect(out);
+  n.start(t);
+  n.stop(t + dur + 0.05);
+}
+
+/** Catching a firefly: a tiny glassy ping, high and brief. */
+export function playSparkle() {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 1);
+  const root = PENTATONIC[(Math.random() * PENTATONIC.length) | 0] * 2;
+
+  const osc = ac.createOscillator();
+  const g = ac.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(root, t);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.09, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+  osc.connect(g).connect(out);
+  osc.start(t);
+  osc.stop(t + 1);
+}
+
+/* ---------------------------------------------------------------- ambiences */
+
+/**
+ * Continuous beds — surf and wind — synthesised rather than shipped.
+ *
+ * A wave is not a sample you loop; a loop of surf gives itself away inside ten
+ * seconds because the same swell keeps arriving. This is brown noise pushed
+ * through a filter whose cutoff and level are swept by TWO slow oscillators at
+ * incommensurable rates (0.09 Hz and 0.13 Hz). They drift in and out of phase
+ * and never quite repeat, so the sea keeps breathing unevenly, the way it does.
+ */
+type AmbienceId = 'ocean' | 'wind';
+
+interface Ambience {
+  src: AudioBufferSourceNode;
+  gain: GainNode;
+  lfos: OscillatorNode[];
+  fade: number | null;
+}
+
+const ambiences = new Map<AmbienceId, Ambience>();
+
+/** Brown noise — heavier at the bottom than white, which is what water sounds like. */
+function brownNoiseLoop(ac: AudioContext, seconds = 8): AudioBufferSourceNode {
+  const len = Math.floor(ac.sampleRate * seconds);
+  const buf = ac.createBuffer(2, len, ac.sampleRate);
+  for (let c = 0; c < 2; c++) {
+    const data = buf.getChannelData(c);
+    let last = 0;
+    for (let i = 0; i < len; i++) {
+      const white = Math.random() * 2 - 1;
+      last = (last + 0.02 * white) / 1.02;
+      data[i] = last * 3.2;
+    }
+    // Cross-fade the tail into the head so the loop point isn't a click.
+    const blend = Math.min(4096, len >> 2);
+    for (let i = 0; i < blend; i++) {
+      const k = i / blend;
+      data[i] = data[i] * k + data[len - blend + i] * (1 - k);
+    }
+  }
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
+  return src;
+}
+
+export function startAmbience(id: AmbienceId) {
+  const ac = audioCtx();
+  if (!ac || ambiences.has(id)) return;
+
+  const src = brownNoiseLoop(ac);
+  const out = voiceOut(ac, id === 'ocean' ? 0.55 : 0.3);
+
+  const gain = ac.createGain();
+  gain.gain.value = 0; // faded up below
+
+  const body = ac.createBiquadFilter();
+  body.type = 'lowpass';
+  body.Q.value = 0.7;
+  body.frequency.value = id === 'ocean' ? 900 : 520;
+
+  // The swell: cutoff opens as the wave rears up, closes as it drains back.
+  const swell = ac.createOscillator();
+  const swellDepth = ac.createGain();
+  swell.frequency.value = 0.09;
+  swellDepth.gain.value = id === 'ocean' ? 620 : 260;
+  swell.connect(swellDepth).connect(body.frequency);
+
+  // …and a second, slower one on the level, at a rate that shares no factor with
+  // the first, so the two never line back up into an audible loop.
+  const surge = ac.createOscillator();
+  const surgeDepth = ac.createGain();
+  surge.frequency.value = 0.13;
+  surgeDepth.gain.value = id === 'ocean' ? 0.42 : 0.16;
+  surge.connect(surgeDepth).connect(gain.gain);
+
+  src.connect(body).connect(gain).connect(out);
+
+  if (id === 'ocean') {
+    // The hiss of foam over the top of the swell — a thin high band, riding the
+    // same swell so it only appears as each wave actually breaks.
+    const foam = ac.createBiquadFilter();
+    foam.type = 'bandpass';
+    foam.frequency.value = 3400;
+    foam.Q.value = 0.6;
+    const foamGain = ac.createGain();
+    foamGain.gain.value = 0.05;
+    const foamRide = ac.createGain();
+    foamRide.gain.value = 0.05;
+    surge.connect(foamRide).connect(foamGain.gain);
+    src.connect(foam).connect(foamGain).connect(out);
+  }
+
+  src.start();
+  swell.start();
+  surge.start();
+
+  const target = id === 'ocean' ? 0.5 : 0.22;
+  const now = ac.currentTime;
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.linearRampToValueAtTime(target, now + 2.5);
+
+  ambiences.set(id, { src, gain, lfos: [swell, surge], fade: null });
+}
+
+export function stopAmbience(id: AmbienceId) {
+  const a = ambiences.get(id);
+  if (!a) return;
+  ambiences.delete(id);
+
+  const ac = audioCtx();
+  if (!ac) return;
+  const now = ac.currentTime;
+  // Cancel the LFO's writes to gain.gain first, or it would keep wobbling the
+  // level right through the fade-out and the sea would never actually stop.
+  a.gain.gain.cancelScheduledValues(now);
+  a.gain.gain.setValueAtTime(Math.max(0.0001, a.gain.gain.value), now);
+  a.gain.gain.linearRampToValueAtTime(0.0001, now + 1.4);
+
+  window.setTimeout(() => {
+    try {
+      a.src.stop();
+      for (const lfo of a.lfos) lfo.stop();
+    } catch {
+      /* already stopped */
+    }
+  }, 1600);
+}
+
 /* --------------------------------------------------------------------- rain */
 
 function clearRainFade() {

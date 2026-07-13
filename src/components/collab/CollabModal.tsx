@@ -165,7 +165,7 @@ export default function CollabModal() {
                 </p>
                 <button
                   onClick={closeModal}
-                  className="mt-6 w-full py-3 rounded-full bg-[var(--accent)] text-white text-sm font-bold cursor-pointer shadow-[0_10px_22px_-8px_rgba(201,123,75,0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 transition-all"
+                  className="mt-6 w-full py-3 rounded-full bg-[var(--accent)] text-white text-sm font-bold cursor-pointer shadow-[0_10px_22px_-8px_rgba(var(--accent-rgb),0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 transition-all"
                 >
                   Start collaborating
                 </button>
@@ -217,7 +217,7 @@ export default function CollabModal() {
                     <button
                       onClick={doHost}
                       disabled={busy}
-                      className="w-full py-3 rounded-full bg-[var(--accent)] text-white text-sm font-bold cursor-pointer shadow-[0_10px_22px_-8px_rgba(201,123,75,0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 transition-all disabled:opacity-60 disabled:cursor-wait flex items-center justify-center gap-2"
+                      className="w-full py-3 rounded-full bg-[var(--accent)] text-white text-sm font-bold cursor-pointer shadow-[0_10px_22px_-8px_rgba(var(--accent-rgb),0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 transition-all disabled:opacity-60 disabled:cursor-wait flex items-center justify-center gap-2"
                     >
                       {busy ? 'Creating…' : 'Create session'}
                     </button>
@@ -248,7 +248,7 @@ export default function CollabModal() {
                     <button
                       onClick={doJoin}
                       disabled={busy}
-                      className="mt-4 w-full py-3 rounded-full bg-[var(--accent)] text-white text-sm font-bold cursor-pointer shadow-[0_10px_22px_-8px_rgba(201,123,75,0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 transition-all disabled:opacity-60 disabled:cursor-wait"
+                      className="mt-4 w-full py-3 rounded-full bg-[var(--accent)] text-white text-sm font-bold cursor-pointer shadow-[0_10px_22px_-8px_rgba(var(--accent-rgb),0.6),inset_0_1px_0_rgba(255,255,255,0.3)] hover:brightness-105 transition-all disabled:opacity-60 disabled:cursor-wait"
                     >
                       {busy ? 'Connecting…' : 'Join session'}
                     </button>

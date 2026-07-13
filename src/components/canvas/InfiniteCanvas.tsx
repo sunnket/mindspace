@@ -1086,7 +1086,7 @@ export default function InfiniteCanvas() {
           >
             <button
               onClick={() => setMode('select')}
-              className="glass-panel px-5 py-2.5 flex items-center gap-3 group transition-all hover:border-[var(--accent)] hover:shadow-[0_0_20px_rgba(201,123,75,0.2)]"
+              className="glass-panel px-5 py-2.5 flex items-center gap-3 group transition-all hover:border-[var(--accent)] hover:shadow-[0_0_20px_rgba(var(--accent-rgb),0.2)]"
             >
               <div className="w-5 h-5 rounded-full bg-[var(--accent-subtle)] flex items-center justify-center text-[var(--accent)] group-hover:bg-[var(--accent)] group-hover:text-white transition-colors">
                 <span className="text-xs">✕</span>

@@ -705,7 +705,7 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
 
       {/* Active layout switcher & coloring (only shows if activeWorkflowId is set) */}
       {activeWorkflowId ? (
-        <div className="flex flex-col gap-3 p-3 bg-[rgba(201,123,75,0.04)] rounded-xl border border-[rgba(201,123,75,0.15)] animate-fade-in">
+        <div className="flex flex-col gap-3 p-3 bg-[rgba(var(--accent-rgb),0.04)] rounded-xl border border-[rgba(var(--accent-rgb),0.15)] animate-fade-in">
           {/* Section: Layout Switcher */}
           <div>
             <div className="flex items-center justify-between mb-1.5">

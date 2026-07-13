@@ -488,6 +488,17 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       id, // Override ID in case partial has a duplicate
     };
 
+    /* A frame is a BACKDROP, and a backdrop belongs behind its contents — always,
+       no matter when it was created. The AI agent routinely emits the frame LAST
+       (after the blocks it wraps), which gave it the highest z-index: it then sat
+       on top of everything inside it, tinting it and, because it's a full-size
+       div, swallowing every click meant for the cards underneath. That is why a
+       link card inside an agent-drawn frame looked dead — you couldn't press play
+       on it, because you were clicking the frame. */
+    if (obj.type === 'frame' && partial.zIndex === undefined) {
+      obj.zIndex = 0;
+    }
+
     // During a live session, stamp authorship so collaborators can be told apart.
     if (collabAuthor && obj.style && obj.style.authorId === undefined) {
       obj.style = { ...obj.style, authorId: collabAuthor.id, authorColor: collabAuthor.color };

@@ -2,12 +2,16 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { v4 as uuidv4 } from 'uuid';
 import { useCanvasStore } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import { Occupancy, rectOf, isBackdrop, settle, fitFrame } from '@/lib/canvasLayout';
 import { extractUrl, newLinkCard, linkPreviewStyle, normalizeUrl, LINK_CARD_SIZE } from '@/lib/linkPreview';
 
+/* CREATE_STROKE is deliberately absent. The agent used to be able to lay down
+   freehand ink, and it did — unasked, all over people's boards, leaving stray
+   squiggles they then had to hunt down and erase. The pen belongs to the user.
+   A stroke action arriving from a model that still remembers the old schema is
+   ignored (see runAction's default). */
 interface Action {
   type:
     | 'CREATE_OBJECT'
@@ -15,7 +19,6 @@ interface Action {
     | 'DELETE_OBJECT'
     | 'CREATE_CONNECTION'
     | 'DELETE_CONNECTION'
-    | 'CREATE_STROKE'
     | 'CREATE_SCENE';
   tempId?: string;
   id?: string;
@@ -25,11 +28,6 @@ interface Action {
   objData?: Partial<CanvasObjectData>;
   updates?: Partial<CanvasObjectData>;
   style?: Record<string, unknown>;
-  // CREATE_STROKE
-  points?: number[][];
-  color?: string;
-  size?: number;
-  isHighlighter?: boolean;
   // CREATE_SCENE
   name?: string;
   notes?: string;
@@ -75,6 +73,16 @@ const IMAGE_TASK_RE =
 /** Is this task about an image the user placed? */
 function isImageTask(text: string): boolean {
   return IMAGE_TASK_RE.test(text || '');
+}
+
+/** Peel a ```json … ``` wrapper off a model response, if it added one. */
+function stripCodeFence(text: string): string {
+  const s = (text || '').trim();
+  if (!s.startsWith('```')) return s;
+  return s
+    .replace(/^```[a-zA-Z]*\s*/, '')
+    .replace(/```\s*$/, '')
+    .trim();
 }
 
 const StopIcon = ({ size = 9 }: { size?: number }) => (
@@ -348,15 +356,34 @@ export default function AgentOverlay() {
 
     const isHttpUrl = (s: unknown): s is string => typeof s === 'string' && /^https?:\/\//i.test(s);
 
-    // Fetch a real photo for an image block and drop it in once it resolves, so
-    // the agent can actually SHOW things from the web. Non-blocking.
+    /* Fetch a real photo for an image block and drop it in once it resolves, so
+       the agent can actually SHOW things from the web.
+
+       When the search comes back empty, the block used to be left sitting there
+       as an empty grey "Drop image here" slot — a hole in the board that looks
+       like a bug, because it is one. Fall back to GENERATING the picture, and if
+       even that fails, take the block away: no image is better than a permanent
+       placeholder for one. Non-blocking either way. */
     const resolveImage = async (id: string, query: string) => {
       try {
         const r = await fetch(`/api/image-search?q=${encodeURIComponent(query)}`, { signal: abortRef.current?.signal });
-        if (!r.ok) return;
-        const j = await r.json();
-        if (j?.url && runningRef.current) live().updateObject(id, { content: j.url });
-      } catch { /* leave the placeholder */ }
+        const j = r.ok ? await r.json() : null;
+        if (j?.url) {
+          if (runningRef.current) live().updateObject(id, { content: j.url });
+          return;
+        }
+      } catch { /* fall through to the generator */ }
+
+      if (!runningRef.current) return;
+      const made = await resolveGenImage(id, query);
+      if (!made && runningRef.current) {
+        const still = live().objects.find((o) => o.id === id);
+        if (still && !still.content) {
+          live().removeObject(id);
+          occupancy.remove(id);
+          touched.delete(id);
+        }
+      }
     };
 
     // Geocode a place name and turn the block into a live map centered on it.
@@ -376,23 +403,29 @@ export default function AgentOverlay() {
       } catch { /* leave the block as-is */ }
     };
 
-    // GENERATE a real image with a strong diffusion model and drop it in once it
-    // resolves. Stored as a data URL so it persists with the board. Non-blocking.
-    const resolveGenImage = async (id: string, prompt: string, style?: string) => {
+    /* GENERATE a real image with a strong diffusion model and drop it in once it
+       resolves. Stored as a data URL so it persists with the board. Non-blocking.
+       Resolves true only if a picture actually landed — the search path leans on
+       that to decide whether to clear a block it couldn't fill. */
+    const resolveGenImage = async (id: string, prompt: string, style?: string): Promise<boolean> => {
       try {
         const q = `/api/image-generate?q=${encodeURIComponent(prompt)}${style ? `&style=${encodeURIComponent(style)}` : ''}`;
         const r = await fetch(q, { signal: abortRef.current?.signal });
-        if (!r.ok) return;
+        if (!r.ok) return false;
         const blob = await r.blob();
-        if (!/^image\//i.test(blob.type)) return;
+        if (!/^image\//i.test(blob.type)) return false;
         const dataUrl = await new Promise<string>((res, rej) => {
           const fr = new FileReader();
           fr.onload = () => res(fr.result as string);
           fr.onerror = rej;
           fr.readAsDataURL(blob);
         });
-        if (runningRef.current) live().updateObject(id, { content: dataUrl });
-      } catch { /* leave the placeholder */ }
+        if (!runningRef.current) return false;
+        live().updateObject(id, { content: dataUrl });
+        return true;
+      } catch {
+        return false;
+      }
     };
 
     const runAction = (action: Action) => {
@@ -531,30 +564,6 @@ export default function AgentOverlay() {
           case 'DELETE_CONNECTION': {
             const connId = action.connectionId || action.id;
             if (connId) { live().removeConnection(connId); executed++; }
-            break;
-          }
-          case 'CREATE_STROKE': {
-            const raw = Array.isArray(action.points) ? action.points : [];
-            const dx = placeOffset?.dx || 0;
-            const dy = placeOffset?.dy || 0;
-            const pts = raw
-              .filter((p) => Array.isArray(p) && p.length >= 2 && isFinite(Number(p[0])) && isFinite(Number(p[1])))
-              .map((p) => [Number(p[0]) + dx, Number(p[1]) + dy, 0.5]);
-            if (pts.length >= 2) {
-              live().addStroke({
-                id: uuidv4(),
-                points: pts,
-                color: (action.color as string) || '#2D2A26',
-                size: Math.max(1, Number(action.size) || 4),
-                isHighlighter: Boolean(action.isHighlighter),
-                createdAt: Date.now(),
-              });
-              executed++;
-              const xs = pts.map((p) => p[0]);
-              const ys = pts.map((p) => p[1]);
-              const minX = Math.min(...xs), minY = Math.min(...ys);
-              gentlePan({ x: minX, y: minY, width: Math.max(...xs) - minX, height: Math.max(...ys) - minY });
-            }
             break;
           }
           case 'CREATE_SCENE': {
@@ -976,7 +985,13 @@ export default function AgentOverlay() {
 
       // After streaming is done, process memory instructions & validate newly created links
       try {
-        const payload = JSON.parse(fullResponse);
+        /* The prompt says "no markdown fences" and the model wraps the whole
+           thing in ```json anyway — often enough that JSON.parse threw on every
+           such run and everything below (link validation, memories) was silently
+           skipped. The streaming scanner never cared, because it hunts for the
+           actions array rather than parsing the document, which is why the board
+           still built and this failure stayed invisible. Take the fence off. */
+        const payload = JSON.parse(stripCodeFence(fullResponse));
         
         /* 1. Link validation.
            This has never actually run. It matched on style.isLink (no link card

@@ -267,7 +267,7 @@ export default function DrawingLayer() {
       {/* Circular Eraser Preview Cursor */}
       {eraserMode && eraserPos && (
         <div
-          className="fixed pointer-events-none z-[10000] rounded-full border-2 border-[var(--accent)] bg-[rgba(201,123,75,0.18)] flex items-center justify-center -translate-x-1/2 -translate-y-1/2"
+          className="fixed pointer-events-none z-[10000] rounded-full border-2 border-[var(--accent)] bg-[rgba(var(--accent-rgb),0.18)] flex items-center justify-center -translate-x-1/2 -translate-y-1/2"
           style={{
             left: eraserPos.x,
             top: eraserPos.y,

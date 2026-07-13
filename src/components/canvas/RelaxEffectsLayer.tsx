@@ -152,11 +152,26 @@ export default function RelaxEffectsLayer() {
       const now = performance.now();
 
       emittersRef.current = emittersRef.current.filter((e) => e.endTime > now);
+
+      /* Share one effect's emission budget between all of its live emitters.
+         Every tap used to add a FULL-RATE emitter of its own, so tapping five
+         spots for a flower burst emitted five times as fast, slammed straight
+         into the particle ceiling and then thrashed there — creating and
+         destroying nodes every frame. That's the lag. Five taps now emit at
+         roughly the rate of one, spread across the five places you touched, and
+         the burst stays smooth however hard you hit the canvas. */
+      const emitterCount = new Map<string, number>();
       for (const e of emittersRef.current) {
-        if (e.fx.spawnEveryMs > 0 && now - e.lastSpawn >= e.fx.spawnEveryMs) {
-          e.lastSpawn = now;
-          spawn(e.fx, e.x, e.y, e.fx.spawnPerTick + (Math.random() < 0.5 ? 1 : 0));
-        }
+        emitterCount.set(e.fx.id, (emitterCount.get(e.fx.id) || 0) + 1);
+      }
+
+      for (const e of emittersRef.current) {
+        if (e.fx.spawnEveryMs <= 0 || now - e.lastSpawn < e.fx.spawnEveryMs) continue;
+        e.lastSpawn = now;
+        const share = emitterCount.get(e.fx.id) || 1;
+        const n = e.fx.spawnPerTick + (Math.random() < 0.5 ? 1 : 0);
+        // Never round down to nothing — every spot you touched keeps producing.
+        spawn(e.fx, e.x, e.y, Math.max(1, Math.round(n / share)));
       }
 
       // An effect that has no emitters left has gone quiet — let it tear down its
@@ -210,6 +225,16 @@ export default function RelaxEffectsLayer() {
         fx.onStart?.(detail.x, detail.y, api);
       }
       fx.onBurst?.(detail.x, detail.y, api);
+
+      /* Cap how many bursts of one effect can be in flight. Hammering the canvas
+         is the whole appeal of this tool, so the tap always does SOMETHING — but
+         the oldest emitter retires rather than letting thirty of them pile up. */
+      const MAX_EMITTERS = 5;
+      const mine = emittersRef.current.filter((e) => e.fx.id === fx.id);
+      if (mine.length >= MAX_EMITTERS) {
+        const oldest = mine[0];
+        emittersRef.current = emittersRef.current.filter((e) => e !== oldest);
+      }
 
       emittersRef.current.push({
         fx,

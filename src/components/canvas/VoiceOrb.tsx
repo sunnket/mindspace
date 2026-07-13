@@ -140,7 +140,7 @@ export default function VoiceOrb() {
               initial={{ opacity: 0, scale: 0.5 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.5 }}
-              className="relative w-20 h-20 rounded-full bg-white/5 backdrop-blur-2xl shadow-[0_8px_32px_rgba(201,123,75,0.15)] border border-white/20 flex items-center justify-center overflow-hidden"
+              className="relative w-20 h-20 rounded-full bg-white/5 backdrop-blur-2xl shadow-[0_8px_32px_rgba(var(--accent-rgb),0.15)] border border-white/20 flex items-center justify-center overflow-hidden"
             >
               {/* Inner Soft Glow */}
               <div className="absolute inset-0 bg-[var(--accent)] opacity-[0.05]" />
