@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '@/store/authStore';
 import { useCanvasStore } from '@/store/canvasStore';
 import AuthModal from './AuthModal';
+import ProfileModal from './ProfileModal';
 
 interface AuthButtonProps {
   hideGuest?: boolean;
@@ -17,6 +18,7 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'signin' | 'signup' | 'forgot' | 'update-password'>('signin');
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on click outside
@@ -49,6 +51,9 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
     return parts[0].substring(0, 2).toUpperCase();
   };
 
+  const avatarUrl = user?.user_metadata?.avatar_url || (user?.email ? `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(user.email)}` : null);
+  const displayName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || '';
+
   if (hideGuest && !user && !loading) {
     return null;
   }
@@ -72,14 +77,21 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
             >
               {/* Sync Status Orb */}
               <div className="flex flex-col items-end text-right hidden sm:flex">
-                <span className="text-xs text-[var(--text-primary)] font-light leading-none">{user.email?.split('@')[0]}</span>
+                <span className="text-xs text-[var(--text-primary)] font-light leading-none">{displayName}</span>
                 <span className="text-[9px] text-[var(--text-muted)] font-light leading-none mt-1 flex items-center gap-1">
                   <span className={`w-1.5 h-1.5 rounded-full ${isDirty ? 'bg-[var(--accent)] animate-pulse' : 'bg-emerald-500'}`} />
                   {isDirty ? 'Saving...' : 'Synced'}
                 </span>
               </div>
-              <div className="w-8 h-8 rounded-full bg-[var(--accent)] text-white hover:bg-[var(--accent-subtle)] hover:text-[var(--accent)] border border-transparent hover:border-[var(--accent)] font-medium flex items-center justify-center text-xs tracking-wider transition-all shadow-sm">
-                {getInitials()}
+              <div className="w-8 h-8 rounded-full border border-black/10 overflow-hidden flex items-center justify-center transition-all shadow-sm shrink-0 bg-[var(--bg-primary)]">
+                {avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-[var(--accent)] text-white font-medium flex items-center justify-center text-xs tracking-wider">
+                    {getInitials()}
+                  </div>
+                )}
               </div>
             </button>
 
@@ -95,21 +107,47 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
                   style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
                 >
                   {/* Dropdown Header */}
-                  <div className="px-3 py-2 border-b border-black/5 mb-1.5">
-                    <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] font-light">Account</p>
-                    <p className="text-xs font-normal truncate mt-0.5" title={user.email}>{user.email}</p>
+                  <div className="px-3 py-2 border-b border-black/5 mb-1.5 flex items-center gap-2">
+                    <div className="w-6.5 h-6.5 rounded-full overflow-hidden shrink-0 border border-black/10 bg-[var(--bg-primary)]">
+                      {avatarUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-[var(--accent)] text-white text-[9px] font-bold flex items-center justify-center">
+                          {getInitials()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] font-light">Account</p>
+                      <p className="text-xs font-normal truncate mt-0.5 text-[var(--text-primary)]" title={user.email}>{user.email}</p>
+                    </div>
                   </div>
 
                   {/* Dropdown Items */}
                   <button
                     onClick={() => {
                       setDropdownOpen(false);
-                      // Already signed in — go straight to the new-password
-                      // form instead of asking for credentials all over again.
+                      setProfileOpen(true);
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs font-light hover:bg-white/60 dark:hover:bg-white/10 hover:text-[var(--accent)] rounded-lg transition-colors flex items-center justify-between group cursor-pointer"
+                  >
+                    <span>My Profile</span>
+                    <span className="text-[var(--text-muted)] group-hover:text-[var(--accent)] flex items-center">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                        <circle cx="12" cy="7" r="4" />
+                      </svg>
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setDropdownOpen(false);
                       setModalMode('update-password');
                       setModalOpen(true);
                     }}
-                    className="w-full text-left px-3 py-2 text-xs font-light hover:bg-white/60 dark:hover:bg-white/10 hover:text-[var(--accent)] rounded-lg transition-colors flex items-center justify-between group cursor-pointer"
+                    className="w-full text-left px-3 py-2 text-xs font-light hover:bg-white/60 dark:hover:bg-white/10 hover:text-[var(--accent)] rounded-lg transition-colors flex items-center justify-between group cursor-pointer mt-0.5"
                   >
                     <span>Update Password</span>
                     <span className="text-[var(--text-muted)] group-hover:text-[var(--accent)] flex items-center">
@@ -161,6 +199,12 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         initialMode={modalMode}
+      />
+
+      {/* Profile Dialog */}
+      <ProfileModal
+        isOpen={profileOpen}
+        onClose={() => setProfileOpen(false)}
       />
     </>
   );

@@ -231,7 +231,7 @@ export default function FloatingToolbar() {
       ),
     },
     {
-      id: 'voice' as any,
+      id: 'voice' as unknown as InteractionMode,
       label: 'Voice Typing',
       icon: (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -252,7 +252,7 @@ export default function FloatingToolbar() {
       ),
     },
     {
-      id: 'workflow' as any,
+      id: 'workflow' as unknown as InteractionMode,
       label: 'Workflow',
       icon: (
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -313,7 +313,7 @@ export default function FloatingToolbar() {
       ),
     },
     {
-      id: 'relax' as any,
+      id: 'relax',
       label: 'Stress Reliefer',
       icon: (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -379,67 +379,71 @@ export default function FloatingToolbar() {
         <div className="w-px h-6 bg-[var(--border)] mx-1" />
 
         {/* Mode tools */}
-        {tools.map((tool) => (
-          <motion.button
-            key={tool.id}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => {
-              setCommentMode(false);
-              setThreadsSidebarOpen(false);
+        {tools.map((tool) => {
+          const active = mode === tool.id || (tool.id === 'voice' as unknown as InteractionMode && isListening) || (tool.id === 'workflow' as unknown as InteractionMode && showWorkflowMenu);
+          return (
+            <motion.button
+              key={tool.id}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => {
+                setCommentMode(false);
+                setThreadsSidebarOpen(false);
 
-              if (tool.id === 'voice' as any) {
-                closeAllPanels();
-                if (isListening) stopRecognition();
-                else startRecognition();
-                return;
-              }
-
-              if (tool.id === 'workflow' as any) {
-                const wasOpen = showWorkflowMenu;
-                closeAllPanels();
-                if (!wasOpen) {
-                  setShowWorkflowMenu(true);
-                  setMode('select');
+                if (tool.id === 'voice' as unknown as InteractionMode) {
+                  closeAllPanels();
+                  if (isListening) stopRecognition();
+                  else startRecognition();
+                  return;
                 }
-                return;
-              }
 
-              /* Clicking the tool you're ALREADY in just toggles its panel —
-                 that's the "click the same toolbar option again and the menu
-                 goes away" behaviour. Switching to a different tool closes every
-                 panel and opens that tool's own (via the mode effect above). */
-              const panelOpen =
-                (tool.id === 'draw' && showDrawOptions) ||
-                (tool.id === 'shape' && showShapeOptions) ||
-                (tool.id === 'frame' && showFrameOptions) ||
-                (tool.id === 'relax' && showRelaxOptions);
+                if (tool.id === 'workflow' as unknown as InteractionMode) {
+                  const wasOpen = showWorkflowMenu;
+                  closeAllPanels();
+                  if (!wasOpen) {
+                    setShowWorkflowMenu(true);
+                    setMode('select');
+                  }
+                  return;
+                }
 
-              if (mode === (tool.id as InteractionMode) && panelOpen) {
+                const panelOpen =
+                  (tool.id === 'draw' && showDrawOptions) ||
+                  (tool.id === 'shape' && showShapeOptions) ||
+                  (tool.id === 'frame' && showFrameOptions) ||
+                  (tool.id === 'relax' && showRelaxOptions);
+
+                if (mode === (tool.id as InteractionMode) && panelOpen) {
+                  closeAllPanels();
+                  return;
+                }
+
                 closeAllPanels();
-                return;
-              }
-
-              closeAllPanels();
-              setMode(tool.id as InteractionMode);
-              // Picking the arrow tool starts a fresh draw — deselect so the
-              // panel shows the arrow tool defaults, not the last selection.
-              if (tool.id === 'arrow') setSelectedId(null);
-              if (tool.id === 'draw') setShowDrawOptions(true);
-              else if (tool.id === 'shape') setShowShapeOptions(true);
-              else if (tool.id === 'frame') setShowFrameOptions(true);
-              else if (tool.id === 'relax') setShowRelaxOptions(true);
-            }}
-            className={`relative w-9 h-9 rounded-lg flex items-center justify-center text-sm font-medium transition-all ${
-              mode === tool.id || (tool.id === 'voice' as any && isListening) || (tool.id === 'workflow' as any && showWorkflowMenu)
-                ? 'bg-[var(--accent)] text-white shadow-md'
-                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-            }`}
-            title={tool.label}
-          >
-            <span className="flex items-center justify-center">{tool.icon}</span>
-          </motion.button>
-        ))}
+                setMode(tool.id as InteractionMode);
+                if (tool.id === 'arrow') setSelectedId(null);
+                if (tool.id === 'draw') setShowDrawOptions(true);
+                else if (tool.id === 'shape') setShowShapeOptions(true);
+                else if (tool.id === 'frame') setShowFrameOptions(true);
+                else if (tool.id === 'relax') setShowRelaxOptions(true);
+              }}
+              className={`relative w-9 h-9 rounded-lg flex items-center justify-center text-sm font-medium transition-all ${
+                active
+                  ? 'text-[var(--accent)]'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+              }`}
+              title={tool.label}
+            >
+              {active && (
+                <motion.span
+                  layoutId="toolbar-active"
+                  transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                  className="absolute inset-0 rounded-lg clay-inset"
+                />
+              )}
+              <span className="relative flex items-center justify-center">{tool.icon}</span>
+            </motion.button>
+          );
+        })}
 
         {/* Canvas background / color mode — sits right beside Frame */}
         <motion.button
@@ -454,15 +458,24 @@ export default function FloatingToolbar() {
           }}
           className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
             showBgOptions
-              ? 'bg-[var(--accent)] text-white shadow-md'
+              ? 'text-[var(--accent)]'
               : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
           }`}
           title="Canvas background & color modes"
         >
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
-          </svg>
+          {showBgOptions && (
+            <motion.span
+              layoutId="toolbar-active"
+              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+              className="absolute inset-0 rounded-lg clay-inset"
+            />
+          )}
+          <span className="relative flex items-center justify-center">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+            </svg>
+          </span>
         </motion.button>
 
         {/* Threads — add a pin / view all threads */}
@@ -477,25 +490,32 @@ export default function FloatingToolbar() {
           }}
           className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
             commentMode
-              ? 'bg-[var(--accent)] text-white shadow-md'
+              ? 'text-[var(--accent)]'
               : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
           }`}
           title="Add a thread"
         >
-          {/* A pin dropped on the board — which is literally what this does —
-              rather than a generic speech bubble indistinguishable from the
-              "all threads" button next to it. */}
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M17.2 6.6 15 4.4M14.2 3.6l6.2 6.2" />
-            <path d="M15.6 5 9.9 8.1a2 2 0 0 0-.9 2.4l.6 1.6-3.7 3.7 6.3 6.3" opacity="0" />
-            <path d="M16.4 5.8 10.3 8.6a1.8 1.8 0 0 0-.9 2.3l1 2.2-4.1 4.1" />
-            <path d="M18.2 7.6l-2.5 6.4a1.8 1.8 0 0 1-2.4 1l-2.1-1" />
-            <path d="M5.4 18.6 3 21" />
-          </svg>
+          {commentMode && (
+            <motion.span
+              layoutId="toolbar-active"
+              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+              className="absolute inset-0 rounded-lg clay-inset"
+            />
+          )}
+          <span className="relative flex items-center justify-center">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17.2 6.6 15 4.4M14.2 3.6l6.2 6.2" />
+              <path d="M15.6 5 9.9 8.1a2 2 0 0 0-.9 2.4l.6 1.6-3.7 3.7 6.3 6.3" opacity="0" />
+              <path d="M16.4 5.8 10.3 8.6a1.8 1.8 0 0 0-.9 2.3l1 2.2-4.1 4.1" />
+              <path d="M18.2 7.6l-2.5 6.4a1.8 1.8 0 0 1-2.4 1l-2.1-1" />
+              <path d="M5.4 18.6 3 21" />
+            </svg>
+          </span>
           {openThreadCount > 0 && (
             <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 rounded-full bg-[var(--accent)] text-white text-[8px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">{openThreadCount}</span>
           )}
         </motion.button>
+
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
@@ -507,17 +527,25 @@ export default function FloatingToolbar() {
           }}
           className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
             threadsSidebarOpen
-              ? 'bg-[var(--accent)] text-white shadow-md'
+              ? 'text-[var(--accent)]'
               : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
           }`}
           title="All threads"
         >
-          {/* Stacked conversations — a list of threads, not a list of anything. */}
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20.4 12.4a1.9 1.9 0 0 1-1.9 1.9H9.6L6 17.6V6.3a1.9 1.9 0 0 1 1.9-1.9h10.6a1.9 1.9 0 0 1 1.9 1.9Z" />
-            <path d="M3 8.6v9.8a1.9 1.9 0 0 0 1.9 1.9h9.7" opacity="0.45" />
-            <path d="M9.6 8.3h7.2M9.6 11.1h4.4" opacity="0.8" />
-          </svg>
+          {threadsSidebarOpen && (
+            <motion.span
+              layoutId="toolbar-active"
+              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+              className="absolute inset-0 rounded-lg clay-inset"
+            />
+          )}
+          <span className="relative flex items-center justify-center">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20.4 12.4a1.9 1.9 0 0 1-1.9 1.9H9.6L6 17.6V6.3a1.9 1.9 0 0 1 1.9-1.9h10.6a1.9 1.9 0 0 1 1.9 1.9Z" />
+              <path d="M3 8.6v9.8a1.9 1.9 0 0 0 1.9 1.9h9.7" opacity="0.45" />
+              <path d="M9.6 8.3h7.2M9.6 11.1h4.4" opacity="0.8" />
+            </svg>
+          </span>
         </motion.button>
 
         {/* Separator */}
@@ -1135,7 +1163,7 @@ export default function FloatingToolbar() {
                 ].map((domain) => (
                   <button
                     key={domain.id}
-                    onClick={() => setSelectedShapeDomain(domain.id as any)}
+                    onClick={() => setSelectedShapeDomain(domain.id as typeof selectedShapeDomain)}
                     className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${
                       selectedShapeDomain === domain.id
                         ? 'bg-[var(--accent)] text-white shadow-sm font-bold'
@@ -1260,7 +1288,7 @@ export default function FloatingToolbar() {
                 <button
                   key={sOption.id}
                   onClick={() => {
-                    setSelectedShapeType(sOption.id as any);
+                    setSelectedShapeType(sOption.id as typeof selectedShapeType);
                     // The choice is made — get the palette out of the way.
                     setShowShapeOptions(false);
                     // If a shape is selected, instantly change its type
@@ -1409,7 +1437,7 @@ export default function FloatingToolbar() {
                 <button
                   key={aOption.id}
                   onClick={() => {
-                    setSelectedArrowPointerType(aOption.id as any);
+                    setSelectedArrowPointerType(aOption.id as typeof selectedArrowPointerType);
                     // If an arrow object is currently selected, instantly update its pointer head style
                     if (selectedId && selectedObject && selectedObject.type === 'arrow') {
                       updateObject(selectedId, {
