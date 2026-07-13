@@ -3,9 +3,25 @@
 import { useCallback, useEffect } from 'react';
 import { useVoiceStore } from '@/store/voiceStore';
 import { useCanvasStore } from '@/store/canvasStore';
+import { startLocalSpeech, stopLocalSpeech, isLocalSpeechRunning } from '@/lib/voice/localSpeech';
 
 /**
  * Dictation. Speak, and the words land in a block on the canvas.
+ *
+ * TWO ENGINES, because one of them isn't ours.
+ *
+ * `SpeechRecognition` is not on-device speech recognition — it is a client for
+ * GOOGLE'S speech service. The browser streams your microphone to Google and
+ * streams words back. Where that service can't be reached it fails with `network`
+ * on every attempt, forever, no matter how healthy the connection is: a Chromium
+ * build without a Google API key (every embedded/IDE preview browser, Brave, most
+ * forks), a network or region that blocks the endpoint. It is not a hiccup and
+ * retrying it is pointless.
+ *
+ * So the first `network` failure now switches to Whisper running ON THIS MACHINE
+ * (see lib/voice/localSpeech) mid-session, in the same block, and remembers the
+ * choice for a day so the next press goes straight there. Google's engine is the
+ * fast path when it works; it is no longer the only path.
  *
  * The recogniser is a MODULE-level singleton, not a ref inside the hook. It has
  * to be: this hook is mounted in two places at once (the toolbar button and the
@@ -28,8 +44,37 @@ let wantListening = false;
  *  LAST one goes away — the toolbar and the orb both mount it, and either one
  *  unmounting must not cut the other's session off. */
 let mounted = 0;
-/** Consecutive `network` errors. Chrome's speech backend hiccups; it recovers. */
+/** `network` errors this session. One is worth a single quick retry; two means
+ *  the service genuinely isn't there for this browser, and we stop pretending. */
 let networkRetries = 0;
+
+/** Remembered verdict on Google's speech service. Expires, so a laptop that was
+ *  on a blocking network at the office isn't stuck on the local engine at home. */
+const ENGINE_KEY = 'mindspace.voiceEngine';
+const ENGINE_TTL = 24 * 60 * 60 * 1000;
+
+function preferLocal(): boolean {
+  try {
+    const raw = localStorage.getItem(ENGINE_KEY);
+    if (!raw) return false;
+    const { engine, at } = JSON.parse(raw);
+    if (Date.now() - at > ENGINE_TTL) {
+      localStorage.removeItem(ENGINE_KEY);
+      return false;
+    }
+    return engine === 'local';
+  } catch {
+    return false;
+  }
+}
+
+function rememberLocal() {
+  try {
+    localStorage.setItem(ENGINE_KEY, JSON.stringify({ engine: 'local', at: Date.now() }));
+  } catch {
+    /* private mode — we'll just re-discover it next time */
+  }
+}
 
 function getRecognitionCtor(): any {
   if (typeof window === 'undefined') return null;
@@ -55,12 +100,38 @@ function describeError(code: string): string {
     case 'audio-capture':
       return 'No microphone found. Check that one is plugged in and not in use by another app.';
     case 'network':
-      return 'Speech service unreachable. Check your connection — retrying…';
+      // Only ever seen now if the local engine ALSO failed to come up.
+      return "Google's speech service is unreachable and on-device speech didn't load. Check your connection.";
     case 'language-not-supported':
       return `Your browser can't dictate in ${recognitionLang()}. Try switching Chrome to English.`;
     default:
       return `Voice typing error: ${code}`;
   }
+}
+
+/**
+ * Google's engine has failed in a way that will not recover. Hand the live
+ * session over to the on-device one — same block, same target, no interruption
+ * the user has to act on.
+ */
+function fallBackToLocal() {
+  wantListening = false;
+  if (restartTimer) {
+    clearTimeout(restartTimer);
+    restartTimer = null;
+  }
+  try {
+    recognition?.stop();
+  } catch {
+    /* already down — that's why we're here */
+  }
+
+  rememberLocal();
+
+  const voice = useVoiceStore.getState();
+  voice.setError(null);
+  voice.setNotice('Speech service unreachable — switching to on-device voice typing…');
+  void startLocalSpeech();
 }
 
 export const useSpeechRecognition = () => {
@@ -79,25 +150,25 @@ export const useSpeechRecognition = () => {
       /* already stopped */
     }
 
+    if (isLocalSpeechRunning()) {
+      // It folds in its own last sentence and clears the listening state itself.
+      stopLocalSpeech();
+      return;
+    }
+
     const voice = useVoiceStore.getState();
     // Fold anything still in flight into the final text before we let go.
     if (voice.interimTranscript.trim()) {
       voice.appendTranscript(voice.interimTranscript);
       voice.setInterimTranscript('');
     }
+    voice.setNotice(null);
     voice.setIsListening(false);
   }, []);
 
   const startRecognition = useCallback(() => {
     const Ctor = getRecognitionCtor();
     const voice = useVoiceStore.getState();
-
-    if (!Ctor) {
-      voice.setUnsupported(true);
-      voice.setError('Voice typing needs Chrome or Edge — this browser has no speech recognition.');
-      return;
-    }
-    voice.setUnsupported(false);
 
     /* Give the words somewhere to go BEFORE the mic opens. Dictate into the
        selected block if there's a sensible one; otherwise drop a fresh text box
@@ -133,6 +204,18 @@ export const useSpeechRecognition = () => {
     }
 
     voice.beginSession(targetId);
+    voice.setUnsupported(false);
+
+    /* Pick an engine. No SpeechRecognition at all (Firefox, Safari) used to mean
+       "no voice typing on this browser" — it doesn't any more, because the local
+       engine only needs WebAudio and WASM. And if Google's service already proved
+       unreachable here, don't spend a second failing to reach it again. */
+    if (!Ctor || preferLocal()) {
+      void startLocalSpeech();
+      return;
+    }
+
+    voice.setEngine('browser');
     voice.setIsListening(true);
     wantListening = true;
 
@@ -146,6 +229,7 @@ export const useSpeechRecognition = () => {
       recognition.onstart = () => {
         const store = useVoiceStore.getState();
         store.setError(null);
+        store.setNotice(null);
         store.setLive(true);
       };
 
@@ -182,13 +266,26 @@ export const useSpeechRecognition = () => {
         // We aborted it ourselves (stop(), or a restart racing a stop).
         if (code === 'aborted') return;
 
-        /* Chrome's speech backend drops out on a flaky connection and throws
-           `network`. It almost always comes straight back, so ride it out
-           rather than tearing the session down under the user — onend is about
-           to restart us anyway. */
-        if (code === 'network' && networkRetries < 4) {
+        /* `network` means Google's speech backend didn't answer, and on a browser
+           where it never answers this fires on every start — which is exactly the
+           bug people hit: a perfect connection, and voice typing insisting the
+           network is down. Allow ONE retry for a genuine blip (onend restarts us),
+           then stop blaming the user's wifi and switch to the engine that doesn't
+           need Google at all.
+
+           `service-not-allowed` is the same story with a different label: the
+           browser has no key for the service. Straight to local. */
+        if (code === 'network') {
           networkRetries += 1;
-          store.setError(describeError(code));
+          if (networkRetries <= 1) {
+            store.setNotice('Reaching the speech service…');
+            return; // onend restarts it once
+          }
+          fallBackToLocal();
+          return;
+        }
+        if (code === 'service-not-allowed') {
+          fallBackToLocal();
           return;
         }
 
@@ -232,7 +329,9 @@ export const useSpeechRecognition = () => {
     mounted += 1;
     return () => {
       mounted -= 1;
-      if (mounted > 0 || !wantListening) return;
+      if (mounted > 0) return;
+      if (isLocalSpeechRunning()) stopLocalSpeech();
+      if (!wantListening) return;
       wantListening = false;
       if (restartTimer) clearTimeout(restartTimer);
       try {

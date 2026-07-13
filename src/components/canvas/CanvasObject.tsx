@@ -4,6 +4,7 @@ import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { useCollabStore } from '@/store/collabStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
+import { useVoiceStore } from '@/store/voiceStore';
 import { CanvasObjectData } from '@/lib/db';
 import { getSnapPoints, randomStickyColor } from '@/lib/utils';
 import { ensureReadableInk, readableInk, paperColor } from '@/lib/canvasTheme';
@@ -61,6 +62,11 @@ const END_DRAG = { capture: true } as const;
 const TEXT_WRAP_WIDTH = 900;
 /** Matches .text-block-editable's min-width so an empty box still has a caret. */
 const TEXT_MIN_WIDTH = 100;
+
+function isDictationTarget(id: string): boolean {
+  const voice = useVoiceStore.getState();
+  return voice.isListening && voice.targetId === id;
+}
 
 // ---- Embedded browser helpers --------------------------------------------
 interface BrowserTab {
@@ -1199,7 +1205,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           clearTimeout(timeoutId);
           if (latestContent.current.trim() === '') {
             timeoutId = setTimeout(() => {
-              if (latestContent.current.trim() === '') {
+              if (latestContent.current.trim() === '' && !isDictationTarget(obj.id)) {
                 removeObject(obj.id);
                 if (editingId === obj.id) setEditingId(null);
               }
@@ -1347,7 +1353,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       // Start the timeout initially if it's an empty text/heading block
       if ((obj.type === 'text' || obj.type === 'heading') && latestContent.current.trim() === '') {
         timeoutId = setTimeout(() => {
-          if (latestContent.current.trim() === '') {
+          if (latestContent.current.trim() === '' && !isDictationTarget(obj.id)) {
             removeObject(obj.id);
             if (editingId === obj.id) setEditingId(null);
           }
@@ -1371,7 +1377,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           const state = useCanvasStore.getState();
           const isStillEditing = state.editingId === obj.id;
           const isStillSelected = state.selectedId === obj.id;
-          if (!isStillEditing && !isStillSelected) {
+          if (!isStillEditing && !isStillSelected && !isDictationTarget(obj.id)) {
             const shouldDelete = finalContent.trim() === '' && isAutoCleanable(obj);
             if (shouldDelete) {
               removeObject(obj.id);

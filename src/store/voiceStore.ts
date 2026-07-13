@@ -13,14 +13,26 @@ interface VoiceState {
   error: string | null;
   /** The block the dictation is being typed into. */
   targetId: string | null;
+  /** Bumped on every beginSession. Dictating twice into the SAME block has to
+   *  count as two sessions, or the second one re-reads a stale "base content"
+   *  and overwrites what the first one dictated. */
+  session: number;
   /** The recogniser has actually started (onstart fired), not just been asked to. */
   live: boolean;
   /** The recogniser has the microphone open and is taking audio. */
   hearing: boolean;
+  /** Which recogniser is doing the work — the browser's (Google's cloud) or
+   *  Whisper running on this machine. */
+  engine: 'browser' | 'local' | null;
+  /** Something worth saying that isn't a failure: switching engines, downloading
+   *  the on-device model. Shown in place of the caption, not in red. */
+  notice: string | null;
 
   setIsListening: (val: boolean) => void;
   setLive: (val: boolean) => void;
   setHearing: (val: boolean) => void;
+  setEngine: (val: 'browser' | 'local' | null) => void;
+  setNotice: (val: string | null) => void;
   /** Append a finalised phrase. */
   appendTranscript: (val: string) => void;
   setInterimTranscript: (val: string) => void;
@@ -41,12 +53,17 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   unsupported: false,
   error: null,
   targetId: null,
+  session: 0,
   live: false,
   hearing: false,
+  engine: null,
+  notice: null,
 
   setIsListening: (val) => set({ isListening: val }),
   setLive: (val) => set({ live: val }),
   setHearing: (val) => set({ hearing: val }),
+  setEngine: (val) => set({ engine: val }),
+  setNotice: (val) => set({ notice: val }),
 
   /* Append, don't overwrite.
      This used to be a plain setter that REPLACED the transcript with whatever
@@ -67,11 +84,15 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   setTargetId: (id) => set({ targetId: id }),
 
   beginSession: (targetId) =>
-    set({ targetId, transcript: '', interimTranscript: '', isPaused: false, error: null, live: false, hearing: false }),
+    set((s) => ({
+      targetId, session: s.session + 1,
+      transcript: '', interimTranscript: '', isPaused: false,
+      error: null, notice: null, live: false, hearing: false,
+    })),
 
   reset: () =>
     set({
       transcript: '', interimTranscript: '', isListening: false, isPaused: false,
-      targetId: null, error: null, live: false, hearing: false,
+      targetId: null, error: null, notice: null, live: false, hearing: false, engine: null,
     }),
 }));

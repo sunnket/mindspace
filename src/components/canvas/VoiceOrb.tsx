@@ -29,7 +29,9 @@ export default function VoiceOrb() {
   const transcript = useVoiceStore((s) => s.transcript);
   const interimTranscript = useVoiceStore((s) => s.interimTranscript);
   const targetId = useVoiceStore((s) => s.targetId);
+  const session = useVoiceStore((s) => s.session);
   const error = useVoiceStore((s) => s.error);
+  const notice = useVoiceStore((s) => s.notice);
   const live = useVoiceStore((s) => s.live);
   const hearing = useVoiceStore((s) => s.hearing);
   const updateObject = useCanvasStore((s) => s.updateObject);
@@ -68,9 +70,11 @@ export default function VoiceOrb() {
   }, [isListening, hearing]);
 
   /* Type what's being said into the target block, live.
-     The base content is captured ONCE, when the session's target is set — read
-     on every keystroke instead, it would grow by its own output and the note
-     would repeat itself forever. */
+     The base content is captured ONCE PER SESSION — read on every keystroke
+     instead, it would grow by its own output and the note would repeat itself
+     forever. Keyed on the session and not just the block, because dictating
+     twice into the SAME block is two sessions, and the second one must build on
+     what the first one left there rather than on a stale snapshot of it. */
   const baseContent = useRef('');
   useEffect(() => {
     if (!targetId) {
@@ -79,16 +83,21 @@ export default function VoiceOrb() {
     }
     const obj = useCanvasStore.getState().objects.find((o) => o.id === targetId);
     baseContent.current = obj?.content || '';
-  }, [targetId]);
+  }, [targetId, session]);
 
+  /* Deliberately NOT gated on isListening. The on-device engine transcribes the
+     last sentence a beat AFTER the mic closes — gate this on "still listening"
+     and the final thing you said is the one thing that never makes it into the
+     note. The session's target block is what says where the words go, and it
+     outlives the microphone. */
   useEffect(() => {
-    if (!isListening || !targetId) return;
+    if (!targetId) return;
     const spoken = [transcript, interimTranscript].filter((s) => s.trim()).join(' ').trim();
     if (!spoken) return;
 
     const base = baseContent.current.trim();
     updateObject(targetId, { content: base ? `${base} ${spoken}` : spoken });
-  }, [transcript, interimTranscript, isListening, targetId, updateObject]);
+  }, [transcript, interimTranscript, targetId, updateObject]);
 
   // An error is worth reading, not worth living with.
   useEffect(() => {
@@ -98,18 +107,24 @@ export default function VoiceOrb() {
   }, [error]);
 
   const heard = interimTranscript || transcript;
+  /* A notice outranks the caption but is not an error: "switching to on-device
+     voice typing", "setting up… 40%". The old code only had red text to say
+     anything with, which is how a routine engine switch ended up looking like a
+     broken internet connection. */
   const status = error
     ? error
-    : !live
-      ? 'Starting the microphone…'
-      : heard || 'Listening — start speaking';
+    : notice
+      ? notice
+      : !live
+        ? 'Starting the microphone…'
+        : heard || 'Listening — start speaking';
 
   return (
     <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[200] pointer-events-none">
       <div className="relative flex flex-col items-center">
         {/* Caption: what it heard, what it's doing, or what actually went wrong */}
         <AnimatePresence>
-          {(isListening || error) && (
+          {(isListening || error || notice) && (
             <motion.div
               initial={{ opacity: 0, y: -20, scale: 0.9 }}
               animate={{ opacity: 1, y: -40, scale: 1 }}

@@ -1203,7 +1203,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Workflow settings
   activeWorkflowId: null,
   setActiveWorkflowId: (activeWorkflowId) => set({ activeWorkflowId }),
-  recolorWorkflowGroup: (workflowId, updates) => {
+  recolorWorkflowGroup: (workflowId: string, updates: { color?: string; borderColor?: string; textColor?: string; branchColor?: string }) => {
     set((state) => ({
       objects: state.objects.map((o) => {
         if (o.type === 'workflow-node' && o.style?.workflowId === workflowId) {
