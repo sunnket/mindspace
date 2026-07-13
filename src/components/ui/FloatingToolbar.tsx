@@ -558,9 +558,9 @@ export default function FloatingToolbar() {
       <AnimatePresence>
         {showDrawOptions && mode === 'draw' && (
           <motion.div
-            className={`glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 transition-all ${
+            className={`glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
               showAdvancedDraw 
-                ? 'w-[328px] max-h-[82vh] overflow-y-auto' 
+                ? 'w-[840px] max-w-[95vw]' 
                 : 'w-[270px]'
             }`}
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -568,170 +568,247 @@ export default function FloatingToolbar() {
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
-            {/* Header / Title */}
-            <div className="flex justify-between items-center px-1">
-              <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-[0.16em] select-none">
-                {eraserMode ? 'Eraser' : highlighterMode ? 'Highlighter' : 'Pen'} Brush
-              </span>
-            </div>
-
-            {/* Tool Switcher */}
-            <div className="flex bg-[var(--bg-tertiary)] p-1 rounded-lg border border-[var(--border)] gap-1 shrink-0">
-              <button
-                onClick={() => {
-                  setEraserMode(false);
-                  setHighlighterMode(false);
-                }}
-                className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                  !eraserMode && !highlighterMode
-                    ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                </svg>
-                Pen
-              </button>
-              <button
-                onClick={() => {
-                  setHighlighterMode(true);
-                  setEraserMode(false);
-                }}
-                className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                  highlighterMode
-                    ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 11l-6 6v3h9l3-3" />
-                  <path d="M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
-                </svg>
-                Highlighter
-              </button>
-              <button
-                onClick={() => {
-                  setEraserMode(true);
-                  setHighlighterMode(false);
-                }}
-                className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                  eraserMode
-                    ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                <span>⌫</span> Eraser
-              </button>
-            </div>
-
-            {/* Colors (Pen / Highlighter only) */}
-            {!eraserMode && (
-              <div className="flex flex-col gap-2 shrink-0">
-                {/* Standard Swatches */}
-                <div className="grid grid-cols-10 gap-1 justify-center">
-                  {DRAW_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => {
-                        setDrawColor(color);
-                      }}
-                      className="w-5.5 h-5.5 rounded-full border transition-all hover:scale-110 cursor-pointer"
-                      style={{
-                        background: color,
-                        borderColor: drawColor === color ? 'var(--accent)' : 'transparent',
-                        boxShadow: drawColor === color ? '0 0 0 1.5px var(--accent-subtle)' : 'none',
-                      }}
-                    />
-                  ))}
+            {!showAdvancedDraw ? (
+              <>
+                {/* Header / Title */}
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-[0.16em] select-none">
+                    {eraserMode ? 'Eraser' : highlighterMode ? 'Highlighter' : 'Pen'} Brush
+                  </span>
                 </div>
-              </div>
-            )}
 
-            {/* Sizes (Quick bar in simple mode, slider in advanced mode) */}
-            {!showAdvancedDraw && (
-              <div className="flex items-center justify-between gap-2 border-t border-[var(--border)] pt-2 mt-0.5 shrink-0">
-                <span className="text-[10px] text-[var(--text-muted)] font-medium">Quick Sizes</span>
-                <div className="flex gap-1.5">
-                  {DRAW_SIZES.map((size) => (
+                {/* Tool Switcher */}
+                <div className="flex bg-[var(--bg-tertiary)] p-1 rounded-lg border border-[var(--border)] gap-1 shrink-0">
+                  <button
+                    onClick={() => {
+                      setEraserMode(false);
+                      setHighlighterMode(false);
+                    }}
+                    className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                      !eraserMode && !highlighterMode
+                        ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                    Pen
+                  </button>
+                  <button
+                    onClick={() => {
+                      setHighlighterMode(true);
+                      setEraserMode(false);
+                    }}
+                    className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                      highlighterMode
+                        ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 11l-6 6v3h9l3-3" />
+                      <path d="M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+                    </svg>
+                    Highlighter
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEraserMode(true);
+                      setHighlighterMode(false);
+                    }}
+                    className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                      eraserMode
+                        ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <span>⌫</span> Eraser
+                  </button>
+                </div>
+
+                {/* Colors (Pen / Highlighter only) */}
+                {!eraserMode && (
+                  <div className="flex flex-col gap-2 shrink-0">
+                    {/* Standard Swatches */}
+                    <div className="grid grid-cols-10 gap-1 justify-center">
+                      {DRAW_COLORS.map((color) => (
+                        <button
+                          key={color}
+                          onClick={() => {
+                            setDrawColor(color);
+                          }}
+                          className="w-5.5 h-5.5 rounded-full border transition-all hover:scale-110 cursor-pointer"
+                          style={{
+                            background: color,
+                            borderColor: drawColor === color ? 'var(--accent)' : 'transparent',
+                            boxShadow: drawColor === color ? '0 0 0 1.5px var(--accent-subtle)' : 'none',
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sizes (Quick bar in simple mode) */}
+                <div className="flex items-center justify-between gap-2 border-t border-[var(--border)] pt-2 mt-0.5 shrink-0">
+                  <span className="text-[10px] text-[var(--text-muted)] font-medium">Quick Sizes</span>
+                  <div className="flex gap-1.5">
+                    {DRAW_SIZES.map((size) => (
+                      <button
+                        key={size}
+                        onClick={() => setDrawSize(size)}
+                        className={`flex items-center justify-center w-7 h-7 rounded-lg transition-all cursor-pointer ${
+                          drawSize === size
+                            ? 'bg-[var(--accent-subtle)]'
+                            : 'hover:bg-[var(--bg-tertiary)]'
+                        }`}
+                      >
+                        <div
+                          className="rounded-full bg-current"
+                          style={{
+                            width: Math.max(3, size / 1.5),
+                            height: Math.max(3, size / 1.5),
+                            color: eraserMode ? 'var(--text-secondary)' : drawColor.startsWith('url(') ? 'var(--accent)' : drawColor,
+                            opacity: highlighterMode ? 0.35 : 1,
+                          }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : (
+              // Extended / Advanced horizontal layout spanning the yellow area!
+              <div className="flex gap-5 items-stretch min-h-[220px] min-w-0">
+                {/* Column 1: Tools & Swatches */}
+                <div className="w-[230px] flex flex-col gap-3 shrink-0 pr-3 border-r border-[var(--border)]">
+                  <div className="flex justify-between items-center px-1">
+                    <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-[0.16em] select-none">
+                      Brush & Palette
+                    </span>
+                  </div>
+
+                  {/* Tool Switcher */}
+                  <div className="flex bg-[var(--bg-tertiary)] p-1 rounded-lg border border-[var(--border)] gap-1 shrink-0">
                     <button
-                      key={size}
-                      onClick={() => setDrawSize(size)}
-                      className={`flex items-center justify-center w-7 h-7 rounded-lg transition-all cursor-pointer ${
-                        drawSize === size
-                          ? 'bg-[var(--accent-subtle)]'
-                          : 'hover:bg-[var(--bg-tertiary)]'
+                      onClick={() => {
+                        setEraserMode(false);
+                        setHighlighterMode(false);
+                      }}
+                      className={`flex-1 py-1 px-1 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                        !eraserMode && !highlighterMode
+                          ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
                     >
-                      <div
-                        className="rounded-full bg-current"
-                        style={{
-                          width: Math.max(3, size / 1.5),
-                          height: Math.max(3, size / 1.5),
-                          color: eraserMode ? 'var(--text-secondary)' : drawColor.startsWith('url(') ? 'var(--accent)' : drawColor,
-                          opacity: highlighterMode ? 0.35 : 1,
-                        }}
-                      />
+                      Pen
                     </button>
-                  ))}
-                </div>
-              </div>
-            )}
+                    <button
+                      onClick={() => {
+                        setHighlighterMode(true);
+                        setEraserMode(false);
+                      }}
+                      className={`flex-1 py-1 px-1 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                        highlighterMode
+                          ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      Highlighter
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEraserMode(true);
+                        setHighlighterMode(false);
+                      }}
+                      className={`flex-1 py-1 px-1 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                        eraserMode
+                          ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      Eraser
+                    </button>
+                  </div>
 
-            {/* ADVANCED GOD MODE OPTIONS */}
-            {showAdvancedDraw && (
-              <div className="flex flex-col gap-3.5 border-t border-[var(--border)] pt-3 mt-0.5">
-                {/* Color Inputs & Customizations (Pen & Highlighter only) */}
-                {!eraserMode && (() => {
-                  const { r, g, b } = hexToRgb(drawColor);
-                  const { h, s, l } = rgbToHsl(r, g, b);
-                  return (
-                    <div className="flex flex-col gap-2.5 bg-[var(--bg-secondary)]/50 p-2.5 rounded-xl border border-[var(--border)]">
-                      {/* HEX & Eyedropper */}
-                      <div className="flex items-center gap-1.5">
-                        <div className="flex-1 flex items-center bg-[var(--bg-tertiary)] px-2.5 py-1 rounded-lg border border-[var(--border)] gap-1.5">
-                          <span className="text-[9px] text-[var(--text-muted)] font-bold tracking-wider">HEX</span>
-                          <input
-                            type="text"
-                            className="w-full bg-transparent outline-none text-xs text-[var(--text-primary)] font-mono"
-                            value={drawColor.startsWith('url(') ? '#FFFFFF' : drawColor}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              if (val.match(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)) {
-                                setDrawColor(val);
-                              } else if (!val.startsWith('#') && val.match(/^([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)) {
-                                setDrawColor('#' + val);
-                              }
+                  {/* Quick Color Swatches */}
+                  {!eraserMode && (
+                    <div className="flex flex-col gap-2 shrink-0">
+                      <div className="grid grid-cols-5 gap-1.5 justify-center">
+                        {DRAW_COLORS.map((color) => (
+                          <button
+                            key={color}
+                            onClick={() => {
+                              setDrawColor(color);
+                            }}
+                            className="w-[34px] h-[22px] rounded-md border transition-all hover:scale-105 cursor-pointer"
+                            style={{
+                              background: color,
+                              borderColor: drawColor === color ? 'var(--accent)' : 'transparent',
+                              boxShadow: drawColor === color ? '0 0 0 1.5px var(--accent-subtle)' : 'none',
                             }}
                           />
-                        </div>
-                        {typeof window !== 'undefined' && 'EyeDropper' in window && (
-                          <button
-                            onClick={async () => {
-                              try {
-                                const EyeDropperCtor = (window as unknown as { EyeDropper: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
-                                const eyeDropper = new EyeDropperCtor();
-                                const result = await eyeDropper.open();
-                                setDrawColor(result.sRGBHex);
-                              } catch {
-                                // ignore
-                              }
-                            }}
-                            title="Eyedropper tool"
-                            className="w-8 h-8 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] border border-[var(--border)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
-                          >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="m2 22 1-1h3l9-9 3 3-9 9H3l-1-1Z" />
-                              <path d="M19 11l-4-4" />
-                              <path d="M15 3h6v6" />
-                            </svg>
-                          </button>
-                        )}
+                        ))}
                       </div>
+                    </div>
+                  )}
+                </div>
 
-                      {/* RGB & HSL */}
-                      <div className="flex flex-col gap-1.5">
+                {/* Column 2: Advanced Custom Colors (HEX/RGB/HSL/Gradients) */}
+                <div className="w-[260px] flex flex-col gap-2.5 shrink-0 pr-3 border-r border-[var(--border)]">
+                  {!eraserMode ? (() => {
+                    const { r, g, b } = hexToRgb(drawColor);
+                    const { h, s, l } = rgbToHsl(r, g, b);
+                    return (
+                      <>
+                        <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-[0.16em] select-none px-1">
+                          Custom Color
+                        </span>
+                        
+                        {/* HEX & Eyedropper */}
+                        <div className="flex items-center gap-1.5">
+                          <div className="flex-1 flex items-center bg-[var(--bg-tertiary)] px-2.5 py-1 rounded-lg border border-[var(--border)] gap-1.5">
+                            <span className="text-[9px] text-[var(--text-muted)] font-bold tracking-wider">HEX</span>
+                            <input
+                              type="text"
+                              className="w-full bg-transparent outline-none text-xs text-[var(--text-primary)] font-mono"
+                              value={drawColor.startsWith('url(') ? '#FFFFFF' : drawColor}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val.match(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)) {
+                                  setDrawColor(val);
+                                } else if (!val.startsWith('#') && val.match(/^([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)) {
+                                  setDrawColor('#' + val);
+                                }
+                              }}
+                            />
+                          </div>
+                          {typeof window !== 'undefined' && 'EyeDropper' in window && (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const EyeDropperCtor = (window as unknown as { EyeDropper: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
+                                  const eyeDropper = new EyeDropperCtor();
+                                  const result = await eyeDropper.open();
+                                  setDrawColor(result.sRGBHex);
+                                } catch {
+                                  // ignore
+                                }
+                              }}
+                              title="Eyedropper tool"
+                              className="w-7 h-7 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] border border-[var(--border)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="m2 22 1-1h3l9-9 3 3-9 9H3l-1-1Z" />
+                                <path d="M19 11l-4-4" />
+                                <path d="M15 3h6v6" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+
                         {/* RGB inputs */}
                         <div className="grid grid-cols-3 bg-[var(--bg-tertiary)] p-1 rounded-lg border border-[var(--border)] text-center text-[9px]">
                           <div className="flex flex-col">
@@ -823,165 +900,156 @@ export default function FloatingToolbar() {
                             />
                           </div>
                         </div>
-                      </div>
 
-                      {/* Gradients */}
-                      <div className="flex flex-col gap-1 mt-1 border-t border-[var(--border)]/60 pt-2">
-                        <span className="text-[9px] uppercase font-bold text-[var(--text-muted)] tracking-wider px-0.5">Gradients</span>
-                        <div className="flex gap-2">
-                          {[
-                            { id: 'url(#sunset-grad)', css: 'linear-gradient(135deg, #FF512F 0%, #DD2476 100%)', label: 'Sunset' },
-                            { id: 'url(#ocean-grad)', css: 'linear-gradient(135deg, #02AAB0 0%, #00CDAC 100%)', label: 'Ocean' },
-                            { id: 'url(#fire-grad)', css: 'linear-gradient(135deg, #F5576C 0%, #F08080 100%)', label: 'Fire' },
-                            { id: 'url(#lavender-grad)', css: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)', label: 'Lavender' },
-                            { id: 'url(#cosmic-grad)', css: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)', label: 'Cosmic' }
-                          ].map((grad) => (
-                            <button
-                              key={grad.id}
-                              onClick={() => setDrawColor(grad.id)}
-                              title={grad.label}
-                              className="w-6.5 h-6.5 rounded-full border transition-all hover:scale-110 cursor-pointer"
-                              style={{
-                                background: grad.css,
-                                borderColor: drawColor === grad.id ? 'var(--accent)' : 'transparent',
-                                boxShadow: drawColor === grad.id ? '0 0 0 1.5px var(--accent-subtle)' : 'none',
-                              }}
-                            />
-                          ))}
+                        {/* Gradients */}
+                        <div className="flex flex-col gap-1 border-t border-[var(--border)]/60 pt-2">
+                          <span className="text-[8px] uppercase font-bold text-[var(--text-muted)] tracking-wider px-0.5">Gradients</span>
+                          <div className="flex gap-1.5">
+                            {[
+                              { id: 'url(#sunset-grad)', css: 'linear-gradient(135deg, #FF512F 0%, #DD2476 100%)', label: 'Sunset' },
+                              { id: 'url(#ocean-grad)', css: 'linear-gradient(135deg, #02AAB0 0%, #00CDAC 100%)', label: 'Ocean' },
+                              { id: 'url(#fire-grad)', css: 'linear-gradient(135deg, #F5576C 0%, #F08080 100%)', label: 'Fire' },
+                              { id: 'url(#lavender-grad)', css: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)', label: 'Lavender' },
+                              { id: 'url(#cosmic-grad)', css: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)', label: 'Cosmic' }
+                            ].map((grad) => (
+                              <button
+                                key={grad.id}
+                                onClick={() => setDrawColor(grad.id)}
+                                title={grad.label}
+                                className="w-5.5 h-5.5 rounded-full border transition-all hover:scale-110 cursor-pointer"
+                                style={{
+                                  background: grad.css,
+                                  borderColor: drawColor === grad.id ? 'var(--accent)' : 'transparent',
+                                  boxShadow: drawColor === grad.id ? '0 0 0 1.5px var(--accent-subtle)' : 'none',
+                                }}
+                              />
+                            ))}
+                          </div>
                         </div>
+                      </>
+                    );
+                  })() : (
+                    <div className="flex items-center justify-center h-full text-xs text-[var(--text-muted)] italic select-none">
+                      Eraser selected — no color parameters needed.
+                    </div>
+                  )}
+                </div>
+
+                {/* Column 3: Advanced Brush Slider controls (2-column layout to fit horizontally!) */}
+                <div className="flex-1 flex flex-col gap-2 min-w-0 pr-1 overflow-y-auto">
+                  <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-[0.16em] select-none px-1">
+                    Brush Settings
+                  </span>
+
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-[10px] bg-[var(--bg-secondary)]/50 p-2.5 rounded-xl border border-[var(--border)]">
+                    {/* Size */}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[var(--text-secondary)] font-semibold">Size</span>
+                        <span className="text-[var(--text-muted)] font-mono">{drawSize}px</span>
                       </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Brushes settings popover parameters */}
-                <div className="flex flex-col gap-3 bg-[var(--bg-secondary)]/50 p-2.5 rounded-xl border border-[var(--border)] text-[10px]">
-                  {/* Size */}
-                  <div className="flex flex-col gap-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[var(--text-secondary)] font-semibold">Size</span>
-                      <span className="text-[var(--text-muted)] font-mono">{drawSize}px</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="1"
-                      max="100"
-                      className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
-                      value={drawSize}
-                      onChange={(e) => setDrawSize(parseInt(e.target.value))}
-                    />
-                  </div>
-
-                  {/* Opacity */}
-                  <div className="flex flex-col gap-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[var(--text-secondary)] font-semibold">Opacity</span>
-                      <span className="text-[var(--text-muted)] font-mono">{Math.round(drawOpacity * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.05"
-                      max="1.0"
-                      step="0.01"
-                      className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
-                      value={drawOpacity}
-                      onChange={(e) => setDrawOpacity(parseFloat(e.target.value))}
-                    />
-                  </div>
-
-                  {/* Flow */}
-                  <div className="flex flex-col gap-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[var(--text-secondary)] font-semibold">Flow</span>
-                      <span className="text-[var(--text-muted)] font-mono">{Math.round(drawFlow * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.05"
-                      max="1.0"
-                      step="0.01"
-                      className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
-                      value={drawFlow}
-                      onChange={(e) => setDrawFlow(parseFloat(e.target.value))}
-                    />
-                  </div>
-
-                  {/* Hardness */}
-                  <div className="flex flex-col gap-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[var(--text-secondary)] font-semibold">Hardness (Softness)</span>
-                      <span className="text-[var(--text-muted)] font-mono">{Math.round(drawHardness * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.1"
-                      max="1.0"
-                      step="0.01"
-                      className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
-                      value={drawHardness}
-                      onChange={(e) => setDrawHardness(parseFloat(e.target.value))}
-                    />
-                  </div>
-
-                  {/* Stabilization */}
-                  <div className="flex flex-col gap-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[var(--text-secondary)] font-semibold">Stabilization</span>
-                      <span className="text-[var(--text-muted)] font-mono">{Math.round(drawStabilization * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.0"
-                      max="1.0"
-                      step="0.01"
-                      className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
-                      value={drawStabilization}
-                      onChange={(e) => setDrawStabilization(parseFloat(e.target.value))}
-                    />
-                  </div>
-
-                  {/* Smoothing */}
-                  <div className="flex flex-col gap-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[var(--text-secondary)] font-semibold">Smoothing</span>
-                      <span className="text-[var(--text-muted)] font-mono">{Math.round(drawSmoothing * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.0"
-                      max="1.0"
-                      step="0.01"
-                      className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
-                      value={drawSmoothing}
-                      onChange={(e) => setDrawSmoothing(parseFloat(e.target.value))}
-                    />
-                  </div>
-
-                  {/* Pressure Sensitivity */}
-                  <div className="flex items-center justify-between py-0.5 border-t border-[var(--border)]/40 pt-2">
-                    <span className="text-[var(--text-secondary)] font-semibold">Pressure Sensitivity</span>
-                    <button
-                      onClick={() => setDrawPressure(!drawPressure)}
-                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out outline-none ${
-                        drawPressure ? 'bg-[var(--accent)]' : 'bg-[var(--bg-tertiary)]'
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                          drawPressure ? 'translate-x-4' : 'translate-x-0'
-                        }`}
+                      <input
+                        type="range"
+                        min="1"
+                        max="100"
+                        className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
+                        value={drawSize}
+                        onChange={(e) => setDrawSize(parseInt(e.target.value))}
                       />
-                    </button>
-                  </div>
+                    </div>
 
-                  {/* Texture & Blend Mode */}
-                  <div className="grid grid-cols-2 gap-2 border-t border-[var(--border)]/40 pt-2 text-[10px]">
-                    <div className="flex flex-col gap-1">
+                    {/* Hardness */}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[var(--text-secondary)] font-semibold">Hardness</span>
+                        <span className="text-[var(--text-muted)] font-mono">{Math.round(drawHardness * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.1"
+                        max="1.0"
+                        step="0.01"
+                        className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
+                        value={drawHardness}
+                        onChange={(e) => setDrawHardness(parseFloat(e.target.value))}
+                      />
+                    </div>
+
+                    {/* Opacity */}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[var(--text-secondary)] font-semibold">Opacity</span>
+                        <span className="text-[var(--text-muted)] font-mono">{Math.round(drawOpacity * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.05"
+                        max="1.0"
+                        step="0.01"
+                        className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
+                        value={drawOpacity}
+                        onChange={(e) => setDrawOpacity(parseFloat(e.target.value))}
+                      />
+                    </div>
+
+                    {/* Flow */}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[var(--text-secondary)] font-semibold">Flow</span>
+                        <span className="text-[var(--text-muted)] font-mono">{Math.round(drawFlow * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.05"
+                        max="1.0"
+                        step="0.01"
+                        className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
+                        value={drawFlow}
+                        onChange={(e) => setDrawFlow(parseFloat(e.target.value))}
+                      />
+                    </div>
+
+                    {/* Stabilization */}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[var(--text-secondary)] font-semibold">Stabilize</span>
+                        <span className="text-[var(--text-muted)] font-mono">{Math.round(drawStabilization * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.0"
+                        max="1.0"
+                        step="0.01"
+                        className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
+                        value={drawStabilization}
+                        onChange={(e) => setDrawStabilization(parseFloat(e.target.value))}
+                      />
+                    </div>
+
+                    {/* Smoothing */}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[var(--text-secondary)] font-semibold">Smooth</span>
+                        <span className="text-[var(--text-muted)] font-mono">{Math.round(drawSmoothing * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.0"
+                        max="1.0"
+                        step="0.01"
+                        className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
+                        value={drawSmoothing}
+                        onChange={(e) => setDrawSmoothing(parseFloat(e.target.value))}
+                      />
+                    </div>
+
+                    {/* Texture Select */}
+                    <div className="flex flex-col gap-0.5">
                       <span className="text-[var(--text-secondary)] font-semibold">Texture</span>
                       <select
                         value={drawTexture}
                         onChange={(e) => setDrawTexture(e.target.value as 'none' | 'chalk' | 'watercolor' | 'noise' | 'splatter')}
-                        className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] text-[var(--text-primary)] rounded-lg px-2 py-1 outline-none text-xs cursor-pointer"
+                        className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] text-[var(--text-primary)] rounded-lg px-2 py-0.5 outline-none text-[11px] cursor-pointer"
                       >
                         <option value="none">None</option>
                         <option value="chalk">Chalk</option>
@@ -990,12 +1058,14 @@ export default function FloatingToolbar() {
                         <option value="splatter">Splatter</option>
                       </select>
                     </div>
-                    <div className="flex flex-col gap-1">
+
+                    {/* Blend Mode Select */}
+                    <div className="flex flex-col gap-0.5">
                       <span className="text-[var(--text-secondary)] font-semibold">Blend Mode</span>
                       <select
                         value={drawBlendMode}
                         onChange={(e) => setDrawBlendMode(e.target.value as 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten')}
-                        className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] text-[var(--text-primary)] rounded-lg px-2 py-1 outline-none text-xs cursor-pointer"
+                        className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] text-[var(--text-primary)] rounded-lg px-2 py-0.5 outline-none text-[11px] cursor-pointer"
                       >
                         <option value="normal">Normal</option>
                         <option value="multiply">Multiply</option>
@@ -1006,6 +1076,23 @@ export default function FloatingToolbar() {
                       </select>
                     </div>
                   </div>
+
+                  {/* Pressure Sensitivity Toggle */}
+                  <div className="flex items-center justify-between py-1 px-1 bg-[var(--bg-secondary)]/50 rounded-lg border border-[var(--border)] text-[10px] shrink-0 mt-0.5">
+                    <span className="text-[var(--text-secondary)] font-semibold">Pressure Sensitivity</span>
+                    <button
+                      onClick={() => setDrawPressure(!drawPressure)}
+                      className={`relative inline-flex h-4 w-8 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out outline-none ${
+                        drawPressure ? 'bg-[var(--accent)]' : 'bg-[var(--bg-tertiary)]'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          drawPressure ? 'translate-x-3.5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1013,7 +1100,7 @@ export default function FloatingToolbar() {
             {/* Toggle advanced settings button */}
             <button
               onClick={() => setShowAdvancedDraw(!showAdvancedDraw)}
-              className="mt-0.5 py-1.5 px-3 rounded-lg bg-[rgba(var(--accent-rgb),0.08)] hover:bg-[rgba(var(--accent-rgb),0.13)] text-[var(--accent)] text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
+              className="mt-0.5 py-1.5 px-3 rounded-lg bg-[rgba(var(--accent-rgb),0.08)] hover:bg-[rgba(var(--accent-rgb),0.13)] text-[var(--accent)] text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 w-full"
             >
               <span>{showAdvancedDraw ? 'Simple Settings ⚡' : 'Brush Settings Popover (God Mode) ⚡'}</span>
             </button>
