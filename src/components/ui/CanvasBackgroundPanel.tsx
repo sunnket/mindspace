@@ -9,17 +9,27 @@ import {
   type CanvasThemePreset,
 } from '@/lib/canvasTheme';
 
-export default function CanvasBackgroundPanel() {
+/**
+ * `onPick` fires when the user makes a DISCRETE choice (a preset, a swatch, a
+ * reset) so the toolbar can dismiss this panel the moment the decision is made.
+ * The continuous controls — the color well and the intensity slider — stay put,
+ * because closing the panel out from under a drag would make them unusable.
+ */
+export default function CanvasBackgroundPanel({ onPick }: { onPick?: () => void }) {
   const bg = useCanvasStore((s) => s.canvasBackground);
   const setBg = useCanvasStore((s) => s.setCanvasBackground);
 
-  const applyPreset = (p: CanvasThemePreset) =>
+  const applyPreset = (p: CanvasThemePreset) => {
     setBg({ presetId: p.id, color: p.color, opacity: p.opacity, dark: p.dark, accent: p.accent, name: p.name });
+    onPick?.();
+  };
 
   // Custom colors: let the surface tone (dark/light text) be inferred from the
   // color so any pick stays legible, and keep the current intensity.
-  const applyCustom = (color: string) =>
+  const applyCustom = (color: string, dismiss = false) => {
     setBg({ presetId: 'custom', color, opacity: bg.opacity || 0.65, name: 'Custom' });
+    if (dismiss) onPick?.();
+  };
 
   const setOpacity = (opacity: number) => setBg({ ...bg, opacity });
 
@@ -101,7 +111,7 @@ export default function CanvasBackgroundPanel() {
               return (
                 <button
                   key={c}
-                  onClick={() => applyCustom(c)}
+                  onClick={() => applyCustom(c, true)}
                   title={c}
                   className={`w-full aspect-square rounded-full border transition-all hover:scale-110 ${
                     active ? 'border-[var(--accent)]' : 'border-black/10'
@@ -137,7 +147,7 @@ export default function CanvasBackgroundPanel() {
 
       {/* Reset */}
       <button
-        onClick={() => setBg({ ...DEFAULT_BACKGROUND })}
+        onClick={() => { setBg({ ...DEFAULT_BACKGROUND }); onPick?.(); }}
         className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors self-start"
       >
         ↺ Reset to Graphite

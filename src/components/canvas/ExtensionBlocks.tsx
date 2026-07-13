@@ -3,6 +3,16 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useCanvasStore } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
+import {
+  TimelineItem,
+  TIMELINE_COLORS,
+  readTimelineItems,
+  timelineRange,
+  parseISODate,
+  toISODate,
+  addDays,
+  daysBetween,
+} from '@/lib/timeline';
 
 /* ============================================================
    Shared bits — every block is a light "clay" tile that matches
@@ -1223,6 +1233,229 @@ export function ChartBlock({ obj }: { obj: CanvasObjectData }) {
         <ChartLink onClick={() => setPhase('type')}>
           <MiniIcon size={10}><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></MiniIcon> Change type
         </ChartLink>
+      </div>
+    </BlockShell>
+  );
+}
+
+/* ============================================================
+   TIMELINE — a gantt/roadmap view: one draggable bar per item,
+   a day ruler, and a live "today" marker
+   ============================================================ */
+
+const TIMELINE_TINT = '#C97B4B';
+/** World px per day column. Also the drag quantum — one day, never half of one. */
+const DAY_W = 34;
+const ROW_H = 30;
+/** Width of the fixed label gutter on the left of the ruler. */
+const LABEL_W = 122;
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function TimelineBlock({ obj }: { obj: CanvasObjectData }) {
+  const updateObject = useCanvasStore((s) => s.updateObject);
+  const zoom = useCanvasStore((s) => s.camera.zoom);
+
+  const items = readTimelineItems(obj);
+  const title = (obj.style?.timelineTitle as string) ?? 'Timeline';
+
+  const [draftLabel, setDraftLabel] = useState('');
+  /** Live drag state — the committed items only change on pointerup. */
+  const drag = useRef<{ id: string; edge: 'move' | 'end'; startX: number; from: TimelineItem } | null>(null);
+  const [preview, setPreview] = useState<TimelineItem[] | null>(null);
+  /** Mirror of `preview` readable from the pointerup handler, which closes over
+   *  the render that started the drag and would otherwise see it as null. */
+  const previewRef = useRef<TimelineItem[] | null>(null);
+
+  const shown = preview ?? items;
+  const { start: rangeStart, days } = useMemo(() => timelineRange(shown), [shown]);
+  const today = daysBetween(rangeStart, new Date());
+
+  const patch = (kv: Record<string, unknown>) => updateObject(obj.id, { style: { ...obj.style, ...kv } });
+  const setItems = (next: TimelineItem[]) => patch({ timelineItems: next });
+
+  const setItem = (id: string, part: Partial<TimelineItem>) =>
+    setItems(items.map((i) => (i.id === id ? { ...i, ...part } : i)));
+  const removeItem = (id: string) => setItems(items.filter((i) => i.id !== id));
+
+  const addItem = () => {
+    const label = draftLabel.trim();
+    if (!label) return;
+    // A new item starts where the plan currently ends, so the roadmap grows
+    // forward instead of piling everything onto today.
+    const last = items.length ? items.reduce((a, b) => (parseISODate(a.end) > parseISODate(b.end) ? a : b)) : null;
+    const from = last ? addDays(parseISODate(last.end), 1) : new Date();
+    setItems([
+      ...items,
+      {
+        id: crypto.randomUUID(),
+        label,
+        start: toISODate(from),
+        end: toISODate(addDays(from, 2)),
+        color: TIMELINE_COLORS[items.length % TIMELINE_COLORS.length],
+      },
+    ]);
+    setDraftLabel('');
+  };
+
+  /* Drag a bar to move it, or its right edge to restretch it. The canvas is a
+     scaled world, so screen pixels are divided by the camera zoom before they
+     mean anything in day columns — otherwise a bar would run away from the
+     cursor at any zoom but 1. */
+  const beginDrag = (e: React.PointerEvent, item: TimelineItem, edge: 'move' | 'end') => {
+    e.stopPropagation();
+    e.preventDefault();
+    drag.current = { id: item.id, edge, startX: e.clientX, from: item };
+
+    const onMove = (ev: PointerEvent) => {
+      const d = drag.current;
+      if (!d) return;
+      const delta = Math.round((ev.clientX - d.startX) / zoom / DAY_W);
+      const s = parseISODate(d.from.start);
+      const en = parseISODate(d.from.end);
+      const next =
+        d.edge === 'move'
+          ? { ...d.from, start: toISODate(addDays(s, delta)), end: toISODate(addDays(en, delta)) }
+          // Never let the end cross the start — a bar is at minimum one day.
+          : { ...d.from, end: toISODate(addDays(en, Math.max(delta, -daysBetween(s, en)))) };
+      const nextItems = items.map((i) => (i.id === d.id ? next : i));
+      previewRef.current = nextItems;
+      setPreview(nextItems);
+    };
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      drag.current = null;
+      const committed = previewRef.current;
+      previewRef.current = null;
+      setPreview(null);
+      if (committed) setItems(committed);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  return (
+    <BlockShell
+      tint={TIMELINE_TINT}
+      tag="timeline"
+      icon={<MiniIcon><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="8" y1="13" x2="15" y2="13" /><line x1="6" y1="17" x2="12" y2="17" /></MiniIcon>}
+      badge={<Badge tint={TIMELINE_TINT}>{items.length} items</Badge>}
+    >
+      <Seamless
+        value={title}
+        onChange={(v) => patch({ timelineTitle: v })}
+        placeholder="Timeline title…"
+        className="text-[12px] font-bold mb-1.5"
+      />
+
+      <div
+        className="flex-1 min-h-0 overflow-auto rounded-xl border border-[var(--border)] bg-[#FCF8F3] dark:bg-black/20"
+        onWheel={stop}
+        onPointerDown={stop}
+      >
+        <div className="relative" style={{ width: LABEL_W + days * DAY_W, minHeight: '100%' }}>
+          {/* Day ruler */}
+          <div className="sticky top-0 z-20 flex h-9 bg-[#FCF8F3] dark:bg-[#1c1917] border-b border-[var(--border)]">
+            <div className="shrink-0 flex items-end pb-1 pl-2 text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-tertiary)]" style={{ width: LABEL_W }}>
+              {MONTHS[rangeStart.getMonth()]} {rangeStart.getFullYear()}
+            </div>
+            {Array.from({ length: days }, (_, i) => {
+              const d = addDays(rangeStart, i);
+              const isToday = i === today;
+              return (
+                <div
+                  key={i}
+                  className="shrink-0 flex items-end justify-center pb-1 border-l border-[var(--border)]"
+                  style={{ width: DAY_W }}
+                >
+                  <span
+                    className={`text-[9px] tabular-nums font-semibold ${isToday ? 'text-white' : 'text-[var(--text-tertiary)]'}`}
+                    style={isToday ? { background: '#D64545', borderRadius: 999, padding: '1px 5px' } : undefined}
+                  >
+                    {d.getDate()}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Today line — drawn over the rows, under the bars' labels */}
+          {today >= 0 && today < days && (
+            <div
+              className="absolute top-9 bottom-0 w-px z-10 pointer-events-none"
+              style={{ left: LABEL_W + today * DAY_W + DAY_W / 2, background: '#D64545' }}
+            />
+          )}
+
+          {/* Rows */}
+          <div className="relative">
+            {shown.map((item) => {
+              const s = Math.max(0, daysBetween(rangeStart, parseISODate(item.start)));
+              const span = Math.max(1, daysBetween(parseISODate(item.start), parseISODate(item.end)) + 1);
+              const color = item.color || TIMELINE_TINT;
+              return (
+                <div key={item.id} className="group/tl flex items-center border-b border-[var(--border)] last:border-b-0" style={{ height: ROW_H }}>
+                  <div className="shrink-0 flex items-center gap-1 pl-2 pr-1" style={{ width: LABEL_W }}>
+                    <Seamless
+                      value={item.label}
+                      onChange={(v) => setItem(item.id, { label: v })}
+                      placeholder="Task…"
+                      className="text-[10.5px] font-semibold"
+                    />
+                    <button
+                      onClick={(e) => { stop(e); removeItem(item.id); }}
+                      onMouseDown={stop}
+                      onPointerDown={stop}
+                      aria-label="Remove item"
+                      className="w-4 h-4 rounded-full items-center justify-center text-[var(--text-muted)] hover:text-red-500 hidden group-hover/tl:flex shrink-0 cursor-pointer"
+                    >
+                      <MiniIcon size={9}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></MiniIcon>
+                    </button>
+                  </div>
+
+                  <div className="relative flex-1 h-full">
+                    <div
+                      onPointerDown={(e) => beginDrag(e, item, 'move')}
+                      title={`${item.start} → ${item.end}`}
+                      className="absolute top-1/2 -translate-y-1/2 h-[19px] rounded-full flex items-center px-2 cursor-grab active:cursor-grabbing shadow-sm select-none"
+                      style={{
+                        left: s * DAY_W + 3,
+                        width: span * DAY_W - 6,
+                        background: color,
+                        opacity: item.done ? 0.45 : 1,
+                      }}
+                    >
+                      <span className="text-[9.5px] font-bold text-white truncate">{item.label}</span>
+                      {/* Right-edge grip: restretches the bar */}
+                      <span
+                        onPointerDown={(e) => beginDrag(e, item, 'end')}
+                        className="absolute right-0 top-0 h-full w-2 cursor-ew-resize rounded-r-full"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Add an item */}
+      <div className="flex items-center gap-2 pt-2 shrink-0">
+        <input
+          type="text"
+          value={draftLabel}
+          placeholder="+ add a milestone"
+          onChange={(e) => setDraftLabel(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && addItem()}
+          onMouseDown={stop}
+          onPointerDown={stop}
+          onClick={stop}
+          className="flex-1 min-w-0 bg-[#F5EFE7] dark:bg-white/10 rounded-md px-2 py-1 text-[10px] font-semibold outline-none focus:ring-1 focus:ring-[var(--accent)]/40 cursor-text placeholder:text-[var(--text-muted)]"
+        />
       </div>
     </BlockShell>
   );

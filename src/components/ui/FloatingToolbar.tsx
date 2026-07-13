@@ -91,6 +91,35 @@ export default function FloatingToolbar() {
     return () => window.removeEventListener('mousedown', dismiss);
   }, [showRelaxOptions]);
 
+  /** Shut every toolbar flyout. One tool's panel is never open beside another's. */
+  const closeAllPanels = React.useCallback(() => {
+    setShowDrawOptions(false);
+    setShowShapeOptions(false);
+    setShowArrowOptions(false);
+    setShowFrameOptions(false);
+    setShowBgOptions(false);
+    setShowRelaxOptions(false);
+    setShowWorkflowMenu(false);
+  }, []);
+
+  /* A mode can also be entered from the keyboard (D, S, R, V…) or by the canvas
+     itself (placing a shape drops you back into select). Whenever the mode
+     actually CHANGES, re-sync which panel is showing — so a keyboard shortcut
+     still pops the right palette, and finishing a placement puts it away.
+     A click on the tool you're already in doesn't change the mode, which is
+     exactly what lets that click toggle its panel shut instead. */
+  const lastMode = useRef(mode);
+  useEffect(() => {
+    if (lastMode.current === mode) return;
+    lastMode.current = mode;
+    setShowDrawOptions(mode === 'draw');
+    setShowShapeOptions(mode === 'shape');
+    setShowFrameOptions(mode === 'frame');
+    setShowRelaxOptions(mode === 'relax');
+    setShowBgOptions(false);
+    setShowWorkflowMenu(false);
+  }, [mode]);
+
   const [selectedShapeDomain, setSelectedShapeDomain] = useState<'all' | 'brainstorm' | 'code' | 'love' | 'usecase' | 'story' | 'system'>('all');
   const selectedShapeType = useCanvasStore((s) => s.selectedShapeType);
   const setSelectedShapeType = useCanvasStore((s) => s.setSelectedShapeType);
@@ -245,8 +274,15 @@ export default function FloatingToolbar() {
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
+          data-plus-button
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
+            closeAllPanels();
+            // Toggle: a second click on + puts the insert menu away again.
+            if (useCanvasStore.getState().plusMenuPos) {
+              setPlusMenuPos(null);
+              return;
+            }
             // Position the menu slightly above the toolbar button
             setPlusMenuPos({ x: rect.left, y: rect.top, isToolbar: true });
           }}
@@ -266,72 +302,50 @@ export default function FloatingToolbar() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => {
+              setCommentMode(false);
+              setThreadsSidebarOpen(false);
+
               if (tool.id === 'voice' as any) {
+                closeAllPanels();
                 if (isListening) stopRecognition();
                 else startRecognition();
                 return;
               }
+
               if (tool.id === 'workflow' as any) {
-                setShowWorkflowMenu(!showWorkflowMenu);
-                setShowDrawOptions(false);
-                setShowShapeOptions(false);
-                setShowArrowOptions(false);
-                setShowFrameOptions(false);
-                setShowBgOptions(false);
-                setShowRelaxOptions(false);
-                setCommentMode(false);
-                setThreadsSidebarOpen(false);
-                setMode('select');
+                const wasOpen = showWorkflowMenu;
+                closeAllPanels();
+                if (!wasOpen) {
+                  setShowWorkflowMenu(true);
+                  setMode('select');
+                }
                 return;
               }
-              if (tool.id === 'relax' as any) {
-                setShowRelaxOptions(!showRelaxOptions);
-                setShowDrawOptions(false);
-                setShowShapeOptions(false);
-                setShowArrowOptions(false);
-                setShowFrameOptions(false);
-                setShowBgOptions(false);
-                setShowWorkflowMenu(false);
-                setCommentMode(false);
-                setThreadsSidebarOpen(false);
-                setMode('relax' as any);
+
+              /* Clicking the tool you're ALREADY in just toggles its panel —
+                 that's the "click the same toolbar option again and the menu
+                 goes away" behaviour. Switching to a different tool closes every
+                 panel and opens that tool's own (via the mode effect above). */
+              const panelOpen =
+                (tool.id === 'draw' && showDrawOptions) ||
+                (tool.id === 'shape' && showShapeOptions) ||
+                (tool.id === 'frame' && showFrameOptions) ||
+                (tool.id === 'relax' && showRelaxOptions);
+
+              if (mode === (tool.id as InteractionMode) && panelOpen) {
+                closeAllPanels();
                 return;
               }
+
+              closeAllPanels();
               setMode(tool.id as InteractionMode);
-              setShowWorkflowMenu(false);
-              setShowBgOptions(false);
-              setShowRelaxOptions(false);
-              setCommentMode(false);
-              setThreadsSidebarOpen(false);
               // Picking the arrow tool starts a fresh draw — deselect so the
               // panel shows the arrow tool defaults, not the last selection.
               if (tool.id === 'arrow') setSelectedId(null);
-              if (tool.id === 'draw') {
-                setShowDrawOptions(true);
-                setShowShapeOptions(false);
-                setShowArrowOptions(false);
-                setShowFrameOptions(false);
-              } else if (tool.id === 'shape') {
-                setShowShapeOptions(true);
-                setShowDrawOptions(false);
-                setShowArrowOptions(false);
-                setShowFrameOptions(false);
-              } else if (tool.id === 'arrow') {
-                setShowArrowOptions(true);
-                setShowDrawOptions(false);
-                setShowShapeOptions(false);
-                setShowFrameOptions(false);
-              } else if (tool.id === 'frame') {
-                setShowFrameOptions(true);
-                setShowDrawOptions(false);
-                setShowShapeOptions(false);
-                setShowArrowOptions(false);
-              } else {
-                setShowDrawOptions(false);
-                setShowShapeOptions(false);
-                setShowArrowOptions(false);
-                setShowFrameOptions(false);
-              }
+              if (tool.id === 'draw') setShowDrawOptions(true);
+              else if (tool.id === 'shape') setShowShapeOptions(true);
+              else if (tool.id === 'frame') setShowFrameOptions(true);
+              else if (tool.id === 'relax') setShowRelaxOptions(true);
             }}
             className={`relative w-9 h-9 rounded-lg flex items-center justify-center text-sm font-medium transition-all ${
               mode === tool.id || (tool.id === 'voice' as any && isListening) || (tool.id === 'workflow' as any && showWorkflowMenu)
@@ -349,15 +363,11 @@ export default function FloatingToolbar() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={() => {
-            setShowBgOptions((v) => !v);
-            setShowWorkflowMenu(false);
-            setShowDrawOptions(false);
-            setShowShapeOptions(false);
-            setShowArrowOptions(false);
-            setShowFrameOptions(false);
-            setShowRelaxOptions(false);
+            const wasOpen = showBgOptions;
+            closeAllPanels();
             setCommentMode(false);
             setThreadsSidebarOpen(false);
+            if (!wasOpen) setShowBgOptions(true);
           }}
           className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
             showBgOptions
@@ -377,14 +387,10 @@ export default function FloatingToolbar() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={() => {
-            setCommentMode(!commentMode);
+            const next = !commentMode;
+            closeAllPanels();
             setThreadsSidebarOpen(false);
-            setShowWorkflowMenu(false);
-            setShowDrawOptions(false);
-            setShowShapeOptions(false);
-            setShowArrowOptions(false);
-            setShowFrameOptions(false);
-            setShowBgOptions(false);
+            setCommentMode(next);
           }}
           className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
             commentMode
@@ -404,15 +410,10 @@ export default function FloatingToolbar() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={() => {
-            setThreadsSidebarOpen(!threadsSidebarOpen);
+            const next = !threadsSidebarOpen;
+            closeAllPanels();
             setCommentMode(false);
-            setShowWorkflowMenu(false);
-            setShowDrawOptions(false);
-            setShowShapeOptions(false);
-            setShowArrowOptions(false);
-            setShowFrameOptions(false);
-            setShowBgOptions(false);
-            setShowRelaxOptions(false);
+            setThreadsSidebarOpen(next);
           }}
           className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
             threadsSidebarOpen
@@ -573,7 +574,7 @@ export default function FloatingToolbar() {
       {/* Shape options panel — only while placing a new shape; editing an
           existing shape is handled by the left SelectionPanel. */}
       <AnimatePresence>
-        {mode === 'shape' && (
+        {showShapeOptions && mode === 'shape' && (
           <motion.div
             className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[280px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -722,6 +723,8 @@ export default function FloatingToolbar() {
                   key={sOption.id}
                   onClick={() => {
                     setSelectedShapeType(sOption.id as any);
+                    // The choice is made — get the palette out of the way.
+                    setShowShapeOptions(false);
                     // If a shape is selected, instantly change its type
                     if (selectedId && selectedObject && selectedObject.type === 'shape') {
                       updateObject(selectedId, {
@@ -796,6 +799,7 @@ export default function FloatingToolbar() {
                         }
                       });
                     }
+                    setShowShapeOptions(false);
                   }}
                   className="w-6.5 h-6.5 rounded-full border transition-all hover:scale-110"
                   style={{
@@ -937,7 +941,7 @@ export default function FloatingToolbar() {
       {/* Frame options panel — only while placing a new frame; editing an
           existing frame is handled by the left SelectionPanel. */}
       <AnimatePresence>
-        {mode === 'frame' && (
+        {showFrameOptions && mode === 'frame' && (
           <motion.div
             className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[240px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -958,6 +962,7 @@ export default function FloatingToolbar() {
                       if (selectedId && selectedObject && selectedObject.type === 'frame') {
                         updateObject(selectedId, { style: { ...selectedObject.style, frameColor: c.hex } });
                       }
+                      setShowFrameOptions(false);
                     }}
                     className="w-7 h-7 rounded-full border transition-all hover:scale-110"
                     style={{
@@ -1035,7 +1040,7 @@ export default function FloatingToolbar() {
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
-            <CanvasBackgroundPanel />
+            <CanvasBackgroundPanel onPick={() => setShowBgOptions(false)} />
           </motion.div>
         )}
       </AnimatePresence>

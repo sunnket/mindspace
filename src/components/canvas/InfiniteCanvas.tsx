@@ -581,8 +581,10 @@ export default function InfiniteCanvas() {
                 type: 'text',
                 x: worldPos.x,
                 y: worldPos.y,
-                width: 900,
-                height: 100,
+                // Start small: the block hugs the text and grows out with it, up
+                // to the 900px column where it wraps (CanvasObject syncs this).
+                width: 160,
+                height: 44,
                 content: '',
                 style: {
                   fontSize: ts.fontSize,

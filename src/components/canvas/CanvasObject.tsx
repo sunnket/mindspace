@@ -19,7 +19,7 @@ import QuoteBlock from './QuoteBlock';
 import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
-import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock } from './ExtensionBlocks';
+import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock, TimelineBlock } from './ExtensionBlocks';
 
 /**
  * The DOM range at a viewport point. Two engines, two spellings: Firefox ships
@@ -55,6 +55,12 @@ function caretRangeFromPoint(clientX: number, clientY: number): Range | null {
  * any of them, so an object can never get stuck to the cursor.
  */
 const END_DRAG = { capture: true } as const;
+
+/** The column a free text block wraps at. The box grows out to it as you type;
+ *  it never starts there. Kept in sync with the width InfiniteCanvas seeds. */
+const TEXT_WRAP_WIDTH = 900;
+/** Matches .text-block-editable's min-width so an empty box still has a caret. */
+const TEXT_MIN_WIDTH = 100;
 
 // ---- Embedded browser helpers --------------------------------------------
 interface BrowserTab {
@@ -99,336 +105,121 @@ function browserTabLabel(tab: BrowserTab): string {
   }
 }
 
-/** Commands the block's toolbar can send to whichever tab is on screen. */
-interface BrowserControl {
-  command: (action: 'back' | 'forward' | 'reload') => void;
-  extract: () => Promise<BrowserExtract | null>;
-}
-
 interface BrowserExtract {
   images?: { src: string; w: number; h: number }[];
   texts?: string[];
 }
 
-async function browserPost(body: Record<string, unknown>) {
+/**
+ * What the <iframe> should actually load. Some sites have a dedicated embed
+ * surface that frames cleanly while their normal page refuses to — YouTube is
+ * the one that matters, and a watch link is exactly what people paste.
+ */
+function frameSrc(url: string): string {
   try {
-    const res = await fetch('/api/browser', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    return (await res.json()) as Record<string, unknown>;
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    if (host === 'youtu.be') {
+      const id = u.pathname.slice(1).split('/')[0];
+      if (id) return `https://www.youtube.com/embed/${id}`;
+    }
+    if (host.endsWith('youtube.com')) {
+      if (u.pathname === '/watch') {
+        const id = u.searchParams.get('v');
+        if (id) return `https://www.youtube.com/embed/${id}`;
+      }
+      const short = u.pathname.match(/^\/shorts\/([A-Za-z0-9_-]+)/);
+      if (short) return `https://www.youtube.com/embed/${short[1]}`;
+    }
   } catch {
-    return null;
+    /* not a parseable URL — hand it to the frame as-is */
   }
+  return url;
 }
 
 interface BrowserViewProps {
   id: string;
   url: string;
-  /** Only the visible tab streams frames — background tabs keep their page alive. */
-  active: boolean;
-  /** Whether the user is actually working in this block right now. */
-  focused: boolean;
-  /** Viewport size in CSS pixels; mirrored onto the headless page. */
-  vw: number;
-  vh: number;
-  onNavigate: (tabId: string, url: string, title: string) => void;
+  /** Bumped by the toolbar's reload button — remounts the frame. */
+  reloadKey: number;
   onLoading: (tabId: string, loading: boolean) => void;
-  registerControl: (tabId: string, control: BrowserControl | null) => void;
 }
 
 /**
- * A real Chrome page, driven server-side and streamed here as JPEG frames.
- * Clicks, scrolls and keystrokes are forwarded to it — so this browses like a
- * browser, with no iframe and therefore no X-Frame-Options wall.
+ * A real <iframe>. The page runs in the user's own browser: scrolling, typing,
+ * video and clicks are all native, so there is no round trip and nothing to
+ * repaint. What we lose is what an iframe can never give us cross-origin — we
+ * can't read the address as the user clicks around inside the page, so the
+ * address bar tracks only the navigations WE make (see the per-tab history in
+ * the block below).
+ *
+ * Sites that refuse to be framed (X-Frame-Options / CSP frame-ancestors) would
+ * otherwise just render an eternally blank white box, so we ask the server up
+ * front and say so plainly instead.
  */
-function BrowserView({ id, url, active, focused, vw, vh, onNavigate, onLoading, registerControl }: BrowserViewProps) {
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [tick, setTick] = useState(0);
-  const [failed, setFailed] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
+function BrowserView({ id, url, reloadKey, onLoading }: BrowserViewProps) {
+  const [blocked, setBlocked] = useState<string | null>(null);
+  const src = frameSrc(url);
 
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const sessionRef = useRef<string | null>(null);
-  /** Where the headless page actually is — so a URL it reports back to us (a
-   *  redirect, or a link the user clicked) doesn't bounce us into re-navigating. */
-  const liveUrl = useRef('');
-  /** Latest props, readable from event handlers and one-shot effects. */
-  const urlRef = useRef(url);
-  const sizeRef = useRef({ vw, vh });
   useEffect(() => {
-    urlRef.current = url;
-    sizeRef.current = { vw, vh };
-  }, [url, vw, vh]);
-
-  const refresh = useCallback(() => setTick((t) => t + 1), []);
-
-  /**
-   * The page behind this tab is gone (dev server restarted, Chrome died, idle
-   * sweeper reclaimed it). Throw the dead session away and start another —
-   * throttled, so a burst of failing frames can't spin up a storm of them.
-   */
-  const lastRecovery = useRef(0);
-  const recoverSession = useCallback(() => {
-    const now = Date.now();
-    if (now - lastRecovery.current < 4000) return;
-    lastRecovery.current = now;
-    sessionRef.current = null;
-    setSessionId(null);
-    setAttempt((a) => a + 1);
-  }, []);
-
-  /** Fold a server reply (the live page's url + title) back into the tab. */
-  const apply = useCallback(
-    (d: Record<string, unknown> | null) => {
-      if (!d) return;
-      if (d.expired) {
-        recoverSession();
-        return;
-      }
-      if (typeof d.url === 'string' && d.url && d.url !== 'about:blank') {
-        liveUrl.current = d.url;
-        onNavigate(id, d.url, typeof d.title === 'string' ? d.title : '');
-      }
-      refresh();
-    },
-    [id, onNavigate, refresh, recoverSession]
-  );
-
-  // One session per tab, held for the tab's lifetime. Launching Chrome — or
-  // catching a dev server mid-restart — can take a beat, so a start that comes
-  // back empty is retried before we give up and show an error.
-  useEffect(() => {
+    if (!url) return;
     let cancelled = false;
-    let started: string | null = null;
-    let timer: NodeJS.Timeout | null = null;
-
+    setBlocked(null);
     onLoading(id, true);
 
-    const tryStart = async (triesLeft: number) => {
-      const d = await browserPost({
-        action: 'start',
-        url: urlRef.current,
-        width: Math.round(sizeRef.current.vw),
-        height: Math.round(sizeRef.current.vh),
-      });
-      if (cancelled) {
-        // A session opened by a run that's already torn down still has a live
-        // Chrome page behind it — close it rather than orphan it.
-        if (typeof d?.sessionId === 'string') browserPost({ action: 'stop', sessionId: d.sessionId });
-        return;
-      }
-
-      const newId = typeof d?.sessionId === 'string' ? d.sessionId : null;
-      if (!newId) {
-        if (triesLeft > 0) {
-          timer = setTimeout(() => tryStart(triesLeft - 1), 1500);
-          return;
-        }
-        setFailed(typeof d?.error === 'string' ? d.error : 'Could not reach the browser service.');
-        onLoading(id, false);
-        return;
-      }
-
-      const landed = typeof d?.url === 'string' && d.url ? d.url : '';
-      started = newId;
-      sessionRef.current = newId;
-      liveUrl.current = landed || urlRef.current;
-      setFailed(null);
-      setSessionId(newId);
-      onLoading(id, false);
-      if (landed) onNavigate(id, landed, typeof d?.title === 'string' ? d.title : '');
-    };
-
-    tryStart(2);
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-      const dead = started ?? sessionRef.current;
-      if (dead) browserPost({ action: 'stop', sessionId: dead });
-      sessionRef.current = null;
-    };
-  }, [id, attempt, onLoading, onNavigate]);
-
-  // The address bar (or a restored canvas) points somewhere else — go there.
-  useEffect(() => {
-    if (!sessionId || !url || url === liveUrl.current) return;
-    onLoading(id, true);
-    browserPost({ action: 'goto', sessionId, url }).then((d) => {
-      apply(d);
-      onLoading(id, false);
-    });
-  }, [url, sessionId, id, apply, onLoading]);
-
-  // Stream frames for the visible tab only, and stream them harder while the user
-  // is actually in the block. Every frame is a screenshot the server has to take
-  // (a billed function call, once deployed), so an idle block ticks over slowly.
-  useEffect(() => {
-    if (!sessionId || !active) return;
-    const iv = setInterval(() => {
-      if (!document.hidden) refresh();
-    }, focused ? 700 : 2000);
-    return () => clearInterval(iv);
-  }, [sessionId, active, focused, refresh]);
-
-  // Keep the headless viewport the same size as this box, so a click at (x, y)
-  // here is a click at (x, y) there.
-  useEffect(() => {
-    if (!sessionId) return;
-    const t = setTimeout(() => {
-      browserPost({ action: 'resize', sessionId, width: Math.round(vw), height: Math.round(vh) }).then(refresh);
-    }, 250);
-    return () => clearTimeout(t);
-  }, [vw, vh, sessionId, refresh]);
-
-  // Hand back/forward/reload/extract to the block's toolbar.
-  useEffect(() => {
-    registerControl(id, {
-      command: (action) => {
-        const sid = sessionRef.current;
-        if (!sid) return;
-        onLoading(id, true);
-        browserPost({ action, sessionId: sid }).then((d) => {
-          apply(d);
+    fetch(`/api/browser?action=check&url=${encodeURIComponent(src)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        if (d && d.embeddable === false) {
+          setBlocked(d.reason || 'This site refuses to be embedded.');
           onLoading(id, false);
-        });
-      },
-      extract: async () => {
-        const sid = sessionRef.current;
-        if (!sid) return null;
-        return (await browserPost({ action: 'extract', sessionId: sid })) as BrowserExtract | null;
-      },
-    });
-    return () => registerControl(id, null);
-  }, [id, sessionId, registerControl, apply, onLoading]);
+        }
+      })
+      .catch(() => {
+        /* Can't reach it from the server — still let the frame try. */
+      });
 
-  const interact = useCallback(
-    (event: Record<string, unknown>) => {
-      const sid = sessionRef.current;
-      if (!sid) return;
-      browserPost({ action: 'interact', sessionId: sid, event }).then(apply);
-      refresh();
-      // The page reacts a beat after the input lands — grab that frame too.
-      setTimeout(refresh, 160);
-    },
-    [apply, refresh]
-  );
+    return () => { cancelled = true; };
+  }, [src, url, id, reloadKey, onLoading]);
 
-  /** Screen pixels → page pixels. Measures the rendered frame, so it stays
-   *  correct at any camera zoom. */
-  const toPage = (clientX: number, clientY: number) => {
-    const rect = viewportRef.current?.getBoundingClientRect();
-    if (!rect?.width || !rect?.height) return { x: 0, y: 0 };
-    return {
-      x: Math.round(((clientX - rect.left) / rect.width) * sizeRef.current.vw),
-      y: Math.round(((clientY - rect.top) / rect.height) * sizeRef.current.vh),
-    };
-  };
-
-  // Wheel events fire far faster than a round trip — batch them.
-  const wheelAccum = useRef(0);
-  const wheelTimer = useRef<NodeJS.Timeout | null>(null);
-  const scrollBy = useCallback(
-    (deltaY: number) => {
-      wheelAccum.current += deltaY;
-      if (wheelTimer.current) return;
-      wheelTimer.current = setTimeout(() => {
-        const d = wheelAccum.current;
-        wheelAccum.current = 0;
-        wheelTimer.current = null;
-        if (d) interact({ type: 'wheel', deltaY: d });
-      }, 70);
-    },
-    [interact]
-  );
-
-  // Wheel has to be a native, non-passive listener on this element: the canvas
-  // pans/zooms from its OWN native wheel listener on an ancestor, which runs
-  // before React's delegated one — a React onWheel handler would stop the event
-  // too late and the canvas would slide away under the page you're scrolling.
-  useEffect(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      e.stopPropagation();
-      e.preventDefault();
-      scrollBy(e.deltaY);
-    };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, [scrollBy]);
-
-  useEffect(() => () => { if (wheelTimer.current) clearTimeout(wheelTimer.current); }, []);
+  if (blocked) {
+    return (
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-50 px-8 text-center">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-neutral-400">
+          <rect x="3" y="11" width="18" height="11" rx="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+        <span className="text-sm font-semibold text-neutral-700">This page won&apos;t open in a frame</span>
+        <span className="text-[11px] text-neutral-500 max-w-[85%] leading-relaxed">{blocked}</span>
+        <button
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => window.open(url, '_blank', 'noopener')}
+          className="mt-1 px-3.5 py-1.5 rounded-full bg-white border border-neutral-200 text-xs font-semibold text-neutral-700 hover:border-blue-400 hover:text-blue-600 shadow-sm"
+        >
+          Open in a new tab ↗
+        </button>
+        <span className="text-[10px] text-neutral-400">
+          You can still pull its images &amp; text onto the canvas with the extract button.
+        </span>
+      </div>
+    );
+  }
 
   return (
-    <div
-      ref={viewportRef}
-      className="absolute inset-0 w-full h-full bg-white outline-none"
-      tabIndex={0}
-      // Swallow the press so the block doesn't drag out from under you while
-      // you browse, and take focus so typing reaches the page.
-      onMouseDown={(e) => {
-        e.stopPropagation();
-        viewportRef.current?.focus({ preventScroll: true });
-      }}
-      onClick={(e) => {
-        e.stopPropagation();
-        interact({ type: 'click', ...toPage(e.clientX, e.clientY) });
-      }}
-      onKeyDown={(e) => {
-        // Also stops canvas shortcuts (Delete, etc.) from firing as you type.
-        e.stopPropagation();
-        if (e.metaKey || e.ctrlKey || e.altKey) return;
-        if (e.key.length === 1) {
-          e.preventDefault();
-          interact({ type: 'text', text: e.key });
-        } else if (BROWSER_KEYS.has(e.key)) {
-          e.preventDefault();
-          interact({ type: 'key', key: e.key });
-        }
-      }}
-    >
-      {failed ? (
-        <div className="flex flex-col items-center justify-center gap-3 h-full w-full bg-neutral-50 text-neutral-500 text-xs px-6 text-center">
-          <span className="font-medium text-neutral-700">Couldn&apos;t open that page.</span>
-          <span className="max-w-[80%] text-[11px] text-neutral-400 break-words">{failed}</span>
-          <button
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={() => { setFailed(null); setAttempt((a) => a + 1); }}
-            className="px-3 py-1.5 rounded-full bg-white border border-neutral-200 font-medium hover:border-blue-400 hover:text-blue-600"
-          >
-            Retry
-          </button>
-        </div>
-      ) : sessionId ? (
-        <img
-          src={`/api/browser?sessionId=${sessionId}&t=${tick}`}
-          alt=""
-          // Fill, not contain: the page viewport tracks this box exactly, so the
-          // frame maps 1:1 onto it and pointer coordinates stay honest.
-          className="w-full h-full select-none"
-          draggable={false}
-          // A frame that 404s means the page behind this tab is gone — the server
-          // restarted, or the idle sweeper reclaimed it. Rebuild it silently
-          // instead of leaving a broken image sitting there.
-          onError={recoverSession}
-        />
-      ) : (
-        <div className="flex items-center justify-center h-full w-full bg-neutral-50 text-neutral-400">
-          <div className="animate-spin w-6 h-6 border-2 border-neutral-300 border-t-blue-500 rounded-full" />
-        </div>
-      )}
-    </div>
+    <iframe
+      key={`${src}#${reloadKey}`}
+      src={src}
+      title={id}
+      className="absolute inset-0 w-full h-full border-none bg-white"
+      referrerPolicy="no-referrer"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+      allowFullScreen
+      onLoad={() => onLoading(id, false)}
+    />
   );
 }
 
-/** Non-printable keys worth forwarding to the page. */
-const BROWSER_KEYS = new Set([
-  'Enter', 'Backspace', 'Tab', 'Delete', 'Escape', 'ArrowUp', 'ArrowDown',
-  'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown',
-]);
 
 interface CommentBubbleProps {
   obj: CanvasObjectData;
@@ -671,44 +462,20 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const [isHovered, setIsHovered] = useState(false);
 
   // ---- Embedded browser block state -------------------------------------
-  /** Live handles onto each tab's headless page, published by <BrowserView>. */
-  const browserControls = useRef<Record<string, BrowserControl | null>>({});
   const [browserUrlDraft, setBrowserUrlDraft] = useState('');
   const [browserDraftFocused, setBrowserDraftFocused] = useState(false);
   const [browserExtracting, setBrowserExtracting] = useState(false);
   const [loadingTabs, setLoadingTabs] = useState<Record<string, boolean>>({});
-
-  const registerBrowserControl = useCallback((tabId: string, control: BrowserControl | null) => {
-    if (control) browserControls.current[tabId] = control;
-    else delete browserControls.current[tabId];
-  }, []);
+  /** Bumping a tab's counter remounts its <iframe> — that IS a reload. */
+  const [reloadKeys, setReloadKeys] = useState<Record<string, number>>({});
+  /* Our own per-tab history. A cross-origin iframe won't let us read or drive
+     its history, so back/forward walk the addresses WE navigated to. */
+  const browserHistory = useRef<Record<string, { stack: string[]; idx: number }>>({});
 
   const setTabLoading = useCallback((tabId: string, loading: boolean) => {
     setLoadingTabs((m) => (m[tabId] === loading ? m : { ...m, [tabId]: loading }));
   }, []);
 
-  /** The headless page moved (redirect, link click, form submit) — mirror that
-   *  into the tab strip and the address bar. Reads live store state so it never
-   *  writes back a stale tab list. */
-  const handleBrowserNavigate = useCallback(
-    (tabId: string, url: string, title: string) => {
-      const state = useCanvasStore.getState();
-      const live = state.objects.find((o) => o.id === obj.id);
-      if (!live) return;
-
-      const { tabs, activeId } = readBrowserTabs(live);
-      const current = tabs.find((t) => t.id === tabId);
-      if (!current || (current.url === url && (current.title || '') === title)) return;
-
-      const nextTabs = tabs.map((t) => (t.id === tabId ? { ...t, url, title } : t));
-      const patch: Partial<CanvasObjectData> = {
-        style: { ...(live.style || {}), tabs: nextTabs, activeTab: activeId },
-      };
-      if (tabId === activeId) patch.content = url;
-      state.updateObject(obj.id, patch);
-    },
-    [obj.id]
-  );
   const hoverTimeout = useRef<NodeJS.Timeout | null>(null);
   const editingCommentId = useCanvasStore((s) => s.editingCommentId);
   const setEditingCommentId = useCanvasStore((s) => s.setEditingCommentId);
@@ -1269,6 +1036,29 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
      own sizing, and the display node isn't mounted). */
   const growsToFit = obj.type === 'text' || obj.type === 'heading' || obj.type === 'sticky';
 
+  /* A free text block HUGS its text rather than being born at its full wrap
+     width. It still wraps at exactly the same column it always did — wrapWidth
+     is that column — the box simply doesn't claim all of it until the words
+     reach it. Resizing the block by hand pins its width (isResized) and hands
+     control back to the user. */
+  const autoWidth = obj.type === 'text' && !obj.style?.isResized;
+  const wrapWidth = (obj.style?.wrapWidth as number | undefined) ?? TEXT_WRAP_WIDTH;
+
+  /** The block's box follows whatever the text element actually measures. */
+  const syncWidth = useCallback(
+    (node: HTMLElement | null) => {
+      if (!autoWidth || !node) return;
+      const inset = node.offsetLeft;
+      const needed = Math.min(wrapWidth, Math.ceil(node.offsetWidth + inset * 2));
+      if (needed < TEXT_MIN_WIDTH) return;
+      const live = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+      if (live && Math.abs(needed - live.width) > 2) {
+        updateObject(obj.id, { width: needed });
+      }
+    },
+    [autoWidth, wrapWidth, obj.id, updateObject]
+  );
+
   useEffect(() => {
     const el = displayRef.current;
     // Stand down while the user is dragging the resize handle — otherwise we'd
@@ -1292,6 +1082,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       if (live && needed > live.height + 2) {
         updateObject(obj.id, { height: needed });
       }
+      syncWidth(node);
     };
 
     measure();
@@ -1302,7 +1093,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     // from under us (the IndexedDB load resolving after mount, a collab sync, an
     // undo). Re-measuring whenever it changes means a block ALWAYS ends up tall
     // enough for its text, no matter who last wrote the height.
-  }, [growsToFit, isEditing, isResizing, obj.id, obj.content, obj.width, obj.height, obj.style?.fontSize, obj.style?.fontFamily, obj.style?.isCheckpoint, updateObject]);
+  }, [growsToFit, isEditing, isResizing, obj.id, obj.content, obj.width, obj.height, obj.style?.fontSize, obj.style?.fontFamily, obj.style?.isCheckpoint, updateObject, syncWidth]);
 
   useEffect(() => () => forgetMeasuredHeight(obj.id), [obj.id]);
 
@@ -1389,6 +1180,9 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             updateObject(obj.id, { height: newHeight });
           }
         }
+        // …and the width, so the box grows out with the words instead of
+        // squatting at its full wrap width from the very first keystroke.
+        syncWidth(contentRef.current);
 
         // Auto-remove empty text blocks after 8 seconds of inactivity
         if (obj.type === 'text' || obj.type === 'heading') {
@@ -1581,7 +1375,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         setSlashMenu(null);
       }
     };
-  }, [isEditing, obj.id, obj.type, removeObject, editingId, setEditingId, obj.height, updateObject, setSlashMenu, saveContent]);
+  }, [isEditing, obj.id, obj.type, removeObject, editingId, setEditingId, obj.height, updateObject, setSlashMenu, saveContent, syncWidth]);
 
   const handleBlur = useCallback(() => {
     if (editingId === obj.id) {
@@ -1794,10 +1588,6 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const activeLoading = !!loadingTabs[activeId];
 
         const stop = (e: React.MouseEvent) => e.stopPropagation();
-        /** Drive the headless page behind the visible tab. */
-        const postActive = (action: 'back' | 'forward' | 'reload') => {
-          browserControls.current[activeId]?.command(action);
-        };
 
         const persistTabs = (nextTabs: BrowserTab[], nextActive: string) => {
           const activeUrlNext = nextTabs.find((t) => t.id === nextActive)?.url;
@@ -1807,17 +1597,45 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           });
         };
 
+        /** Point the active tab at a URL, without touching its history. */
+        const showUrl = (val: string) => {
+          setTabLoading(activeId, true);
+          persistTabs(tabs.map((t) => (t.id === activeId ? { ...t, url: val, title: '' } : t)), activeId);
+        };
+
+        const reload = () => {
+          setTabLoading(activeId, true);
+          setReloadKeys((m) => ({ ...m, [activeId]: (m[activeId] || 0) + 1 }));
+        };
+
+        const history = (browserHistory.current[activeId] ??= {
+          stack: activeUrl ? [activeUrl] : [],
+          idx: activeUrl ? 0 : -1,
+        });
+
         const navigate = (raw: string) => {
           const val = normalizeBrowserUrl(raw);
           if (!val) return;
           setBrowserDraftFocused(false);
           if (val === activeTab.url) {
-            // Same address: nothing for the tab to react to, so reload instead.
-            postActive('reload');
+            reload();
             return;
           }
-          setTabLoading(activeId, true);
-          persistTabs(tabs.map((t) => (t.id === activeId ? { ...t, url: val } : t)), activeId);
+          // A new address truncates any forward history, exactly like a browser.
+          history.stack = [...history.stack.slice(0, history.idx + 1), val];
+          history.idx = history.stack.length - 1;
+          showUrl(val);
+        };
+
+        const goBack = () => {
+          if (history.idx <= 0) return;
+          history.idx -= 1;
+          showUrl(history.stack[history.idx]);
+        };
+        const goForward = () => {
+          if (history.idx >= history.stack.length - 1) return;
+          history.idx += 1;
+          showUrl(history.stack[history.idx]);
         };
 
         const selectTab = (id: string) => {
@@ -1838,12 +1656,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         };
 
         // Pull the page's images and paragraphs onto the canvas as real objects.
+        // A cross-origin iframe is opaque to us, so the server reads the page.
         const runExtract = async () => {
-          const control = browserControls.current[activeId];
-          if (!control || browserExtracting) return;
+          if (!activeUrl || browserExtracting) return;
           setBrowserExtracting(true);
           try {
-            const data = await control.extract();
+            const res = await fetch(`/api/browser?action=extract&url=${encodeURIComponent(activeUrl)}`);
+            const data: BrowserExtract | null = res.ok ? await res.json() : null;
             const images = data?.images || [];
             const texts = data?.texts || [];
             let n = 0;
@@ -1949,18 +1768,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
             {/* Chrome / toolbar — also the drag handle */}
             <div className="h-10 shrink-0 bg-neutral-100 flex items-center px-2 gap-1 border-b border-neutral-200">
-              <button className={btn} title="Back" onMouseDown={stop} onClick={() => postActive('back')}>
+              <button className={btn} title="Back" disabled={history.idx <= 0} onMouseDown={stop} onClick={goBack}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
               </button>
-              <button className={btn} title="Forward" onMouseDown={stop} onClick={() => postActive('forward')}>
+              <button className={btn} title="Forward" disabled={history.idx >= history.stack.length - 1} onMouseDown={stop} onClick={goForward}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
               </button>
-              <button
-                className={btn}
-                title="Reload"
-                onMouseDown={stop}
-                onClick={() => { setLoadingTabs((m) => ({ ...m, [activeId]: true })); postActive('reload'); }}
-              >
+              <button className={btn} title="Reload" onMouseDown={stop} onClick={reload}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
               </button>
 
@@ -2010,8 +1824,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               </button>
             </div>
 
-            {/* Viewport — one headless page per tab, kept mounted so switching
-                tabs doesn't throw away where you'd browsed to. */}
+            {/* Viewport — one iframe per tab, kept mounted so switching tabs
+                doesn't throw away the page (or restart a video) you left behind. */}
             <div className="flex-1 relative bg-white overflow-hidden">
               {tabs.map((t) => {
                 const active = t.id === activeId;
@@ -2040,14 +1854,8 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                     <BrowserView
                       id={t.id}
                       url={t.url}
-                      active={active}
-                      focused={isSelected}
-                      // 72px of chrome above: the tab strip (32) + toolbar (40).
-                      vw={Math.max(200, Math.round(obj.width || 800))}
-                      vh={Math.max(200, Math.round((obj.height || 600) - 72))}
-                      onNavigate={handleBrowserNavigate}
+                      reloadKey={reloadKeys[t.id] || 0}
                       onLoading={setTabLoading}
-                      registerControl={registerBrowserControl}
                     />
                   </div>
                 );
@@ -2055,11 +1863,6 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               {browserExtracting && (
                 <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 px-3 py-1 rounded-full bg-blue-500 text-white text-[11px] font-semibold shadow-lg pointer-events-none">
                   Pulling images & text onto the canvas…
-                </div>
-              )}
-              {!browserExtracting && isSelected && !isDragging && !isResizing && activeUrl && (
-                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-full bg-black/55 text-white text-[10px] font-medium shadow pointer-events-none">
-                  Click, scroll and type — this is a real browser
                 </div>
               )}
               {interactionBlocked && (
@@ -2088,7 +1891,11 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               fontWeight: (obj.style?.fontWeight as number | undefined) ?? undefined,
               textAlign: (obj.style?.textAlign as any) || undefined,
               color: freeInk,
-              lineHeight: '1.7'
+              lineHeight: '1.7',
+              // Hug the text, wrap at the wrap width. The BLOCK then follows this
+              // element's measured size (see the width sync below), instead of
+              // sitting at a fixed 900px from the moment it's created.
+              ...(autoWidth ? { width: 'max-content', maxWidth: wrapWidth } : null),
             }}
           />
         ) : (
@@ -2105,6 +1912,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               lineHeight: '1.7',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
+              ...(autoWidth ? { width: 'max-content', maxWidth: wrapWidth } : null),
             }}
           >
             <RichText content={obj.content || ''} />
@@ -2324,6 +2132,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <QuickDataBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isTimeline) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <TimelineBlock obj={obj} />
             </div>
           );
         }

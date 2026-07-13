@@ -2,150 +2,133 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { v4 as uuidv4 } from 'uuid';
 import { useVoiceStore } from '@/store/voiceStore';
 import { useCanvasStore } from '@/store/canvasStore';
-import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 
 export default function VoiceOrb() {
-  const { isListening, transcript, interimTranscript, setIsListening } = useVoiceStore();
-  const { startRecognition, stopRecognition } = useSpeechRecognition();
-  const addObject = useCanvasStore((s) => s.addObject);
+  const isListening = useVoiceStore((s) => s.isListening);
+  const transcript = useVoiceStore((s) => s.transcript);
+  const interimTranscript = useVoiceStore((s) => s.interimTranscript);
+  const targetId = useVoiceStore((s) => s.targetId);
+  const error = useVoiceStore((s) => s.error);
   const updateObject = useCanvasStore((s) => s.updateObject);
-  const selectedId = useCanvasStore((s) => s.selectedId);
 
   const [waveformData, setWaveformData] = useState<number[]>(new Array(10).fill(2));
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const animationRef = useRef<number | null>(null);
 
-  // Audio analysis for waveform
+  // Audio analysis for the waveform
   useEffect(() => {
-    if (isListening) {
-      const initAudio = async () => {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const analyser = audioContext.createAnalyser();
-          const source = audioContext.createMediaStreamSource(stream);
-          source.connect(analyser);
-          analyser.fftSize = 32;
-          
-          audioContextRef.current = audioContext;
-          analyserRef.current = analyser;
-
-          const bufferLength = analyser.frequencyBinCount;
-          const dataArray = new Uint8Array(bufferLength);
-
-          const updateWaveform = () => {
-            if (!analyserRef.current) return;
-            analyserRef.current.getByteFrequencyData(dataArray);
-            
-            // Map data to 10 bars
-            const newWaveform = Array.from(dataArray.slice(0, 10)).map(v => Math.max(2, v / 15));
-            setWaveformData(newWaveform);
-            animationRef.current = requestAnimationFrame(updateWaveform);
-          };
-          updateWaveform();
-        } catch (e) {
-          console.error('Audio capture failed', e);
-        }
-      };
-      initAudio();
-    } else {
+    if (!isListening) {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
-      if (audioContextRef.current) audioContextRef.current.close();
+      analyserRef.current = null;
+      // Release the mic and the audio graph — a leaked AudioContext keeps the
+      // browser's recording indicator lit long after you've stopped.
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      audioContextRef.current?.close().catch(() => {});
+      audioContextRef.current = null;
       setWaveformData(new Array(10).fill(2));
+      return;
     }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const analyser = audioContext.createAnalyser();
+        audioContext.createMediaStreamSource(stream).connect(analyser);
+        analyser.fftSize = 32;
+
+        streamRef.current = stream;
+        audioContextRef.current = audioContext;
+        analyserRef.current = analyser;
+
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        const tick = () => {
+          if (!analyserRef.current) return;
+          analyserRef.current.getByteFrequencyData(data);
+          setWaveformData(Array.from(data.slice(0, 10)).map((v) => Math.max(2, v / 15)));
+          animationRef.current = requestAnimationFrame(tick);
+        };
+        tick();
+      } catch (e) {
+        console.error('Audio capture failed', e);
+      }
+    })();
+
+    return () => { cancelled = true; };
   }, [isListening]);
 
-  // Handle transcription updates in real-time
-  const baseContentRef = useRef('');
-  const currentObjectIdRef = useRef<string | null>(null);
-  const sessionActiveRef = useRef(false);
-
-  // When listening starts, identify target or create new card
+  /* Type what's being said into the target block, live.
+     The base content is captured ONCE, when the session's target is set — read
+     on every keystroke instead, it would grow by its own output and the note
+     would repeat itself forever. */
+  const baseContent = useRef('');
   useEffect(() => {
-    if (isListening) {
-      if (!sessionActiveRef.current) {
-        sessionActiveRef.current = true;
-        const currentObjects = useCanvasStore.getState().objects;
-        if (selectedId) {
-          currentObjectIdRef.current = selectedId;
-          const obj = currentObjects.find(o => o.id === selectedId);
-          baseContentRef.current = obj?.content || '';
-        } else {
-          // Create a new card immediately for this session
-          const newId = uuidv4();
-          const currentCamera = useCanvasStore.getState().camera;
-          const x = (-currentCamera.x + window.innerWidth / 2) / currentCamera.zoom - 150;
-          const y = (-currentCamera.y + window.innerHeight / 2) / currentCamera.zoom - 50;
-          
-          addObject({
-            id: newId,
-            type: 'text',
-            x, y,
-            width: 900,
-            height: 100,
-            content: '', 
-          });
-          currentObjectIdRef.current = newId;
-          baseContentRef.current = '';
-        }
-      }
-    } else {
-      // Finalize session
-      sessionActiveRef.current = false;
-      currentObjectIdRef.current = null;
-      baseContentRef.current = '';
+    if (!targetId) {
+      baseContent.current = '';
+      return;
     }
-  }, [isListening, selectedId, addObject]);
+    const obj = useCanvasStore.getState().objects.find((o) => o.id === targetId);
+    baseContent.current = obj?.content || '';
+  }, [targetId]);
 
-  // Sync base content only if we are in a session and selectedId changes
   useEffect(() => {
-    if (isListening && selectedId && selectedId !== currentObjectIdRef.current) {
-      currentObjectIdRef.current = selectedId;
-      const currentObjects = useCanvasStore.getState().objects;
-      const obj = currentObjects.find(o => o.id === selectedId);
-      baseContentRef.current = obj?.content || '';
-    }
-  }, [selectedId, isListening]);
+    if (!isListening || !targetId) return;
+    const spoken = [transcript, interimTranscript].filter((s) => s.trim()).join(' ').trim();
+    if (!spoken) return;
 
-  // Update object content as we speak
+    const base = baseContent.current.trim();
+    updateObject(targetId, { content: base ? `${base} ${spoken}` : spoken });
+  }, [transcript, interimTranscript, isListening, targetId, updateObject]);
+
+  // An error is worth reading, not worth living with.
   useEffect(() => {
-    if (!isListening || !currentObjectIdRef.current) return;
+    if (!error) return;
+    const t = setTimeout(() => useVoiceStore.getState().setError(null), 6000);
+    return () => clearTimeout(t);
+  }, [error]);
 
-    const fullTranscript = (transcript + ' ' + interimTranscript).trim();
-    if (!fullTranscript) return;
-
-    const newContent = baseContentRef.current 
-      ? baseContentRef.current + ' ' + fullTranscript 
-      : fullTranscript;
-      
-    // Immediate store update
-    updateObject(currentObjectIdRef.current, { content: newContent });
-  }, [transcript, interimTranscript]);
+  const caption = error || interimTranscript;
 
   return (
     <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[200] pointer-events-none">
       <div className="relative flex flex-col items-center">
-        
-        {/* Captions Overlay - Glassmorphic */}
+        {/* Captions / errors */}
         <AnimatePresence>
-          {isListening && interimTranscript && (
+          {(isListening || error) && caption && (
             <motion.div
               initial={{ opacity: 0, y: -20, scale: 0.9 }}
               animate={{ opacity: 1, y: -40, scale: 1 }}
               exit={{ opacity: 0, y: -20, scale: 0.9 }}
-              className="absolute whitespace-nowrap bg-white/10 backdrop-blur-3xl text-[var(--text-primary)] px-6 py-3 rounded-2xl text-sm font-medium tracking-wide shadow-[0_8px_32px_rgba(0,0,0,0.1)] border border-white/20"
+              className={`absolute max-w-[70vw] text-center bg-white/10 backdrop-blur-3xl px-6 py-3 rounded-2xl text-sm font-medium tracking-wide shadow-[0_8px_32px_rgba(0,0,0,0.1)] border ${
+                error
+                  ? 'text-red-500 border-red-400/30'
+                  : 'text-[var(--text-primary)] border-white/20 whitespace-nowrap'
+              }`}
             >
-              <span className="opacity-40">Listening...</span>
-              <span className="ml-2">{interimTranscript}</span>
-              <motion.span
-                animate={{ opacity: [0, 1, 0] }}
-                transition={{ duration: 1.5, repeat: Infinity }}
-                className="ml-2 inline-block w-2 h-2 rounded-full bg-[var(--accent)]"
-              />
+              {error ? (
+                error
+              ) : (
+                <>
+                  <span className="opacity-40">Listening…</span>
+                  <span className="ml-2">{interimTranscript}</span>
+                  <motion.span
+                    animate={{ opacity: [0, 1, 0] }}
+                    transition={{ duration: 1.5, repeat: Infinity }}
+                    className="ml-2 inline-block w-2 h-2 rounded-full bg-[var(--accent)]"
+                  />
+                </>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -166,13 +149,13 @@ export default function VoiceOrb() {
               <motion.div
                 initial={{ scale: 1, opacity: 0.3 }}
                 animate={{ scale: 2.2, opacity: 0 }}
-                transition={{ duration: 3, repeat: Infinity, ease: "easeOut" }}
+                transition={{ duration: 3, repeat: Infinity, ease: 'easeOut' }}
                 className="absolute inset-0 rounded-full border border-[var(--accent)] opacity-20"
               />
               <motion.div
                 initial={{ scale: 1, opacity: 0.2 }}
                 animate={{ scale: 1.8, opacity: 0 }}
-                transition={{ duration: 3, delay: 1, repeat: Infinity, ease: "easeOut" }}
+                transition={{ duration: 3, delay: 1, repeat: Infinity, ease: 'easeOut' }}
                 className="absolute inset-0 rounded-full border border-[var(--accent)] opacity-10"
               />
 
@@ -189,8 +172,6 @@ export default function VoiceOrb() {
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Status Label - Removed as requested */}
       </div>
     </div>
   );

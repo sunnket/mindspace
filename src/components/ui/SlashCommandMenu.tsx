@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useCanvasStore } from '@/store/canvasStore';
 import { motion, AnimatePresence } from 'framer-motion';
+import { newTimeline } from '@/lib/timeline';
 
 interface SlashItem {
   id: string;
@@ -167,6 +168,24 @@ const ITEMS: SlashItem[] = [
         height: 280,
         content: '',
         style: { isChart: true }
+      });
+      setEditingId(null);
+    }
+  },
+  {
+    id: 'timeline',
+    label: 'Timeline',
+    sublabel: 'Roadmap of draggable date bars',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="6" y1="17" x2="12" y2="17" /></svg>),
+    keywords: ['timeline', 'gantt', 'roadmap', 'schedule', 'plan', 'milestone', 'dates', 'calendar'],
+    action: (objectId, updateObject, setEditingId) => {
+      const seed = newTimeline(0, 0);
+      updateObject(objectId, {
+        type: 'card',
+        width: seed.width,
+        height: seed.height,
+        content: '',
+        style: seed.style,
       });
       setEditingId(null);
     }

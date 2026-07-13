@@ -92,16 +92,33 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   const platform = (style?.linkPlatform as string) || '';
   const embedUrl = (style?.linkEmbedUrl as string) || '';
 
-  const [isPlaying, setIsPlayingState] = useState(false);
+  const [manualPlay, setManualPlay] = useState(false);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const [draftUrl, setDraftUrl] = useState('');
   const cardRef = useRef<HTMLDivElement>(null);
 
+  /* A YouTube / Spotify / Vimeo card IS the player. Asking for a song and being
+     handed a link you then have to click through to a website is the whole
+     complaint — so a media card opens straight into its embed, and "Visit" and
+     "Surf" stay available for when you actually want the page. Closing the
+     player is remembered on the card, so it stays closed. */
+  const isMedia = /youtube|spotify|vimeo|soundcloud|twitch|dailymotion/i.test(platform);
+  const embedClosed = (style?.linkEmbedClosed as boolean) ?? false;
+  const isPlaying = Boolean(embedUrl) && !embedClosed && (isMedia || manualPlay);
+
   const setIsPlaying = (playing: boolean) => {
-    setIsPlayingState(playing);
+    setManualPlay(playing);
     const cur = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
     if (cur) {
-      updateObject(obj.id, { style: { ...cur.style, linkIsPlaying: playing } });
+      updateObject(obj.id, {
+        style: {
+          ...cur.style,
+          linkEmbedClosed: !playing,
+          // Keeps a card the user actually pressed play on from being unmounted
+          // by viewport culling mid-video.
+          linkIsPlaying: playing,
+        },
+      });
     }
   };
 
@@ -260,24 +277,37 @@ export default function LinkPreviewBlock({ obj }: { obj: CanvasObjectData }) {
   }
 
   // Render Rich Embed Players
-  if (embedUrl && isPlaying) {
+  if (isPlaying) {
     return (
       <div
         className="w-full h-full p-1.5 rounded-2xl bg-white/20 dark:bg-black/20 backdrop-blur-2xl border border-white/25 flex flex-col pointer-events-auto"
         style={{ fontFamily: "'Outfit', sans-serif" }}
       >
         {/* Compact Close Player Header */}
-        <div className="flex items-center justify-between px-2 py-1 mb-1 select-none">
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center justify-between px-2 py-1 mb-1 select-none gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
             {favicon && <img src={favicon} alt="" className="w-3.5 h-3.5 object-contain shrink-0" />}
-            <span className="text-[10px] font-medium text-[var(--text-secondary)]">{domain}</span>
+            <span className="text-[10px] font-medium text-[var(--text-secondary)] truncate" title={title}>
+              {title || domain}
+            </span>
           </div>
-          <button
-            onClick={() => setIsPlaying(false)}
-            className="text-[10px] font-bold text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/20 px-2 py-0.5 rounded-full transition-colors cursor-pointer"
-          >
-            Close Embed
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onMouseDown={(e) => e.stopPropagation()}
+              className="text-[10px] font-bold text-[var(--text-secondary)] hover:text-[var(--accent)] px-2 py-0.5 rounded-full transition-colors cursor-pointer"
+            >
+              Visit ↗
+            </a>
+            <button
+              onClick={() => setIsPlaying(false)}
+              className="text-[10px] font-bold text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/20 px-2 py-0.5 rounded-full transition-colors cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
         {/* Embedded Iframe Player */}

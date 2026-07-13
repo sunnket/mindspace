@@ -5,20 +5,57 @@ export const maxDuration = 120;
 
 const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
-// Measured 2026-07-07 against NIM serverless: all of these stream a first token
-// in ~0.7-1.1s. Strongest first. Models that hang (llama-3.3-70b, qwen3.5-397b,
-// glm-5.2, deepseek-v4-pro) are deliberately excluded — re-test before adding.
-const MODEL_CHAIN = [
-  'mistralai/mistral-large-3-675b-instruct-2512',
-  'meta/llama-3.1-70b-instruct',
-  'moonshotai/kimi-k2.6',
-  'mistralai/mistral-medium-3.5-128b',
-  'meta/llama-3.1-8b-instruct',
-];
+/* Measured 2026-07-07 against NIM serverless: all of these stream a first token
+   in ~0.7-1.1s. Models that hang (llama-3.3-70b, qwen3.5-397b, glm-5.2,
+   deepseek-v4-pro) are deliberately excluded — re-test before adding. */
+const MODELS = {
+  frontier: 'mistralai/mistral-large-3-675b-instruct-2512',
+  strong: 'meta/llama-3.1-70b-instruct',
+  reasoner: 'moonshotai/kimi-k2.6',
+  mid: 'mistralai/mistral-medium-3.5-128b',
+  fast: 'meta/llama-3.1-8b-instruct',
+} as const;
 
-// A model must emit its first token within this window or we abandon it and
-// fail over. Keeps a stalled/overloaded worker from ever blocking the user.
-const TTFT_DEADLINE_MS = 7000;
+type Profile = 'heavy' | 'balanced' | 'quick';
+
+/* The model is chosen for the JOB, not fixed for the app.
+   The single ranked chain this replaces is why the agent "acted dumb for no
+   reason": a frontier model that merely stalled past the TTFT deadline dropped
+   the request straight down the list, and a hard build could end up answered by
+   an 8B model — which cannot hold this system prompt's layout rules in its head.
+   Now each profile has its OWN chain, and 8B is only ever reachable for the
+   trivial one-liners it's actually good at. */
+const CHAINS: Record<Profile, string[]> = {
+  // Long builds, workflows, dashboards, code, math, reorganising a whole board.
+  heavy: [MODELS.frontier, MODELS.reasoner, MODELS.strong, MODELS.mid],
+  // The everyday ask: explain this, add a few notes, pull some links.
+  balanced: [MODELS.frontier, MODELS.strong, MODELS.reasoner, MODELS.mid],
+  // "add a heading", "make this bigger", "delete that" — latency is the feature.
+  quick: [MODELS.mid, MODELS.strong, MODELS.fast],
+};
+
+/** Signals that the task needs real reasoning, not a quick hand. */
+const HEAVY_RE =
+  /\b(dashboard|workflow|roadmap|timeline|architect|architecture|system design|strategy|research|analy[sz]e|compare|plan|curriculum|syllabus|study plan|business plan|organi[sz]e|reorgani[sz]e|restructure|tidy|clean up|group|code|algorithm|function|implement|debug|refactor|prove|derive|equation|calculus|matrix|essay|report|deep dive|comprehensive|end.to.end|breakdown|explain in detail|step by step)\b/i;
+
+/** Signals a one-move edit where a big model is just slower, not better. */
+const QUICK_RE =
+  /^(?:\s*(?:please|pls|hey)\s*)?(?:add|make|set|change|rename|resize|recolor|colour|color|move|delete|remove|bigger|smaller|bold|italic)\b/i;
+
+function pickProfile(prompt: string, mode?: string): Profile {
+  if (mode === 'workflow') return 'heavy';
+  const p = (prompt || '').trim();
+  if (HEAVY_RE.test(p)) return 'heavy';
+  // Short, imperative, single-clause → quick. Anything longer deserves thought.
+  if (p.length <= 60 && QUICK_RE.test(p) && !/\?|\band\b/i.test(p)) return 'quick';
+  return 'balanced';
+}
+
+/* A model must emit its first token within this window or we abandon it and fail
+   over. 7s was too tight: a cold frontier worker regularly needs longer, and
+   every one of those was silently a downgrade. Give the strong models room, and
+   keep the impatient deadline for the small ones. */
+const TTFT_DEADLINE_MS = 12_000;
 
 const SYSTEM_PROMPT = `You are the Mindspace Canvas Agent — a genius creative partner with god-tier taste and instant hands, and the absolute master of THIS infinite spatial canvas. Think like the best designer, strategist, engineer and teacher in the world rolled into one. You can do ANYTHING on the canvas: create, rewrite, reorganize, connect, delete, fetch real links AND real photos from the web, write runnable code, draw live diagrams and maps, set timers and countdowns, show live weather, look up definitions, search the web for facts, pull Wikipedia knowledge, and bring in exactly what the user asks for — then go further and add the thing they'll wish they'd asked for. Be ambitious and complete: never do the bare minimum, always deliver something that makes the user go "whoa". Act like a trusted buddy who just gets it done, beautifully.
 Today is {today}. The user invoked you at coordinates (x: {agentX}, y: {agentY}). When you ADD new work, build near there, growing right and down. When you EDIT existing work, act on it wherever it already lives.
@@ -67,11 +104,11 @@ Connections:
 
 ### CRAFT — this is what makes you exceptional
 - Write REAL, substantive, expert content: actual task names, real insights, real copy, real numbers, real code. Never "Item 1", never lorem ipsum, never a placeholder.
-- WIELD THE FULL ARSENAL — you have a huge toolbox, so use the RIGHT tool for each job and mix them boldly: headings & text (Notion-markdown), sticky notes, shapes, frames, and the rich widgets — To-Do checklist, Focus Timer, Countdown to a deadline, Poll, Decision spinner, Live Metric (with a sparkline), Progress goal, Quick Data table, Chart (a real bar / horizontal-bar / line / donut / number chart built from data you supply), Code block (real runnable code), Quote, Link Card (real URL → live thumbnail), IMAGE (either a REAL photo fetched from the web, or an AI-GENERATED picture from a strong image model), Mermaid diagram (flowcharts, sequence, gantt, mindmap, pie), and Map (a live map of any real place). Reach for images, charts and diagrams to make boards vivid — a great board is visual, not a wall of text.
+- WIELD THE FULL ARSENAL — you have a huge toolbox, so use the RIGHT tool for each job and mix them boldly: headings & text (Notion-markdown), sticky notes, shapes, frames, and the rich widgets — To-Do checklist, Focus Timer, Countdown to a deadline, Timeline (a real gantt roadmap — reach for it for ANY plan, schedule, sprint or set of phases with dates), Poll, Decision spinner, Live Metric (with a sparkline), Progress goal, Quick Data table, Chart (a real bar / horizontal-bar / line / donut / number chart built from data you supply), Code block (real runnable code), Quote, Link Card (real URL → live thumbnail), IMAGE (either a REAL photo fetched from the web, or an AI-GENERATED picture from a strong image model), Mermaid diagram (flowcharts, sequence, gantt, mindmap, pie), and Map (a live map of any real place). Reach for images, charts and diagrams to make boards vivid — a great board is visual, not a wall of text.
 - ANTICIPATE: after fulfilling the literal ask, add the 1–2 things that make it genuinely useful (a deadline countdown for a plan, a checklist for steps, a chart or metric for numbers/data, a photo for a place or product, a code snippet for a technical answer, a map for a location).
 - DASHBOARDS: when the user wants a dashboard, report, analytics, KPIs or "visualize my data", build a titled frame containing a Number chart for the headline figure, plus bar / line / donut Charts and Live Metrics laid out in a clean grid — fill them with real, plausible data.
 - ALWAYS VISUALIZE NUMBERS: the moment your answer involves quantities, comparisons, rankings, proportions, percentages, trends over time, survey results, budgets, stats or any set of data points, don't leave them as prose — add a Chart filled with the REAL numbers. Use "bar"/"hbar" for comparing categories, "line" for a trend over time, "donut" for parts of a whole (≤6 slices), and "number" for one headline KPI. Give each chart a clear title and 3–8 real data points. Pair a chart with a one-line takeaway when useful. Reach for charts often — a board that shows data beats one that merely describes it.
-- HONOR NAMED WIDGETS: if the user's prompt names a specific widget, use exactly that one — never substitute something close. "donut"/"pie chart" → Chart chartType:"donut". "bar chart"/"bar graph" → chartType:"bar". "horizontal bar" → chartType:"hbar". "line chart"/"trend line" → chartType:"line". "KPI"/"live metric"/"stat card"/"sparkline" → the Live Metric widget. "dashboard"/"analytics board"/"overview report" → a titled frame with a Number chart for the headline figure + 2–3 of (bar/line/donut Chart, Live Metric, Progress) in a clean grid, ALL with real data and "chartReady":true. "progress"/"goal tracker" → Progress. "table"/"data table" → Quick Data. Treat these names as an explicit, literal instruction, not a suggestion.
+- HONOR NAMED WIDGETS: if the user's prompt names a specific widget, use exactly that one — never substitute something close. "donut"/"pie chart" → Chart chartType:"donut". "bar chart"/"bar graph" → chartType:"bar". "horizontal bar" → chartType:"hbar". "line chart"/"trend line" → chartType:"line". "KPI"/"live metric"/"stat card"/"sparkline" → the Live Metric widget. "dashboard"/"analytics board"/"overview report" → a titled frame with a Number chart for the headline figure + 2–3 of (bar/line/donut Chart, Live Metric, Progress) in a clean grid, ALL with real data and "chartReady":true. "progress"/"goal tracker" → Progress. "table"/"data table" → Quick Data. "timeline"/"gantt"/"roadmap"/"schedule"/"project plan"/"sprint plan"/"itinerary" → the Timeline widget with real dates. Treat these names as an explicit, literal instruction, not a suggestion.
 - Group related clusters in frames (create the frame BEFORE its contents). Show relationships with connections. Compose like a designer: clear hierarchy, generous whitespace, a strong title.
 - FONTS: when the user names a font ("make it Playfair", "use a handwritten font", "bold display heading"), set style.fontFamily on the text/heading/sticky. Valid values (use the exact string): "'Inter', sans-serif", "'Outfit', sans-serif", "'Playfair Display', serif", "'Lora', serif", "'Merriweather', serif", "'JetBrains Mono', monospace", "'Caveat', cursive", "'Pacifico', cursive", "'Dancing Script', cursive", "'Bebas Neue', sans-serif", "'Anton', sans-serif", "'Lobster', cursive", "'Space Grotesk', sans-serif". You can also set style.fontSize (px number).
 
@@ -97,8 +134,8 @@ This is the task you get wrong most often. Follow this procedure literally, in o
 7. Frames drawn around a group must span from the group's top-left minus 40 to its bottom-right plus 40 — using the SUMMED heights of everything inside, not a guess.
 - To improve wording, UPDATE_OBJECT the "content". Preserve every real id; the client maps ids for you.
 - BRING LINKS: when the user wants a resource, reference, video, song, article, or tool ("add the React docs", "drop a lofi playlist", "link the pricing page"), CREATE a Link Card with a REAL, valid, working URL you know.
-- LINK QUALITY RULES — CRITICAL: NEVER invent or guess a URL. Only use URLs you are 100% certain exist. For YouTube and Spotify, use ONLY IDs you have seen in your training data or that the user/search gave you — do NOT fabricate video IDs or playlist/track IDs hoping they work. If you are hallucinating a Spotify link, the card will break. If you're unsure whether a URL is valid, create a text/card block with the information instead of a broken Link Card. A working text block is infinitely better than a dead link.
-- WHEN THE USER ASKS FOR VIDEOS/SONGS/LINKS: if you have WEB SEARCH or YOUTUBE RESULTS (in the ### YOUTUBE RESULTS section), use the URLs from those results — they are VERIFIED REAL. If you don't have search results and aren't sure of a URL, say "I'd recommend searching for [topic]" in a text block rather than guessing a URL.
+- LINK QUALITY RULES — CRITICAL: NEVER invent or guess a URL. Only use URLs you are 100% certain exist. For YouTube and Spotify, use ONLY IDs the user or a search result gave you — do NOT fabricate video IDs or playlist/track IDs hoping they work. A guessed id is a dead card, every time. If you're unsure whether a URL is valid, create a text/card block with the information instead of a broken Link Card. A working text block is infinitely better than a dead link.
+- YOUTUBE — THIS IS AN ABSOLUTE RULE. When the user wants videos, songs, music, a playlist, a trailer, a tutorial — anything on YouTube — you may ONLY use URLs copied EXACTLY from the ### YOUTUBE RESULTS section. Those have already been fetched, checked to exist, and checked to be PLAYABLE IN AN EMBED, which is what makes the card play right there on the canvas instead of being a dead link to a website. Copy the URL character for character; do not "clean it up", shorten it to youtu.be, strip the ?v=, or swap in an id you remember. Set style.linkTitle to that result's TITLE and mention the CHANNEL in style.linkDescription so the card says what the video actually is. If the ### YOUTUBE RESULTS section is missing or empty, DO NOT invent a YouTube link at all — write a short text block saying you couldn't find a verified video. One video the user can press play on beats five that 404.
 - IMAGES — you have TWO ways to put a picture on the canvas; pick the right one:
   1. FIND a real photo (SEARCH): for a real, existing subject — a place, animal, product, person, artwork, food, plant, landmark, mood/reference, or any "show me…" — CREATE an "image" object with style.imageQuery set to a vivid, SPECIFIC phrase (e.g. "snow leopard on a rocky cliff", "matcha latte top down"). The canvas fetches a REAL photo from the web. Animated GIFs work too — include "gif" in the phrase.
   2. GENERATE a new picture (AI): when the user asks to GENERATE / CREATE / MAKE / DESIGN / DRAW / SKETCH / ILLUSTRATE / "imagine" a picture, artwork, illustration, logo, character, concept, poster, scene, or anything that doesn't exist as a real photo — CREATE an "image" object with style.generate:true and style.imagePrompt set to a rich, detailed prompt (subject + composition + mood + colors + style). Optionally set style.imageStyle to "photo" | "art" | "3d" | "anime" | "logo". A STRONG diffusion model renders a genuine, high-quality image and drops it in. Only generate when the user actually wants an image made.
@@ -150,6 +187,7 @@ This is the task you get wrong most often. Follow this procedure literally, in o
   - Live Metric: style { "isLiveMetric":true, "metricTitle":"Name", "metricValue":"78%", "metricTrend":"+2% this week", "metricChartData":[60,65,70,78] }, "", 260x155
   - Progress: style { "isProgress":true, "progressLabel":"Label", "progressValue":45 }, "", 280x190
   - Quick Data Table: style { "isQuickData":true, "quickDataRows":[{"key":"Status","value":"Active"}] }, "", 250x210
+  - Timeline (a real gantt/roadmap: one draggable bar per item, a day ruler and a live "today" marker): style { "isTimeline":true, "timelineTitle":"Launch plan", "timelineItems":[{"id":"1","label":"Research","start":"2026-07-14","end":"2026-07-17","color":"#C97B4B"},{"id":"2","label":"Build","start":"2026-07-18","end":"2026-07-25","color":"#4A90D9"}] }, content "", 620x340. USE THE TIMELINE whenever the answer is a plan over TIME — a roadmap, a project plan, a schedule, a sprint, a study plan, a launch, an itinerary, "who does what when", phases with dates, or any ask naming a timeline/gantt/roadmap. start and end are inclusive "YYYY-MM-DD" dates; compute them as REAL dates from today's date above (never leave them vague), give each item its own color from #C97B4B / #4A90D9 / #2F9E6E / #9B59B6 / #D64545 / #C9904B, and give 4–8 items with concrete, specific labels. A one-day milestone has start == end.
   - Chart: style { "isChart":true, "chartType":"bar"|"hbar"|"line"|"donut"|"number", "chartTitle":"Revenue by quarter", "chartData":[{"label":"Q1","value":42},{"label":"Q2","value":58}], "chartReady":true }, content "", 300x260 (number chart 240x150). Supply REAL, plausible data points (2–8 for bar/line/donut). "number" shows one big headline value — use a single data point whose value is the number. "chartReady":true is MANDATORY — without it the chart shows a blank "enter data" form instead of your data.
   - Link Card (auto-fetches a live thumbnail from the real URL): style { "isLinkPreview":true, "linkUrl":"https://a-real-working-url", "linkTitle":"Optional title", "linkDescription":"Optional blurb" }, content "", 300x260. linkUrl MUST be a genuine reachable URL (react.dev, youtube.com/watch?v=…, open.spotify.com/…, github.com/…, etc.).
   - Code: style { "isCode":true }, content = REAL runnable code (any language), 450x350
@@ -369,7 +407,7 @@ async function openModelStream(
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext, webContext, memoriesContext, searchContext, wikiContext, weatherContext, dictContext, newsContext, youtubeContext, quotesContext, countryContext, triviaContext, mode } = await req.json();
+    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext, webContext, memoriesContext, searchContext, wikiContext, weatherContext, dictContext, newsContext, youtubeContext, quotesContext, countryContext, triviaContext, mode, modelProfile } = await req.json();
     if (!prompt) {
       return NextResponse.json({ success: false, error: 'Prompt is required' }, { status: 400 });
     }
@@ -427,7 +465,7 @@ export async function POST(req: NextRequest) {
       parts.push(`### NEWS — recent news articles with REAL, working URLs. Use these URLs when placing Link Cards:\n"""${newsContext.trim().slice(0, 4000)}"""`);
     }
     if (typeof youtubeContext === 'string' && youtubeContext.trim()) {
-      parts.push(`### YOUTUBE RESULTS — REAL, working YouTube video URLs for this query. Use THESE exact URLs when placing Link Cards instead of guessing:\n"""${youtubeContext.trim().slice(0, 2000)}"""`);
+      parts.push(`### YOUTUBE RESULTS — real videos for this query. Each one has ALREADY been verified to exist AND to be playable inside an embed, so a Link Card built from it plays on the canvas. Copy these URLs EXACTLY — do not alter, shorten or substitute them — and use the TITLE / CHANNEL given here to fill in the card's linkTitle and linkDescription. These are the ONLY YouTube URLs you are permitted to place:\n"""${youtubeContext.trim().slice(0, 3000)}"""`);
     }
     if (typeof quotesContext === 'string' && quotesContext.trim()) {
       parts.push(`### QUOTES — inspirational/famous quotes retrieved for this query. Use these real quotes with proper attribution when creating Quote cards or text blocks:\n"""${quotesContext.trim().slice(0, 2000)}"""`);
@@ -462,16 +500,29 @@ export async function POST(req: NextRequest) {
       .replace('{canvasObjects}', snapObjects.length ? JSON.stringify(snapObjects) : '(empty)')
       .replace('{canvasConnections}', snapConns.length ? JSON.stringify(snapConns) : '(none)');
 
-    // Give the agent room to be ambitious and a little extra spark for richer,
-    // more complete, more visual boards. Workflows go even bigger.
-    const modelOpts = isWorkflow
-      ? { maxTokens: 10240, temperature: 0.55 }
-      : { maxTokens: 8192, temperature: 0.5 };
+    /* Match the model AND the budget to what was actually asked for. A caller may
+       pin a profile explicitly (a "think harder" / "just be quick" affordance);
+       otherwise it's read off the prompt. */
+    const requested = typeof modelProfile === 'string' ? modelProfile.toLowerCase() : '';
+    const profile: Profile =
+      requested === 'heavy' || requested === 'balanced' || requested === 'quick'
+        ? (requested as Profile)
+        : pickProfile(prompt, mode);
+
+    const chain = CHAINS[profile];
+    const modelOpts =
+      profile === 'quick'
+        ? { maxTokens: 2048, temperature: 0.4 }
+        : isWorkflow
+          ? { maxTokens: 10240, temperature: 0.55 }
+          : profile === 'heavy'
+            ? { maxTokens: 10240, temperature: 0.45 }
+            : { maxTokens: 8192, temperature: 0.5 };
 
     // Try models in order, rotating keys; stream the first that produces tokens.
     let lastError: Error | null = null;
-    for (let m = 0; m < MODEL_CHAIN.length; m++) {
-      const model = MODEL_CHAIN[m];
+    for (let m = 0; m < chain.length; m++) {
+      const model = chain[m];
       const apiKey = apiKeys[(startKey + m) % apiKeys.length];
       try {
         const stream = await openModelStream(apiKey, model, systemPrompt, prompt, modelOpts);
@@ -480,11 +531,12 @@ export async function POST(req: NextRequest) {
             'Content-Type': 'text/plain; charset=utf-8',
             'Cache-Control': 'no-cache, no-transform',
             'X-Agent-Model': model,
+            'X-Agent-Profile': profile,
           },
         });
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        console.warn(`Agent model ${model} failed:`, lastError.message);
+        console.warn(`Agent model ${model} (${profile}) failed:`, lastError.message);
       }
     }
 

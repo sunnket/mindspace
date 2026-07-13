@@ -1,11 +1,12 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import { v4 as uuidv4 } from 'uuid';
 import { screenToCanvas, randomStickyColor } from '@/lib/utils';
 import { ingestFile } from '@/lib/fileIngest';
+import { newTimeline } from '@/lib/timeline';
 
 // One consistent outline icon family for the insert menu
 function MenuIcon({ children }: { children: React.ReactNode }) {
@@ -30,9 +31,25 @@ export default function PlusMenu() {
   const plusMenuPos = useCanvasStore((s) => s.plusMenuPos);
   const setPlusMenuPos = useCanvasStore((s) => s.setPlusMenuPos);
   const addObject = useCanvasStore((s) => s.addObject);
-  const objects = useCanvasStore((s) => s.objects);
-  const setObjects = useCanvasStore((s) => s.setObjects);
   const camera = useCanvasStore((s) => s.camera);
+
+  /* Dismiss on an outside click.
+     This used to be a full-screen backdrop <div>, which also swallowed every
+     wheel event on its way to the canvas — so with the menu open the board was
+     frozen: you couldn't scroll or zoom to find the spot you wanted to insert
+     into. A listener costs nothing and leaves the canvas fully live underneath.
+     The toolbar's + button is excluded so its own click can toggle the menu
+     shut instead of this closing it and the click immediately reopening it. */
+  useEffect(() => {
+    if (!plusMenuPos) return;
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.('.plus-menu') || el?.closest?.('[data-plus-button]')) return;
+      setPlusMenuPos(null);
+    };
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [plusMenuPos, setPlusMenuPos]);
 
   if (!plusMenuPos) return null;
 
@@ -87,6 +104,32 @@ export default function PlusMenu() {
           });
         };
         input.click();
+      },
+    },
+    {
+      icon: (<MenuIcon><line x1="9" y1="6" x2="20" y2="6" /><line x1="9" y1="12" x2="20" y2="12" /><line x1="9" y1="18" x2="20" y2="18" /><circle cx="4.5" cy="6" r="1.4" fill="currentColor" /><circle cx="4.5" cy="12" r="1.4" fill="currentColor" /><circle cx="4.5" cy="18" r="1.4" fill="currentColor" /></MenuIcon>),
+      label: 'Bullet List',
+      action: () => {
+        // Seed the first bullet and drop straight into editing — Enter then
+        // carries the bullet onto each new line (see the list-continuation
+        // handler in CanvasObject).
+        const block = addObject({
+          type: 'text',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 420,
+          height: 44,
+          content: '- ',
+        });
+        useCanvasStore.getState().setSelectedId(block.id);
+        useCanvasStore.getState().setEditingId(block.id);
+      },
+    },
+    {
+      icon: (<MenuIcon><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="6" y1="17" x2="12" y2="17" /></MenuIcon>),
+      label: 'Timeline',
+      action: () => {
+        addObject(newTimeline(canvasPos.x, canvasPos.y));
       },
     },
     {
@@ -481,7 +524,7 @@ export default function PlusMenu() {
         exit={{ opacity: 0, scale: 0.9, y: plusMenuPos.isToolbar ? 5 : -5 }}
         transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
       >
-        <div className="glass-panel py-2 min-w-[180px]">
+        <div className="glass-panel py-2 min-w-[180px] max-h-[70vh] overflow-y-auto overscroll-contain">
           {items.map((item) => (
             <button
               key={item.label}
@@ -497,13 +540,6 @@ export default function PlusMenu() {
           ))}
         </div>
       </motion.div>
-
-      {/* Backdrop */}
-      <div
-        key="plus-menu-backdrop"
-        className="fixed inset-0 z-[149]"
-        onClick={() => setPlusMenuPos(null)}
-      />
     </AnimatePresence>
   );
 }

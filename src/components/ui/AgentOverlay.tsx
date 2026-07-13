@@ -819,13 +819,32 @@ export default function AgentOverlay() {
       if (/\b(youtube|video|song|music|listen to|watch|play|track|album|artist|singer|band|clip|trailer|mv|music video|remix|cover|live performance)\b/i.test(pLower)) {
         addLog('[Agent] Searching YouTube...');
         try {
-          let q = promptText.replace(/\b(find|me|a|the|youtube|video|song|music|link|listen to|watch|play|of|by|for|on)\b/gi, '').trim();
-          if (!q) q = promptText;
-          const yRes = await fetch(`/api/youtube-search?q=${encodeURIComponent(q)}`, { signal: controller.signal });
+          /* Hand the endpoint the prompt EXACTLY as the user wrote it, flagged as
+             an instruction rather than a query — it distills the search terms
+             itself.
+
+             What used to happen here was a regex that stripped a list of stop
+             words out of the prompt, which turned "bring me good youtube music
+             links" into "bring good links". YouTube was then asked for that, and
+             obligingly returned four videos about a bookmarking app — the exact
+             board the user sent us a screenshot of. Words like "bring me",
+             "youtube" and "links" describe the errand, not the music; deciding
+             which words are which is a judgement call, so a model makes it. */
+          const yRes = await fetch(
+            `/api/youtube-search?q=${encodeURIComponent(promptText)}&intent=1&limit=5`,
+            { signal: controller.signal }
+          );
           if (yRes.ok) {
             const yJson = await yRes.json();
             if (yJson.success && yJson.results?.length) {
-              youtubeContext = yJson.results.map((r: string, i: number) => `Result ${i+1}: ${r}`).join('\n');
+              if (yJson.query) addLog(`[Agent] Searching YouTube for "${yJson.query}"…`);
+              // Hand over the title and channel too — with them the model writes a
+              // Link Card that says what the video IS, instead of a naked URL.
+              youtubeContext = yJson.results
+                .map((r: { url: string; title: string; author: string }, i: number) =>
+                  `Result ${i + 1}: ${r.url}\n  TITLE: ${r.title}\n  CHANNEL: ${r.author}`
+                )
+                .join('\n');
             }
           }
         } catch { /* best effort */ }
@@ -959,40 +978,49 @@ export default function AgentOverlay() {
       try {
         const payload = JSON.parse(fullResponse);
         
-        /* 1. Link validation. This matched on style.isLink, which no link card
-           has ever carried — the flag is isLinkPreview — so it silently never
-           ran, and a dead URL the model invented just sat there looking real.
-           It also wrote style.isError, which nothing renders; the card's own
-           error state is linkError. Both fixed. */
+        /* 1. Link validation.
+           This has never actually run. It matched on style.isLink (no link card
+           has ever carried that flag — it's isLinkPreview), and then compared
+           `vJson.status` against 'dead' when /api/link-validate returns no
+           `status` field at all; it answers { valid, reason, platform }. So the
+           condition was false every single time and a URL the model invented sat
+           on the board looking perfectly real until you clicked it.
+
+           Now every link card the agent creates is checked in parallel, and a
+           dead one is flipped into the card's real error state — which says what
+           went wrong and offers Open URL / Retry — rather than pretending. */
         const linkActions = (payload.actions || []).filter(
           (a: any) => a.type === 'CREATE_OBJECT' && a.objData?.style?.isLinkPreview && a.objData?.style?.linkUrl
         );
-        for (const action of linkActions) {
-          const url = normalizeUrl(String(action.objData.style.linkUrl));
-          if (!url) continue;
 
-          try {
-            const vRes = await fetch(`/api/link-validate?url=${encodeURIComponent(url)}`);
-            if (!vRes.ok) continue;
-            const vJson = await vRes.json();
-            if (vJson.status !== 'dead') continue;
+        await Promise.all(
+          linkActions.map(async (action: any) => {
+            const url = normalizeUrl(String(action.objData.style.linkUrl));
+            if (!url) return;
+            try {
+              const vRes = await fetch(`/api/link-validate?url=${encodeURIComponent(url)}`);
+              if (!vRes.ok) return;
+              const vJson = await vRes.json();
+              if (vJson.valid !== false) return;
 
-            const createdObj = live().objects.find(
-              (o) => o.style?.isLinkPreview && o.style?.linkUrl === url
-            );
-            if (createdObj) {
+              const createdObj = live().objects.find(
+                (o) => o.style?.isLinkPreview && o.style?.linkUrl === url
+              );
+              if (!createdObj) return;
+
+              addLog(`[Agent] Dropped a dead link: ${vJson.reason || 'unreachable'}`);
               live().updateObject(createdObj.id, {
                 style: {
                   ...createdObj.style,
                   linkLoading: false,
                   linkResolved: true,
                   linkError: true,
-                  linkErrorReason: vJson.reason || 'Link is broken',
+                  linkErrorReason: vJson.reason || 'This link is broken',
                 },
               });
-            }
-          } catch { /* ignore validation failure */ }
-        }
+            } catch { /* validation is best-effort — never block the build on it */ }
+          })
+        );
 
         // 2. Memory Processing
         if (payload.memories && Array.isArray(payload.memories)) {

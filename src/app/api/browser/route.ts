@@ -1,328 +1,217 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { Browser, Page } from 'puppeteer-core';
-import { v4 as uuidv4 } from 'uuid';
 
-export const runtime = 'nodejs'; // Required for Puppeteer
-// Launching Chromium cold, then loading a page, comfortably outruns the default
-// serverless limit.
-export const maxDuration = 60;
+export const runtime = 'nodejs';
+export const maxDuration = 20;
+export const dynamic = 'force-dynamic';
 
 /**
- * On Lambda (which is what a Vercel function is) there is no Chrome: Puppeteer's
- * download lives in ~/.cache on the *build* machine and never ships in the
- * bundle, so `puppeteer.launch()` fails with "Could not find Chrome". There we
- * launch @sparticuz/chromium, a Chromium built to run inside the function.
- * Everywhere else — your machine, a plain Node server — we use the real
- * Puppeteer and the Chrome it downloaded.
+ * Browser-block support endpoint.
+ *
+ * This used to drive a headless Chromium (puppeteer) and stream the page back
+ * as a JPEG every 700ms. It worked, but every click was a network round trip
+ * and every frame was a full screenshot, so the block always felt a beat behind
+ * the cursor. The block now renders a real <iframe> instead — native scrolling,
+ * native input, zero latency — and all this route does is the two things an
+ * iframe genuinely cannot do from the client:
+ *
+ *   GET ?action=check&url=…    → can this page be framed at all?
+ *   GET ?action=extract&url=…  → pull its images + readable text onto the canvas
+ *
+ * Both are plain HTML fetches. No browser is launched.
  */
-const IS_LAMBDA =
-  !!process.env.AWS_LAMBDA_FUNCTION_NAME || (!!process.env.VERCEL && process.platform === 'linux');
 
-async function launchBrowser(): Promise<Browser> {
-  if (IS_LAMBDA) {
-    const [{ default: chromium }, { default: core }] = await Promise.all([
-      import('@sparticuz/chromium'),
-      import('puppeteer-core'),
-    ]);
-    return core.launch({
-      args: chromium.args,
-      executablePath: await chromium.executablePath(),
-      headless: true,
-    });
+const UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36';
+const TIMEOUT_MS = 10_000;
+const MAX_HTML_BYTES = 1_500_000;
+
+function normalize(raw: string): string {
+  const s = (raw || '').trim();
+  if (!s) return '';
+  return /^https?:\/\//i.test(s) ? s : `https://${s}`;
+}
+
+/** Reject localhost / private ranges — this endpoint fetches whatever it's given. */
+function isBlockedHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return true;
+  if (h === '0.0.0.0' || h === '::1' || h === '[::1]') return true;
+  if (/^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^169\.254\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  return false;
+}
+
+/**
+ * Whether the page permits being framed by us. Two headers decide it:
+ * X-Frame-Options (the old way) and CSP frame-ancestors (the current one).
+ * A frame-ancestors directive that isn't a wildcard won't name our origin, so
+ * treat it as a refusal rather than trying to guess the deployment's host.
+ */
+function framePolicy(headers: Headers): { embeddable: boolean; reason: string } {
+  const xfo = (headers.get('x-frame-options') || '').toLowerCase().trim();
+  if (xfo.includes('deny')) return { embeddable: false, reason: 'This site refuses to be embedded (X-Frame-Options: DENY).' };
+  if (xfo.includes('sameorigin')) return { embeddable: false, reason: 'This site only allows embedding on its own domain.' };
+
+  const csp = (headers.get('content-security-policy') || '').toLowerCase();
+  const m = /frame-ancestors([^;]*)/.exec(csp);
+  if (m) {
+    const value = m[1].trim();
+    if (!value.includes('*')) {
+      return { embeddable: false, reason: 'This site blocks embedding (Content-Security-Policy: frame-ancestors).' };
+    }
   }
-
-  const { default: puppeteer } = await import('puppeteer');
-  return puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  }) as unknown as Browser;
+  return { embeddable: true, reason: '' };
 }
 
-interface Session {
-  page: Page;
-  lastActive: number;
-  /** Last frame we managed to capture, replayed if a screenshot blips. */
-  lastFrame?: Buffer;
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;|&#x27;/gi, "'")
+    .replace(/&nbsp;/g, ' ');
 }
 
-// One Chrome for the whole server, one Page per browser block. Sessions live on
-// globalThis so they survive the dev server's module reloads — otherwise every
-// edit orphans a Chrome process.
-const globalAny = globalThis as unknown as {
-  browserSessions?: Map<string, Session>;
-  browserInstance?: Promise<Browser> | null;
-  browserSweeper?: NodeJS.Timeout;
-};
+function titleOf(html: string): string {
+  const og = html.match(/<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']+)["']/i);
+  if (og?.[1]) return decodeEntities(og[1]).trim();
+  const t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return t ? decodeEntities(t[1]).trim() : '';
+}
 
-const sessions: Map<string, Session> = (globalAny.browserSessions ??= new Map());
+/** Absolute, http(s), non-tracking-pixel image URLs found in the markup. */
+function imagesOf(html: string, base: string): { src: string; w: number; h: number }[] {
+  const out: { src: string; w: number; h: number }[] = [];
+  const seen = new Set<string>();
 
-const IDLE_MS = 10 * 60 * 1000;
-
-async function getBrowser(): Promise<Browser> {
-  const existing = globalAny.browserInstance;
-  if (existing) {
+  const push = (raw: string) => {
+    if (!raw || out.length >= 8) return;
+    let abs: string;
     try {
-      const browser = await existing;
-      if (browser.connected) return browser;
+      abs = new URL(decodeEntities(raw.trim()), base).href;
     } catch {
-      // A failed launch must never be cached — otherwise one bad launch poisons
-      // every browser block until the server restarts.
+      return;
     }
-    globalAny.browserInstance = null;
+    if (!/^https?:\/\//i.test(abs)) return;
+    if (/\.svg(\?|#|$)/i.test(abs)) return; // usually an icon, not content
+    if (seen.has(abs)) return;
+    seen.add(abs);
+    out.push({ src: abs, w: 0, h: 0 });
+  };
+
+  // og:image first — it's the page's own pick of its best picture.
+  const og = html.match(/<meta[^>]+property=["']og:image(?::url)?["'][^>]*content=["']([^"']+)["']/i);
+  if (og?.[1]) push(og[1]);
+
+  const imgRe = /<img\b[^>]*?\bsrc=["']([^"']+)["'][^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = imgRe.exec(html)) && out.length < 8) {
+    const tag = m[0];
+    // Skip obvious spacers/pixels declared inline.
+    const w = Number(/\bwidth=["']?(\d+)/i.exec(tag)?.[1] || 0);
+    const h = Number(/\bheight=["']?(\d+)/i.exec(tag)?.[1] || 0);
+    if ((w && w < 120) || (h && h < 120)) continue;
+    push(m[1]);
   }
+  return out;
+}
 
-  const launched = launchBrowser().catch((e: unknown) => {
-    globalAny.browserInstance = null;
-    throw e;
+/** Substantial paragraphs / headings, in document order. */
+function textsOf(html: string): string[] {
+  const body = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, ' ');
+
+  const out: string[] = [];
+  const re = /<(h1|h2|h3|p|li)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) && out.length < 6) {
+    const text = decodeEntities(m[2].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+    if (text.length > 60) out.push(text);
+  }
+  return out;
+}
+
+async function fetchPage(url: string) {
+  const res = await fetch(url, {
+    headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml,*/*;q=0.8' },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    redirect: 'follow',
   });
-
-  globalAny.browserInstance = launched;
-  const browser = await launched;
-
-  // If Chrome dies (crash, machine sleep, someone kills it), drop the handle and
-  // the pages that pointed into it so the next request launches a fresh one.
-  browser.once('disconnected', () => {
-    globalAny.browserInstance = null;
-    sessions.clear();
-  });
-
-  return browser;
+  return res;
 }
 
-// Reap idle pages. The Chrome instance itself is kept warm — relaunching it on
-// every new block is what made opening a browser block feel broken.
-if (!globalAny.browserSweeper) {
-  globalAny.browserSweeper = setInterval(() => {
-    const now = Date.now();
-    for (const [id, session] of sessions.entries()) {
-      if (now - session.lastActive > IDLE_MS) {
-        session.page.close().catch(() => {});
-        sessions.delete(id);
-      }
-    }
-  }, 60000);
+async function readBody(res: Response): Promise<string> {
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let html = '';
+  let received = 0;
+  while (received < MAX_HTML_BYTES) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    html += decoder.decode(value, { stream: true });
+  }
+  reader.cancel().catch(() => {});
+  return html;
 }
 
-function touch(sessionId: string): Session | null {
-  const session = sessions.get(sessionId);
-  if (!session) return null;
-  session.lastActive = Date.now();
-  return session;
-}
+export async function GET(req: NextRequest) {
+  const action = req.nextUrl.searchParams.get('action') || 'check';
+  const normalized = normalize(req.nextUrl.searchParams.get('url') || '');
 
-/** URL + title, so the client's address bar and tab strip track the real page. */
-async function pageState(page: Page) {
+  let u: URL;
   try {
-    return { url: page.url(), title: await page.title() };
+    u = new URL(normalized);
   } catch {
-    return { url: page.url(), title: '' };
+    return NextResponse.json({ error: 'Invalid URL' }, { status: 400 });
   }
-}
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    return NextResponse.json({ error: 'Unsupported protocol' }, { status: 400 });
+  }
+  if (isBlockedHost(u.hostname)) {
+    return NextResponse.json({ error: 'Blocked host' }, { status: 400 });
+  }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** Give an in-flight navigation a moment to commit, but never block the UI. */
-async function settle(page: Page, ms = 600) {
-  await Promise.race([
-    page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: ms }).catch(() => {}),
-    sleep(ms),
-  ]);
-}
-
-async function newSession(url: string, width: number, height: number) {
-  let page: Page;
   try {
-    page = await (await getBrowser()).newPage();
-  } catch {
-    // The cached Chrome was dead (or died mid-call). getBrowser has dropped it
-    // by now, so one more try gets a freshly launched one.
-    globalAny.browserInstance = null;
-    page = await (await getBrowser()).newPage();
-  }
+    const res = await fetchPage(normalized);
 
-  await page.setViewport({ width, height, deviceScaleFactor: 1 });
-  await page.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-  );
-
-  // A headless popup is invisible to the user — fold target=_blank navigations
-  // back into the page they're actually looking at.
-  page.on('popup', async (popup) => {
-    if (!popup) return;
-    const target = popup.url();
-    await popup.close().catch(() => {});
-    if (target && target !== 'about:blank') {
-      await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-    }
-  });
-  // Nothing can answer an alert()/beforeunload prompt in here, and an open
-  // dialog freezes screenshots.
-  page.on('dialog', (d) => d.dismiss().catch(() => {}));
-
-  const id = uuidv4();
-  sessions.set(id, { page, lastActive: Date.now() });
-
-  if (url) {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch((e) => {
-      console.error('Goto error:', e.message);
-    });
-  }
-
-  return { id, page };
-}
-
-export async function POST(req: NextRequest) {
-  try {
-    const { action, sessionId, url, width, height, event } = await req.json();
-
-    if (action === 'start') {
-      const { id, page } = await newSession(url, width || 800, height || 600);
-      return NextResponse.json({ success: true, sessionId: id, ...(await pageState(page)) });
-    }
-
-    // Every other action needs a live session. A dev-server reload or the idle
-    // sweeper can drop one out from under the client, so say so explicitly and
-    // let the client start a fresh session rather than silently going blank.
-    const session = sessionId ? touch(sessionId) : null;
-    if (!session) {
-      return NextResponse.json({ error: 'Session not found', expired: true }, { status: 404 });
-    }
-    const { page } = session;
-
-    if (action === 'goto') {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch((e) => {
-        console.error('Goto error:', e.message);
+    if (action === 'check') {
+      const policy = framePolicy(res.headers);
+      // Don't hold the connection open for a body we aren't going to read.
+      res.body?.cancel().catch(() => {});
+      return NextResponse.json({
+        url: res.url || normalized,
+        status: res.status,
+        ...policy,
       });
-      return NextResponse.json({ success: true, ...(await pageState(page)) });
     }
 
-    if (action === 'back') {
-      await page.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-      return NextResponse.json({ success: true, ...(await pageState(page)) });
-    }
-
-    if (action === 'forward') {
-      await page.goForward({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-      return NextResponse.json({ success: true, ...(await pageState(page)) });
-    }
-
-    if (action === 'reload') {
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-      return NextResponse.json({ success: true, ...(await pageState(page)) });
-    }
-
-    if (action === 'interact') {
-      const { type, x, y, deltaY, key, text } = event || {};
-      try {
-        if (type === 'click') {
-          await page.mouse.click(x, y);
-          await settle(page, 500); // a click may be a link — let it navigate
-        } else if (type === 'wheel') {
-          await page.mouse.wheel({ deltaY });
-        } else if (type === 'move') {
-          await page.mouse.move(x, y);
-        } else if (type === 'text' && text) {
-          await page.keyboard.type(text, { delay: 0 });
-        } else if (type === 'key' && key) {
-          await page.keyboard.press(key);
-          if (key === 'Enter') await settle(page, 500); // submitting a form
-        }
-      } catch (err) {
-        console.error('Interaction error:', err);
-      }
-      return NextResponse.json({ success: true, ...(await pageState(page)) });
-    }
-
-    if (action === 'resize') {
-      await page.setViewport({ width: Math.max(200, width), height: Math.max(200, height) });
-      return NextResponse.json({ success: true });
-    }
-
-    // Pull the page's images and visible text out so they can be dropped onto
-    // the canvas as real objects.
     if (action === 'extract') {
-      const data = await page.evaluate(() => {
-        const abs = (src: string) => {
-          try {
-            return new URL(src, document.baseURI).href;
-          } catch {
-            return src;
-          }
-        };
-        const images = Array.from(document.querySelectorAll('img'))
-          .filter((img) => img.naturalWidth > 120 && img.naturalHeight > 120 && img.src)
-          .slice(0, 8)
-          .map((img) => ({ src: abs(img.src), w: img.naturalWidth, h: img.naturalHeight }));
-
-        const texts = Array.from(document.querySelectorAll('h1, h2, h3, p, li'))
-          .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim())
-          .filter((t) => t.length > 60)
-          .slice(0, 6);
-
-        return { images, texts, title: document.title, url: location.href };
+      const html = await readBody(res);
+      const finalUrl = res.url || normalized;
+      return NextResponse.json({
+        success: true,
+        url: finalUrl,
+        title: titleOf(html),
+        images: imagesOf(html, finalUrl),
+        texts: textsOf(html),
       });
-      return NextResponse.json({ success: true, ...data });
-    }
-
-    if (action === 'state' || action === 'ping') {
-      return NextResponse.json({ success: true, ...(await pageState(page)) });
-    }
-
-    if (action === 'stop') {
-      await page.close().catch(() => {});
-      sessions.delete(sessionId);
-      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Browser error';
-    console.error('Browser API error:', message);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Request failed';
+    // A page we can't even reach from the server may still load fine in the
+    // user's own browser (geo-blocks, bot filters), so a failed check is never
+    // a reason to refuse to try framing it.
+    if (action === 'check') {
+      return NextResponse.json({ url: normalized, embeddable: true, reason: '', unreachable: message });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
-
-// One frame of the live page. A 404 here is the client's signal that the page is
-// gone for good and the tab should rebuild its session, so it is reserved for
-// exactly that: a screenshot that merely blipped (mid-navigation, mid-paint) is
-// retried, and failing that we hold the last frame rather than cry session-death.
-export async function GET(req: NextRequest) {
-  const sessionId = req.nextUrl.searchParams.get('sessionId');
-  if (!sessionId) return new NextResponse('Missing sessionId', { status: 400 });
-
-  const session = touch(sessionId);
-  if (!session) return new NextResponse('Session not found', { status: 404 });
-
-  const shoot = () =>
-    session.page.screenshot({ type: 'jpeg', quality: 60, optimizeForSpeed: true });
-
-  let frame: Buffer | null = null;
-  try {
-    frame = Buffer.from(await shoot());
-  } catch {
-    await sleep(150);
-    try {
-      frame = Buffer.from(await shoot());
-    } catch (error) {
-      // A closed page can never come back — that IS session death.
-      if (session.page.isClosed()) {
-        sessions.delete(sessionId);
-        return new NextResponse('Session not found', { status: 404 });
-      }
-      console.error('Screenshot error:', error instanceof Error ? error.message : error);
-    }
-  }
-
-  // Replay the previous frame rather than serve nothing: an empty response would
-  // trip the client's <img> error path and it would rebuild a perfectly live page.
-  const body = frame ?? session.lastFrame;
-  if (!body) return new NextResponse(null, { status: 204 });
-  if (frame) session.lastFrame = frame;
-
-  return new NextResponse(new Uint8Array(body), {
-    headers: {
-      'Content-Type': 'image/jpeg',
-      'Cache-Control': 'no-store, no-cache, must-revalidate',
-    },
-  });
 }
