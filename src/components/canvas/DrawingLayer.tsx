@@ -44,17 +44,32 @@ const CanvasStroke = React.memo(({ stroke }: { stroke: DrawingStroke }) => {
     const renderedStroke = getStroke(stroke.points, {
       ...STROKE_OPTIONS,
       size: stroke.size,
+      thinning: stroke.pressure === false ? 0 : 0.5,
+      smoothing: stroke.smoothing ?? 0.5,
+      streamline: stroke.stabilization ?? 0.5,
     });
     return getSvgPathFromStroke(renderedStroke);
-  }, [stroke.points, stroke.size]);
+  }, [stroke.points, stroke.size, stroke.pressure, stroke.smoothing, stroke.stabilization]);
+
+  const blurAmount = stroke.hardness !== undefined && stroke.hardness < 1
+    ? (1 - stroke.hardness) * stroke.size * 0.35
+    : 0;
+
+  const opacityValue = (stroke.opacity ?? (stroke.isHighlighter ? 0.35 : 0.9)) * (stroke.flow ?? 1.0);
+
+  const blurStr = blurAmount > 0 ? `blur(${blurAmount}px)` : '';
+  const urlStr = stroke.texture && stroke.texture !== 'none' ? `url(#${stroke.texture}-texture)` : '';
+  const filterVal = [blurStr, urlStr].filter(Boolean).join(' ') || 'none';
 
   return (
     <path
       d={pathData}
       fill={stroke.color}
-      opacity={stroke.isHighlighter ? 0.35 : 0.9}
+      opacity={opacityValue}
       style={{
         pointerEvents: 'none',
+        mixBlendMode: (stroke.blendMode || 'normal') as React.CSSProperties['mixBlendMode'],
+        filter: filterVal,
       }}
     />
   );
@@ -76,6 +91,16 @@ export default function DrawingLayer() {
   const drawSize = useCanvasStore((s) => s.drawSize);
   const eraserMode = useCanvasStore((s) => s.eraserMode);
   const highlighterMode = useCanvasStore((s) => s.highlighterMode);
+
+  // New brush settings
+  const drawOpacity = useCanvasStore((s) => s.drawOpacity);
+  const drawFlow = useCanvasStore((s) => s.drawFlow);
+  const drawHardness = useCanvasStore((s) => s.drawHardness);
+  const drawStabilization = useCanvasStore((s) => s.drawStabilization);
+  const drawPressure = useCanvasStore((s) => s.drawPressure);
+  const drawSmoothing = useCanvasStore((s) => s.drawSmoothing);
+  const drawTexture = useCanvasStore((s) => s.drawTexture);
+  const drawBlendMode = useCanvasStore((s) => s.drawBlendMode);
 
   // Pixel-perfect point-by-point eraser collision detection and segment splitting
   const eraseAtPosition = useCallback((x: number, y: number) => {
@@ -119,6 +144,14 @@ export default function DrawingLayer() {
         size: stroke.size,
         createdAt: stroke.createdAt,
         isHighlighter: stroke.isHighlighter,
+        opacity: stroke.opacity,
+        flow: stroke.flow,
+        hardness: stroke.hardness,
+        stabilization: stroke.stabilization,
+        pressure: stroke.pressure,
+        smoothing: stroke.smoothing,
+        texture: stroke.texture,
+        blendMode: stroke.blendMode,
       }));
     });
     
@@ -151,10 +184,11 @@ export default function DrawingLayer() {
       e.preventDefault();
       e.stopPropagation();
 
-      setCurrentPoints([[x, y, e.pressure || 0.5]]);
+      const pressureVal = drawPressure ? (e.pressure || 0.5) : 0.5;
+      setCurrentPoints([[x, y, pressureVal]]);
       svg.setPointerCapture(e.pointerId);
     },
-    [mode, camera, eraserMode, eraseAtPosition]
+    [mode, camera, eraserMode, eraseAtPosition, drawPressure]
   );
 
   const handlePointerMove = useCallback(
@@ -180,9 +214,10 @@ export default function DrawingLayer() {
       if (!currentPoints) return;
       e.preventDefault();
 
-      setCurrentPoints((prev) => [...(prev || []), [x, y, e.pressure || 0.5]]);
+      const pressureVal = drawPressure ? (e.pressure || 0.5) : 0.5;
+      setCurrentPoints((prev) => [...(prev || []), [x, y, pressureVal]]);
     },
-    [mode, camera, eraserMode, isErasing, currentPoints, eraseAtPosition]
+    [mode, camera, eraserMode, isErasing, currentPoints, eraseAtPosition, drawPressure]
   );
 
   const handlePointerUp = useCallback(
@@ -191,7 +226,7 @@ export default function DrawingLayer() {
       if (svg) {
         try {
           svg.releasePointerCapture(e.pointerId);
-        } catch (err) {}
+        } catch {}
       }
 
       if (eraserMode) {
@@ -211,13 +246,21 @@ export default function DrawingLayer() {
           size: drawSize,
           isHighlighter: highlighterMode,
           createdAt: Date.now(),
+          opacity: drawOpacity,
+          flow: drawFlow,
+          hardness: drawHardness,
+          stabilization: drawStabilization,
+          pressure: drawPressure,
+          smoothing: drawSmoothing,
+          texture: drawTexture,
+          blendMode: drawBlendMode,
         };
         addStroke(newStroke);
       }
 
       setCurrentPoints(null);
     },
-    [drawColor, drawSize, addStroke, currentPoints, eraserMode, highlighterMode]
+    [drawColor, drawSize, addStroke, currentPoints, eraserMode, highlighterMode, drawOpacity, drawFlow, drawHardness, drawStabilization, drawPressure, drawSmoothing, drawTexture, drawBlendMode]
   );
 
   const currentStrokePath = useMemo(() => {
@@ -225,9 +268,20 @@ export default function DrawingLayer() {
     const stroke = getStroke(currentPoints, {
       ...STROKE_OPTIONS,
       size: drawSize,
+      thinning: drawPressure ? 0.5 : 0,
+      smoothing: drawSmoothing,
+      streamline: drawStabilization,
     });
     return getSvgPathFromStroke(stroke);
-  }, [currentPoints, drawSize]);
+  }, [currentPoints, drawSize, drawPressure, drawSmoothing, drawStabilization]);
+
+  const activeBlurAmount = drawHardness < 1
+    ? (1 - drawHardness) * drawSize * 0.35
+    : 0;
+
+  const activeBlurStr = activeBlurAmount > 0 ? `blur(${activeBlurAmount}px)` : '';
+  const activeUrlStr = drawTexture !== 'none' ? `url(#${drawTexture}-texture)` : '';
+  const activeFilterVal = [activeBlurStr, activeUrlStr].filter(Boolean).join(' ') || 'none';
 
   return (
     <>
@@ -243,6 +297,55 @@ export default function DrawingLayer() {
         onPointerUp={handlePointerUp}
         onPointerLeave={() => setEraserPos(null)}
       >
+        <defs>
+          {/* Chalk/Crayon Texture */}
+          <filter id="chalk-texture">
+            <feTurbulence type="fractalNoise" baseFrequency="0.6" numOctaves="3" result="noise" />
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.5" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+          {/* Watercolor Texture */}
+          <filter id="watercolor-texture">
+            <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="2" result="noise" />
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="7" xChannelSelector="R" yChannelSelector="G" result="displaced" />
+            <feGaussianBlur in="displaced" stdDeviation="1.5" />
+          </filter>
+          {/* Grainy Noise Texture */}
+          <filter id="noise-texture" x="0%" y="0%" width="100%" height="100%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" result="noise" />
+            <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.18 0" />
+            <feComposite operator="in" in2="SourceGraphic" />
+            <feBlend mode="multiply" in="SourceGraphic" />
+          </filter>
+          {/* Splatter Texture */}
+          <filter id="splatter-texture">
+            <feTurbulence type="fractalNoise" baseFrequency="0.22" numOctaves="3" result="noise" />
+            <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -10" result="highContrast" />
+            <feComposite operator="in" in="SourceGraphic" in2="highContrast" />
+          </filter>
+
+          {/* Gradients */}
+          <linearGradient id="sunset-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#FF512F" />
+            <stop offset="100%" stopColor="#DD2476" />
+          </linearGradient>
+          <linearGradient id="ocean-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#02AAB0" />
+            <stop offset="100%" stopColor="#00CDAC" />
+          </linearGradient>
+          <linearGradient id="fire-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#F5576C" />
+            <stop offset="100%" stopColor="#F08080" />
+          </linearGradient>
+          <linearGradient id="lavender-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#a18cd1" />
+            <stop offset="100%" stopColor="#fbc2eb" />
+          </linearGradient>
+          <linearGradient id="cosmic-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#30cfd0" />
+            <stop offset="100%" stopColor="#330867" />
+          </linearGradient>
+        </defs>
+
         <g
           className="strokes-world"
           transform={`translate(${camera.x}, ${camera.y}) scale(${camera.zoom})`}
@@ -257,8 +360,12 @@ export default function DrawingLayer() {
             <path
               d={currentStrokePath}
               fill={drawColor}
-              opacity={highlighterMode ? 0.35 : 0.8}
-              style={{ pointerEvents: 'none' }}
+              opacity={drawOpacity * drawFlow}
+              style={{
+                pointerEvents: 'none',
+                mixBlendMode: drawBlendMode as React.CSSProperties['mixBlendMode'],
+                filter: activeFilterVal,
+              }}
             />
           )}
         </g>

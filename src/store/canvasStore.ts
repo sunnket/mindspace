@@ -188,6 +188,22 @@ interface CanvasStore {
   setEraserMode: (on: boolean) => void;
   highlighterMode: boolean;
   setHighlighterMode: (on: boolean) => void;
+  drawOpacity: number;
+  setDrawOpacity: (v: number) => void;
+  drawFlow: number;
+  setDrawFlow: (v: number) => void;
+  drawHardness: number;
+  setDrawHardness: (v: number) => void;
+  drawStabilization: number;
+  setDrawStabilization: (v: number) => void;
+  drawPressure: boolean;
+  setDrawPressure: (v: boolean) => void;
+  drawSmoothing: number;
+  setDrawSmoothing: (v: number) => void;
+  drawTexture: 'none' | 'chalk' | 'watercolor' | 'noise' | 'splatter';
+  setDrawTexture: (v: 'none' | 'chalk' | 'watercolor' | 'noise' | 'splatter') => void;
+  drawBlendMode: 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten';
+  setDrawBlendMode: (v: 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten') => void;
   
   // Text settings
   textFont: string;
@@ -899,7 +915,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   agentStatus: 'idle',
   setAgentState: (state) => set((prev) => ({ ...prev, ...state })),
   
-  // Drawing settings
   drawColor: '#2d2d2d',
   setDrawColor: (color) => set({ drawColor: color }),
   drawSize: 4,
@@ -908,6 +923,22 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   setEraserMode: (on) => set((state) => ({ eraserMode: on, highlighterMode: on ? false : state.highlighterMode })),
   highlighterMode: false,
   setHighlighterMode: (on) => set((state) => ({ highlighterMode: on, eraserMode: on ? false : state.eraserMode })),
+  drawOpacity: 0.9,
+  setDrawOpacity: (v) => set({ drawOpacity: v }),
+  drawFlow: 1.0,
+  setDrawFlow: (v) => set({ drawFlow: v }),
+  drawHardness: 1.0,
+  setDrawHardness: (v) => set({ drawHardness: v }),
+  drawStabilization: 0.5,
+  setDrawStabilization: (v) => set({ drawStabilization: v }),
+  drawPressure: true,
+  setDrawPressure: (v) => set({ drawPressure: v }),
+  drawSmoothing: 0.5,
+  setDrawSmoothing: (v) => set({ drawSmoothing: v }),
+  drawTexture: 'none',
+  setDrawTexture: (v) => set({ drawTexture: v }),
+  drawBlendMode: 'normal',
+  setDrawBlendMode: (v) => set({ drawBlendMode: v }),
   
   // Text settings
   textFont: "'Inter', sans-serif",

@@ -30,6 +30,67 @@ const DRAW_COLORS = [
 
 const DRAW_SIZES = [2, 4, 6, 10, 16];
 
+const hexToRgb = (hex: string): { r: number; g: number; b: number } => {
+  if (!hex || typeof hex !== 'string' || hex.startsWith('url(')) return { r: 0, g: 0, b: 0 };
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16) || 0;
+  const g = parseInt(clean.substring(2, 4), 16) || 0;
+  const b = parseInt(clean.substring(4, 6), 16) || 0;
+  return { r, g, b };
+};
+
+const rgbToHex = (r: number, g: number, b: number): string => {
+  const toHex = (c: number) => {
+    const clamped = Math.min(255, Math.max(0, c));
+    return clamped.toString(16).padStart(2, '0');
+  };
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+};
+
+const rgbToHsl = (r: number, g: number, b: number): { h: number; s: number; l: number } => {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) {
+      h = (g - b) / d + (g < b ? 6 : 0);
+    } else if (max === g) {
+      h = (b - r) / d + 2;
+    } else {
+      h = (r - g) / d + 4;
+    }
+    h /= 6;
+  }
+  return {
+    h: Math.round(h * 360),
+    s: Math.round(s * 100),
+    l: Math.round(l * 100)
+  };
+};
+
+const hslToHex = (h: number, s: number, l: number): string => {
+  s /= 100;
+  l /= 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (0 <= h && h < 60) { r = c; g = x; b = 0; }
+  else if (60 <= h && h < 120) { r = x; g = c; b = 0; }
+  else if (120 <= h && h < 180) { r = 0; g = c; b = x; }
+  else if (180 <= h && h < 240) { r = 0; g = x; b = c; }
+  else if (240 <= h && h < 300) { r = x; g = 0; b = c; }
+  else if (300 <= h && h < 360) { r = c; g = 0; b = x; }
+  const red = Math.round((r + m) * 255);
+  const green = Math.round((g + m) * 255);
+  const blue = Math.round((b + m) * 255);
+  const toHex = (num: number) => num.toString(16).padStart(2, '0');
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+};
+
 export default function FloatingToolbar() {
   const mode = useCanvasStore((s) => s.mode);
   const setMode = useCanvasStore((s) => s.setMode);
@@ -41,6 +102,22 @@ export default function FloatingToolbar() {
   const setEraserMode = useCanvasStore((s) => s.setEraserMode);
   const highlighterMode = useCanvasStore((s) => s.highlighterMode);
   const setHighlighterMode = useCanvasStore((s) => s.setHighlighterMode);
+  const drawOpacity = useCanvasStore((s) => s.drawOpacity);
+  const setDrawOpacity = useCanvasStore((s) => s.setDrawOpacity);
+  const drawFlow = useCanvasStore((s) => s.drawFlow);
+  const setDrawFlow = useCanvasStore((s) => s.setDrawFlow);
+  const drawHardness = useCanvasStore((s) => s.drawHardness);
+  const setDrawHardness = useCanvasStore((s) => s.setDrawHardness);
+  const drawStabilization = useCanvasStore((s) => s.drawStabilization);
+  const setDrawStabilization = useCanvasStore((s) => s.setDrawStabilization);
+  const drawPressure = useCanvasStore((s) => s.drawPressure);
+  const setDrawPressure = useCanvasStore((s) => s.setDrawPressure);
+  const drawSmoothing = useCanvasStore((s) => s.drawSmoothing);
+  const setDrawSmoothing = useCanvasStore((s) => s.setDrawSmoothing);
+  const drawTexture = useCanvasStore((s) => s.drawTexture);
+  const setDrawTexture = useCanvasStore((s) => s.setDrawTexture);
+  const drawBlendMode = useCanvasStore((s) => s.drawBlendMode);
+  const setDrawBlendMode = useCanvasStore((s) => s.setDrawBlendMode);
   const undo = useCanvasStore((s) => s.undo);
   const redo = useCanvasStore((s) => s.redo);
   const undoStack = useCanvasStore((s) => s.undoStack);
@@ -66,6 +143,7 @@ export default function FloatingToolbar() {
   const openThreadCount = useCanvasStore((s) => s.threads.filter((t) => !t.resolved).length);
 
   const [showDrawOptions, setShowDrawOptions] = useState(false);
+  const [showAdvancedDraw, setShowAdvancedDraw] = useState(false);
 
   const [showShapeOptions, setShowShapeOptions] = useState(false);
   const [showArrowOptions, setShowArrowOptions] = useState(false);
@@ -480,20 +558,31 @@ export default function FloatingToolbar() {
       <AnimatePresence>
         {showDrawOptions && mode === 'draw' && (
           <motion.div
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-3 flex flex-col gap-3 min-w-[260px]"
+            className={`glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 transition-all ${
+              showAdvancedDraw 
+                ? 'w-[328px] max-h-[82vh] overflow-y-auto' 
+                : 'w-[270px]'
+            }`}
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
+            {/* Header / Title */}
+            <div className="flex justify-between items-center px-1">
+              <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-[0.16em] select-none">
+                {eraserMode ? 'Eraser' : highlighterMode ? 'Highlighter' : 'Pen'} Brush
+              </span>
+            </div>
+
             {/* Tool Switcher */}
-            <div className="flex bg-[var(--bg-tertiary)] p-1 rounded-lg border border-[var(--border)] gap-1">
+            <div className="flex bg-[var(--bg-tertiary)] p-1 rounded-lg border border-[var(--border)] gap-1 shrink-0">
               <button
                 onClick={() => {
                   setEraserMode(false);
                   setHighlighterMode(false);
                 }}
-                className={`flex-1 py-1.5 px-2.5 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                   !eraserMode && !highlighterMode
                     ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -510,7 +599,7 @@ export default function FloatingToolbar() {
                   setHighlighterMode(true);
                   setEraserMode(false);
                 }}
-                className={`flex-1 py-1.5 px-2.5 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                   highlighterMode
                     ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -527,7 +616,7 @@ export default function FloatingToolbar() {
                   setEraserMode(true);
                   setHighlighterMode(false);
                 }}
-                className={`flex-1 py-1.5 px-2.5 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                   eraserMode
                     ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -539,48 +628,395 @@ export default function FloatingToolbar() {
 
             {/* Colors (Pen / Highlighter only) */}
             {!eraserMode && (
-              <div className="grid grid-cols-10 gap-1.5 justify-center">
-                {DRAW_COLORS.map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => {
-                      setDrawColor(color);
-                    }}
-                    className="w-6 h-6 rounded-full border-2 transition-all hover:scale-110"
-                    style={{
-                      background: color,
-                      borderColor: drawColor === color ? 'var(--accent)' : 'transparent',
-                      boxShadow: drawColor === color ? '0 0 0 2px var(--accent-subtle)' : 'none',
-                    }}
-                  />
-                ))}
+              <div className="flex flex-col gap-2 shrink-0">
+                {/* Standard Swatches */}
+                <div className="grid grid-cols-10 gap-1 justify-center">
+                  {DRAW_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => {
+                        setDrawColor(color);
+                      }}
+                      className="w-5.5 h-5.5 rounded-full border transition-all hover:scale-110 cursor-pointer"
+                      style={{
+                        background: color,
+                        borderColor: drawColor === color ? 'var(--accent)' : 'transparent',
+                        boxShadow: drawColor === color ? '0 0 0 1.5px var(--accent-subtle)' : 'none',
+                      }}
+                    />
+                  ))}
+                </div>
               </div>
             )}
 
-            {/* Sizes */}
-            <div className="flex items-center gap-2">
-              {DRAW_SIZES.map((size) => (
-                <button
-                  key={size}
-                  onClick={() => setDrawSize(size)}
-                  className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all ${
-                    drawSize === size
-                      ? 'bg-[var(--accent-subtle)]'
-                      : 'hover:bg-[var(--bg-tertiary)]'
-                  }`}
-                >
-                  <div
-                    className="rounded-full bg-current"
-                    style={{
-                      width: Math.max(4, size),
-                      height: Math.max(4, size),
-                      color: eraserMode ? 'var(--text-secondary)' : drawColor,
-                      opacity: highlighterMode ? 0.35 : 1,
-                    }}
-                  />
-                </button>
-              ))}
-            </div>
+            {/* Sizes (Quick bar in simple mode, slider in advanced mode) */}
+            {!showAdvancedDraw && (
+              <div className="flex items-center justify-between gap-2 border-t border-[var(--border)] pt-2 mt-0.5 shrink-0">
+                <span className="text-[10px] text-[var(--text-muted)] font-medium">Quick Sizes</span>
+                <div className="flex gap-1.5">
+                  {DRAW_SIZES.map((size) => (
+                    <button
+                      key={size}
+                      onClick={() => setDrawSize(size)}
+                      className={`flex items-center justify-center w-7 h-7 rounded-lg transition-all cursor-pointer ${
+                        drawSize === size
+                          ? 'bg-[var(--accent-subtle)]'
+                          : 'hover:bg-[var(--bg-tertiary)]'
+                      }`}
+                    >
+                      <div
+                        className="rounded-full bg-current"
+                        style={{
+                          width: Math.max(3, size / 1.5),
+                          height: Math.max(3, size / 1.5),
+                          color: eraserMode ? 'var(--text-secondary)' : drawColor.startsWith('url(') ? 'var(--accent)' : drawColor,
+                          opacity: highlighterMode ? 0.35 : 1,
+                        }}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ADVANCED GOD MODE OPTIONS */}
+            {showAdvancedDraw && (
+              <div className="flex flex-col gap-3.5 border-t border-[var(--border)] pt-3 mt-0.5">
+                {/* Color Inputs & Customizations (Pen & Highlighter only) */}
+                {!eraserMode && (() => {
+                  const { r, g, b } = hexToRgb(drawColor);
+                  const { h, s, l } = rgbToHsl(r, g, b);
+                  return (
+                    <div className="flex flex-col gap-2.5 bg-[var(--bg-secondary)]/50 p-2.5 rounded-xl border border-[var(--border)]">
+                      {/* HEX & Eyedropper */}
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex-1 flex items-center bg-[var(--bg-tertiary)] px-2.5 py-1 rounded-lg border border-[var(--border)] gap-1.5">
+                          <span className="text-[9px] text-[var(--text-muted)] font-bold tracking-wider">HEX</span>
+                          <input
+                            type="text"
+                            className="w-full bg-transparent outline-none text-xs text-[var(--text-primary)] font-mono"
+                            value={drawColor.startsWith('url(') ? '#FFFFFF' : drawColor}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val.match(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)) {
+                                setDrawColor(val);
+                              } else if (!val.startsWith('#') && val.match(/^([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)) {
+                                setDrawColor('#' + val);
+                              }
+                            }}
+                          />
+                        </div>
+                        {typeof window !== 'undefined' && 'EyeDropper' in window && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const EyeDropperCtor = (window as unknown as { EyeDropper: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
+                                const eyeDropper = new EyeDropperCtor();
+                                const result = await eyeDropper.open();
+                                setDrawColor(result.sRGBHex);
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                            title="Eyedropper tool"
+                            className="w-8 h-8 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] border border-[var(--border)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="m2 22 1-1h3l9-9 3 3-9 9H3l-1-1Z" />
+                              <path d="M19 11l-4-4" />
+                              <path d="M15 3h6v6" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* RGB & HSL */}
+                      <div className="flex flex-col gap-1.5">
+                        {/* RGB inputs */}
+                        <div className="grid grid-cols-3 bg-[var(--bg-tertiary)] p-1 rounded-lg border border-[var(--border)] text-center text-[9px]">
+                          <div className="flex flex-col">
+                            <span className="text-[8px] text-[var(--text-muted)] font-bold">R</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="255"
+                              className="w-full bg-transparent text-center text-xs text-[var(--text-primary)] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-semibold"
+                              value={r}
+                              onChange={(e) => {
+                                const newR = Math.min(255, Math.max(0, parseInt(e.target.value) || 0));
+                                setDrawColor(rgbToHex(newR, g, b));
+                              }}
+                            />
+                          </div>
+                          <div className="flex flex-col border-l border-[var(--border)]">
+                            <span className="text-[8px] text-[var(--text-muted)] font-bold">G</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="255"
+                              className="w-full bg-transparent text-center text-xs text-[var(--text-primary)] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-semibold"
+                              value={g}
+                              onChange={(e) => {
+                                const newG = Math.min(255, Math.max(0, parseInt(e.target.value) || 0));
+                                setDrawColor(rgbToHex(r, newG, b));
+                              }}
+                            />
+                          </div>
+                          <div className="flex flex-col border-l border-[var(--border)]">
+                            <span className="text-[8px] text-[var(--text-muted)] font-bold">B</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="255"
+                              className="w-full bg-transparent text-center text-xs text-[var(--text-primary)] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-semibold"
+                              value={b}
+                              onChange={(e) => {
+                                const newB = Math.min(255, Math.max(0, parseInt(e.target.value) || 0));
+                                setDrawColor(rgbToHex(r, g, newB));
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* HSL inputs */}
+                        <div className="grid grid-cols-3 bg-[var(--bg-tertiary)] p-1 rounded-lg border border-[var(--border)] text-center text-[9px]">
+                          <div className="flex flex-col">
+                            <span className="text-[8px] text-[var(--text-muted)] font-bold">H</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="360"
+                              className="w-full bg-transparent text-center text-xs text-[var(--text-primary)] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-semibold"
+                              value={h}
+                              onChange={(e) => {
+                                const newH = Math.min(360, Math.max(0, parseInt(e.target.value) || 0));
+                                setDrawColor(hslToHex(newH, s, l));
+                              }}
+                            />
+                          </div>
+                          <div className="flex flex-col border-l border-[var(--border)]">
+                            <span className="text-[8px] text-[var(--text-muted)] font-bold">S</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              className="w-full bg-transparent text-center text-xs text-[var(--text-primary)] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-semibold"
+                              value={s}
+                              onChange={(e) => {
+                                const newS = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                                setDrawColor(hslToHex(h, newS, l));
+                              }}
+                            />
+                          </div>
+                          <div className="flex flex-col border-l border-[var(--border)]">
+                            <span className="text-[8px] text-[var(--text-muted)] font-bold">L</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              className="w-full bg-transparent text-center text-xs text-[var(--text-primary)] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-semibold"
+                              value={l}
+                              onChange={(e) => {
+                                const newL = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                                setDrawColor(hslToHex(h, s, newL));
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Gradients */}
+                      <div className="flex flex-col gap-1 mt-1 border-t border-[var(--border)]/60 pt-2">
+                        <span className="text-[9px] uppercase font-bold text-[var(--text-muted)] tracking-wider px-0.5">Gradients</span>
+                        <div className="flex gap-2">
+                          {[
+                            { id: 'url(#sunset-grad)', css: 'linear-gradient(135deg, #FF512F 0%, #DD2476 100%)', label: 'Sunset' },
+                            { id: 'url(#ocean-grad)', css: 'linear-gradient(135deg, #02AAB0 0%, #00CDAC 100%)', label: 'Ocean' },
+                            { id: 'url(#fire-grad)', css: 'linear-gradient(135deg, #F5576C 0%, #F08080 100%)', label: 'Fire' },
+                            { id: 'url(#lavender-grad)', css: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)', label: 'Lavender' },
+                            { id: 'url(#cosmic-grad)', css: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)', label: 'Cosmic' }
+                          ].map((grad) => (
+                            <button
+                              key={grad.id}
+                              onClick={() => setDrawColor(grad.id)}
+                              title={grad.label}
+                              className="w-6.5 h-6.5 rounded-full border transition-all hover:scale-110 cursor-pointer"
+                              style={{
+                                background: grad.css,
+                                borderColor: drawColor === grad.id ? 'var(--accent)' : 'transparent',
+                                boxShadow: drawColor === grad.id ? '0 0 0 1.5px var(--accent-subtle)' : 'none',
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Brushes settings popover parameters */}
+                <div className="flex flex-col gap-3 bg-[var(--bg-secondary)]/50 p-2.5 rounded-xl border border-[var(--border)] text-[10px]">
+                  {/* Size */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[var(--text-secondary)] font-semibold">Size</span>
+                      <span className="text-[var(--text-muted)] font-mono">{drawSize}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="100"
+                      className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
+                      value={drawSize}
+                      onChange={(e) => setDrawSize(parseInt(e.target.value))}
+                    />
+                  </div>
+
+                  {/* Opacity */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[var(--text-secondary)] font-semibold">Opacity</span>
+                      <span className="text-[var(--text-muted)] font-mono">{Math.round(drawOpacity * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.05"
+                      max="1.0"
+                      step="0.01"
+                      className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
+                      value={drawOpacity}
+                      onChange={(e) => setDrawOpacity(parseFloat(e.target.value))}
+                    />
+                  </div>
+
+                  {/* Flow */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[var(--text-secondary)] font-semibold">Flow</span>
+                      <span className="text-[var(--text-muted)] font-mono">{Math.round(drawFlow * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.05"
+                      max="1.0"
+                      step="0.01"
+                      className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
+                      value={drawFlow}
+                      onChange={(e) => setDrawFlow(parseFloat(e.target.value))}
+                    />
+                  </div>
+
+                  {/* Hardness */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[var(--text-secondary)] font-semibold">Hardness (Softness)</span>
+                      <span className="text-[var(--text-muted)] font-mono">{Math.round(drawHardness * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="1.0"
+                      step="0.01"
+                      className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
+                      value={drawHardness}
+                      onChange={(e) => setDrawHardness(parseFloat(e.target.value))}
+                    />
+                  </div>
+
+                  {/* Stabilization */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[var(--text-secondary)] font-semibold">Stabilization</span>
+                      <span className="text-[var(--text-muted)] font-mono">{Math.round(drawStabilization * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.0"
+                      max="1.0"
+                      step="0.01"
+                      className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
+                      value={drawStabilization}
+                      onChange={(e) => setDrawStabilization(parseFloat(e.target.value))}
+                    />
+                  </div>
+
+                  {/* Smoothing */}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[var(--text-secondary)] font-semibold">Smoothing</span>
+                      <span className="text-[var(--text-muted)] font-mono">{Math.round(drawSmoothing * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.0"
+                      max="1.0"
+                      step="0.01"
+                      className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
+                      value={drawSmoothing}
+                      onChange={(e) => setDrawSmoothing(parseFloat(e.target.value))}
+                    />
+                  </div>
+
+                  {/* Pressure Sensitivity */}
+                  <div className="flex items-center justify-between py-0.5 border-t border-[var(--border)]/40 pt-2">
+                    <span className="text-[var(--text-secondary)] font-semibold">Pressure Sensitivity</span>
+                    <button
+                      onClick={() => setDrawPressure(!drawPressure)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out outline-none ${
+                        drawPressure ? 'bg-[var(--accent)]' : 'bg-[var(--bg-tertiary)]'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          drawPressure ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Texture & Blend Mode */}
+                  <div className="grid grid-cols-2 gap-2 border-t border-[var(--border)]/40 pt-2 text-[10px]">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[var(--text-secondary)] font-semibold">Texture</span>
+                      <select
+                        value={drawTexture}
+                        onChange={(e) => setDrawTexture(e.target.value as 'none' | 'chalk' | 'watercolor' | 'noise' | 'splatter')}
+                        className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] text-[var(--text-primary)] rounded-lg px-2 py-1 outline-none text-xs cursor-pointer"
+                      >
+                        <option value="none">None</option>
+                        <option value="chalk">Chalk</option>
+                        <option value="watercolor">Watercolor</option>
+                        <option value="noise">Noise Grain</option>
+                        <option value="splatter">Splatter</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[var(--text-secondary)] font-semibold">Blend Mode</span>
+                      <select
+                        value={drawBlendMode}
+                        onChange={(e) => setDrawBlendMode(e.target.value as 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten')}
+                        className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] text-[var(--text-primary)] rounded-lg px-2 py-1 outline-none text-xs cursor-pointer"
+                      >
+                        <option value="normal">Normal</option>
+                        <option value="multiply">Multiply</option>
+                        <option value="screen">Screen</option>
+                        <option value="overlay">Overlay</option>
+                        <option value="darken">Darken</option>
+                        <option value="lighten">Lighten</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Toggle advanced settings button */}
+            <button
+              onClick={() => setShowAdvancedDraw(!showAdvancedDraw)}
+              className="mt-0.5 py-1.5 px-3 rounded-lg bg-[rgba(var(--accent-rgb),0.08)] hover:bg-[rgba(var(--accent-rgb),0.13)] text-[var(--accent)] text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
+            >
+              <span>{showAdvancedDraw ? 'Simple Settings ⚡' : 'Brush Settings Popover (God Mode) ⚡'}</span>
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

@@ -38,6 +38,14 @@ export interface DrawingStroke {
   parentId?: string;
   isHighlighter?: boolean;
   createdAt: number;
+  opacity?: number;
+  flow?: number;
+  hardness?: number;
+  stabilization?: number;
+  pressure?: boolean;
+  smoothing?: number;
+  texture?: string;
+  blendMode?: string;
 }
 
 export interface Scene {
