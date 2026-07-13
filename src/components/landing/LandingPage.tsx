@@ -654,7 +654,7 @@ export default function LandingPage() {
 
       {/* ---------- Main ---------- */}
       <main className="flex-1 min-h-screen h-screen overflow-y-auto">
-        <div className="w-full max-w-[1550px] mx-auto px-6 md:px-12 pt-10 pb-28 flex flex-col gap-12">
+        <div className="w-full pl-6 md:pl-10 pr-10 pt-10 pb-28 flex flex-col gap-12">
 
           {/* Header */}
           <header className="flex flex-col lg:flex-row lg:justify-between lg:items-end gap-6 w-full">
