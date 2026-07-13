@@ -1102,7 +1102,7 @@ export default function FloatingToolbar() {
               onClick={() => setShowAdvancedDraw(!showAdvancedDraw)}
               className="mt-0.5 py-1.5 px-3 rounded-lg bg-[rgba(var(--accent-rgb),0.08)] hover:bg-[rgba(var(--accent-rgb),0.13)] text-[var(--accent)] text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 w-full"
             >
-              <span>{showAdvancedDraw ? 'Simple Settings ⚡' : 'Brush Settings Popover (God Mode) ⚡'}</span>
+              <span>{showAdvancedDraw ? 'Simple Settings' : 'Advanced Mode →'}</span>
             </button>
           </motion.div>
         )}
