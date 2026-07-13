@@ -1154,6 +1154,38 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     }
   }, [isEditing]);
 
+  // Synchronise dictation text into the DOM if the block is currently in edit mode
+  const isDictating = useVoiceStore((s) => s.isListening && s.targetId === obj.id);
+  const voiceTranscript = useVoiceStore((s) => s.transcript);
+  const voiceInterim = useVoiceStore((s) => s.interimTranscript);
+
+  useEffect(() => {
+    if (isEditing && isDictating && contentRef.current) {
+      const target = contentRef.current;
+      const currentText = (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)
+        ? target.value
+        : target.innerText;
+      if (currentText !== obj.content) {
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+          target.value = obj.content || '';
+        } else {
+          target.innerText = obj.content || '';
+        }
+        latestContent.current = obj.content || '';
+        
+        // Move caret to the end of the text
+        const sel = window.getSelection();
+        if (sel && contentRef.current.childNodes.length > 0) {
+          const range = document.createRange();
+          range.selectNodeContents(contentRef.current);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+    }
+  }, [isEditing, isDictating, obj.content, voiceTranscript, voiceInterim]);
+
   // Track native input for all editable text blocks to keep latestContent in sync and handle slash commands
   useEffect(() => {
     if (!isEditing) return;
@@ -3430,6 +3462,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   return (
     <motion.div
       ref={containerRef}
+      data-object-id={obj.id}
       className={`canvas-object absolute group ${(isEditing || editingCommentId === obj.id) ? '' : 'select-none'} ${obj.type === 'arrow' ? '' : (isDragging ? 'dragging' : '')} ${obj.type === 'arrow' ? '' : (isSelected ? 'selected' : '')} ${connectorSelectedIds.includes(obj.id) ? 'connector-selected' : ''}`}
       style={{
         left: obj.x,

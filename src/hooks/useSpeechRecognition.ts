@@ -177,17 +177,29 @@ export const useSpeechRecognition = () => {
        editing block is an uncontrolled contentEditable, and writing to the store
        wouldn't show up in it. */
     const canvas = useCanvasStore.getState();
-    const selected = canvas.selectedId
-      ? canvas.objects.find((o) => o.id === canvas.selectedId)
+    const activeId = canvas.editingId || canvas.selectedId;
+    const activeBlock = activeId
+      ? canvas.objects.find((o) => o.id === activeId)
       : undefined;
     const dictatable =
-      selected && ['text', 'heading', 'sticky'].includes(selected.type)
-        ? selected
+      activeBlock && ['text', 'heading', 'sticky'].includes(activeBlock.type)
+        ? activeBlock
         : undefined;
 
     let targetId: string;
     if (dictatable) {
       targetId = dictatable.id;
+      // If the target is currently being edited, sync the current DOM value to the store
+      // so dictation appends correctly instead of using a stale store value.
+      if (canvas.editingId === targetId) {
+        const el = document.querySelector(`[data-object-id="${targetId}"] .text-block-editable`) as HTMLElement | null;
+        if (el) {
+          const text = (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)
+            ? el.value
+            : el.innerText;
+          canvas.updateObject(targetId, { content: text });
+        }
+      }
     } else {
       const { camera } = canvas;
       const block = canvas.addObject({
