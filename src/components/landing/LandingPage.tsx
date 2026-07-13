@@ -1403,7 +1403,7 @@ export default function LandingPage() {
         whileTap={{ scale: 0.92 }}
         transition={spring}
         aria-label="Create new canvas"
-        className="fixed bottom-8 right-8 w-14 h-14 rounded-full bg-[var(--accent)]/12 text-[var(--accent)] border border-[var(--accent)]/15 flex items-center justify-center z-50 cursor-pointer shadow-[0_12px_24px_-8px_rgba(var(--accent-rgb),0.3)] hover:bg-[var(--accent)]/20 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+        className="fixed bottom-8 right-14 w-14 h-14 rounded-full bg-[var(--accent)]/12 text-[var(--accent)] border border-[var(--accent)]/15 flex items-center justify-center z-50 cursor-pointer shadow-[0_12px_24px_-8px_rgba(var(--accent-rgb),0.3)] hover:bg-[var(--accent)]/20 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
           <line x1="12" y1="5" x2="12" y2="19" />
