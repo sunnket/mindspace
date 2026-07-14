@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CanvasObjectData } from '@/lib/db';
 import { useCanvasStore } from '@/store/canvasStore';
 import { formatBytes } from '@/lib/fileIngest';
+import { playSnap } from '@/lib/relaxAudio';
 
 const SparkleIcon = ({ size = 13 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -12,8 +13,6 @@ const SparkleIcon = ({ size = 13 }: { size?: number }) => (
   </svg>
 );
 
-// A tinted document glyph + short badge label per family, so a glance tells you
-// what kind of file it is.
 function fileVisual(ext: string, kind: string): { label: string; color: string } {
   const e = ext.toLowerCase();
   if (e === 'pdf' || /pdf/i.test(kind)) return { label: 'PDF', color: '#D64545' };
@@ -26,7 +25,6 @@ function fileVisual(ext: string, kind: string): { label: string; color: string }
   return { label: (e || 'FILE').slice(0, 4).toUpperCase(), color: '#C97B4B' };
 }
 
-// One-line description of the file's shape (pages / slides / sheets / words).
 function metaLine(style: Record<string, unknown>): string {
   const meta = (style.fileMeta as Record<string, unknown>) || {};
   const bits: string[] = [];
@@ -42,7 +40,8 @@ function metaLine(style: Record<string, unknown>): string {
 
 export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
   const style = obj.style || {};
-  const [showText, setShowText] = useState(false);
+  const updateObject = useCanvasStore((s) => s.updateObject);
+  const addObject = useCanvasStore((s) => s.addObject);
 
   const name = (style.fileName as string) || 'file';
   const ext = (style.fileExt as string) || '';
@@ -53,11 +52,76 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
   const truncated = Boolean(style.fileTruncated);
   const { label, color } = fileVisual(ext, String((style.fileMeta as Record<string, unknown>)?.kind || ''));
 
+  // Reader settings stored in object state style
+  const readerOpen = Boolean(style.readerOpen);
+  const clipMode = Boolean(style.clipMode);
+  const nativeView = Boolean(style.nativeView) && ext.toLowerCase() === 'pdf' && !!obj.content?.startsWith('data:');
+  const readerFontSize = (style.readerFontSize as number) || 12;
+
   const hasText = status === 'ready' && text.trim().length > 0;
+  const isPdf = ext.toLowerCase() === 'pdf';
+
+  const patchStyle = (kv: Record<string, unknown>) => {
+    const cur = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+    updateObject(obj.id, { style: { ...(cur?.style || obj.style), ...kv } });
+  };
+
+  const openReader = () => {
+    const curW = obj.width;
+    const curH = obj.height;
+    updateObject(obj.id, {
+      width: 520,
+      height: 640,
+      style: {
+        ...obj.style,
+        readerOpen: true,
+        prevWidth: curW,
+        prevHeight: curH,
+      },
+    });
+  };
+
+  const closeReader = () => {
+    const prevW = (style.prevWidth as number) || 300;
+    const prevH = (style.prevHeight as number) || 132;
+    updateObject(obj.id, {
+      width: prevW,
+      height: prevH,
+      style: {
+        ...obj.style,
+        readerOpen: false,
+        clipMode: false,
+        nativeView: false,
+      },
+    });
+  };
+
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (!clipMode) return;
+    const selection = window.getSelection()?.toString().trim();
+    if (selection) {
+      try {
+        playSnap();
+      } catch {
+        /* ignore context constraints */
+      }
+      
+      // Spawn new text block on canvas right next to the current card
+      addObject({
+        type: 'text',
+        x: obj.x + obj.width + 40,
+        y: obj.y + 40,
+        width: 300,
+        height: 160,
+        content: selection,
+      });
+
+      // Clear selection so the user can easily select the next phrase
+      window.getSelection()?.removeAllRanges();
+    }
+  };
 
   const askAgent = () => {
-    // Hand the full extracted text to the canvas agent as file context and let it
-    // read the whole thing, then build a briefing beside this block.
     window.dispatchEvent(
       new CustomEvent('run-agent', {
         detail: {
@@ -79,18 +143,22 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
     a.click();
   };
 
+  // Render file paragraphs safely
+  const paragraphs = React.useMemo(() => {
+    return text.split('\n\n').filter((p) => p.trim().length > 0);
+  }, [text]);
+
   return (
     <div
-      className="w-full h-full rounded-2xl bg-[rgba(255,252,248,0.5)] dark:bg-black/20 backdrop-blur-2xl border border-white/25 dark:border-white/5 shadow-lg flex flex-col overflow-hidden group"
+      className="w-full h-full rounded-2xl bg-[rgba(255,252,248,0.5)] dark:bg-black/20 backdrop-blur-2xl border border-white/25 dark:border-white/5 shadow-lg flex flex-col overflow-hidden group select-none pointer-events-auto"
       style={{ fontFamily: "'Outfit', sans-serif" }}
     >
-      {/* Header: glyph + name + meta */}
-      <div className="flex items-center gap-3 px-3.5 pt-3.5 pb-2.5">
+      {/* Header: glyph + name + meta info */}
+      <div className="flex items-center gap-3 px-3.5 pt-3.5 pb-2.5 shrink-0 border-b border-transparent dark:border-transparent select-none">
         <div
           className="relative w-11 h-12 rounded-lg shrink-0 flex items-end justify-center pb-1 shadow-sm"
           style={{ background: `${color}1A`, border: `1px solid ${color}40` }}
         >
-          {/* dog-eared corner */}
           <div className="absolute top-0 right-0 w-3 h-3" style={{ background: `${color}33`, clipPath: 'polygon(0 0, 100% 100%, 100% 0)' }} />
           <span className="text-[8px] font-black tracking-wider" style={{ color }}>{label}</span>
         </div>
@@ -103,76 +171,182 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
         </div>
       </div>
 
-      {/* Body: status-dependent */}
-      <div className="flex-1 min-h-0 px-3.5 flex flex-col">
-        {status === 'loading' && (
-          <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)] py-1">
-            <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
-            Extracting text, links & structure…
-          </div>
-        )}
+      {/* Reader Layout Mode */}
+      {readerOpen && hasText ? (
+        <div className="flex-1 min-h-0 flex flex-col px-3.5 pb-3">
+          {/* Reader Toolbar */}
+          <div className="flex items-center justify-between py-2 border-b border-[var(--border)] mb-2 select-none" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={closeReader}
+                className="px-2.5 py-1 rounded-lg bg-[var(--well)] hover:bg-[var(--accent)]/10 text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+              >
+                Close
+              </button>
 
-        {status === 'error' && (
-          <div className="text-[11px] text-red-500/80 py-1 leading-relaxed">{error || 'This file could not be read.'}</div>
-        )}
-
-        {hasText && (
-          <>
-            <button
-              onClick={(e) => { e.stopPropagation(); setShowText((v) => !v); }}
-              onMouseDown={(e) => e.stopPropagation()}
-              className="self-start text-[10px] font-semibold text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors cursor-pointer mb-1"
-            >
-              {showText ? '▾ Hide extracted text' : '▸ Peek at extracted text'}
-              {truncated && !showText ? ' (truncated)' : ''}
-            </button>
-            <AnimatePresence>
-              {showText && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="min-h-0 overflow-y-auto text-[10.5px] leading-relaxed text-[var(--text-secondary)] bg-black/5 dark:bg-white/5 rounded-lg px-2.5 py-2 mb-1 select-text whitespace-pre-wrap"
-                  style={{ maxHeight: 220 }}
-                  onMouseDown={(e) => e.stopPropagation()}
+              {isPdf && obj.content?.startsWith('data:') && (
+                <button
+                  onClick={() => patchStyle({ nativeView: !nativeView })}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${
+                    nativeView ? 'clay-inset text-[var(--accent)]' : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
                 >
-                  {text.slice(0, 8000)}{text.length > 8000 ? '…' : ''}
-                </motion.div>
+                  📄 PDF View
+                </button>
               )}
-            </AnimatePresence>
-            {links.length > 0 && !showText && (
-              <div className="text-[10px] text-[var(--text-tertiary)] mb-1 truncate">
-                🔗 {links.length} link{links.length === 1 ? '' : 's'} found
+
+              <button
+                onClick={() => patchStyle({ clipMode: !clipMode })}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1 ${
+                  clipMode ? 'bg-emerald-500/15 text-emerald-600 border border-emerald-500/20' : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+                title="When active, highlighting any text instantly extracts it to the canvas."
+              >
+                <span>✂️</span> Clip Mode
+              </button>
+            </div>
+
+            {/* Stepper for Reader Font Size */}
+            {!nativeView && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => patchStyle({ readerFontSize: Math.max(10, readerFontSize - 1) })}
+                  className="w-5.5 h-5.5 rounded bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center text-[10px] font-bold cursor-pointer"
+                >
+                  A-
+                </button>
+                <span className="text-[10px] font-mono font-bold text-[var(--text-tertiary)] px-1">{readerFontSize}px</span>
+                <button
+                  onClick={() => patchStyle({ readerFontSize: Math.min(20, readerFontSize + 1) })}
+                  className="w-5.5 h-5.5 rounded bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center text-[10px] font-bold cursor-pointer"
+                >
+                  A+
+                </button>
               </div>
             )}
-          </>
-        )}
-      </div>
+          </div>
 
-      {/* Footer actions */}
-      <div className="flex items-center gap-2 px-3.5 pb-3 pt-1.5 pointer-events-auto">
-        <button
-          onClick={(e) => { e.stopPropagation(); askAgent(); }}
-          onMouseDown={(e) => e.stopPropagation()}
-          disabled={!hasText}
-          title={hasText ? 'Let the agent read this file and brief you' : 'No readable text found'}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-white text-[10px] font-bold tracking-wider uppercase transition-all shadow-md active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer bg-gradient-to-br from-[var(--accent)] to-[var(--accent-light)] hover:scale-[1.03]"
-        >
-          <SparkleIcon size={12} />
-          Ask AI
-        </button>
-        {obj.content?.startsWith('data:') && (
+          {/* Reader Instruction Alert for Clip Mode */}
+          {clipMode && !nativeView && (
+            <div className="px-2.5 py-1.5 bg-emerald-500/8 text-emerald-600/90 text-[10px] font-medium rounded-lg border border-emerald-500/12 mb-2 leading-relaxed select-none">
+              ✨ <strong>Surgical clipping active:</strong> Highlight text inside the reader, and it will spawn a text block on your board automatically.
+            </div>
+          )}
+
+          {/* Reader Content Area */}
+          <div className="flex-1 min-h-0 flex flex-col">
+            {nativeView ? (
+              <iframe
+                src={obj.content}
+                className="w-full h-full border-0 rounded-xl bg-white shadow-inner select-text"
+                onMouseDown={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <div
+                className="flex-1 min-h-0 overflow-y-auto px-4 py-3.5 bg-black/5 dark:bg-white/5 rounded-xl border border-[var(--border)] select-text selection:bg-[var(--accent)]/20 custom-scrollbar"
+                style={{ fontSize: `${readerFontSize}px` }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onMouseUp={handleMouseUp}
+              >
+                <div className="space-y-4">
+                  {paragraphs.map((p, idx) => (
+                    <p key={idx} className="leading-relaxed text-[var(--text-primary)] tracking-wide font-normal">
+                      {p}
+                    </p>
+                  ))}
+                  {truncated && (
+                    <p className="text-[10px] italic text-[var(--text-muted)] select-none">
+                      (Document content truncated for workspace optimization)
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Draggable extracted links */}
+            {links.length > 0 && !nativeView && (
+              <div className="flex flex-col gap-1.5 mt-2 shrink-0 select-none" onMouseDown={(e) => e.stopPropagation()}>
+                <span className="text-[9px] uppercase font-extrabold tracking-widest text-[var(--text-tertiary)] px-0.5">Extracted Links (drag onto board):</span>
+                <div className="flex gap-1.5 py-1 overflow-x-auto custom-scrollbar">
+                  {links.map((link, idx) => (
+                    <a
+                      key={idx}
+                      href={link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      draggable={true}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', link);
+                        e.dataTransfer.setData('text/uri-list', link);
+                      }}
+                      className="px-2.5 py-1 rounded-full bg-[var(--well)] hover:bg-[var(--accent)]/10 text-[10px] font-semibold text-[var(--text-secondary)] hover:text-[var(--accent)] border border-[var(--border)] whitespace-nowrap cursor-grab active:cursor-grabbing transition-colors"
+                    >
+                      🔗 {link.replace(/^https?:\/\/(www\.)?/, '').slice(0, 28)}{link.length > 28 ? '…' : ''}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* Compact / Normal view mode */
+        <div className="flex-1 min-h-0 px-3.5 flex flex-col select-none">
+          {status === 'loading' && (
+            <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)] py-1">
+              <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
+              Extracting text, links & structure…
+            </div>
+          )}
+
+          {status === 'error' && (
+            <div className="text-[11px] text-red-500/80 py-1 leading-relaxed">{error || 'This file could not be read.'}</div>
+          )}
+
+          {hasText && (
+            <p className="text-[11.5px] leading-relaxed text-[var(--text-secondary)] line-clamp-3 select-text select-all" onMouseDown={(e) => e.stopPropagation()}>
+              {text.slice(0, 240)}...
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Compact view actions footer */}
+      {!readerOpen && (
+        <div className="flex items-center gap-2 px-3.5 pb-3.5 pt-2 shrink-0 select-none">
+          {hasText && (
+            <button
+              onClick={(e) => { e.stopPropagation(); openReader(); }}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/5 border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] text-[10px] font-bold tracking-wider uppercase transition-all shadow-sm active:scale-95 cursor-pointer"
+            >
+              📖 Open Reader
+            </button>
+          )}
+
           <button
-            onClick={(e) => { e.stopPropagation(); download(); }}
+            onClick={(e) => { e.stopPropagation(); askAgent(); }}
             onMouseDown={(e) => e.stopPropagation()}
-            title="Download file"
-            className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-white/60 dark:bg-white/5 border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] text-[10px] font-bold tracking-wider uppercase transition-all shadow-sm active:scale-95 cursor-pointer"
+            disabled={!hasText}
+            title={hasText ? 'Let the agent read this file and brief you' : 'No readable text found'}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-white text-[10px] font-bold tracking-wider uppercase transition-all shadow-md active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer bg-gradient-to-br from-[var(--accent)] to-[var(--accent-light)] hover:scale-[1.03]"
           >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
-            Save
+            <SparkleIcon size={12} />
+            Ask AI
           </button>
-        )}
-      </div>
+
+          {obj.content?.startsWith('data:') && (
+            <button
+              onClick={(e) => { e.stopPropagation(); download(); }}
+              onMouseDown={(e) => e.stopPropagation()}
+              title="Download file"
+              className="flex items-center justify-center w-7 h-7 rounded-full bg-white/60 dark:bg-white/5 border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] transition-all shadow-sm active:scale-95 cursor-pointer"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

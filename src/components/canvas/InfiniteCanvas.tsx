@@ -850,6 +850,20 @@ export default function InfiniteCanvas() {
       // 3) A bare link dragged in → drop a link-preview card.
       if (firstUrl && isUrl(firstUrl)) {
         addObject(newLinkCard(firstUrl, origin.x - 150, origin.y - 130));
+        return;
+      }
+
+      // 4) Plain text dragged in → drop a text card.
+      const text = dt.getData('text/plain');
+      if (text && text.trim()) {
+        addObject({
+          type: 'text',
+          x: origin.x - 150,
+          y: origin.y - 80,
+          width: 300,
+          height: 160,
+          content: text.trim(),
+        });
       }
     },
     [camera, addObject]
