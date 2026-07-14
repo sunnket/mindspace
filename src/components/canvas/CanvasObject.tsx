@@ -22,6 +22,7 @@ import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
 import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock, TimelineBlock } from './ExtensionBlocks';
 import WhiteboardBlock from './WhiteboardBlock';
+import BinderBlock from './BinderBlock';
 
 /**
  * The DOM range at a viewport point. Two engines, two spellings: Firefox ships
@@ -710,6 +711,26 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             },
           }));
           return;
+        }
+
+        // Dropping any object inside a binder's bounds groups it into the binder
+        if (dragObj.type !== 'arrow' && dragObj.id !== obj.id) {
+          const state = useCanvasStore.getState();
+          const live = state.objects.find((o) => o.id === dragObj.id);
+          if (live) {
+            const cx = live.x + live.width / 2;
+            const cy = live.y + live.height / 2;
+            const binder = state.objects.find(
+              (o) => o.style?.isBinder === true && o.id !== dragObj.id && cx >= o.x && cx <= o.x + o.width && cy >= o.y && cy <= o.y + o.height
+            );
+            if (binder) {
+              state.updateObject(dragObj.id, {
+                parentId: binder.id,
+              });
+              setSelectedId(null);
+              return; // End drag early and bypass undo/normal drop positioning
+            }
+          }
         }
 
         // Dropping a non-frame object inside a frame's bounds groups it —
@@ -2075,6 +2096,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       }
 
       case 'card':
+        if (obj.style?.isBinder) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <BinderBlock obj={obj} />
+            </div>
+          );
+        }
         if (obj.style?.isWhiteboard) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
