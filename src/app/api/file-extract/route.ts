@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createRequire } from 'module';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
+
+const require = createRequire(import.meta.url);
+const { PDFParse } = require('pdf-parse');
+const mammoth = require('mammoth');
+const WordExtractor = require('word-extractor');
+const JSZip = require('jszip');
 
 /**
  * Universal file reader. The canvas agent is text-based, so when the user drops
@@ -69,7 +76,6 @@ interface Extracted {
 }
 
 async function extractPdf(buf: Uint8Array): Promise<Extracted> {
-  const { PDFParse } = await import('pdf-parse');
   const parser = new PDFParse({ data: Buffer.from(buf) });
   try {
     const res = await parser.getText();
@@ -84,7 +90,6 @@ async function extractPdf(buf: Uint8Array): Promise<Extracted> {
 }
 
 async function extractDocx(buf: Uint8Array): Promise<Extracted> {
-  const mammoth = await import('mammoth');
   const { value } = await mammoth.extractRawText({ buffer: Buffer.from(buf) });
   return { text: (value || '').trim(), meta: { kind: 'Word document' } };
 }
@@ -100,7 +105,6 @@ async function extractDocx(buf: Uint8Array): Promise<Extracted> {
  * the streams properly rather than guessing at the bytes.
  */
 async function extractDoc(buf: Uint8Array): Promise<Extracted> {
-  const WordExtractor = (await import('word-extractor')).default;
   const doc = await new WordExtractor().extract(Buffer.from(buf));
   const body = (doc.getBody() || '').trim();
   const footnotes = (doc.getFootnotes() || '').trim();
@@ -137,7 +141,6 @@ function extractRtf(buf: Uint8Array): Extracted {
 
 /** OpenDocument (.odt / .ods / .odp) — a zip whose body lives in content.xml. */
 async function extractOpenDocument(buf: Uint8Array, ext: string): Promise<Extracted> {
-  const JSZip = (await import('jszip')).default;
   const zip = await JSZip.loadAsync(buf);
   const content = zip.files['content.xml'];
   if (!content) return { text: '', meta: { kind: 'OpenDocument', binary: true } };
@@ -150,7 +153,7 @@ async function extractOpenDocument(buf: Uint8Array, ext: string): Promise<Extrac
     .replace(/<\/(?:text:p|text:h|table:table-row)>/g, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'")
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -160,7 +163,6 @@ async function extractOpenDocument(buf: Uint8Array, ext: string): Promise<Extrac
 }
 
 async function extractZipLike(buf: Uint8Array, ext: string): Promise<Extracted> {
-  const JSZip = (await import('jszip')).default;
   const zip = await JSZip.loadAsync(buf);
 
   if (ext === 'pptx') {
@@ -196,7 +198,7 @@ async function extractZipLike(buf: Uint8Array, ext: string): Promise<Extracted> 
   }
 
   // Generic archive: list entries and read the text-like ones inline.
-  const entries = Object.values(zip.files).filter((f) => !f.dir);
+  const entries = (Object.values(zip.files) as any[]).filter((f) => !f.dir);
   const listing = entries.map((f) => f.name).slice(0, 300);
   const parts: string[] = [`Archive contents (${entries.length} files):\n${listing.join('\n')}`];
   let budget = MAX_TEXT;
