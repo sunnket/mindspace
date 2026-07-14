@@ -94,6 +94,7 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounced(query, 250);
   const [draft, setDraft] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -259,7 +260,7 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
                 {attachError && (
                   <p className="px-3 pb-1 text-[10px] font-semibold text-red-500 shrink-0">{attachError}</p>
                 )}
-                <div className="flex items-center gap-1.5 p-3 pt-2 border-t border-[var(--border)] shrink-0">
+                <div className="relative flex items-center gap-1.5 p-3 pt-2 border-t border-[var(--border)] shrink-0">
                   <input ref={fileInputRef} type="file" onChange={onFileChosen} className="hidden" />
                   <button
                     onClick={pickFile}
@@ -268,6 +269,32 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
                     aria-label="Attach file"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                  </button>
+                  {showEmojiPicker && (
+                    <EmojiPicker
+                      onSelectEmoji={(emoji) => {
+                        setDraft((prev) => prev + emoji);
+                      }}
+                      onClose={() => setShowEmojiPicker(false)}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                    title="Insert emoji"
+                    className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center cursor-pointer transition-colors ${
+                      showEmojiPicker 
+                        ? 'text-[var(--accent)] bg-[var(--well)]' 
+                        : 'text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--well)]'
+                    }`}
+                    aria-label="Emoji picker"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                      <line x1="9" y1="9" x2="9.01" y2="9" />
+                      <line x1="15" y1="9" x2="15.01" y2="9" />
+                    </svg>
                   </button>
                   <input
                     value={draft}
@@ -617,5 +644,173 @@ function ChatShell({
         {children}
       </motion.div>
     </AnimatePresence>
+  );
+}
+
+const EMOJI_CATEGORIES = [
+  {
+    name: 'Smileys',
+    icon: '😀',
+    emojis: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🥸', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤔', '🫣', '🤭', '🫢', '🫡', '🤫', '🫠', '🤥', '😶', '😐', '😑', '😬', '🫨', '😮', '🥱', '😴', '🤤', '😪', '😵', '🤐', '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '🤑', '🤠', '😈', '👿', '💀', '☠️', '👻', '👽', '👾', '🤖', '💩']
+  },
+  {
+    name: 'Gestures',
+    icon: '👍',
+    emojis: ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🫰', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳', '💪', '🧠', '👀', '👁️', '👅', '👄', '💋', '🩸', '👤', '👥', '🫂']
+  },
+  {
+    name: 'Animals',
+    icon: '🐱',
+    emojis: ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔', '🐧', '🐦', '🐤', '🐣', '🐥', '🦆', '🦅', '🦉', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🕷️', '🕸️', '🦂', '🐢', '🐍', '🦎', '🦖', '🐙', '🦑', '🦐', '🦞', '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🐘', '🦛', '🦏', '🐫', '🐪', '🦒', '🦘', '🐑', '🐐', '🐕', '🐈', '🐓', '🦆', '🦢', '🕊️', '🐇', '💐', '🌸', '💮', '🌺', '🌹', '🥀', '🌻', '🌼', '🌷', '🌱', '🪴', '🌲', '🌳', '🌴', '🌵', '🌿', '🍀', '🍁', '🍂', '🍃']
+  },
+  {
+    name: 'Food',
+    icon: '🍔',
+    emojis: ['🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🫑', '🌽', '🥕', '🧄', '🧅', '🍠', '🥐', '🍞', '🥖', '🥨', '🥯', '🥞', '🧇', '🧀', '🍖', '🍗', '🥩', '🥓', '🍔', '🍟', '🍕', '🌭', '🥪', '🌮', '🌯', '🥚', '🍳', '🥘', '🍲', '🥗', '🍿', '🧈', '🍷', '🍸', '🍹', '🍺', '🍻', '🥂', '🥤', '🧋', '🧃', '🧉', '☕', '🥛', '🍼', '🍯', '🍩', '🍪', '🎂', '🍰', '🧁', '🥧', '🍫', '🍬', '🍭', '🍨', '🍧', '🍦', '🍱', '🍘', '🍙', '🍚', '🍛', '🍜', '🍝', '🍣', '🍤', '🍥', '🍡', '🥟', '🧊']
+  },
+  {
+    name: 'Sports',
+    icon: '⚽',
+    emojis: ['⚽', '🏀', '🏈', '⚾', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🪀', '🏓', '🏸', '🏒', '🏏', '⛳', '🏹', '🎣', '🥊', '🛹', '🛼', '⛸️', '🎿', '🏂', '🏋️', '🧘', '🏄', '🏊', '🏆', '🏅', '🎟️', '🎭', '🎨', '🎬', '🎤', '🎧', '🎸', '🎹', '🎲', '🧩', '🎳', '🎮', '🎯']
+  },
+  {
+    name: 'Travel',
+    icon: '✈️',
+    emojis: ['🚗', '🚕', '🚙', '🚌', '🚓', '🚑', '🚒', '🚚', '🚜', '🛵', '🏍️', '🚲', '⚓', '⛵', '🛶', '🚤', '🚢', '✈️', '🚀', '🛸', '⌛', '⌚', '⏰', '🗺️', '🧭', '🏔️', '🏕️', '🏖️', '🏜️', '🏝️', '🏰', '🗼', '🗽', '⛪', '🕌', '🕍', '⛩️', '🕋', ' fountain ', '♨️', '🎡', '🎢', '🌉', '🌅', ' sunset ', ' skyline ', ' night ', ' full moon ', ' crescent moon ', ' sun ', ' cloud ', ' rain ', ' snow ', ' lightning ', ' fire ', ' wave ', ' wind ']
+  },
+  {
+    name: 'Objects',
+    icon: '💡',
+    emojis: ['✉️', ' box ', ' label ', ' scroll ', ' document ', ' calendar ', ' clipboard ', ' folder ', ' newspaper ', ' book ', ' link ', ' paperclip ', ' pushpin ', ' scissors ', ' pen ', ' paintbrush ', ' crayon ', ' memo ', ' pencil ', ' magnifying ', ' lock ', ' unlock ', ' hammer ', ' axe ', ' pick ', ' shield ', ' wrench ', ' screwdriver ', ' gear ', ' scale ', ' microscope ', ' telescope ', ' satellite ', ' test tube ', ' thermometer ', ' broom ', ' soap ', ' sponge ', ' bucket ', ' key ', ' lightbulb ', ' flashlight ', ' candle ', ' battery ', ' coin ', ' money ', ' card ', ' gem ']
+  }
+];
+
+function EmojiPicker({ onSelectEmoji, onClose }: { onSelectEmoji: (emoji: string) => void; onClose: () => void }) {
+  const [activeCategory, setActiveCategory] = useState('Smileys');
+  const [search, setSearch] = useState('');
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: PointerEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    window.addEventListener('pointerdown', handleOutsideClick);
+    return () => window.removeEventListener('pointerdown', handleOutsideClick);
+  }, [onClose]);
+
+  const filteredEmojis = useMemo(() => {
+    const lowerSearch = search.trim().toLowerCase();
+    const isEmoji = (str: string) => !/^[a-zA-Z0-9\s,\.\(\)\-\&]+$/.test(str);
+
+    if (!lowerSearch) {
+      const raw = EMOJI_CATEGORIES.find((c) => c.name === activeCategory)?.emojis || [];
+      return raw.filter(isEmoji);
+    }
+
+    const keywords: Record<string, string[]> = {
+      smile: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇'],
+      laugh: ['😃', '😄', '😁', '😆', '😂', '🤣'],
+      cry: ['😢', '😭', '🥺'],
+      heart: ['😍', '🥰', '😘', '💋', '❤️', '💖', '💝'],
+      love: ['😍', '🥰', '😘', '💋', '❤️', '💖', '💝'],
+      thumbs: ['👍', '👎'],
+      yes: ['👍', '👌', '👏', '🙌'],
+      no: ['👎', '❌'],
+      hand: ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🫰', '🤟', '🤘', '🤙'],
+      clap: ['👏'],
+      pray: ['🙏'],
+      dog: ['🐶', '🐕', '🦮', '🐕‍🦺'],
+      cat: ['🐱', '🐈', '🐈‍⬛'],
+      star: ['⭐', '🌟', '✨'],
+      fire: ['🔥'],
+      sun: ['☀️'],
+      moon: ['🌕', '🌙'],
+      food: ['🍏', '🍎', '🍔', '🍟', '🍕', '🌭', '🥪', '🌮', '🌯'],
+      drink: ['🥛', '☕', '🍷', '🍸', '🍹', '🍺', '🍻'],
+      car: ['🚗', '🚕', '🚙', '🚌', '🚓'],
+      plane: ['✈️'],
+      light: ['💡', '🔦', '🕯️'],
+      gift: ['🎁'],
+      party: ['🎉', '🎊', '🥳'],
+    };
+
+    const matchTerms = Object.keys(keywords).filter((k) => k.includes(lowerSearch));
+    if (matchTerms.length > 0) {
+      const matched = new Set<string>();
+      matchTerms.forEach((t) => keywords[t].forEach((e) => matched.add(e)));
+      return Array.from(matched);
+    }
+
+    return [];
+  }, [activeCategory, search]);
+
+  return (
+    <motion.div
+      ref={pickerRef}
+      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+      className="absolute bottom-14 left-3 z-[200] w-72 h-80 rounded-2xl border border-[var(--border)] shadow-xl flex flex-col bg-[var(--bg-glass)] backdrop-blur-md overflow-hidden select-none pointer-events-auto"
+      style={{ background: 'var(--bg-glass)' }}
+    >
+      {/* Category selector */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)] bg-black/5 shrink-0 overflow-x-auto gap-1">
+        {EMOJI_CATEGORIES.map((cat) => (
+          <button
+            key={cat.name}
+            type="button"
+            onClick={() => {
+              setActiveCategory(cat.name);
+              setSearch('');
+            }}
+            title={cat.name}
+            className={`w-7 h-7 shrink-0 rounded-lg flex items-center justify-center text-sm cursor-pointer transition-colors ${
+              activeCategory === cat.name && !search
+                ? 'bg-[var(--accent)]/15 border border-[var(--accent)]/30 text-[var(--accent)]'
+                : 'hover:bg-black/5 text-[var(--text-secondary)]'
+            }`}
+          >
+            {cat.icon}
+          </button>
+        ))}
+      </div>
+
+      {/* Search Input */}
+      <div className="px-3 py-2 border-b border-[var(--border)] bg-black/5 shrink-0">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search emojis (e.g. smile, love, dog)…"
+          className="w-full clay-inset rounded-lg px-2.5 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-[var(--accent)]/35 bg-white/40 dark:bg-black/10 text-[var(--text-primary)]"
+        />
+      </div>
+
+      {/* Emoji list grid */}
+      <div className="flex-1 overflow-y-auto p-3 min-h-0">
+        {filteredEmojis.length === 0 ? (
+          <div className="text-center text-[11px] text-[var(--text-tertiary)] italic py-8">
+            No emojis found.
+          </div>
+        ) : (
+          <div className="grid grid-cols-8 gap-1.5">
+            {filteredEmojis.map((emoji, index) => (
+              <button
+                key={index}
+                type="button"
+                onClick={() => {
+                  onSelectEmoji(emoji);
+                }}
+                className="w-7 h-7 rounded-md flex items-center justify-center text-lg hover:bg-[var(--well)] hover:scale-115 active:scale-95 transition-all cursor-pointer"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </motion.div>
   );
 }
