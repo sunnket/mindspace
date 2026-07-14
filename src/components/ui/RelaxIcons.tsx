@@ -58,12 +58,11 @@ export default function RelaxIcon({ id, size = 18 }: { id: RelaxEffectId; size?:
         </svg>
       );
 
-    case 'bubbles':
+    case 'koi':
       return (
-        <svg {...common}>
-          <circle cx="9.5" cy="14.2" r="5.2" />
-          <circle cx="17.2" cy="7.6" r="3.2" />
-          <circle cx="7.4" cy="12" r="1" fill="currentColor" stroke="none" />
+        <svg {...common} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M23 3s-4.05 1.75-6 3c-2.4 1.55-5 3.07-7.5 5.5C7.03 13.9 6 16.5 6 18c0 .8.2 1.5.5 2L3 22l2.5-3.5c.5.3 1.2.5 2 .5 1.5 0 4.1-.97 6.5-3.5 2.43-2.5 3.95-5.1 5.5-7.5 1.25-1.95 3-6 3-6Z" />
+          <path d="M18 8.5c-.5.8-1.5 1.5-2.5 2M8.5 18c.8-.5 1.5-1.5 2-2.5" />
         </svg>
       );
 

@@ -47,7 +47,7 @@ export type RelaxEffectId =
   | 'rain'
   | 'fireworks'
   | 'galaxy'
-  | 'bubbles'
+  | 'koi'
   | 'bubblewrap'
   | 'chimes'
   | 'ripples'
@@ -552,108 +552,230 @@ const galaxy: RelaxEffect = {
   },
 };
 
-/* -------------------------------------------------------------- bubble pop */
+/* ----------------------------------------------------------------- koi pond */
 
-const BUBBLE = 0;
-const SHARD = 1;
+const FISH = 0;
+const RIPPLE = 1;
+const LILY = 2;
 
-const bubbles: RelaxEffect = {
-  id: 'bubbles',
-  label: 'Bubble Pop',
-  blurb: 'A handful of bubbles drift up across the screen. Hunt down every last one — each bursts with a satisfying little thup.',
+const KOI_PATTERNS = [
+  { base: '#FCFAF2', pattern: '#FF5F56', pattern2: '#1C1C1E' }, // Sanke (white, red, black)
+  { base: '#FCFAF2', pattern: '#FF5F56', pattern2: '#FCFAF2' }, // Kohaku (white, red)
+  { base: '#FFBD2E', pattern: '#FF9E00', pattern2: '#FFBD2E' }, // Yamabuki Ogon (solid shiny gold)
+  { base: '#1C1C1E', pattern: '#FF5F56', pattern2: '#FCFAF2' }, // Showa (black, red, white)
+];
+
+const koi: RelaxEffect = {
+  id: 'koi',
+  label: 'Koi Pond',
+  blurb: 'A calm pool with swimming koi fish. Tap the water to create ripples; the fish will swim gracefully around your cursor.',
   space: 'screen',
   flash: '',
-  // Sparse and slow on purpose. The satisfaction is in clearing the screen, and
-  // you can't clear a screen that refills faster than you can pop it — so only a
-  // few are ever in play, and they hang around long enough to be caught.
-  burstMs: 45_000,
-  openingPop: 9,
-  spawnEveryMs: 2200,
-  spawnPerTick: 1,
-  maxParticles: 30,
+  burstMs: 0,
+  openingPop: 10, // 6 fish + 4 lily pads
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: 40,
   interactive: true,
-  create(x, y, now, api, kind = BUBBLE, tint) {
-    if (kind === SHARD) {
-      const size = rand(3, 8);
+  consumeOnPop: false,
+  onStart(x, y, api) {
+    startAmbience('drone');
+    api.screen.style.background = 'radial-gradient(circle, rgba(14,48,72,0.18) 0%, rgba(8,30,48,0.3) 100%)';
+    api.screen.style.transition = 'background 1.5s ease';
+  },
+  onStop(api) {
+    stopAmbience('drone');
+    api.screen.style.background = '';
+  },
+  onBurst(x, y, api) {
+    playPlop();
+    api.spawn(x, y, 1, RIPPLE);
+    
+    // Attract all fish to the ripple location
+    (window as any).__koi_target = { x, y, time: performance.now() };
+  },
+  create(x, y, now, api, kind = FISH, tint, index = 0) {
+    const { w, h } = api.viewport;
+
+    if (kind === RIPPLE) {
+      const size = 120;
       const el = document.createElement('div');
-      baseStyle(el, size, `border-radius:50%;background:${tint ?? 'rgba(200,235,255,0.85)'};`);
-      const p = particle(el, x, y, size, rand(340, 620), now);
-      p.kind = SHARD;
-      const angle = Math.random() * Math.PI * 2;
-      const speed = rand(2, 7);
-      p.vx = Math.cos(angle) * speed;
-      p.vy = Math.sin(angle) * speed;
-      p.a = 0.18;
+      baseStyle(
+        el,
+        size,
+        'border-radius:50%;' +
+          'border: 2px solid rgba(255,255,255,0.45);' +
+          'box-shadow: 0 0 12px rgba(100,200,255,0.25), inset 0 0 12px rgba(100,200,255,0.25);'
+      );
+      const p = particle(el, x, y, size, rand(1200, 1800), now);
+      p.kind = RIPPLE;
+      p.maxScale = rand(1.8, 2.6);
       return p;
     }
 
-    const size = rand(40, 96);
-    const el = document.createElement('div');
-    // Background-agnostic by construction. Rather than painting a pale bubble and
-    // hoping the canvas behind it is dark, this refracts whatever is actually
-    // there: backdrop-filter bends and brightens the background, the rim is drawn
-    // in both a dark and a light stroke so one of them always has contrast, and
-    // the fill is mostly transparent. It reads on the cream paper and on the dark
-    // board without changing a thing. Affordable because only ~30 exist at once.
-    baseStyle(
-      el,
-      size,
-      'border-radius:50%;cursor:pointer;' +
-        'backdrop-filter:blur(2px) saturate(1.5) brightness(1.08);' +
-        '-webkit-backdrop-filter:blur(2px) saturate(1.5) brightness(1.08);' +
-        'border:1px solid rgba(255,255,255,0.55);' +
-        'background:radial-gradient(circle at 32% 28%, rgba(255,255,255,0.75), rgba(255,255,255,0.06) 34%,' +
-        ' rgba(120,200,255,0.14) 55%, rgba(255,150,230,0.16) 74%, rgba(160,255,225,0.10) 90%);' +
-        'box-shadow:inset -6px -8px 18px rgba(70,110,160,0.28), inset 6px 8px 20px rgba(255,255,255,0.40),' +
-        ' 0 0 14px rgba(140,200,255,0.30), 0 2px 10px rgba(0,0,0,0.16);'
-    );
+    if (kind === LILY || (index >= 6 && kind === FISH)) {
+      const size = rand(70, 110);
+      const el = document.createElement('div');
+      baseStyle(
+        el,
+        size,
+        'border-radius:50%;' +
+          'background: radial-gradient(circle at 35% 35%, #27c93f 0%, #1e9e30 80%);' +
+          'border: 1px solid rgba(0,0,0,0.15);' +
+          'box-shadow: 0 8px 16px rgba(0,0,0,0.15);'
+      );
 
-    // Spread across the viewport rather than piling up on the cursor — the point
-    // is to give the user a screen full of targets to hunt down.
-    const { w, h } = api.viewport;
-    const px = x + rand(-w * 0.42, w * 0.42);
-    const py = y + rand(-h * 0.3, h * 0.34);
-    const p = particle(
-      el,
-      Math.min(w - size, Math.max(0, px)),
-      Math.min(h - size, Math.max(0, py)),
-      size,
-      rand(17000, 27000),
-      now
-    );
-    p.kind = BUBBLE;
-    p.vx = rand(-0.35, 0.35);
-    p.a = rand(-0.55, -0.16); // rise rate
-    p.b = rand(12, 34); // wobble amplitude
-    p.c = rand(0.35, 0.9); // wobble frequency
-    p.d = rand(0, Math.PI * 2);
+      const notch = document.createElement('div');
+      notch.style.cssText =
+        'position:absolute;top:0;right:0;width:50%;height:50%;background:#FDFAF6;' +
+        'transform-origin: bottom left; transform: rotate(45deg); clip-path: polygon(0 0, 100% 0, 100% 100%);';
+      if (document.documentElement.classList.contains('dark')) {
+        notch.style.background = '#1E1A17';
+      }
+      el.appendChild(notch);
+
+      const px = rand(40, w - 40);
+      const py = rand(40, h - 40);
+      const p = particle(el, px, py, size, 999_999, now);
+      p.kind = LILY;
+      p.a = rand(0, Math.PI * 2);
+      p.b = rand(0.3, 0.7);
+      p.c = rand(1, 3);
+      p.vx = rand(-0.05, 0.05);
+      p.vy = rand(-0.05, 0.05);
+      return p;
+    }
+
+    const size = rand(54, 76);
+    const el = document.createElement('div');
+    baseStyle(el, size, 'pointer-events:auto;cursor:pointer;overflow:visible;');
+
+    const styleIdx = Math.floor(Math.random() * KOI_PATTERNS.length);
+    const pat = KOI_PATTERNS[styleIdx];
+
+    el.innerHTML = `
+      <svg width="${size}" height="${size * 2}" viewBox="0 0 100 200" style="overflow:visible;transform:translate(-50%,-50%);">
+        <!-- Pectoral Fins -->
+        <path class="koi-fin-left" d="M30 75 C10 85 5 110 20 115 C30 112 33 90 33 75 Z" fill="rgba(255,255,255,0.7)" style="transform-origin: 33px 75px; transition: transform 0.1s ease;" />
+        <path class="koi-fin-right" d="M70 75 C90 85 95 110 80 115 C70 112 67 90 67 75 Z" fill="rgba(255,255,255,0.7)" style="transform-origin: 67px 75px; transition: transform 0.1s ease;" />
+        
+        <!-- Tail fin -->
+        <path class="koi-tail" d="M50 150 C40 180 30 195 50 200 C70 195 60 180 50 150 Z" fill="rgba(255,255,255,0.7)" style="transform-origin: 50px 150px; transition: transform 0.05s ease;" />
+        
+        <!-- Main Body -->
+        <path d="M50 20 C35 50 32 90 35 120 C38 135 45 150 50 150 C55 150 62 135 65 120 C68 90 65 50 50 20 Z" fill="${pat.base}" />
+        
+        <!-- Pattern spots -->
+        <path d="M42 45 Q36 60 44 70 Q48 55 42 45 Z" fill="${pat.pattern}" />
+        <path d="M54 75 Q62 90 55 105 Q48 90 54 75 Z" fill="${pat.pattern2}" />
+        <path d="M48 115 C45 125 43 135 50 135 C57 135 55 125 48 115 Z" fill="${pat.pattern}" />
+        
+        <!-- Eyes -->
+        <circle cx="44" cy="40" r="2.5" fill="#000" />
+        <circle cx="56" cy="40" r="2.5" fill="#000" />
+      </svg>
+    `;
+
+    const px = rand(100, w - 100);
+    const py = rand(100, h - 100);
+
+    const p = particle(el, px, py, size, 999_999, now);
+    p.kind = FISH;
+    p.rot = rand(0, Math.PI * 2);
+    p.vx = Math.cos(p.rot) * 1.5;
+    p.vy = Math.sin(p.rot) * 1.5;
+    
+    p.a = rand(100, w - 100); // target X
+    p.b = rand(100, h - 100); // target Y
+    p.c = rand(1.2, 2.2); // swim speed
+    p.d = now; // last wander target pick time
     return p;
   },
-  step(p, t) {
-    if (p.kind === SHARD) {
-      p.vy += p.a;
-      p.x += p.vx;
-      p.y += p.vy;
-      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${1 - t})`;
-      p.el.style.opacity = String(1 - t);
+  step(p, t, now, api) {
+    if (p.kind === RIPPLE) {
+      const scale = 0.1 + t * p.maxScale;
+      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${scale})`;
+      p.el.style.opacity = String((1 - t) * 0.85);
       return;
     }
 
+    if (p.kind === LILY) {
+      p.x += p.vx;
+      p.y += p.vy;
+      const bob = Math.sin(now / 1000 * p.b + p.a) * p.c;
+      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2 + bob}px, 0)`;
+      p.el.style.opacity = '0.9';
+      return;
+    }
+
+    const target = (window as any).__koi_target;
+    let tx = p.a;
+    let ty = p.b;
+    let curSpeed = p.c;
+
+    if (target && now - target.time < 4500) {
+      tx = target.x;
+      ty = target.y;
+      curSpeed = p.c * 1.5;
+    } else {
+      const distToTarget = Math.sqrt((tx - p.x) ** 2 + (ty - p.y) ** 2);
+      if (distToTarget < 60 || now - p.d > 8000) {
+        const { w, h } = api.viewport;
+        p.a = rand(100, w - 100);
+        p.b = rand(100, h - 100);
+        p.d = now;
+      }
+    }
+
+    const targetAngle = Math.atan2(ty - p.y, tx - p.x);
+    let diff = targetAngle - p.rot;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    p.rot += diff * 0.035;
+    
+    p.vx = Math.cos(p.rot) * curSpeed;
+    p.vy = Math.sin(p.rot) * curSpeed;
+    
     p.x += p.vx;
-    p.y += p.a;
+    p.y += p.vy;
 
-    const wobble = Math.sin(t * p.c * Math.PI * 2 * 6 + p.d) * p.b;
-    const breathe = 1 + Math.sin(t * 26 + p.d) * 0.03;
-    const scale = popIn(t, 0.12) * breathe;
+    const { w, h } = api.viewport;
+    if (p.x < 20 || p.x > w - 20 || p.y < 20 || p.y > h - 20) {
+      p.rot += Math.PI * 0.1;
+    }
 
-    p.el.style.transform = `translate3d(${p.x + wobble}px, ${p.y}px, 0) scale(${scale})`;
-    // Hold full opacity almost the whole way: a bubble you can click has to stay
-    // clearly visible, and it should only start ghosting once it's nearly gone.
-    p.el.style.opacity = String(t > 0.88 ? (1 - t) / 0.12 : Math.min(1, t * 10));
+    const tailEl = p.el.querySelector('.koi-tail') as HTMLElement;
+    const leftFinEl = p.el.querySelector('.koi-fin-left') as HTMLElement;
+    const rightFinEl = p.el.querySelector('.koi-fin-right') as HTMLElement;
+
+    if (tailEl) {
+      const tailWag = Math.sin(now / 150 * curSpeed) * 22;
+      tailEl.style.transform = `rotate(${tailWag}deg)`;
+    }
+    if (leftFinEl) {
+      const finSway = Math.sin(now / 200 * curSpeed) * 10;
+      leftFinEl.style.transform = `rotate(${finSway}deg)`;
+    }
+    if (rightFinEl) {
+      const finSway = -Math.sin(now / 200 * curSpeed) * 10;
+      rightFinEl.style.transform = `rotate(${finSway}deg)`;
+    }
+
+    const deg = (p.rot * 180) / Math.PI + 90;
+    p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) rotate(${deg}deg)`;
+    p.el.style.opacity = '1';
   },
   onPop(p, api) {
-    playPop(p.size);
-    api.spawn(p.x + p.size / 2, p.y + p.size / 2, 9, SHARD);
+    if (p.kind !== FISH) return;
+    
+    playSnap();
+    p.rot += Math.PI + rand(-0.5, 0.5);
+    p.x += Math.cos(p.rot) * 20;
+    p.y += Math.sin(p.rot) * 20;
+    
+    const { w, h } = api.viewport;
+    p.a = rand(100, w - 100);
+    p.b = rand(100, h - 100);
+    p.d = performance.now();
   },
 };
 
@@ -1820,12 +1942,12 @@ const aurora: RelaxEffect = {
 /* -------------------------------------------------------------------------- */
 
 export const RELAX_EFFECTS: Record<RelaxEffectId, RelaxEffect> = {
-  flowers, rain, fireworks, galaxy, bubbles, bubblewrap, chimes, ripples,
+  flowers, rain, fireworks, galaxy, koi, bubblewrap, chimes, ripples,
   ocean, handpan, snow, fireflies, lanterns, gate, breathing, aurora,
 };
 
 export const RELAX_EFFECT_LIST: RelaxEffect[] = [
   gate, ocean, aurora, breathing, handpan, chimes,
   flowers, fireworks, lanterns, fireflies, galaxy, ripples,
-  bubbles, bubblewrap, rain, snow,
+  koi, bubblewrap, rain, snow,
 ];
