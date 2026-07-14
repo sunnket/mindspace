@@ -143,6 +143,9 @@ export default function WhiteboardBlock({ obj }: { obj: CanvasObjectData }) {
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // Only draw if Ctrl or Cmd key is held down to avoid conflicts with card dragging
+    if (!e.ctrlKey && !e.metaKey) return;
+
     e.stopPropagation();
     const coords = getCoordinates(e);
     if (!coords) return;
@@ -321,6 +324,11 @@ export default function WhiteboardBlock({ obj }: { obj: CanvasObjectData }) {
           onPointerUp={handlePointerUp}
           className="absolute inset-0 w-full h-full cursor-crosshair touch-none"
         />
+
+        {/* Draw Guideline */}
+        <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/45 dark:bg-white/10 text-[8px] font-bold text-white/95 dark:text-white/80 uppercase tracking-wider select-none pointer-events-none">
+          Ctrl + Drag to Draw
+        </div>
 
         {/* Slide-out Brush & Background Controls */}
         {showSettings && (
