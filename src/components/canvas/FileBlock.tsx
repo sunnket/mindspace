@@ -331,7 +331,7 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
             title={hasText ? 'Let the agent read this file and brief you' : 'No readable text found'}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold tracking-wider uppercase transition-all active:scale-95 disabled:cursor-not-allowed cursor-pointer ${
               hasText
-                ? 'bg-gradient-to-br from-[var(--accent)] to-[var(--accent-light)] text-white shadow-md hover:scale-[1.03]'
+                ? 'bg-[var(--accent-subtle)] border border-[rgba(var(--accent-rgb),0.3)] text-[var(--accent)] hover:bg-[rgba(var(--accent-rgb),0.2)] shadow-md hover:scale-[1.03]'
                 : 'bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/15 opacity-60 shadow-none'
             }`}
           >

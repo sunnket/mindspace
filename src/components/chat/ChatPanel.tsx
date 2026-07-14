@@ -156,7 +156,13 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
   const showList = mode === 'embedded' || !activeRoomId;
 
   return (
-    <ChatShell mode={mode} title={activeRoom ? activeRoom.otherUsername : 'Chat'} onClose={onClose} onBack={mode === 'overlay' && activeRoomId ? () => setActiveRoom(null) : undefined}>
+    <ChatShell
+      mode={mode}
+      title={activeRoom ? activeRoom.otherUsername : 'Chat'}
+      avatar={activeRoom ? <Avatar name={activeRoom.otherUsername} /> : undefined}
+      onClose={onClose}
+      onBack={mode === 'overlay' && activeRoomId ? () => setActiveRoom(null) : undefined}
+    >
       <div className={`flex-1 min-h-0 flex ${mode === 'embedded' ? 'flex-row' : 'flex-col'}`}>
         {showList && (
           <div className={`flex flex-col min-h-0 ${mode === 'embedded' ? 'w-64 shrink-0 border-r border-[var(--border)]' : 'flex-1'}`}>
@@ -254,7 +260,7 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
               <>
                 <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 px-3 py-3 flex flex-col gap-2">
                   {messages.map((m) => (
-                    <MessageBubble key={m.id} message={m} mine={m.senderId === userId} mode={mode} />
+                    <MessageBubble key={m.id} message={m} mine={m.senderId === userId} mode={mode} otherUsername={activeRoom?.otherUsername || 'User'} />
                   ))}
                 </div>
                 {attachError && (
@@ -321,22 +327,31 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
   );
 }
 
-function MessageBubble({ message, mine, mode }: { message: ChatMessage; mine: boolean; mode: 'overlay' | 'embedded' }) {
+function MessageBubble({ message, mine, mode, otherUsername }: { message: ChatMessage; mine: boolean; mode: 'overlay' | 'embedded'; otherUsername: string }) {
   const attachments = message.attachments || [];
   return (
-    <div className={`flex flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
-      {attachments.map((att, i) => (
-        <AttachmentBubble key={i} attachment={att} mine={mine} mode={mode} />
-      ))}
-      {message.body && (
-        <div
-          className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-[12px] leading-snug break-words ${
-            mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'
-          }`}
-        >
-          {message.body}
+    <div className={`flex gap-2 max-w-[85%] ${mine ? 'self-end flex-row-reverse' : 'self-start flex-row'}`}>
+      {!mine && (
+        <div className="mt-0.5 shrink-0">
+          <Avatar name={otherUsername} />
         </div>
       )}
+      <div className={`flex flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
+        {attachments.map((att, i) => (
+          <AttachmentBubble key={i} attachment={att} mine={mine} mode={mode} />
+        ))}
+        {message.body && (
+          <div
+            className={`rounded-2xl px-3 py-1.5 text-[12px] leading-snug break-words ${
+              mine
+                ? 'bg-[var(--accent-subtle)] border border-[rgba(var(--accent-rgb),0.3)] text-[var(--text-primary)] dark:text-white'
+                : 'clay-inset text-[var(--text-primary)]'
+            }`}
+          >
+            {message.body}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -501,7 +516,7 @@ function AttachmentBubble({ attachment, mine, mode }: { attachment: ChatAttachme
 
   if (uploading) {
     return (
-      <div className={`w-40 h-28 rounded-2xl flex items-center justify-center text-[10px] font-semibold ${mine ? 'bg-[var(--accent)]/60 text-white' : 'clay-inset text-[var(--text-tertiary)]'}`}>
+      <div className={`w-40 h-28 rounded-2xl flex items-center justify-center text-[10px] font-semibold ${mine ? 'bg-[rgba(var(--accent-rgb),0.15)] border border-[rgba(var(--accent-rgb),0.3)] text-[var(--text-primary)] dark:text-white' : 'clay-inset text-[var(--text-tertiary)]'}`}>
         Uploading…
       </div>
     );
@@ -513,11 +528,11 @@ function AttachmentBubble({ attachment, mine, mode }: { attachment: ChatAttachme
         <span className="text-[18px] shrink-0">📦</span>
         <div className="min-w-0">
           <p className="text-[11px] font-semibold truncate">{attachment.name}</p>
-          <p className={`text-[9px] ${mine ? 'text-white/80' : 'text-[var(--text-tertiary)]'}`}>{hint}</p>
+          <p className={`text-[9px] ${mine ? 'text-[var(--text-secondary)]' : 'text-[var(--text-tertiary)]'}`}>{hint}</p>
         </div>
       </>
     );
-    const className = `flex items-center gap-2 px-3 py-2 rounded-2xl max-w-[220px] transition-opacity ${mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'} ${canAddToCanvas ? 'cursor-grab active:cursor-grabbing hover:brightness-95' : ''} ${dragClass}`;
+    const className = `flex items-center gap-2 px-3 py-2 rounded-2xl max-w-[220px] transition-opacity ${mine ? 'bg-[rgba(var(--accent-rgb),0.15)] border border-[rgba(var(--accent-rgb),0.3)] text-[var(--text-primary)] dark:text-white' : 'clay-inset text-[var(--text-primary)]'} ${canAddToCanvas ? 'cursor-grab active:cursor-grabbing hover:brightness-95' : ''} ${dragClass}`;
     return canAddToCanvas ? (
       <button {...dragProps} onClick={() => addAttachmentToCanvas(attachment, null)} className={className}>{body}</button>
     ) : (
@@ -564,14 +579,14 @@ function AttachmentBubble({ attachment, mine, mode }: { attachment: ChatAttachme
       <div
         {...dragProps}
         title={hint}
-        className={`flex items-center gap-2 px-3 py-2 rounded-2xl ${mine ? 'bg-[var(--accent)] text-white' : 'clay-inset text-[var(--text-primary)]'} ${canAddToCanvas ? 'cursor-grab active:cursor-grabbing' : ''}`}
+        className={`flex items-center gap-2 px-3 py-2 rounded-2xl ${mine ? 'bg-[rgba(var(--accent-rgb),0.15)] border border-[rgba(var(--accent-rgb),0.3)] text-[var(--text-primary)] dark:text-white' : 'clay-inset text-[var(--text-primary)]'} ${canAddToCanvas ? 'cursor-grab active:cursor-grabbing' : ''}`}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
         </svg>
         <div className="min-w-0">
           <p className="text-[11px] font-semibold truncate">{attachment.name}</p>
-          <p className={`text-[9px] ${mine ? 'text-white/80' : 'text-[var(--text-tertiary)]'}`}>{formatBytes(attachment.size)}</p>
+          <p className={`text-[9px] ${mine ? 'text-[var(--text-secondary)]' : 'text-[var(--text-tertiary)]'}`}>{formatBytes(attachment.size)}</p>
         </div>
       </div>
       {canAddToCanvas && (
@@ -579,7 +594,7 @@ function AttachmentBubble({ attachment, mine, mode }: { attachment: ChatAttachme
           onClick={() => addAttachmentToCanvas(attachment, url)}
           title="Add to canvas"
           aria-label="Add to canvas"
-          className={`absolute top-1/2 -translate-y-1/2 right-2 w-6 h-6 rounded-full flex items-center justify-center cursor-pointer transition-colors ${mine ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-black/10 hover:bg-black/20 text-[var(--text-primary)]'}`}
+          className={`absolute top-1/2 -translate-y-1/2 right-2 w-6 h-6 rounded-full flex items-center justify-center cursor-pointer transition-colors ${mine ? 'bg-black/10 hover:bg-black/20 text-[var(--text-primary)] dark:bg-white/10 dark:hover:bg-white/20 dark:text-white' : 'bg-black/10 hover:bg-black/20 text-[var(--text-primary)]'}`}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
         </button>
@@ -598,10 +613,11 @@ function Avatar({ name }: { name: string }) {
 }
 
 function ChatShell({
-  mode, title, onClose, onBack, children,
+  mode, title, avatar, onClose, onBack, children,
 }: {
   mode: 'overlay' | 'embedded';
   title: string;
+  avatar?: React.ReactNode;
   onClose?: () => void;
   onBack?: () => void;
   children: React.ReactNode;
@@ -609,7 +625,8 @@ function ChatShell({
   if (mode === 'embedded') {
     return (
       <div className="flex-1 min-h-0 flex flex-col clay-card rounded-[24px] overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] shrink-0">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border)] shrink-0">
+          {avatar}
           <h2 className="text-[13px] font-extrabold text-[var(--text-primary)]">{title}</h2>
         </div>
         {children}
@@ -627,12 +644,13 @@ function ChatShell({
         className="fixed right-5 top-44 z-[150] clay-card w-80 h-[70vh] max-h-[560px] rounded-[24px] flex flex-col overflow-hidden pointer-events-auto"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] shrink-0">
-          <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             {onBack && (
               <button onClick={onBack} aria-label="Back" className="w-6 h-6 rounded-full flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer shrink-0">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>
               </button>
             )}
+            {avatar}
             <h2 className="text-[13px] font-extrabold text-[var(--text-primary)] truncate">{title}</h2>
           </div>
           {onClose && (
