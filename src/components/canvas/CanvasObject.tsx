@@ -21,6 +21,7 @@ import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
 import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock, TimelineBlock } from './ExtensionBlocks';
+import WhiteboardBlock from './WhiteboardBlock';
 
 /**
  * The DOM range at a viewport point. Two engines, two spellings: Firefox ships
@@ -2074,6 +2075,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       }
 
       case 'card':
+        if (obj.style?.isWhiteboard) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <WhiteboardBlock obj={obj} />
+            </div>
+          );
+        }
         if (obj.style?.isVoiceNote) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
