@@ -50,7 +50,7 @@ export type RelaxEffectId =
   | 'bubbles'
   | 'bubblewrap'
   | 'chimes'
-  | 'ink'
+  | 'lotus'
   | 'ripples'
   | 'ocean'
   | 'handpan'
@@ -58,7 +58,7 @@ export type RelaxEffectId =
   | 'fireflies'
   | 'lanterns'
   | 'gate'
-  | 'pendulums'
+  | 'breathing'
   | 'aurora';
 
 export interface Particle {
@@ -857,67 +857,102 @@ const chimes: RelaxEffect = {
   },
 };
 
-/* ---------------------------------------------------------------------- ink */
+/* -------------------------------------------------------------------- lotus */
 
-const INK_COLORS = ['#6DD3FF', '#B48CFF', '#FF7BC8', '#5AE6C0', '#FFC46B', '#8FA3FF'];
-
-const ink: RelaxEffect = {
-  id: 'ink',
-  label: 'Ink Bloom',
-  blurb: 'Drop ink into still water and watch it unfurl. Deep, slow, and impossible to rush.',
+const lotus: RelaxEffect = {
+  id: 'lotus',
+  label: 'Lotus Pond',
+  blurb: 'Click to float serene lotus blossoms on still water. Spreads gentle ripples and plucks a wood-and-silk koto chord in Hirajoshi tuning.',
   space: 'world',
-  flash: '',
+  flash: 'rgba(255, 180, 210, 0.45)',
   burstMs: 0,
-  openingPop: 18,
+  openingPop: 3,
   spawnEveryMs: 0,
   spawnPerTick: 0,
-  maxParticles: 220,
-  onBurst() {
-    playPlop();
+  maxParticles: 120,
+  onStart(_x, _y, api) {
+    startAmbience('ocean');
+    const pond = document.createElement('div');
+    pond.dataset.pond = '';
+    pond.style.cssText =
+      'position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity 1800ms ease;' +
+      'background:radial-gradient(circle at 50% 50%, rgba(15, 32, 54, 0.28) 0%, rgba(5, 12, 22, 0.65) 100%);';
+    api.screen.appendChild(pond);
+    requestAnimationFrame(() => { pond.style.opacity = '1'; });
   },
-  create(x, y, now) {
-    // Luminous ink, not black ink. Real ink would vanish against the dark canvas;
-    // this reads like dye lit from behind, which works on either background.
-    const color = pick(INK_COLORS);
-    const size = rand(34, 96);
-    const el = document.createElement('div');
-    // The edge falls off fast. Soften it further and the clouds all melt into one
-    // featureless glow instead of reading as separate plumes drifting apart.
-    baseStyle(
-      el,
-      size,
-      'border-radius:50%;mix-blend-mode:screen;' +
-        `background:radial-gradient(circle at 50% 50%, ${color}E6 0%, ${color}A0 36%, ${color}42 62%, transparent 78%);`
-    );
-
-    const p = particle(el, x + rand(-26, 26), y + rand(-26, 26), size, rand(4500, 7500), now);
-    const angle = Math.random() * Math.PI * 2;
-    const speed = rand(0.6, 2.9);
-    p.vx = Math.cos(angle) * speed;
-    p.vy = Math.sin(angle) * speed;
-    p.a = rand(1.5, 2.7); // how far it swells
-    p.b = rand(0.25, 0.7); // curl frequency
-    p.c = rand(0, Math.PI * 2);
-    p.d = rand(-0.4, 0.4); // slow rotation
-    return p;
+  onStop(api) {
+    stopAmbience('ocean');
+    const pond = api.screen.querySelector<HTMLElement>('[data-pond]');
+    if (!pond) return;
+    pond.style.opacity = '0';
+    window.setTimeout(() => pond.remove(), 1900);
   },
-  step(p, t, now) {
-    // Ink in still water spreads fast at first and then almost stops. Everything
-    // here is decelerating — nothing in this effect is allowed to feel urgent.
-    p.vx *= 0.985;
-    p.vy *= 0.985;
-    const curl = Math.sin(now / 1000 * p.b + p.c) * 0.35;
-    p.x += p.vx + curl * 0.4;
-    p.y += p.vy + Math.cos(now / 1000 * p.b + p.c) * 0.25;
-
-    const swell = 1 + (1 - Math.pow(1 - t, 2.2)) * p.a;
-    const opacity = t < 0.12 ? t / 0.12 : 1 - Math.pow((t - 0.12) / 0.88, 1.7);
-
-    p.el.style.transform =
-      `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) ` +
-      `rotate(${p.d * t * 90}deg) scale(${swell})`;
-    p.el.style.opacity = String(Math.max(0, opacity) * 0.85);
+  onBurst(_x, _y) {
+    const scale = HIRAJOSHI;
+    const root = pick(scale);
+    const third = scale[(scale.indexOf(root) + 2) % scale.length];
+    const fifth = scale[(scale.indexOf(root) + 4) % scale.length];
+    
+    playKoto(root, 0.26);
+    setTimeout(() => {
+      try { playKoto(third, 0.20); } catch {}
+    }, 100);
+    setTimeout(() => {
+      try { playKoto(fifth, 0.16); } catch {}
+    }, 200);
   },
+  create(x, y, now, _api, _kind, _tint, index = 0) {
+    if (index === 0) {
+      const size = rand(38, 56);
+      const el = document.createElement('div');
+      baseStyle(el, size, 'display:flex;align-items:center;justify-content:center;');
+      el.innerHTML = `<span style="font-size:${size}px; filter: drop-shadow(0 2px 10px rgba(255,100,165,0.45)) saturate(1.15);">🪷</span>`;
+      
+      const p = particle(el, x, y, size, rand(9000, 14000), now);
+      p.kind = 0;
+      p.vx = rand(-0.16, 0.16);
+      p.vy = rand(-0.16, 0.16);
+      p.rot = rand(0, 360);
+      p.spin = rand(-0.02, 0.02);
+      return p;
+    } else {
+      const el = document.createElement('div');
+      const size = 35;
+      baseStyle(
+        el,
+        size,
+        'border-radius:50%;border:1.5px solid rgba(255,160,200,0.45);' +
+          'box-shadow:0 0 12px rgba(255,140,180,0.18), inset 0 0 12px rgba(255,140,180,0.1);'
+      );
+      const p = particle(el, x, y, size, rand(2000, 3000), now);
+      p.kind = 1;
+      p.a = index === 1 ? 0 : 0.28;
+      p.b = rand(6, 11);
+      return p;
+    }
+  },
+  step(p, t) {
+    if (p.kind === 0) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rot += p.spin;
+      
+      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) rotate(${p.rot}deg)`;
+      const opacity = t < 0.12 ? t / 0.12 : 1 - (t - 0.12) / 0.88;
+      p.el.style.opacity = String(opacity * 0.9);
+    } else {
+      const local = (t - p.a) / (1 - p.a);
+      if (local <= 0) {
+        p.el.style.opacity = '0';
+        return;
+      }
+      const eased = 1 - Math.pow(1 - local, 2.4);
+      const scale = 0.25 + eased * p.b;
+      
+      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${scale})`;
+      p.el.style.opacity = String((1 - local) * 0.6);
+    }
+  }
 };
 
 /* ------------------------------------------------------------------ ripples */
@@ -1703,82 +1738,101 @@ const gate: RelaxEffect = {
   },
 };
 
-/* --------------------------------------------------------- pendulum waves */
+/* ---------------------------------------------------------------- breathing */
 
-const PEND_COUNT = 15;
-/** Seconds for the whole rack to come back into phase. The magic number. */
-const PEND_CYCLE = 32;
-const PEND_TOP = 92;
-
-const pendulums: RelaxEffect = {
-  id: 'pendulums',
-  label: 'Pendulum Waves',
-  blurb: 'Fifteen pendulums, each a fraction slower than the last. They start together, unravel into snakes and chaos, and — exactly on time — fall back into step.',
+const breathing: RelaxEffect = {
+  id: 'breathing',
+  label: 'Breathing Space',
+  blurb: 'A centering box breathing guide. Breathe in as the glowing ring expands, hold at the peak, and breathe out as it contracts.',
   space: 'screen',
-  flash: '',
+  flash: 'rgba(230, 240, 255, 0.15)',
   burstMs: 0,
-  openingPop: PEND_COUNT,
+  openingPop: 1,
   spawnEveryMs: 0,
   spawnPerTick: 0,
-  maxParticles: PEND_COUNT + 2,
-  onBurst(_x, _y, api) {
-    api.clear();
+  maxParticles: 50,
+  onStart(_x, _y, api) {
+    startAmbience('drone');
   },
-  create(_x, _y, now, api, _kind = 0, _tint, index = 0) {
+  onStop(api) {
+    stopAmbience('drone');
+  },
+  create(x, y, now, api, kind = 0) {
     const { w, h } = api.viewport;
+    if (kind === 1) {
+      const size = rand(3, 7);
+      const el = document.createElement('div');
+      baseStyle(el, size, 'border-radius:50%; background:rgba(215,235,255,0.7); box-shadow:0 0 8px rgba(200,225,255,0.5);');
+      const p = particle(el, rand(w * 0.2, w * 0.8), h - rand(40, 120), size, rand(4000, 6000), now);
+      p.kind = 1;
+      p.vx = rand(-0.2, 0.2);
+      p.vy = rand(-0.6, -1.2);
+      return p;
+    }
 
-    /* The whole trick, in one line: pendulum i completes exactly (BASE + i)
-       swings per cycle. They therefore ALL return to their start together every
-       PEND_CYCLE seconds, and everything in between — the travelling wave, the
-       double snake, the apparent chaos — is that one integer relationship
-       unwinding. Nothing here is animating "a wave"; the wave is emergent. */
-    const swings = 26 + index;
-    const freq = swings / PEND_CYCLE;
-
-    // A real pendulum's period goes as √L, so the lengths must follow 1/f².
-    const maxLen = Math.min(h - PEND_TOP - 120, 460);
-    const len = maxLen * Math.pow((26 / PEND_CYCLE) / freq, 2);
-
-    const spread = Math.min(w - 160, 620);
-    const px = w / 2 - spread / 2 + (index / (PEND_COUNT - 1)) * spread;
-
-    const hue = 190 + index * 9;
+    const size = 180;
     const el = document.createElement('div');
     baseStyle(
       el,
-      2,
-      `height:${len}px;transform-origin:50% 0;` +
-        'background:linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0.15));'
+      size,
+      'border-radius:50%; border: 1.5px solid rgba(255, 255, 255, 0.45);' +
+        'background: radial-gradient(circle, rgba(235,245,255,0.12) 0%, rgba(200,220,255,0.05) 70%, transparent 100%);' +
+        'box-shadow: 0 0 40px rgba(200, 220, 255, 0.2), inset 0 0 30px rgba(255, 255, 255, 0.1);' +
+        'display: flex; align-items: center; justify-content: center;' +
+        'color: rgba(255,255,255,0.9); font-family: "Outfit", sans-serif; font-size: 11px; font-weight: 700;' +
+        'text-transform: uppercase; letter-spacing: 0.15em; text-align: center;'
     );
-    const bob = document.createElement('div');
-    bob.style.cssText =
-      'position:absolute;left:50%;top:100%;width:20px;height:20px;margin:-10px 0 0 -10px;' +
-      'border-radius:50%;pointer-events:none;' +
-      `background:radial-gradient(circle at 35% 32%, #ffffff 0%, hsl(${hue} 85% 70%) 38%, hsl(${hue} 75% 46%) 100%);` +
-      `box-shadow:0 0 14px 2px hsl(${hue} 90% 65% / 0.55);`;
-    el.appendChild(bob);
-
-    const p = particle(el, px, PEND_TOP, 2, 600_000, now);
-    p.a = len;
-    p.b = freq;
-    p.c = 1; // sign of the swing last frame — edge-triggers the chime
-    p.d = PENTATONIC[index % PENTATONIC.length] * (index >= PENTATONIC.length ? 2 : 1);
+    el.innerHTML = '<span class="breath-text">Breathe</span>';
+    const p = particle(el, w / 2, h / 2, size, 600_000, now);
+    p.kind = 0;
     return p;
   },
-  step(p, t, now) {
-    const elapsed = (now - p.born) / 1000;
-    const angle = 34 * Math.cos(2 * Math.PI * p.b * elapsed);
-
-    // Chime as it passes through the bottom, one direction only — chiming on
-    // both would double every note and turn the pattern to mush.
-    const side = Math.sign(angle) || 1;
-    if (side !== p.c) {
-      p.c = side;
-      if (side > 0) playBell(p.d);
+  step(p, t, now, api) {
+    const { w, h } = api.viewport;
+    if (p.kind === 1) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+      p.el.style.opacity = String((1 - t) * 0.7);
+      return;
     }
 
-    p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) rotate(${angle}deg)`;
-    p.el.style.opacity = String(Math.min(1, t * 300));
+    const cycle = 16000;
+    const age = now - p.born;
+    const phase = age % cycle;
+    let labelText = '';
+    let scale = 1.0;
+
+    if (phase < 4000) {
+      const progress = phase / 4000;
+      scale = 0.75 + progress * 0.5;
+      labelText = 'Inhale';
+    } else if (phase < 8000) {
+      scale = 1.25;
+      labelText = 'Hold';
+    } else if (phase < 12000) {
+      const progress = (phase - 8000) / 4000;
+      scale = 1.25 - progress * 0.5;
+      labelText = 'Exhale';
+    } else {
+      scale = 0.75;
+      labelText = 'Hold';
+    }
+
+    const txtNode = p.el.querySelector('.breath-text');
+    if (txtNode && txtNode.textContent !== labelText) {
+      txtNode.textContent = labelText;
+    }
+
+    p.x = w / 2;
+    p.y = h / 2;
+
+    p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${scale})`;
+    p.el.style.opacity = '1';
+
+    if (Math.random() < 0.02) {
+      api.spawn(0, 0, 1, 1);
+    }
   },
 };
 
@@ -1863,12 +1917,12 @@ const aurora: RelaxEffect = {
 /* -------------------------------------------------------------------------- */
 
 export const RELAX_EFFECTS: Record<RelaxEffectId, RelaxEffect> = {
-  flowers, rain, fireworks, galaxy, bubbles, bubblewrap, chimes, ink, ripples,
-  ocean, handpan, snow, fireflies, lanterns, gate, pendulums, aurora,
+  flowers, rain, fireworks, galaxy, bubbles, bubblewrap, chimes, lotus, ripples,
+  ocean, handpan, snow, fireflies, lanterns, gate, breathing, aurora,
 };
 
 export const RELAX_EFFECT_LIST: RelaxEffect[] = [
-  gate, ocean, aurora, pendulums, handpan, chimes,
-  flowers, fireworks, lanterns, fireflies, galaxy, ink, ripples,
+  gate, ocean, aurora, breathing, handpan, chimes,
+  flowers, fireworks, lanterns, fireflies, galaxy, lotus, ripples,
   bubbles, bubblewrap, rain, snow,
 ];

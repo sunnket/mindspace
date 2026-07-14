@@ -87,11 +87,13 @@ export default function RelaxIcon({ id, size = 18 }: { id: RelaxEffectId; size?:
         </svg>
       );
 
-    case 'ink':
+    case 'lotus':
       return (
         <svg {...common}>
-          <path d="M12 3.5c3.6 4.2 5.6 6.9 5.6 9.4a5.6 5.6 0 1 1-11.2 0c0-2.5 2-5.2 5.6-9.4Z" />
-          <path d="M9.4 13.6a2.6 2.6 0 0 0 2.6 2.6" opacity="0.6" />
+          {/* Simplified lotus flower petals */}
+          <path d="M12 21c-2.4 0-4.6-2.2-4.6-4.6 0-3.6 4.6-9.4 4.6-9.4s4.6 5.8 4.6 9.4c0 2.4-2.2 4.6-4.6 4.6Z" />
+          <path d="M12 21c-1.8 0-3.6-1-4.2-2.8a6.5 6.5 0 0 1-.4-2.2c0-2 2-4.6 4.6-6.6 2.6 2 4.6 4.6 4.6 6.6 0 .8-.1 1.5-.4 2.2-.6 1.8-2.4 2.8-4.2 2.8Z" opacity="0.6" />
+          <path d="M12 21c4-1 6-4.5 4-8.5M12 21c-4-1-6-4.5-4-8.5" opacity="0.75" />
         </svg>
       );
 
@@ -165,16 +167,13 @@ export default function RelaxIcon({ id, size = 18 }: { id: RelaxEffectId; size?:
         </svg>
       );
 
-    case 'pendulums':
+    case 'breathing':
       return (
         <svg {...common}>
-          <path d="M3 4.4h18" />
-          <path d="M7 4.6 5.4 13" />
-          <path d="M12 4.6v11.6" />
-          <path d="M17 4.6l1.6 8.4" />
-          <circle cx="5" cy="14.6" r="1.6" fill="currentColor" stroke="none" />
-          <circle cx="12" cy="17.8" r="1.6" fill="currentColor" stroke="none" />
-          <circle cx="18.9" cy="14.6" r="1.6" fill="currentColor" stroke="none" />
+          {/* Pulsing breathing ring icon */}
+          <circle cx="12" cy="12" r="7" strokeDasharray="3 3" opacity="0.6" />
+          <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="12" r="9.5" />
         </svg>
       );
 
