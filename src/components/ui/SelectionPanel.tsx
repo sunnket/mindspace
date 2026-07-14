@@ -74,7 +74,7 @@ function OptBtn({ active, onClick, title, children, wide = false }: { active?: b
       aria-pressed={active}
       className={`h-7 ${wide ? 'flex-1 px-1.5' : 'w-7'} rounded-lg flex items-center justify-center text-[11px] font-bold transition-all duration-150 cursor-pointer active:scale-95 ${
         active
-          ? 'bg-[var(--accent)] text-white shadow-[0_3px_10px_-4px_rgba(var(--accent-rgb),0.75),inset_0_1px_0_rgba(255,255,255,0.35)]'
+          ? 'clay-inset text-[var(--accent)] shadow-none'
           : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:brightness-[0.97] shadow-[inset_0_1px_2px_rgba(90,62,40,0.06)]'
       }`}
     >
@@ -343,7 +343,7 @@ export default function SelectionPanel() {
             title={expanded ? 'Collapse panel' : 'More options'}
             className={`h-7 w-7 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0 ${
               expanded
-                ? 'bg-[var(--accent)] text-white'
+                ? 'clay-inset text-[var(--accent)]'
                 : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -414,7 +414,7 @@ export default function SelectionPanel() {
                             <button key={f.value} onClick={() => patch({ fontFamily: f.value })}
                               style={{ fontFamily: f.value }}
                               className={`px-2.5 py-1.5 rounded-lg text-[12px] leading-none truncate transition-colors cursor-pointer ${
-                                isActive ? 'bg-[var(--accent)] text-white shadow-[0_3px_10px_-5px_rgba(var(--accent-rgb),0.7)]' : 'bg-[var(--well)] text-[var(--text-primary)] hover:brightness-[0.97]'
+                                isActive ? 'clay-inset text-[var(--accent)] font-bold' : 'bg-[var(--well)] text-[var(--text-primary)] hover:brightness-[0.97]'
                               }`}>
                               {f.label}
                             </button>
