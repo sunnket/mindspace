@@ -6,6 +6,26 @@ export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 const require = createRequire(import.meta.url);
+
+// Polyfill DOM APIs (DOMMatrix, DOMPoint, DOMRect) globally for Node.js
+// so pdfjs-dist v5 (used by pdf-parse) can execute layout matrices successfully.
+if (typeof global !== 'undefined') {
+  try {
+    const canvas = require('@napi-rs/canvas');
+    if (canvas.DOMMatrix && !global.DOMMatrix) {
+      (global as any).DOMMatrix = canvas.DOMMatrix;
+    }
+    if (canvas.DOMPoint && !global.DOMPoint) {
+      (global as any).DOMPoint = canvas.DOMPoint;
+    }
+    if (canvas.DOMRect && !global.DOMRect) {
+      (global as any).DOMRect = canvas.DOMRect;
+    }
+  } catch (e) {
+    console.error('Failed to polyfill global DOM APIs from @napi-rs/canvas:', e);
+  }
+}
+
 const { PDFParse } = require('pdf-parse');
 const mammoth = require('mammoth');
 const WordExtractor = require('word-extractor');
