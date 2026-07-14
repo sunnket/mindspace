@@ -566,10 +566,9 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
         style={{
           borderColor: 'rgba(var(--accent-rgb), 0.35)',
           background: 'linear-gradient(135deg, var(--accent-subtle) 0%, rgba(var(--accent-rgb),0.02) 60%, transparent 100%)',
-        }}
-      >
-        <div className="flex items-start gap-2">
-          <span className="mt-0.5 shrink-0 w-7 h-7 rounded-lg flex items-center justify-center bg-[var(--accent)] text-white shadow-sm">
+        }}>
+             <div className="flex items-start gap-2 pt-1.5">
+          <span className="mt-2 shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-[var(--accent)] text-white shadow-sm">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z" />
               <path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2z" />
@@ -578,7 +577,6 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
           <div className="flex flex-col">
             <h4 className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
               AI Workflow
-              <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-[var(--accent)] text-white">New</span>
             </h4>
             <p className="text-[10px] text-[var(--text-secondary)] leading-snug">Describe anything — get a complete, end-to-end workflow, styled and explained.</p>
           </div>
@@ -628,7 +626,7 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
             onClick={() => setSelectedCategory(cat)}
             className={`px-2 py-1 rounded-full text-[10px] uppercase tracking-wider font-semibold transition border cursor-pointer ${
               selectedCategory === cat
-                ? 'bg-[var(--accent)] border-[var(--accent)] text-white shadow-sm'
+                ? 'bg-[var(--accent)]/70 border-[var(--accent)]/75 text-white/90 shadow-sm'
                 : 'bg-[var(--bg-card)] border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
             }`}
           >
