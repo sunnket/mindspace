@@ -962,7 +962,7 @@ export default function LandingPage() {
 
           {/* ---------- COLLECTION SECTIONS (home / favorites / archive / trash) ---------- */}
           {!isLoading && isCollectionTab && (
-            <section className="w-full flex flex-col gap-6 mt-24">
+            <section className="w-full flex flex-col gap-6 mt-32">
               <div className="flex flex-wrap justify-between items-center gap-x-6 gap-y-4 border-b border-[var(--border)] pb-5">
                 <SectionHeading
                   title={sectionTitles[activeSidebarTab]}

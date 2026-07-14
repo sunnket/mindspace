@@ -50,7 +50,6 @@ export type RelaxEffectId =
   | 'bubbles'
   | 'bubblewrap'
   | 'chimes'
-  | 'lotus'
   | 'ripples'
   | 'ocean'
   | 'handpan'
@@ -857,103 +856,7 @@ const chimes: RelaxEffect = {
   },
 };
 
-/* -------------------------------------------------------------------- lotus */
 
-const lotus: RelaxEffect = {
-  id: 'lotus',
-  label: 'Lotus Pond',
-  blurb: 'Click to float serene lotus blossoms on still water. Spreads gentle ripples and plucks a wood-and-silk koto chord in Hirajoshi tuning.',
-  space: 'world',
-  flash: 'rgba(255, 180, 210, 0.45)',
-  burstMs: 0,
-  openingPop: 3,
-  spawnEveryMs: 0,
-  spawnPerTick: 0,
-  maxParticles: 120,
-  onStart(_x, _y, api) {
-    startAmbience('ocean');
-    const pond = document.createElement('div');
-    pond.dataset.pond = '';
-    pond.style.cssText =
-      'position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity 1800ms ease;' +
-      'background:radial-gradient(circle at 50% 50%, rgba(15, 32, 54, 0.28) 0%, rgba(5, 12, 22, 0.65) 100%);';
-    api.screen.appendChild(pond);
-    requestAnimationFrame(() => { pond.style.opacity = '1'; });
-  },
-  onStop(api) {
-    stopAmbience('ocean');
-    const pond = api.screen.querySelector<HTMLElement>('[data-pond]');
-    if (!pond) return;
-    pond.style.opacity = '0';
-    window.setTimeout(() => pond.remove(), 1900);
-  },
-  onBurst(_x, _y) {
-    const scale = HIRAJOSHI;
-    const root = pick(scale);
-    const third = scale[(scale.indexOf(root) + 2) % scale.length];
-    const fifth = scale[(scale.indexOf(root) + 4) % scale.length];
-    
-    playKoto(root, 0.26);
-    setTimeout(() => {
-      try { playKoto(third, 0.20); } catch {}
-    }, 100);
-    setTimeout(() => {
-      try { playKoto(fifth, 0.16); } catch {}
-    }, 200);
-  },
-  create(x, y, now, _api, _kind, _tint, index = 0) {
-    if (index === 0) {
-      const size = rand(38, 56);
-      const el = document.createElement('div');
-      baseStyle(el, size, 'display:flex;align-items:center;justify-content:center;');
-      el.innerHTML = `<span style="font-size:${size}px; filter: drop-shadow(0 2px 10px rgba(255,100,165,0.45)) saturate(1.15);">🪷</span>`;
-      
-      const p = particle(el, x, y, size, rand(9000, 14000), now);
-      p.kind = 0;
-      p.vx = rand(-0.16, 0.16);
-      p.vy = rand(-0.16, 0.16);
-      p.rot = rand(0, 360);
-      p.spin = rand(-0.02, 0.02);
-      return p;
-    } else {
-      const el = document.createElement('div');
-      const size = 35;
-      baseStyle(
-        el,
-        size,
-        'border-radius:50%;border:1.5px solid rgba(255,160,200,0.45);' +
-          'box-shadow:0 0 12px rgba(255,140,180,0.18), inset 0 0 12px rgba(255,140,180,0.1);'
-      );
-      const p = particle(el, x, y, size, rand(2000, 3000), now);
-      p.kind = 1;
-      p.a = index === 1 ? 0 : 0.28;
-      p.b = rand(6, 11);
-      return p;
-    }
-  },
-  step(p, t) {
-    if (p.kind === 0) {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.rot += p.spin;
-      
-      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) rotate(${p.rot}deg)`;
-      const opacity = t < 0.12 ? t / 0.12 : 1 - (t - 0.12) / 0.88;
-      p.el.style.opacity = String(opacity * 0.9);
-    } else {
-      const local = (t - p.a) / (1 - p.a);
-      if (local <= 0) {
-        p.el.style.opacity = '0';
-        return;
-      }
-      const eased = 1 - Math.pow(1 - local, 2.4);
-      const scale = 0.25 + eased * p.b;
-      
-      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${scale})`;
-      p.el.style.opacity = String((1 - local) * 0.6);
-    }
-  }
-};
 
 /* ------------------------------------------------------------------ ripples */
 
@@ -1917,12 +1820,12 @@ const aurora: RelaxEffect = {
 /* -------------------------------------------------------------------------- */
 
 export const RELAX_EFFECTS: Record<RelaxEffectId, RelaxEffect> = {
-  flowers, rain, fireworks, galaxy, bubbles, bubblewrap, chimes, lotus, ripples,
+  flowers, rain, fireworks, galaxy, bubbles, bubblewrap, chimes, ripples,
   ocean, handpan, snow, fireflies, lanterns, gate, breathing, aurora,
 };
 
 export const RELAX_EFFECT_LIST: RelaxEffect[] = [
   gate, ocean, aurora, breathing, handpan, chimes,
-  flowers, fireworks, lanterns, fireflies, galaxy, lotus, ripples,
+  flowers, fireworks, lanterns, fireflies, galaxy, ripples,
   bubbles, bubblewrap, rain, snow,
 ];

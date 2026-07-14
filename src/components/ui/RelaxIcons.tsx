@@ -87,16 +87,6 @@ export default function RelaxIcon({ id, size = 18 }: { id: RelaxEffectId; size?:
         </svg>
       );
 
-    case 'lotus':
-      return (
-        <svg {...common}>
-          {/* Simplified lotus flower petals */}
-          <path d="M12 21c-2.4 0-4.6-2.2-4.6-4.6 0-3.6 4.6-9.4 4.6-9.4s4.6 5.8 4.6 9.4c0 2.4-2.2 4.6-4.6 4.6Z" />
-          <path d="M12 21c-1.8 0-3.6-1-4.2-2.8a6.5 6.5 0 0 1-.4-2.2c0-2 2-4.6 4.6-6.6 2.6 2 4.6 4.6 4.6 6.6 0 .8-.1 1.5-.4 2.2-.6 1.8-2.4 2.8-4.2 2.8Z" opacity="0.6" />
-          <path d="M12 21c4-1 6-4.5 4-8.5M12 21c-4-1-6-4.5-4-8.5" opacity="0.75" />
-        </svg>
-      );
-
     case 'ripples':
       return (
         <svg {...common}>
