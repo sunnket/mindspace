@@ -96,17 +96,25 @@ export async function ingestFile(file: File, x: number, y: number): Promise<void
 
     if (res.ok) {
       const data = await res.json();
-      update(
-        {
-          fileStatus: 'ready',
-          fileText: data.text || '',
-          fileChars: data.chars || 0,
-          fileTruncated: !!data.truncated,
-          fileLinks: Array.isArray(data.links) ? data.links : [],
+      if (data.meta?.parseError) {
+        update({
+          fileStatus: 'error',
+          fileError: `Could not parse file content: ${data.meta.parseError}`,
           fileMeta: data.meta || {},
-        },
-        dataUrl,
-      );
+        }, dataUrl);
+      } else {
+        update(
+          {
+            fileStatus: 'ready',
+            fileText: data.text || '',
+            fileChars: data.chars || 0,
+            fileTruncated: !!data.truncated,
+            fileLinks: Array.isArray(data.links) ? data.links : [],
+            fileMeta: data.meta || {},
+          },
+          dataUrl,
+        );
+      }
     } else {
       const err = await res.json().catch(() => ({}));
       update({ fileStatus: 'error', fileError: err.error || `Couldn't read this file` }, dataUrl);

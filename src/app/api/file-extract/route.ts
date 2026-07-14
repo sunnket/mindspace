@@ -70,7 +70,7 @@ interface Extracted {
 
 async function extractPdf(buf: Uint8Array): Promise<Extracted> {
   const { PDFParse } = await import('pdf-parse');
-  const parser = new PDFParse({ data: buf });
+  const parser = new PDFParse({ data: Buffer.from(buf) });
   try {
     const res = await parser.getText();
     // pdf-parse tags each page with a "-- N of M --" marker; drop those.
@@ -266,10 +266,19 @@ export async function POST(req: NextRequest) {
           : { text: '', meta: { kind: mime || ext || 'Binary file', binary: true } };
       }
     } catch (err) {
-      // A parser choking on one format shouldn't 500 the whole drop — degrade to
-      // a best-effort UTF-8 read so the block still appears with whatever we got.
-      const fallback = extractText(buf, mime || ext || 'File');
-      extracted = { text: fallback.text, meta: { kind: fallback.meta.kind, parseError: err instanceof Error ? err.message : String(err) } };
+      console.error(`File extraction failed for "${name}":`, err);
+      // For text-like files, fall back to raw UTF-8 read.
+      // For binary files (PDF, Word, Zip, etc.), fallback to UTF-8 produces corrupted garbage.
+      const isTextFile = TEXT_EXTS.has(ext) || mime.startsWith('text/');
+      const fallbackText = isTextFile ? new TextDecoder('utf-8', { fatal: false }).decode(buf).trim() : '';
+      extracted = {
+        text: fallbackText,
+        meta: {
+          kind: mime || ext || 'File',
+          parseError: err instanceof Error ? err.message : String(err),
+          failed: true,
+        },
+      };
     }
 
     const links = extracted.text ? collectLinks(extracted.text) : [];
