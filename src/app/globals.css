@@ -248,10 +248,6 @@ html, body {
   cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24'><g fill='none' stroke='%23000' stroke-opacity='0.35' stroke-width='4.5'><ellipse cx='12' cy='12' rx='9' ry='4.2' transform='rotate(-22 12 12)'/><circle cx='12' cy='12' r='1.7'/></g><g fill='none' stroke='%23fff' stroke-width='1.8'><ellipse cx='12' cy='12' rx='9' ry='4.2' transform='rotate(-22 12 12)'/><circle cx='12' cy='12' r='1.7'/></g></svg>") 15 15, pointer;
 }
 
-.canvas-container.mode-relax.relax-bubbles {
-  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24'><g fill='none' stroke='%23000' stroke-opacity='0.35' stroke-width='4.5'><circle cx='9.5' cy='14.2' r='5.2'/><circle cx='17.2' cy='7.6' r='3.2'/></g><g fill='none' stroke='%23fff' stroke-width='1.8'><circle cx='9.5' cy='14.2' r='5.2'/><circle cx='17.2' cy='7.6' r='3.2'/></g></svg>") 15 15, pointer;
-}
-
 .canvas-container.mode-relax.relax-bubblewrap {
   cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24'><g fill='none' stroke='%23000' stroke-opacity='0.35' stroke-width='4.5'><circle cx='7' cy='7' r='2.9'/><circle cx='16.8' cy='7' r='2.9'/><circle cx='7' cy='16.8' r='2.9'/><circle cx='16.8' cy='16.8' r='2.9'/></g><g fill='none' stroke='%23fff' stroke-width='1.8'><circle cx='7' cy='7' r='2.9'/><circle cx='16.8' cy='7' r='2.9'/><circle cx='7' cy='16.8' r='2.9'/><circle cx='16.8' cy='16.8' r='2.9'/></g></svg>") 15 15, pointer;
 }

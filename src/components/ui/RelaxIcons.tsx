@@ -58,15 +58,6 @@ export default function RelaxIcon({ id, size = 18 }: { id: RelaxEffectId; size?:
         </svg>
       );
 
-    case 'bubbles':
-      return (
-        <svg {...common}>
-          <circle cx="9.5" cy="14.2" r="5.2" />
-          <circle cx="17.2" cy="7.6" r="3.2" />
-          <circle cx="7.4" cy="12" r="1" fill="currentColor" stroke="none" />
-        </svg>
-      );
-
     case 'bubblewrap':
       return (
         <svg {...common}>

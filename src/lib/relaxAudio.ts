@@ -96,45 +96,6 @@ function noise(ac: AudioContext, seconds: number, curve = 1): AudioBufferSourceN
   return src;
 }
 
-/* ----------------------------------------------------------------- bubbles */
-
-/**
- * Bubble pop. The pitch drop is the "thup", the filtered noise on the front is
- * the wet click of the film breaking. Small bubbles pop higher than big ones —
- * that mapping is most of what makes it feel physical.
- */
-export function playPop(size = 40) {
-  const ac = audioCtx();
-  if (!ac) return;
-  const t = ac.currentTime;
-  const out = voiceOut(ac, 0.28);
-  const base = 950 - Math.min(1, (size - 18) / 74) * 700;
-
-  const osc = ac.createOscillator();
-  const g = ac.createGain();
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(base * 1.7, t);
-  osc.frequency.exponentialRampToValueAtTime(base * 0.4, t + 0.1);
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.3, t + 0.006);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
-  osc.connect(g).connect(out);
-  osc.start(t);
-  osc.stop(t + 0.16);
-
-  const n = noise(ac, 0.05, 3);
-  const band = ac.createBiquadFilter();
-  band.type = 'bandpass';
-  band.frequency.value = base * 2.4;
-  band.Q.value = 1.2;
-  const ng = ac.createGain();
-  ng.gain.setValueAtTime(0.14, t);
-  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
-  n.connect(band).connect(ng).connect(out);
-  n.start(t);
-  n.stop(t + 0.06);
-}
-
 /** Bubble wrap. Drier, crisper and higher than a soap bubble — a snap, not a thup. */
 export function playSnap() {
   const ac = audioCtx();

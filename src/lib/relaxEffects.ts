@@ -31,8 +31,6 @@ import {
   playHandpan,
   playKoto,
   playLaunch,
-  playPlop,
-  playPop,
   playSnap,
   playSparkle,
   playWhoosh,
@@ -47,7 +45,6 @@ export type RelaxEffectId =
   | 'rain'
   | 'fireworks'
   | 'galaxy'
-  | 'bubbles'
   | 'bubblewrap'
   | 'chimes'
   | 'ripples'
@@ -549,111 +546,6 @@ const galaxy: RelaxEffect = {
     const scale = popIn(t, 0.1);
     p.el.style.transform = `translate3d(${gx - p.size / 2}px, ${gy - p.size / 2}px, 0) scale(${scale})`;
     p.el.style.opacity = String(t < 0.08 ? t / 0.08 : t > 0.55 ? 1 - (t - 0.55) / 0.45 : 1);
-  },
-};
-
-/* -------------------------------------------------------------- bubble pop */
-
-const BUBBLE = 0;
-const SHARD = 1;
-
-const bubbles: RelaxEffect = {
-  id: 'bubbles',
-  label: 'Bubble Pop',
-  blurb: 'A handful of bubbles drift up across the screen. Hunt down every last one — each bursts with a satisfying little thup.',
-  space: 'screen',
-  flash: '',
-  // Sparse and slow on purpose. The satisfaction is in clearing the screen, and
-  // you can't clear a screen that refills faster than you can pop it — so only a
-  // few are ever in play, and they hang around long enough to be caught.
-  burstMs: 45_000,
-  openingPop: 9,
-  spawnEveryMs: 2200,
-  spawnPerTick: 1,
-  maxParticles: 30,
-  interactive: true,
-  create(x, y, now, api, kind = BUBBLE, tint) {
-    if (kind === SHARD) {
-      const size = rand(3, 8);
-      const el = document.createElement('div');
-      baseStyle(el, size, `border-radius:50%;background:${tint ?? 'rgba(200,235,255,0.85)'};`);
-      const p = particle(el, x, y, size, rand(340, 620), now);
-      p.kind = SHARD;
-      const angle = Math.random() * Math.PI * 2;
-      const speed = rand(2, 7);
-      p.vx = Math.cos(angle) * speed;
-      p.vy = Math.sin(angle) * speed;
-      p.a = 0.18;
-      return p;
-    }
-
-    const size = rand(40, 96);
-    const el = document.createElement('div');
-    // Background-agnostic by construction. Rather than painting a pale bubble and
-    // hoping the canvas behind it is dark, this refracts whatever is actually
-    // there: backdrop-filter bends and brightens the background, the rim is drawn
-    // in both a dark and a light stroke so one of them always has contrast, and
-    // the fill is mostly transparent. It reads on the cream paper and on the dark
-    // board without changing a thing. Affordable because only ~30 exist at once.
-    baseStyle(
-      el,
-      size,
-      'border-radius:50%;cursor:pointer;' +
-        'backdrop-filter:blur(2px) saturate(1.5) brightness(1.08);' +
-        '-webkit-backdrop-filter:blur(2px) saturate(1.5) brightness(1.08);' +
-        'border:1px solid rgba(255,255,255,0.55);' +
-        'background:radial-gradient(circle at 32% 28%, rgba(255,255,255,0.75), rgba(255,255,255,0.06) 34%,' +
-        ' rgba(120,200,255,0.14) 55%, rgba(255,150,230,0.16) 74%, rgba(160,255,225,0.10) 90%);' +
-        'box-shadow:inset -6px -8px 18px rgba(70,110,160,0.28), inset 6px 8px 20px rgba(255,255,255,0.40),' +
-        ' 0 0 14px rgba(140,200,255,0.30), 0 2px 10px rgba(0,0,0,0.16);'
-    );
-
-    // Spread across the viewport rather than piling up on the cursor — the point
-    // is to give the user a screen full of targets to hunt down.
-    const { w, h } = api.viewport;
-    const px = x + rand(-w * 0.42, w * 0.42);
-    const py = y + rand(-h * 0.3, h * 0.34);
-    const p = particle(
-      el,
-      Math.min(w - size, Math.max(0, px)),
-      Math.min(h - size, Math.max(0, py)),
-      size,
-      rand(17000, 27000),
-      now
-    );
-    p.kind = BUBBLE;
-    p.vx = rand(-0.35, 0.35);
-    p.a = rand(-0.55, -0.16); // rise rate
-    p.b = rand(12, 34); // wobble amplitude
-    p.c = rand(0.35, 0.9); // wobble frequency
-    p.d = rand(0, Math.PI * 2);
-    return p;
-  },
-  step(p, t) {
-    if (p.kind === SHARD) {
-      p.vy += p.a;
-      p.x += p.vx;
-      p.y += p.vy;
-      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${1 - t})`;
-      p.el.style.opacity = String(1 - t);
-      return;
-    }
-
-    p.x += p.vx;
-    p.y += p.a;
-
-    const wobble = Math.sin(t * p.c * Math.PI * 2 * 6 + p.d) * p.b;
-    const breathe = 1 + Math.sin(t * 26 + p.d) * 0.03;
-    const scale = popIn(t, 0.12) * breathe;
-
-    p.el.style.transform = `translate3d(${p.x + wobble}px, ${p.y}px, 0) scale(${scale})`;
-    // Hold full opacity almost the whole way: a bubble you can click has to stay
-    // clearly visible, and it should only start ghosting once it's nearly gone.
-    p.el.style.opacity = String(t > 0.88 ? (1 - t) / 0.12 : Math.min(1, t * 10));
-  },
-  onPop(p, api) {
-    playPop(p.size);
-    api.spawn(p.x + p.size / 2, p.y + p.size / 2, 9, SHARD);
   },
 };
 
@@ -1820,12 +1712,12 @@ const aurora: RelaxEffect = {
 /* -------------------------------------------------------------------------- */
 
 export const RELAX_EFFECTS: Record<RelaxEffectId, RelaxEffect> = {
-  flowers, rain, fireworks, galaxy, bubbles, bubblewrap, chimes, ripples,
+  flowers, rain, fireworks, galaxy, bubblewrap, chimes, ripples,
   ocean, handpan, snow, fireflies, lanterns, gate, breathing, aurora,
 };
 
 export const RELAX_EFFECT_LIST: RelaxEffect[] = [
   gate, ocean, aurora, breathing, handpan, chimes,
   flowers, fireworks, lanterns, fireflies, galaxy, ripples,
-  bubbles, bubblewrap, rain, snow,
+  bubblewrap, rain, snow,
 ];
