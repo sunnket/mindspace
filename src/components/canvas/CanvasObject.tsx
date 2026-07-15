@@ -713,8 +713,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           return;
         }
 
-        // Dropping any object inside a binder's bounds groups it into the binder
-        if (dragObj.type !== 'arrow' && dragObj.id !== obj.id) {
+        // Dropping any object inside a binder's bounds files it into that binder.
+        // A binder is just a nested board keyed by its own id, so we re-home the
+        // dropped object there with teleportObject (the same primitive Warp uses)
+        // and lay it out on a tidy 3-column grid inside the binder's canvas.
+        // (This used to require dragObj.id !== obj.id — true only when Alt-cloning
+        // — so a plain drag never actually bound anything.)
+        if (dragObj.type !== 'arrow' && !dragObj.style?.isBinder) {
           const state = useCanvasStore.getState();
           const live = state.objects.find((o) => o.id === dragObj.id);
           if (live) {
@@ -724,11 +729,15 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               (o) => o.style?.isBinder === true && o.id !== dragObj.id && cx >= o.x && cx <= o.x + o.width && cy >= o.y && cy <= o.y + o.height
             );
             if (binder) {
-              state.updateObject(dragObj.id, {
-                parentId: binder.id,
-              });
+              const count = (binder.style?.binderCount as number) || 0;
+              const col = count % 3;
+              const row = Math.floor(count / 3);
+              // Start clear of the sub-space header / breadcrumb at the top-left.
+              state.updateObject(dragObj.id, { x: 160 + col * 340, y: 200 + row * 240 });
+              state.updateObject(binder.id, { style: { ...binder.style, binderCount: count + 1 } });
+              state.teleportObject(dragObj.id, binder.id);
               setSelectedId(null);
-              return; // End drag early and bypass undo/normal drop positioning
+              return; // End drag early — the object now lives in the binder's board
             }
           }
         }

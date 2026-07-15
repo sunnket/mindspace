@@ -206,7 +206,15 @@ export default function SelectionPanel() {
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 10, scale: 0.97 }}
         transition={spring}
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          // Keep the caret in the text block being edited: pressing a format
+          // button (size preset, +/-, heading, font, colour) must NOT blur the
+          // contentEditable, otherwise an empty new block exits edit mode before
+          // you can pick a size. Real inputs still need focus, so exempt them.
+          const tag = (e.target as HTMLElement).tagName;
+          if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') e.preventDefault();
+        }}
         onClick={(e) => e.stopPropagation()}
         className="fixed bottom-[80px] left-1/2 -translate-x-1/2 z-[140] pointer-events-auto"
         style={{ fontFamily: "'Outfit', sans-serif" }}

@@ -961,8 +961,11 @@ export default function LandingPage() {
           )}
 
           {/* ---------- COLLECTION SECTIONS (home / favorites / archive / trash) ---------- */}
+          {/* mt-* utilities are dead here (the global `* { margin:0 }` reset is
+              unlayered and outranks Tailwind's layered utilities), so the 2cm
+              downward shift is set inline where it actually takes effect. */}
           {!isLoading && isCollectionTab && (
-            <section className="w-full flex flex-col gap-6 mt-32">
+            <section className="w-full flex flex-col gap-6" style={{ marginTop: '2cm' }}>
               <div className="flex flex-wrap justify-between items-center gap-x-6 gap-y-4 border-b border-[var(--border)] pb-5">
                 <SectionHeading
                   title={sectionTitles[activeSidebarTab]}
