@@ -41,8 +41,8 @@ type WorkspaceWithStats = CanvasState & {
 type SidebarTab = 'home' | 'favorites' | 'images' | 'checkpoints' | 'chat' | 'archive' | 'deleted';
 type SortMode = 'recent' | 'name' | 'cards';
 
+
 const spring = { type: 'spring' as const, stiffness: 260, damping: 26 };
-const ease = [0.16, 1, 0.3, 1] as const;
 
 /* ============================================================
    Small helpers
@@ -64,9 +64,30 @@ function getRelativeTime(time: number) {
 
 function getFormattedDate() {
   const date = new Date();
-  const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return `${days[date.getDay()]} · ${date.getDate()} ${months[date.getMonth()]}`;
+}
+
+function pickGreeting(visits: number) {
+  const hours = new Date().getHours();
+  const pool: string[] = [];
+  if (hours >= 5 && hours < 12) {
+    pool.push('good morning', 'rise and shine', 'morning spark', 'fresh start', 'start creating');
+  } else if (hours >= 12 && hours < 17) {
+    pool.push('good afternoon', 'afternoon flow', 'mid-day focus', 'keep going', 'mid-day spark');
+  } else if (hours >= 17 && hours < 22) {
+    pool.push('good evening', 'evening vibes', 'winding down', 'productive evening', 'ideas never sleep');
+  } else {
+    pool.push('burning the midnight oil', 'night owl mode', 'late night thoughts', 'midnight spark', 'ideas in the dark', 'quiet hours');
+  }
+  if (visits > 1) {
+    pool.push('welcome back', 'back to create', 'your digital desk awaits');
+    if (visits > 10) pool.push('back at it', 'make magic happen');
+  } else {
+    pool.push('welcome to mindspace', "let's get started", 'your canvas awaits');
+  }
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 /* ============================================================
@@ -111,27 +132,26 @@ const ICONS = {
   chevron: <Icon size={13}><polyline points="6 9 12 15 18 9" /></Icon>,
   arrowRight: <Icon size={14}><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></Icon>,
   palette: <Icon size={14}><circle cx="12" cy="12" r="10" /><circle cx="8" cy="10" r="1" fill="currentColor" /><circle cx="12" cy="7.5" r="1" fill="currentColor" /><circle cx="16" cy="10" r="1" fill="currentColor" /></Icon>,
-  pin: <Icon size={15}><line x1="12" y1="17" x2="12" y2="22" /><path d="M9 2h6l-1 7 3 3v2H7v-2l3-3-1-7z" /></Icon>,
-  close: <Icon size={14}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>,
+  tag: <Icon size={14}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z" /><line x1="7" y1="7" x2="7.01" y2="7" /></Icon>,
   chat: (
     <Icon>
       <defs>
         <mask id="landing-chat-double-bubble-mask">
           <rect x="0" y="0" width="24" height="24" fill="white" />
-          <path
-            d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292"
-            fill="black"
-            stroke="black"
-            strokeWidth="3.5"
+          <path 
+            d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292" 
+            fill="black" 
+            stroke="black" 
+            strokeWidth="3.5" 
           />
         </mask>
       </defs>
-      <path
-        d="M18.85 12C18.9484 11.5153 19 11.0137 19 10.5C19 6.35786 15.6421 3 11.5 3C7.35786 3 4 6.35786 4 10.5C4 11.3766 4.15039 12.2181 4.42676 13C5.50098 16.0117 3 18 3 18H9.5"
-        mask="url(#landing-chat-double-bubble-mask)"
+      <path 
+        d="M18.85 12C18.9484 11.5153 19 11.0137 19 10.5C19 6.35786 15.6421 3 11.5 3C7.35786 3 4 6.35786 4 10.5C4 11.3766 4.15039 12.2181 4.42676 13C5.50098 16.0117 3 18 3 18H9.5" 
+        mask="url(#landing-chat-double-bubble-mask)" 
       />
-      <path
-        d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292"
+      <path 
+        d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292" 
       />
     </Icon>
   ),
@@ -154,7 +174,7 @@ const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
 }) {
   if (objects.length === 0) {
     return (
-      <div className="w-full h-full flex items-center justify-center opacity-25">
+      <div className="w-full h-full flex items-center justify-center opacity-40">
         <Icon size={22}><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 17V9h6" /></Icon>
       </div>
     );
@@ -186,12 +206,12 @@ const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
         return (
           <path
             key={conn.id}
-            d={`M ${fx} ${fy} L ${tx} ${ty}`}
+            d={`M ${fx} ${fy} Q ${(fx + tx) / 2} ${(fy + ty) / 2 - 10} ${tx} ${ty}`}
             stroke="var(--accent)"
             strokeWidth="1.2"
             fill="none"
-            strokeDasharray="3 3"
-            opacity="0.55"
+            strokeDasharray="2 2"
+            opacity="0.5"
           />
         );
       })}
@@ -201,8 +221,8 @@ const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
         const rx = getX(obj.x) - rw / 2;
         const ry = getY(obj.y) - rh / 2;
         let fill = '#FFFFFF';
-        let stroke = 'rgba(45,42,38,0.18)';
-        let radius = 1.5;
+        let stroke = 'rgba(45,42,38,0.08)';
+        let radius = 4;
         if (obj.type === 'shape') {
           fill = (obj.style?.color as string) || 'var(--accent-light)';
           stroke = (obj.style?.borderColor as string) || 'var(--accent)';
@@ -210,11 +230,11 @@ const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
           else if (obj.style?.shapeType === 'oval') radius = Math.min(rw, rh) / 2;
         } else if (obj.type === 'sticky') {
           fill = (obj.style?.color as string) || 'var(--sticky-yellow)';
-          radius = 0;
+          radius = 1;
         } else if (obj.type === 'workflow-node') {
           fill = 'var(--bg-primary)';
           stroke = 'var(--accent)';
-          radius = 2;
+          radius = 8;
         }
         return (
           <g key={obj.id}>
@@ -224,9 +244,9 @@ const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
                 x={rx + rw / 2}
                 y={ry + rh / 2 + 1.5}
                 fill={obj.type === 'shape' ? '#FFFFFF' : 'var(--text-primary)'}
-                fontWeight="600"
+                fontWeight="500"
                 textAnchor="middle"
-                opacity="0.75"
+                opacity="0.7"
                 className="select-none pointer-events-none"
                 style={{ fontSize: Math.max(3, Math.min(5, rw / 9)) + 'px' }}
               >
@@ -263,18 +283,12 @@ export default function LandingPage() {
   const [username, setUsername] = useState('Sanket');
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [usernameInput, setUsernameInput] = useState('Sanket');
+  const [greeting, setGreeting] = useState('welcome');
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState('');
   const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
   const [armedEmptyTrash, setArmedEmptyTrash] = useState(false);
-
-  // "THE WALL" — the personal activity corner (bold note + pinned image),
-  // persisted to this device via localStorage.
-  const [wallNote, setWallNote] = useState('');
-  const [wallImage, setWallImage] = useState<string | null>(null);
-  const [wallDragOver, setWallDragOver] = useState(false);
-  const wallFileRef = useRef<HTMLInputElement>(null);
 
   // Lazy-loaded gallery data for images / checkpoints tabs
   const [galleryObjects, setGalleryObjects] = useState<CanvasObjectData[] | null>(null);
@@ -320,9 +334,7 @@ export default function LandingPage() {
     const storedVisits = localStorage.getItem('mindspace_visit_count');
     const visits = storedVisits ? parseInt(storedVisits, 10) + 1 : 1;
     localStorage.setItem('mindspace_visit_count', visits.toString());
-
-    setWallNote(localStorage.getItem('mindspace_wall_note') || '');
-    setWallImage(localStorage.getItem('mindspace_wall_image'));
+    setGreeting(pickGreeting(visits));
 
     const storedCategories = localStorage.getItem('mindspace_categories');
     if (storedCategories) {
@@ -336,8 +348,8 @@ export default function LandingPage() {
     seedDatabaseIfEmpty().then(refresh).catch(console.error);
   }, [refresh]);
 
-  // The gallery ships in graphite dark by default. Restore the light default on
-  // unmount so an opened canvas starts from its own theme.
+  // The canvas gallery ships in a warm dark theme by default. Restore the light
+  // default palette on unmount so an opened canvas starts from its own theme.
   useEffect(() => {
     applyCanvasTheme(presetById('graphite') || DEFAULT_BACKGROUND);
     return () => resetCanvasTheme();
@@ -452,37 +464,6 @@ export default function LandingPage() {
     setIsEditingUsername(false);
   };
 
-  /* ---------- THE WALL actions ---------- */
-
-  const saveWallNote = (value: string) => {
-    setWallNote(value);
-    try {
-      localStorage.setItem('mindspace_wall_note', value);
-    } catch {
-      /* quota — ignore */
-    }
-  };
-
-  const ingestWallImage = (file: File | null | undefined) => {
-    if (!file || !file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setWallImage(dataUrl);
-      try {
-        localStorage.setItem('mindspace_wall_image', dataUrl);
-      } catch {
-        alert('That image is a bit large to pin here — try a smaller one.');
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const clearWallImage = () => {
-    setWallImage(null);
-    localStorage.removeItem('mindspace_wall_image');
-  };
-
   const patchWorkspace = async (id: string, patch: Partial<CanvasState>) => {
     setWorkspaces((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)));
     await updateCanvasMeta(id, patch);
@@ -577,8 +558,6 @@ export default function LandingPage() {
     ? [...nonDeleted].sort((a, b) => b.lastModified - a.lastModified)[0]
     : null;
 
-  const recentList = [...nonDeleted].sort((a, b) => b.lastModified - a.lastModified).slice(0, 4);
-
   const filteredList = useMemo(() => {
     let list = [...workspaces];
     if (activeSidebarTab === 'favorites') list = list.filter((w) => w.isFavorite && !w.deleted && !w.archived);
@@ -646,318 +625,207 @@ export default function LandingPage() {
     deleted: 'trash',
   };
 
-  const tickerItems = [
-    `${totalCanvases} CANVASES`,
-    `${totalCards} CARDS`,
-    `${totalSketches} SKETCHES`,
-    `${totalThreads} THREADS`,
-    getFormattedDate(),
-    'MINDSPACE',
-  ];
-
   /* ============================================================
      Render
      ============================================================ */
 
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex overflow-x-hidden relative selection:bg-[var(--accent)] selection:text-[var(--brut-btn-ink)]">
+    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex overflow-x-hidden relative paper-texture">
       <div className="noise-overlay" />
-      {/* faint drafting-grid backdrop */}
-      <div className="brut-gridlines fixed inset-0 z-0 pointer-events-none opacity-40" aria-hidden="true" />
 
-      {/* ---------- Left index rail ---------- */}
-      <aside className="w-[74px] h-screen sticky top-0 z-40 flex flex-col shrink-0 brut-surface-2 border-r border-[var(--brut-line)]">
-        <div className="flex items-center justify-center h-[74px] border-b border-[var(--brut-line)] shrink-0">
-          <span className="w-9 h-9 flex items-center justify-center bg-[var(--accent)] text-[var(--brut-btn-ink)] font-anton text-lg leading-none select-none">
-            M
-          </span>
-        </div>
-
-        <nav aria-label="Main navigation" className="flex-1 flex flex-col items-center gap-1 py-4">
+      {/* ---------- Floating clay dock ---------- */}
+      <aside className="w-[92px] h-screen sticky top-0 z-40 flex items-center shrink-0">
+        <nav
+          aria-label="Main navigation"
+          className="clay-card ml-4 rounded-[26px] py-5 px-2.5 flex flex-col items-center gap-1.5 max-h-[calc(100vh-48px)]"
+        >
           <DockButton label="Home" active={activeSidebarTab === 'home'} onClick={() => setActiveSidebarTab('home')} icon={ICONS.home} />
           <DockButton label="Favorites" active={activeSidebarTab === 'favorites'} onClick={() => setActiveSidebarTab('favorites')} icon={ICONS.heart} />
           <DockButton label="Images" active={activeSidebarTab === 'images'} onClick={() => setActiveSidebarTab('images')} icon={ICONS.image} />
           <DockButton label="Checkpoints" active={activeSidebarTab === 'checkpoints'} onClick={() => setActiveSidebarTab('checkpoints')} icon={ICONS.flag} />
           <DockButton label="Chat" active={activeSidebarTab === 'chat'} onClick={() => setActiveSidebarTab('chat')} icon={ICONS.chat} badge={chatUnread || undefined} />
 
-          <div className="w-7 h-px bg-[var(--brut-line-strong)] my-2.5" />
+          <div className="w-8 h-px bg-[var(--border-strong)] opacity-50 my-2" />
 
           <DockButton label="Archive" active={activeSidebarTab === 'archive'} onClick={() => setActiveSidebarTab('archive')} icon={ICONS.archive} />
           <DockButton label="Trash" active={activeSidebarTab === 'deleted'} onClick={() => setActiveSidebarTab('deleted')} icon={ICONS.trash} badge={trashCount || undefined} />
         </nav>
-
-        <div className="h-[120px] border-t border-[var(--brut-line)] flex items-center justify-center shrink-0 overflow-hidden">
-          <span className="font-monob text-[9px] tracking-[0.35em] text-[var(--text-muted)] uppercase -rotate-90 whitespace-nowrap select-none">
-            EST. 2026
-          </span>
-        </div>
       </aside>
 
       {/* ---------- Main ---------- */}
-      <main className="flex-1 min-h-screen h-screen overflow-y-auto relative z-10">
-        <div className="w-full max-w-[1340px] mx-auto px-6 md:px-10 pt-9 pb-28 flex flex-col gap-10">
+      <main className="flex-1 min-h-screen h-screen overflow-y-auto">
+        <div className="w-full max-w-[1380px] mx-auto pl-6 md:pl-16 pr-6 md:pr-24 pt-10 pb-28 flex flex-col gap-12">
 
-          {/* ================= MASTHEAD ================= */}
-          <header className="w-full">
-            <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-6">
-              <div className="min-w-0">
-                <motion.h1
-                  initial={reducedMotion ? false : { opacity: 0, y: 14 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, ease }}
-                  className="font-anton uppercase leading-[0.82] tracking-tight text-[var(--text-primary)] text-[clamp(2.6rem,7vw,5.2rem)]"
-                >
-                  Mind<span className="text-[var(--accent)]">space</span>
-                  <span className="text-[var(--accent)]">.</span>
-                </motion.h1>
-
-                {/* Editable byline — no boring greeting, just a masthead credit */}
-                <div className="mt-2 flex items-center gap-2 font-monob text-[11px] uppercase tracking-[0.2em] text-[var(--text-tertiary)]">
-                  {isEditingUsername ? (
-                    <input
-                      type="text"
-                      value={usernameInput}
-                      onChange={(e) => setUsernameInput(e.target.value)}
-                      onBlur={handleUsernameSave}
-                      onKeyDown={(e) => e.key === 'Enter' && handleUsernameSave()}
-                      aria-label="Your name"
-                      className="bg-transparent border-b border-[var(--accent)] outline-none text-[var(--accent)] uppercase tracking-[0.2em] w-40"
-                      autoFocus
-                    />
-                  ) : (
-                    <button
-                      onClick={() => setIsEditingUsername(true)}
-                      title="Click to edit your name"
-                      className="text-[var(--accent)] hover:opacity-80 transition-opacity cursor-pointer"
-                    >
-                      {username}&apos;s desk
-                    </button>
-                  )}
-                  <span className="text-[var(--brut-line-strong)]">/</span>
-                  <span>vol. {Math.max(1, totalCanvases)}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2.5 shrink-0">
-                {/* Search — hard bordered box, no glass */}
-                <div className="brut-panel flex items-center gap-2.5 px-3.5 h-11 w-full sm:w-80 focus-within:border-[var(--accent)] transition-colors">
-                  <span className="text-[var(--text-tertiary)] shrink-0">{ICONS.search}</span>
+          {/* Header */}
+          <header className="flex flex-col lg:flex-row lg:justify-between lg:items-end gap-6 w-full">
+            <div className="min-w-0">
+              {isEditingUsername ? (
+                <div className="flex items-center gap-2">
                   <input
-                    ref={searchInputRef}
                     type="text"
-                    placeholder="SEARCH TITLES & CARDS"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    aria-label="Search canvases and card contents"
-                    className="bg-transparent border-none outline-none text-[12px] w-full placeholder-[var(--text-muted)] text-[var(--text-primary)] font-monob uppercase tracking-wide"
+                    value={usernameInput}
+                    onChange={(e) => setUsernameInput(e.target.value)}
+                    onBlur={handleUsernameSave}
+                    onKeyDown={(e) => e.key === 'Enter' && handleUsernameSave()}
+                    aria-label="Your name"
+                    className="text-4xl md:text-5xl italic bg-transparent border-b-2 border-[var(--accent)] outline-none text-[var(--text-primary)] max-w-[300px]"
+                    style={{ fontFamily: "'Instrument Serif', serif" }}
+                    autoFocus
                   />
-                  {searchQuery ? (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      aria-label="Clear search"
-                      className="text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors cursor-pointer shrink-0"
-                    >
-                      {ICONS.close}
-                    </button>
-                  ) : (
-                    <kbd className="hidden sm:inline-flex items-center text-[10px] font-monob font-bold text-[var(--text-tertiary)] border border-[var(--brut-line-strong)] px-1.5 py-0.5 select-none shrink-0">
-                      ⌘K
-                    </kbd>
-                  )}
                 </div>
-                <AuthButton isInline={true} />
+              ) : (
+                <h1
+                  onClick={() => setIsEditingUsername(true)}
+                  title="Click to edit your name"
+                  className="text-4xl md:text-5xl italic font-light tracking-tight cursor-pointer leading-none group"
+                  style={{ fontFamily: "'Instrument Serif', serif" }}
+                >
+                  {greeting},{' '}
+                  <span className="text-[var(--accent)] underline decoration-dotted decoration-2 decoration-[var(--accent)]/30 underline-offset-4 group-hover:decoration-[var(--accent)]/70 transition-all">
+                    {username}
+                  </span>
+                </h1>
+              )}
+
+              {/* Honest live stats strip */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-[11px] font-medium text-[var(--text-secondary)] select-none tabular-nums">
+                <span>{getFormattedDate()}</span>
+                <span className="w-1 h-1 rounded-full bg-[var(--text-muted)]" />
+                <span><strong className="text-[var(--accent)] font-bold">{totalCanvases}</strong> canvases</span>
+                <span className="w-1 h-1 rounded-full bg-[var(--text-muted)]" />
+                <span><strong className="text-[var(--text-primary)] font-bold">{totalCards}</strong> cards</span>
+                <span className="w-1 h-1 rounded-full bg-[var(--text-muted)]" />
+                <span><strong className="text-[var(--text-primary)] font-bold">{totalSketches}</strong> sketches</span>
+                <span className="w-1 h-1 rounded-full bg-[var(--text-muted)]" />
+                <span><strong className="text-[var(--text-primary)] font-bold">{totalThreads}</strong> threads</span>
               </div>
             </div>
 
-            {/* Masthead rule + running ticker */}
-            <div className="mt-6 border-t-2 border-[var(--text-primary)]" />
-            <div className="brut-marquee-wrap overflow-hidden border-b border-[var(--brut-line)] py-2 select-none">
-              <div className="brut-marquee-track">
-                {[0, 1].map((dup) => (
-                  <span key={dup} className="inline-flex items-center font-monob text-[11px] uppercase tracking-[0.28em] text-[var(--text-tertiary)]" aria-hidden={dup === 1}>
-                    {tickerItems.map((item, i) => (
-                      <span key={i} className="inline-flex items-center">
-                        <span className="text-[var(--accent)] mx-4">✦</span>
-                        {item}
-                      </span>
-                    ))}
-                  </span>
-                ))}
+            <div className="flex items-center gap-3 shrink-0">
+              {/* Liquid-glass search */}
+              <div className="glass-bar relative flex items-center rounded-full pl-4 pr-2 py-2.5 w-full sm:w-80 focus-within:ring-2 focus-within:ring-[var(--accent)]/35 transition-shadow">
+                <span className="text-[var(--text-tertiary)] mr-2.5 shrink-0">{ICONS.search}</span>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="search titles & card contents"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  aria-label="Search canvases and card contents"
+                  className="bg-transparent border-none outline-none text-[13px] w-full placeholder-[var(--text-muted)] text-[var(--text-primary)] font-medium"
+                />
+                {searchQuery ? (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Clear search"
+                    className="p-1.5 rounded-full text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-black/5 transition-colors cursor-pointer"
+                  >
+                    <Icon size={13}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>
+                  </button>
+                ) : (
+                  <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold text-[var(--text-tertiary)] bg-white/70 dark:bg-white/10 px-2 py-1 rounded-full border border-[var(--border)] select-none shrink-0">
+                    ⌘K
+                  </kbd>
+                )}
               </div>
+              <AuthButton isInline={true} />
             </div>
           </header>
 
           {/* ---------- Loading skeleton ---------- */}
           {isLoading && (
-            <div className="flex flex-col gap-10" aria-hidden="true">
-              <div className="grid grid-cols-1 lg:grid-cols-[1.55fr_1fr] gap-5">
-                <div className="clay-skeleton h-64" />
-                <div className="clay-skeleton h-64" />
-              </div>
+            <div className="flex flex-col gap-12" aria-hidden="true">
+              <div className="clay-skeleton rounded-[28px] h-56 w-full" />
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                {[0, 1, 2, 3].map((i) => <div key={i} className="clay-skeleton h-52" />)}
+                {[0, 1, 2, 3].map((i) => <div key={i} className="clay-skeleton rounded-3xl h-44" />)}
               </div>
             </div>
           )}
 
-          {/* ================= HOME HERO ROW ================= */}
-          {!isLoading && activeSidebarTab === 'home' && !searchQuery && (
-            <section className="w-full grid grid-cols-1 lg:grid-cols-[1.55fr_1fr] gap-5 items-stretch">
-              {/* Continue / Start block */}
-              <motion.div
-                initial={reducedMotion ? false : { opacity: 0, y: 22 }}
+          {/* ---------- HOME: Continue card ---------- */}
+          <AnimatePresence mode="popLayout">
+            {!isLoading && activeSidebarTab === 'home' && continueWorkspace && !searchQuery && (
+              <motion.section
+                key="continue"
+                initial={{ opacity: 0, y: 24 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ ...spring }}
-                className="brut-card relative overflow-hidden flex"
+                exit={{ opacity: 0, y: -12 }}
+                transition={spring}
+                className="w-full"
               >
-                {continueWorkspace ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 w-full">
-                    <div className="p-6 md:p-8 flex flex-col min-w-0">
-                      <div className="flex items-center gap-2.5 font-monob text-[10px] uppercase tracking-[0.24em] text-[var(--accent)]">
-                        <span className="relative flex w-2 h-2">
-                          {!reducedMotion && <span className="absolute inline-flex w-full h-full bg-[var(--accent)] opacity-60 animate-ping" />}
-                          <span className="relative inline-flex w-2 h-2 bg-[var(--accent)]" />
-                        </span>
-                        Continue — edited {getRelativeTime(continueWorkspace.lastModified)}
-                      </div>
+                <div className="clay-card rounded-[28px] p-7 md:p-9 grid grid-cols-1 md:grid-cols-[3fr_2fr] gap-8 items-center relative overflow-hidden group">
+                  {/* soft accent bloom */}
+                  <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-[radial-gradient(circle,rgba(var(--accent-rgb),0.10),transparent_65%)] pointer-events-none" />
 
-                      <div className="overflow-hidden mt-4">
-                        <motion.h2
-                          initial={reducedMotion ? false : { y: '110%' }}
-                          animate={{ y: 0 }}
-                          transition={{ duration: 0.6, ease, delay: 0.08 }}
-                          onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
-                          className="font-anton uppercase leading-[0.86] tracking-tight text-[clamp(1.9rem,3.4vw,3.1rem)] text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors break-words line-clamp-3"
-                        >
-                          {continueWorkspace.title || 'untitled canvas'}
-                          <span className="text-[var(--accent)] brut-caret ml-0.5">_</span>
-                        </motion.h2>
-                      </div>
-
-                      <div className="flex flex-wrap gap-1.5 mt-4">
-                        <StatChip icon={ICONS.cards} label={`${continueWorkspace.objectCount} cards`} />
-                        <StatChip icon={ICONS.sketch} label={`${continueWorkspace.strokeCount} sketches`} />
-                        <StatChip icon={ICONS.thread} label={`${continueWorkspace.connectionCount} threads`} />
-                      </div>
-
-                      <div className="mt-auto pt-6">
-                        <button
-                          onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
-                          className="brut-btn inline-flex items-center gap-2 px-5 h-11 font-monob text-[11px] font-bold uppercase tracking-[0.16em] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
-                        >
-                          Jump back in {ICONS.arrowRight}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Framed preview */}
-                    <button
-                      onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
-                      className="brut-frame relative overflow-hidden m-3 sm:ml-0 group/prev cursor-pointer min-h-[180px]"
-                      aria-label={`Open ${continueWorkspace.title || 'untitled canvas'}`}
-                    >
-                      <CanvasMiniPreview objects={continueWorkspace.objects} connections={continueWorkspace.connections} width={420} height={280} />
-                      <span className="absolute top-2.5 left-2.5 font-monob text-[10px] uppercase tracking-[0.2em] text-[var(--text-tertiary)] bg-[var(--brut-surface)]/80 px-1.5 py-0.5">
-                        {continueWorkspace.category || 'personal'}
+                  <div className="flex flex-col items-start gap-5 min-w-0">
+                    <span className="inline-flex items-center gap-2 text-[10px] text-[var(--accent)] uppercase font-extrabold tracking-[0.18em]">
+                      <span className="relative flex w-2 h-2">
+                        {!reducedMotion && <span className="absolute inline-flex w-full h-full rounded-full bg-[var(--accent)] opacity-60 animate-ping" />}
+                        <span className="relative inline-flex w-2 h-2 rounded-full bg-[var(--accent)]" />
                       </span>
-                      <span className="absolute bottom-2.5 right-2.5 font-monob text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--brut-btn-ink)] bg-[var(--accent)] px-2 py-1 opacity-0 group-hover/prev:opacity-100 transition-opacity">
-                        open →
-                      </span>
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={openNewCanvas}
-                    className="p-8 md:p-10 flex flex-col items-start justify-center gap-4 w-full text-left cursor-pointer group/start"
-                  >
-                    <span className="font-monob text-[10px] uppercase tracking-[0.24em] text-[var(--accent)]">A blank page awaits</span>
-                    <h2 className="font-anton uppercase leading-[0.86] tracking-tight text-[clamp(2rem,3.6vw,3.4rem)] text-[var(--text-primary)] group-hover/start:text-[var(--accent)] transition-colors">
-                      Start your<br />first canvas
-                    </h2>
-                    <span className="brut-btn inline-flex items-center gap-2 px-5 h-11 font-monob text-[11px] font-bold uppercase tracking-[0.16em] mt-2">
-                      Create canvas {ICONS.plus}
+                      Continue where you left off
                     </span>
-                  </button>
-                )}
-              </motion.div>
 
-              {/* ======= THE WALL — activity corner ======= */}
-              <motion.div
-                initial={reducedMotion ? false : { opacity: 0, y: 22 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ ...spring, delay: 0.06 }}
-                className="brut-panel flex flex-col min-h-[260px]"
-                onDragOver={(e) => { e.preventDefault(); setWallDragOver(true); }}
-                onDragLeave={() => setWallDragOver(false)}
-                onDrop={(e) => { e.preventDefault(); setWallDragOver(false); ingestWallImage(e.dataTransfer.files?.[0]); }}
-                onPaste={(e) => {
-                  const file = Array.from(e.clipboardData.items).find((it) => it.type.startsWith('image/'))?.getAsFile();
-                  if (file) ingestWallImage(file);
-                }}
-              >
-                {/* header */}
-                <div className="flex items-center justify-between bg-[var(--accent)] text-[var(--brut-btn-ink)] px-4 py-2.5 shrink-0">
-                  <span className="flex items-center gap-2 font-bebas text-lg uppercase tracking-[0.12em] leading-none">
-                    {ICONS.pin} The Wall
-                  </span>
-                  <span className="font-monob text-[9px] uppercase tracking-[0.18em] opacity-70">pin · scribble</span>
-                </div>
-
-                <div className="flex-1 flex flex-col p-3 gap-3">
-                  {/* image zone */}
-                  {wallImage ? (
-                    <div className="brut-frame relative overflow-hidden group/img flex-1 min-h-[110px]">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={wallImage} alt="Pinned to your wall" className="w-full h-full object-cover" />
-                      <button
-                        onClick={clearWallImage}
-                        aria-label="Remove pinned image"
-                        className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center bg-[var(--brut-surface)] border border-[var(--brut-line-strong)] text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors cursor-pointer opacity-0 group-hover/img:opacity-100"
+                    <div className="min-w-0">
+                      <h2
+                        onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
+                        className="text-3xl md:text-[2.6rem] leading-[1.05] italic text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors truncate"
+                        style={{ fontFamily: "'Instrument Serif', serif" }}
                       >
-                        {ICONS.close}
-                      </button>
+                        {continueWorkspace.title || 'untitled canvas'}
+                      </h2>
+                      <p className="text-[11px] text-[var(--text-tertiary)] mt-2 font-medium tabular-nums">
+                        edited {getRelativeTime(continueWorkspace.lastModified)} · {continueWorkspace.category || 'personal'}
+                      </p>
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => wallFileRef.current?.click()}
-                      className={`brut-frame flex-1 min-h-[110px] flex flex-col items-center justify-center gap-2 border-dashed cursor-pointer transition-colors ${
-                        wallDragOver ? 'brut-hatch border-[var(--accent)]' : 'hover:border-[var(--accent)]'
-                      }`}
-                      style={{ borderStyle: 'dashed' }}
+
+                    <div className="flex flex-wrap gap-2">
+                      <StatChip icon={ICONS.cards} label={`${continueWorkspace.objectCount} cards`} />
+                      <StatChip icon={ICONS.sketch} label={`${continueWorkspace.strokeCount} sketches`} />
+                      <StatChip icon={ICONS.thread} label={`${continueWorkspace.connectionCount} threads`} />
+                    </div>
+
+                    <motion.button
+                      onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
+                      whileHover={{ y: -1 }}
+                      whileTap={{ scale: 0.97 }}
+                      transition={spring}
+                      className="mt-1 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[var(--accent)]/12 text-[var(--accent)] hover:bg-[var(--accent)]/20 border border-[var(--accent)]/15 text-xs font-extrabold tracking-wide cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 shadow-sm"
                     >
-                      <span className="text-[var(--text-tertiary)]">{ICONS.image}</span>
-                      <span className="font-monob text-[10px] uppercase tracking-[0.16em] text-[var(--text-tertiary)] text-center px-4">
-                        Drop / paste / click<br />to pin an image
+                      Open canvas {ICONS.arrowRight}
+                    </motion.button>
+                  </div>
+
+                  {/* Preview recess */}
+                  <motion.div
+                    onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
+                    whileHover={{ scale: 1.015 }}
+                    transition={spring}
+                    className="clay-inset w-full h-48 md:h-56 rounded-2xl overflow-hidden relative cursor-pointer"
+                  >
+                    <CanvasMiniPreview
+                      objects={continueWorkspace.objects}
+                      connections={continueWorkspace.connections}
+                      width={380}
+                      height={220}
+                    />
+                    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-t from-[rgba(90,62,40,0.12)] to-transparent flex items-end justify-end p-3 pointer-events-none">
+                      <span className="glass-bar text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full text-[var(--text-primary)]">
+                        open
                       </span>
-                    </button>
-                  )}
-
-                  {/* bold note */}
-                  <textarea
-                    value={wallNote}
-                    onChange={(e) => saveWallNote(e.target.value)}
-                    placeholder="WRITE SOMETHING BOLD…"
-                    aria-label="Bold note"
-                    rows={2}
-                    className="brut-frame resize-none font-anton uppercase text-[19px] leading-[1.05] tracking-tight text-[var(--text-primary)] placeholder-[var(--text-muted)] px-3 py-2.5 outline-none focus:border-[var(--accent)] transition-colors"
-                  />
+                    </div>
+                  </motion.div>
                 </div>
-
-                <input
-                  ref={wallFileRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => { ingestWallImage(e.target.files?.[0]); e.target.value = ''; }}
-                />
-              </motion.div>
-            </section>
-          )}
+              </motion.section>
+            )}
+          </AnimatePresence>
 
           {/* ---------- HOME: Recently visited ---------- */}
-          {!isLoading && activeSidebarTab === 'home' && !searchQuery && recentList.length > 0 && (
+          {!isLoading && activeSidebarTab === 'home' && !searchQuery && nonDeleted.length > 0 && (
             <section className="w-full flex flex-col gap-4">
-              <SectionHeading title="recently visited" count={recentList.length} />
+              <div className="flex justify-between items-baseline">
+                <h3 className="text-[11px] uppercase font-extrabold tracking-[0.18em] text-[var(--text-secondary)]">Recently visited</h3>
+              </div>
 
               <motion.div
                 initial="hidden"
@@ -965,39 +833,39 @@ export default function LandingPage() {
                 variants={{ hidden: {}, show: { transition: { staggerChildren: reducedMotion ? 0 : 0.06 } } }}
                 className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 w-full"
               >
-                {recentList.map((ws, i) => (
+                {[...nonDeleted].sort((a, b) => b.lastModified - a.lastModified).slice(0, 4).map((ws) => (
                   <motion.div
                     key={ws.id}
                     variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: spring } }}
+                    whileHover={{ y: -5 }}
                     onClick={() => router.push(`/canvas?id=${ws.id}`)}
-                    className="brut-card group cursor-pointer flex flex-col"
+                    className="clay-card rounded-3xl overflow-hidden p-3 flex flex-col gap-3 group cursor-pointer"
                   >
-                    <div className="brut-frame h-32 relative overflow-hidden border-x-0 border-t-0">
-                      <CanvasMiniPreview objects={ws.objects} connections={ws.connections} width={280} height={128} />
-                      <span className="absolute top-2 left-2.5 font-anton text-[var(--accent)] text-2xl leading-none select-none">
-                        {String(i + 1).padStart(2, '0')}
-                      </span>
+                    <div className="clay-inset h-32 rounded-2xl relative overflow-hidden">
+                      <CanvasMiniPreview objects={ws.objects} connections={ws.connections} width={220} height={128} />
                     </div>
-                    <div className="px-3 py-3 flex justify-between items-center gap-2">
+                    <div className="px-1.5 pb-1 flex justify-between items-center gap-2">
                       <div className="min-w-0">
-                        <h4 className="font-bebas text-lg uppercase tracking-wide leading-none text-[var(--text-primary)] truncate group-hover:text-[var(--accent)] transition-colors">
+                        <h4 className="text-[15px] font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent)] transition-colors tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
                           {ws.title || 'untitled canvas'}
                         </h4>
-                        <p className="font-monob text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] mt-1.5">
-                          {getRelativeTime(ws.lastModified)} · {ws.objectCount}c
+                        <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 tabular-nums">
+                          {getRelativeTime(ws.lastModified)} · {ws.objectCount} cards
                         </p>
                       </div>
-                      <button
+                      <motion.button
                         onClick={(e) => toggleFavorite(e, ws)}
+                        whileTap={{ scale: 1.35 }}
+                        transition={spring}
                         aria-label={ws.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                        className={`p-2 shrink-0 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+                        className={`p-2 rounded-full shrink-0 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
                           ws.isFavorite ? 'text-[var(--accent)]' : 'text-[var(--text-muted)] hover:text-[var(--accent)]'
                         }`}
                       >
                         <svg width="15" height="15" viewBox="0 0 24 24" fill={ws.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
                           <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
                         </svg>
-                      </button>
+                      </motion.button>
                     </div>
                   </motion.div>
                 ))}
@@ -1011,26 +879,32 @@ export default function LandingPage() {
               <SectionHeading title={sectionTitles.images} count={imageObjects.length} />
               {galleryObjects === null ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
-                  {[0, 1, 2, 3].map((i) => <div key={i} className="clay-skeleton h-40" />)}
+                  {[0, 1, 2, 3].map((i) => <div key={i} className="clay-skeleton rounded-3xl h-40" />)}
                 </div>
               ) : imageObjects.length === 0 ? (
-                <EmptyState icon={ICONS.image} title="No images yet" body="Drop or paste an image onto any canvas and it will appear here." />
+                <EmptyState
+                  icon={ICONS.image}
+                  title="No images yet"
+                  body="Drop or paste an image onto any canvas and it will appear here."
+                />
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
                   {imageObjects.map((img) => (
-                    <button
+                    <motion.button
                       key={img.id}
+                      whileHover={{ y: -4 }}
+                      transition={spring}
                       onClick={() => router.push(`/canvas?id=${img.parentId || 'root'}`)}
-                      className="brut-card overflow-hidden group cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+                      className="clay-card rounded-3xl overflow-hidden p-2 group cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
                     >
-                      <div className="brut-frame overflow-hidden aspect-[4/3] border-x-0 border-t-0">
+                      <div className="clay-inset rounded-2xl overflow-hidden aspect-[4/3]">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={img.content} alt="Canvas image" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                       </div>
-                      <p className="font-monob text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] px-3 py-2.5 truncate">
-                        in {canvasTitleById.get(img.parentId || '') || 'home'}
+                      <p className="text-[10px] font-semibold text-[var(--text-secondary)] px-2 py-2 truncate">
+                        in {canvasTitleById.get(img.parentId || '') || 'home workspace'}
                       </p>
-                    </button>
+                    </motion.button>
                   ))}
                 </div>
               )}
@@ -1043,29 +917,35 @@ export default function LandingPage() {
               <SectionHeading title={sectionTitles.checkpoints} count={checkpointObjects.length} />
               {galleryObjects === null ? (
                 <div className="flex flex-col gap-3">
-                  {[0, 1, 2].map((i) => <div key={i} className="clay-skeleton h-16" />)}
+                  {[0, 1, 2].map((i) => <div key={i} className="clay-skeleton rounded-2xl h-16" />)}
                 </div>
               ) : checkpointObjects.length === 0 ? (
-                <EmptyState icon={ICONS.flag} title="No checkpoints planted" body="Plant a checkpoint flag on a canvas to bookmark a spot — they all gather here." />
+                <EmptyState
+                  icon={ICONS.flag}
+                  title="No checkpoints planted"
+                  body="Plant a checkpoint flag on a canvas to bookmark a spot — they all gather here."
+                />
               ) : (
                 <div className="flex flex-col gap-3">
                   {checkpointObjects.map((cp) => (
-                    <button
+                    <motion.button
                       key={cp.id}
+                      whileHover={{ x: 4 }}
+                      transition={spring}
                       onClick={() => router.push(`/canvas?id=${cp.parentId || 'root'}`)}
-                      className="brut-card px-5 py-4 flex items-center gap-4 cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 group"
+                      className="clay-card rounded-2xl px-5 py-4 flex items-center gap-4 cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
                     >
-                      <span className="w-9 h-9 brut-frame flex items-center justify-center text-[var(--accent)] shrink-0">
+                      <span className="w-9 h-9 rounded-xl clay-inset flex items-center justify-center text-[var(--accent)] shrink-0">
                         {ICONS.flag}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <h4 className="font-bebas text-lg uppercase tracking-wide leading-none truncate group-hover:text-[var(--accent)] transition-colors">{cp.content || 'Unnamed checkpoint'}</h4>
-                        <p className="font-monob text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] mt-1 truncate">
-                          in {canvasTitleById.get(cp.parentId || '') || 'home'}
+                        <h4 className="text-[13px] font-bold truncate">{cp.content || 'Unnamed checkpoint'}</h4>
+                        <p className="text-[10px] text-[var(--text-tertiary)] truncate">
+                          in {canvasTitleById.get(cp.parentId || '') || 'home workspace'}
                         </p>
                       </div>
-                      <span className="text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors">{ICONS.arrowRight}</span>
-                    </button>
+                      <span className="text-[var(--text-muted)]">{ICONS.arrowRight}</span>
+                    </motion.button>
                   ))}
                 </div>
               )}
@@ -1074,33 +954,34 @@ export default function LandingPage() {
 
           {/* ---------- CHAT TAB ---------- */}
           {!isLoading && activeSidebarTab === 'chat' && (
-            <section className="w-full flex flex-col gap-5 h-[calc(100vh-220px)]">
+            <section className="w-full flex flex-col gap-5 h-[calc(100vh-180px)]">
               <SectionHeading title={sectionTitles.chat} />
               <ChatPanel mode="embedded" />
             </section>
           )}
 
-          {/* ---------- COLLECTION SECTIONS ---------- */}
+          {/* ---------- COLLECTION SECTIONS (home / favorites / archive / trash) ---------- */}
           {!isLoading && isCollectionTab && (
-            <section className="w-full flex flex-col gap-6 mt-4">
-              <div className="flex flex-wrap justify-between items-center gap-x-6 gap-y-4 border-b-2 border-[var(--text-primary)] pb-4">
+            <section className="w-full flex flex-col gap-6 mt-32">
+              <div className="flex flex-wrap justify-between items-center gap-x-6 gap-y-4 border-b border-[var(--border)] pb-5">
                 <SectionHeading
                   title={sectionTitles[activeSidebarTab]}
                   count={filteredList.length}
                   sub={searchQuery ? `matching "${searchQuery}"` : undefined}
                 />
 
-                <div className="flex items-center gap-2.5 flex-wrap justify-end">
+                <div className="flex items-center gap-3 flex-wrap justify-end">
+                  {/* Trash: empty-trash action */}
                   {activeSidebarTab === 'deleted' && trashCount > 0 && (
                     <button
                       onClick={handleEmptyTrash}
-                      className={`px-4 h-9 font-monob text-[10px] font-bold uppercase tracking-[0.14em] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 ${
+                      className={`px-4 py-2 rounded-full text-[11px] font-bold tracking-wide transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 ${
                         armedEmptyTrash
-                          ? 'bg-red-500 text-white'
-                          : 'brut-btn-ghost text-red-500/90 hover:!text-red-500 hover:!border-red-500'
+                          ? 'bg-red-500 text-white shadow-[0_8px_18px_-6px_rgba(239,68,68,0.6)]'
+                          : 'clay-inset text-red-600/80 hover:text-red-600'
                       }`}
                     >
-                      {armedEmptyTrash ? `Confirm — erase ${trashCount}` : 'Empty trash'}
+                      {armedEmptyTrash ? `Confirm — erase ${trashCount} forever` : 'Empty trash'}
                     </button>
                   )}
 
@@ -1110,7 +991,7 @@ export default function LandingPage() {
                       onClick={() => setSortMenuOpen((o) => !o)}
                       aria-haspopup="listbox"
                       aria-expanded={sortMenuOpen}
-                      className="brut-btn-ghost flex items-center gap-1.5 px-3.5 h-9 font-monob text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+                      className="clay-inset flex items-center gap-1.5 px-4 py-2 rounded-full text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
                     >
                       {sortMode === 'recent' ? 'recent' : sortMode === 'name' ? 'a → z' : 'most cards'}
                       {ICONS.chevron}
@@ -1119,11 +1000,11 @@ export default function LandingPage() {
                       {sortMenuOpen && (
                         <motion.ul
                           role="listbox"
-                          initial={{ opacity: 0, y: -6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -6 }}
-                          transition={{ duration: 0.14, ease }}
-                          className="brut-panel absolute right-0 top-full mt-1.5 p-1 flex flex-col w-40 z-30"
+                          initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                          transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                          className="glass-bar absolute right-0 top-full mt-2 rounded-2xl p-1.5 flex flex-col w-36 z-30"
                         >
                           {(['recent', 'name', 'cards'] as SortMode[]).map((mode) => (
                             <li key={mode}>
@@ -1131,8 +1012,8 @@ export default function LandingPage() {
                                 role="option"
                                 aria-selected={sortMode === mode}
                                 onClick={() => { setSortMode(mode); setSortMenuOpen(false); }}
-                                className={`w-full text-left px-3 py-2 font-monob text-[10px] font-bold uppercase tracking-[0.12em] transition-colors cursor-pointer ${
-                                  sortMode === mode ? 'bg-[var(--accent)] text-[var(--brut-btn-ink)]' : 'text-[var(--text-secondary)] hover:text-[var(--accent)]'
+                                className={`w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold transition-colors cursor-pointer ${
+                                  sortMode === mode ? 'bg-[var(--accent)]/15 text-[var(--accent)] font-extrabold' : 'text-[var(--text-secondary)] hover:bg-black/5'
                                 }`}
                               >
                                 {mode === 'recent' ? 'Most recent' : mode === 'name' ? 'Name a → z' : 'Most cards'}
@@ -1144,20 +1025,27 @@ export default function LandingPage() {
                     </AnimatePresence>
                   </div>
 
-                  {/* Grid / list segmented toggle */}
-                  <div className="flex brut-panel p-0.5" role="tablist" aria-label="Layout mode">
+                  {/* divider between control groups */}
+                  <span className="w-px h-6 bg-[var(--border)] mx-0.5" aria-hidden="true" />
+
+                  {/* Grid / list segmented toggle with sliding thumb */}
+                  <div className="clay-inset flex p-1 rounded-full" role="tablist" aria-label="Layout mode">
                     {(['grid', 'list'] as const).map((mode) => (
                       <button
                         key={mode}
                         role="tab"
                         aria-selected={layoutMode === mode}
                         onClick={() => setLayoutMode(mode)}
-                        className={`relative px-3.5 py-1.5 font-monob text-[10px] font-bold uppercase tracking-[0.14em] transition-colors cursor-pointer ${
-                          layoutMode === mode ? 'text-[var(--brut-btn-ink)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                        className={`relative px-4 py-1.5 rounded-full text-[11px] font-bold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 ${
+                          layoutMode === mode ? 'text-[var(--text-primary)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
                         }`}
                       >
                         {layoutMode === mode && (
-                          <motion.span layoutId="layout-thumb" transition={spring} className="absolute inset-0 bg-[var(--accent)]" />
+                          <motion.span
+                            layoutId="layout-thumb"
+                            transition={spring}
+                            className="absolute inset-0 bg-white dark:bg-white/15 rounded-full shadow-[0_2px_6px_rgba(90,62,40,0.15),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-none"
+                          />
                         )}
                         <span className="relative">{mode}</span>
                       </button>
@@ -1166,58 +1054,84 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              {/* Category tags (home only) */}
+              {/* Category pills (home only) */}
               {activeSidebarTab === 'home' && (
                 <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Category filter">
-                  {['all', ...categories].map((cat) => {
-                    const isAll = cat === 'all';
-                    const isActive = activeCategory === cat;
-                    return (
-                      <button
-                        key={cat}
-                        role="tab"
-                        aria-selected={isActive}
-                        onClick={() => {
-                          if (isAll) { setActiveCategory('all'); return; }
-                          if (isActive) { setEditingCategory(cat); setEditingCategoryValue(cat); }
-                          else setActiveCategory(cat);
-                        }}
-                        className={`relative inline-flex items-center gap-2 px-3.5 h-8 font-monob text-[10px] font-bold uppercase tracking-[0.14em] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
-                          isActive ? 'text-[var(--brut-btn-ink)]' : 'brut-btn-ghost text-[var(--text-secondary)]'
-                        }`}
-                      >
-                        {isActive && (
-                          <motion.span layoutId="category-thumb" transition={spring} className="absolute inset-0 bg-[var(--accent)]" />
-                        )}
-                        {editingCategory === cat ? (
-                          <input
-                            type="text"
-                            value={editingCategoryValue}
-                            onChange={(e) => setEditingCategoryValue(e.target.value)}
-                            onBlur={() => handleRenameCategory(cat, editingCategoryValue)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleRenameCategory(cat, editingCategoryValue);
-                              if (e.key === 'Escape') setEditingCategory(null);
-                            }}
-                            className="bg-transparent text-[var(--brut-btn-ink)] font-bold outline-none border-b border-current w-20 uppercase tracking-[0.14em] relative z-10"
-                            autoFocus
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          <span className="relative">{cat}</span>
-                        )}
-                        <span className={`relative tabular-nums ${isActive ? 'opacity-70' : 'text-[var(--text-muted)]'}`}>
-                          {isAll ? counts.all : counts[cat] || 0}
-                        </span>
-                      </button>
-                    );
-                  })}
+                  {/* ALL button */}
+                  <button
+                    role="tab"
+                    aria-selected={activeCategory === 'all'}
+                    onClick={() => setActiveCategory('all')}
+                    className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+                      activeCategory === 'all' ? 'text-[var(--accent)] font-extrabold' : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {activeCategory === 'all' && (
+                      <motion.span
+                        layoutId="category-thumb"
+                        transition={spring}
+                        className="absolute inset-0 bg-[var(--accent)]/12 border border-[var(--accent)]/20 rounded-full"
+                      />
+                    )}
+                    <span className="relative">all</span>
+                    <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === 'all' ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
+                      {counts.all}
+                    </span>
+                  </button>
 
+                  {/* Dynamic Category Pills */}
+                  {categories.map((cat) => (
+                    <button
+                      key={cat}
+                      role="tab"
+                      aria-selected={activeCategory === cat}
+                      onClick={() => {
+                        if (activeCategory === cat) {
+                          setEditingCategory(cat);
+                          setEditingCategoryValue(cat);
+                        } else {
+                          setActiveCategory(cat);
+                        }
+                      }}
+                      className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+                        activeCategory === cat ? 'text-[var(--accent)] font-extrabold' : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      {activeCategory === cat && (
+                        <motion.span
+                          layoutId="category-thumb"
+                          transition={spring}
+                          className="absolute inset-0 bg-[var(--accent)]/12 border border-[var(--accent)]/20 rounded-full"
+                        />
+                      )}
+                      {editingCategory === cat ? (
+                        <input
+                          type="text"
+                          value={editingCategoryValue}
+                          onChange={(e) => setEditingCategoryValue(e.target.value)}
+                          onBlur={() => handleRenameCategory(cat, editingCategoryValue)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameCategory(cat, editingCategoryValue);
+                            if (e.key === 'Escape') setEditingCategory(null);
+                          }}
+                          className="bg-transparent text-[var(--accent)] font-bold outline-none border-b border-[var(--accent)]/50 w-24 text-[11px] uppercase tracking-wider relative z-10"
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <span className="relative">{cat}</span>
+                      )}
+                      <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === cat ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
+                        {counts[cat] || 0}
+                      </span>
+                    </button>
+                  ))}
+
+                  {/* Add Custom Category button */}
                   <button
                     onClick={addCategory}
                     title="Add Category"
-                    aria-label="Add category"
-                    className="w-8 h-8 brut-btn-ghost flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--accent)] cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+                    className="w-7 h-7 rounded-full bg-[rgba(var(--accent-rgb),0.08)] hover:bg-[rgba(var(--accent-rgb),0.13)] border border-[var(--accent)]/20 flex items-center justify-center text-[var(--accent)] cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ml-1 shrink-0"
                   >
                     {ICONS.plus}
                   </button>
@@ -1233,27 +1147,28 @@ export default function LandingPage() {
                         <motion.div
                           key={ws.id}
                           layout
-                          initial={{ opacity: 0, scale: 0.96 }}
+                          initial={{ opacity: 0, scale: 0.94 }}
                           animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.96 }}
+                          exit={{ opacity: 0, scale: 0.94 }}
                           transition={spring}
+                          whileHover={{ y: -4 }}
                           onClick={() => router.push(`/canvas?id=${ws.id}`)}
-                          className="brut-card p-4 flex items-center justify-between group cursor-pointer relative"
+                          className="clay-card rounded-3xl p-5 flex items-center justify-between group cursor-pointer relative"
                         >
-                          <div className="flex items-center gap-3.5 min-w-0 flex-1 pr-2">
+                          <div className="flex items-center gap-4 min-w-0 flex-1 pr-2">
                             <button
                               onClick={(e) => cycleCategory(e, ws)}
                               title={`Category: ${ws.category || 'personal'} — click to change`}
                               aria-label={`Change category, currently ${ws.category || 'personal'}`}
-                              className={`w-11 h-11 flex items-center justify-center shrink-0 cursor-pointer transition-transform active:scale-90 border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+                              className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 cursor-pointer transition-transform active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
                                 ws.category === 'work'
-                                  ? 'text-[#5AB0E8] border-[#5AB0E8]/40 bg-[#5AB0E8]/10'
+                                  ? 'bg-[#E0F2FE] text-[#3B7DA8]'
                                   : ws.category === 'study'
-                                  ? 'text-[#B98AE6] border-[#B98AE6]/40 bg-[#B98AE6]/10'
+                                  ? 'bg-[#F3E8FF] text-[#8B5FBF]'
                                   : ws.category === 'personal'
-                                  ? 'text-[var(--accent)] border-[var(--accent)]/40 bg-[var(--accent)]/10'
-                                  : 'text-[#4ECf8A] border-[#4ECf8A]/40 bg-[#4ECf8A]/10'
-                              }`}
+                                  ? 'bg-[#FDEBD8] text-[var(--accent)]'
+                                  : 'bg-[#DCFCE7] text-[#15803D]'
+                              } shadow-[inset_0_1px_0_rgba(255,255,255,0.8),0_4px_10px_-4px_rgba(90,62,40,0.2)]`}
                             >
                               {ws.category === 'work' ? (
                                 <Icon><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></Icon>
@@ -1276,11 +1191,11 @@ export default function LandingPage() {
                                   onBlur={() => saveRename(ws.id)}
                                   onKeyDown={(e) => e.key === 'Enter' && saveRename(ws.id)}
                                   aria-label="Canvas title"
-                                  className="font-bebas text-xl uppercase tracking-wide border-b-2 border-[var(--accent)] outline-none bg-transparent w-full"
+                                  className="text-sm font-bold border-b-2 border-[var(--accent)] outline-none bg-transparent w-full"
                                   autoFocus
                                 />
                               ) : (
-                                <h4 className="font-bebas text-xl uppercase tracking-wide leading-none truncate group-hover:text-[var(--accent)] transition-colors flex items-center gap-1.5">
+                                <h4 className="text-[16px] font-semibold truncate group-hover:text-[var(--accent)] transition-colors flex items-center gap-1.5 tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
                                   {ws.title || 'untitled canvas'}
                                   {ws.isFavorite && (
                                     <span className="text-[var(--accent)] shrink-0" aria-label="Favorite">
@@ -1291,7 +1206,7 @@ export default function LandingPage() {
                                   )}
                                 </h4>
                               )}
-                              <p className="font-monob text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] mt-1.5 truncate">
+                              <p className="text-[10px] text-[var(--text-secondary)] mt-1 truncate tabular-nums">
                                 {ws.objectCount} cards · {getRelativeTime(ws.lastModified)}
                               </p>
                             </div>
@@ -1308,8 +1223,8 @@ export default function LandingPage() {
                                 <button
                                   onClick={(e) => handleDeleteForever(e, ws)}
                                   aria-label={armedDeleteId === ws.id ? 'Confirm permanent delete' : 'Delete forever'}
-                                  className={`px-2.5 py-1.5 font-monob text-[10px] font-bold uppercase transition-all cursor-pointer ${
-                                    armedDeleteId === ws.id ? 'bg-red-500 text-white' : 'text-red-500/70 hover:text-red-500'
+                                  className={`px-2.5 py-1.5 rounded-full text-[10px] font-bold transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 ${
+                                    armedDeleteId === ws.id ? 'bg-red-500 text-white' : 'text-red-500/70 hover:text-red-500 hover:bg-red-50'
                                   }`}
                                 >
                                   {armedDeleteId === ws.id ? 'sure?' : ICONS.trash}
@@ -1344,26 +1259,28 @@ export default function LandingPage() {
                       <motion.button
                         layout
                         onClick={openNewCanvas}
-                        className="brut-frame border-dashed hover:border-[var(--accent)] p-4 flex items-center justify-center gap-3 cursor-pointer text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors min-h-[76px] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
-                        style={{ borderStyle: 'dashed' }}
+                        whileHover={{ y: -4 }}
+                        whileTap={{ scale: 0.98 }}
+                        transition={spring}
+                        className="border-2 border-dashed border-[var(--border-strong)] hover:border-[var(--accent)]/50 rounded-3xl p-5 flex items-center justify-center gap-3 cursor-pointer text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors min-h-[92px] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
                       >
                         <span className="group-hover:rotate-90 transition-transform duration-300">{ICONS.plus}</span>
-                        <span className="font-monob text-[11px] font-bold uppercase tracking-[0.18em]">new canvas</span>
+                        <span className="text-[11px] font-extrabold uppercase tracking-widest">new canvas</span>
                       </motion.button>
                     )}
                   </motion.div>
                 ) : (
                   /* LIST VIEW */
-                  <div className="brut-panel w-full overflow-hidden">
+                  <div className="clay-card w-full rounded-3xl overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full border-collapse text-left min-w-[640px]">
                         <thead>
-                          <tr className="border-b-2 border-[var(--text-primary)] font-monob text-[10px] uppercase font-bold tracking-[0.14em] text-[var(--text-tertiary)] select-none">
-                            <th className="py-3.5 px-6">Title</th>
-                            <th className="py-3.5 px-6">Category</th>
-                            <th className="py-3.5 px-6">Contents</th>
-                            <th className="py-3.5 px-6">Edited</th>
-                            <th className="py-3.5 px-6 text-right">Actions</th>
+                          <tr className="border-b border-[var(--border)] bg-[#FAF6F1]/60 dark:bg-white/5 text-[10px] uppercase font-extrabold tracking-[0.15em] text-[var(--text-secondary)] select-none">
+                            <th className="py-4 px-6">Title</th>
+                            <th className="py-4 px-6">Category</th>
+                            <th className="py-4 px-6">Contents</th>
+                            <th className="py-4 px-6">Edited</th>
+                            <th className="py-4 px-6 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1371,9 +1288,9 @@ export default function LandingPage() {
                             <tr
                               key={ws.id}
                               onClick={() => router.push(`/canvas?id=${ws.id}`)}
-                              className="border-b border-[var(--brut-line)] last:border-b-0 hover:bg-[var(--accent)]/8 cursor-pointer transition-colors group"
+                              className="border-b border-[var(--border)] last:border-b-0 hover:bg-[#FAF6F1]/50 dark:hover:bg-white/5 cursor-pointer transition-colors group"
                             >
-                              <td className="py-3.5 px-6 font-bebas text-lg uppercase tracking-wide group-hover:text-[var(--accent)] transition-colors">
+                              <td className="py-4 px-6 font-semibold text-[16px] tracking-tight group-hover:text-[var(--accent)] transition-colors" style={{ fontFamily: "'Playfair Display', serif" }}>
                                 <span className="flex items-center gap-1.5">
                                   {ws.title || 'untitled canvas'}
                                   {ws.isFavorite && (
@@ -1383,16 +1300,16 @@ export default function LandingPage() {
                                   )}
                                 </span>
                               </td>
-                              <td className="py-3.5 px-6">
-                                <span className="px-2.5 py-1 brut-btn-ghost font-monob text-[9px] uppercase tracking-wider font-bold text-[var(--text-secondary)]">
+                              <td className="py-4 px-6">
+                                <span className="px-2.5 py-1 rounded-full text-[9px] uppercase tracking-wider font-extrabold clay-inset text-[var(--text-secondary)]">
                                   {ws.category || 'personal'}
                                 </span>
                               </td>
-                              <td className="py-3.5 px-6 font-monob text-[11px] text-[var(--text-tertiary)] tabular-nums">
-                                {ws.objectCount}c · {ws.strokeCount}s · {ws.connectionCount}t
+                              <td className="py-4 px-6 text-xs text-[var(--text-secondary)] tabular-nums">
+                                {ws.objectCount} cards · {ws.strokeCount} sketches · {ws.connectionCount} threads
                               </td>
-                              <td className="py-3.5 px-6 font-monob text-[11px] text-[var(--text-tertiary)] tabular-nums">{getRelativeTime(ws.lastModified)}</td>
-                              <td className="py-3.5 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                              <td className="py-4 px-6 text-xs text-[var(--text-secondary)] tabular-nums">{getRelativeTime(ws.lastModified)}</td>
+                              <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
                                 <div className="flex justify-end gap-0.5">
                                   {activeSidebarTab === 'deleted' ? (
                                     <>
@@ -1400,8 +1317,8 @@ export default function LandingPage() {
                                       <button
                                         onClick={(e) => handleDeleteForever(e, ws)}
                                         aria-label="Delete forever"
-                                        className={`px-2.5 py-1.5 font-monob text-[10px] font-bold uppercase transition-all cursor-pointer ${
-                                          armedDeleteId === ws.id ? 'bg-red-500 text-white' : 'text-red-500/70 hover:text-red-500'
+                                        className={`px-2.5 py-1.5 rounded-full text-[10px] font-bold transition-all cursor-pointer ${
+                                          armedDeleteId === ws.id ? 'bg-red-500 text-white' : 'text-red-500/70 hover:text-red-500 hover:bg-red-50'
                                         }`}
                                       >
                                         {armedDeleteId === ws.id ? 'sure?' : ICONS.trash}
@@ -1467,13 +1384,13 @@ export default function LandingPage() {
           )}
 
           {/* Footer hint */}
-          <footer className="flex justify-center pt-2 select-none">
-            <p className="font-monob text-[10px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
-              <kbd className="px-1.5 py-0.5 border border-[var(--brut-line-strong)]">⌘K</kbd> search
-              <span className="mx-2 text-[var(--accent)]">/</span>
-              click your name to edit
-              <span className="mx-2 text-[var(--accent)]">/</span>
-              saved on this device
+          <footer className="flex justify-center pt-4 select-none">
+            <p className="text-[10px] font-medium text-[var(--text-muted)] tracking-wide">
+              <kbd className="px-1.5 py-0.5 rounded bg-white/70 dark:bg-white/10 border border-[var(--border)] font-mono text-[9px]">⌘K</kbd> search
+              <span className="mx-2">·</span>
+              click your name to edit it
+              <span className="mx-2">·</span>
+              everything saves on this device
             </p>
           </footer>
         </div>
@@ -1482,18 +1399,16 @@ export default function LandingPage() {
       {/* ---------- FAB ---------- */}
       <motion.button
         onClick={openNewCanvas}
-        whileHover={reducedMotion ? undefined : { x: -2, y: -2 }}
-        whileTap={{ scale: 0.96 }}
+        whileHover={{ scale: 1.08, y: -2 }}
+        whileTap={{ scale: 0.92 }}
         transition={spring}
         aria-label="Create new canvas"
-        className="brut-btn fixed bottom-7 right-7 h-13 px-5 flex items-center gap-2 z-50 cursor-pointer font-monob text-[11px] font-bold uppercase tracking-[0.16em] shadow-[5px_5px_0_0_rgba(0,0,0,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
-        style={{ height: '52px' }}
+        className="fixed bottom-8 right-24 w-14 h-14 rounded-full bg-[var(--accent)]/12 text-[var(--accent)] border border-[var(--accent)]/15 flex items-center justify-center z-50 cursor-pointer shadow-[0_12px_24px_-8px_rgba(var(--accent-rgb),0.3)] hover:bg-[var(--accent)]/20 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
           <line x1="12" y1="5" x2="12" y2="19" />
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
-        New
       </motion.button>
     </div>
   );
@@ -1521,25 +1436,25 @@ function DockButton({
       onClick={onClick}
       aria-label={label}
       aria-current={active ? 'page' : undefined}
-      className={`relative w-11 h-11 flex items-center justify-center transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
-        active ? 'text-[var(--brut-btn-ink)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
+      className={`relative w-11 h-11 rounded-2xl flex items-center justify-center transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+        active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
       }`}
     >
       {active && (
         <motion.span
           layoutId="dock-active"
           transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-          className="absolute inset-0 bg-[var(--accent)]"
+          className="absolute inset-0 rounded-2xl clay-inset"
         />
       )}
       <span className="relative">{icon}</span>
       {badge !== undefined && badge > 0 && (
-        <span className="absolute top-0.5 right-0.5 min-w-[15px] h-[15px] px-1 bg-[var(--accent)] text-[var(--brut-btn-ink)] font-monob text-[9px] font-bold flex items-center justify-center tabular-nums border border-[var(--brut-surface-2)]">
+        <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accent)] text-white text-[9px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">
           {badge}
         </span>
       )}
       {/* Tooltip */}
-      <span className="absolute left-full ml-2 px-2.5 py-1.5 brut-panel font-monob text-[10px] uppercase tracking-wider font-bold text-[var(--text-primary)] whitespace-nowrap opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all pointer-events-none z-50">
+      <span className="absolute left-full ml-3 px-2.5 py-1.5 rounded-xl glass-bar text-[10px] font-bold text-[var(--text-primary)] whitespace-nowrap opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all pointer-events-none z-50">
         {label}
       </span>
     </button>
@@ -1549,19 +1464,18 @@ function DockButton({
 function SectionHeading({ title, count, sub }: { title: string; count?: number; sub?: string }) {
   return (
     <div className="flex items-baseline gap-3 min-w-0">
-      <span className="text-[var(--accent)] font-monob text-xs">§</span>
-      <h3 className="font-bebas text-2xl uppercase tracking-[0.06em] leading-none text-[var(--text-primary)]">{title}</h3>
+      <h3 className="text-[11px] uppercase font-extrabold tracking-[0.18em] text-[var(--text-secondary)]">{title}</h3>
       {count !== undefined && (
-        <span className="font-monob text-[11px] font-bold text-[var(--accent)] tabular-nums">[{String(count).padStart(2, '0')}]</span>
+        <span className="text-[10px] font-extrabold text-[var(--text-muted)] tabular-nums">{count}</span>
       )}
-      {sub && <span className="font-monob text-[10px] text-[var(--text-tertiary)] italic truncate">{sub}</span>}
+      {sub && <span className="text-[10px] text-[var(--text-tertiary)] italic truncate">{sub}</span>}
     </div>
   );
 }
 
 function StatChip({ label, icon }: { label: string; icon: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 brut-btn-ghost font-monob text-[10px] uppercase tracking-wider text-[var(--text-secondary)] select-none tabular-nums">
+    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 clay-inset rounded-full text-[10px] text-[var(--text-secondary)] font-bold select-none tabular-nums">
       <span className="opacity-70">{icon}</span>
       {label}
     </span>
@@ -1586,12 +1500,12 @@ function CardAction({
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`p-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+      className={`p-2 rounded-full transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
         danger
-          ? 'text-[var(--text-tertiary)] hover:text-red-500'
+          ? 'text-[var(--text-tertiary)] hover:text-red-500 hover:bg-red-50'
           : active
-          ? 'text-[var(--accent)]'
-          : 'text-[var(--text-tertiary)] hover:text-[var(--accent)]'
+          ? 'text-[var(--accent)] hover:bg-[var(--accent-subtle)]'
+          : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-black/5'
       }`}
     >
       {icon}
@@ -1615,20 +1529,23 @@ function EmptyState({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={spring}
-      className="brut-panel text-center py-14 px-6 flex flex-col items-center"
+      className="clay-card text-center py-14 px-6 rounded-[28px] flex flex-col items-center"
     >
-      <span className="w-14 h-14 brut-frame flex items-center justify-center text-[var(--text-tertiary)] mb-4">
+      <span className="w-14 h-14 rounded-3xl clay-inset flex items-center justify-center text-[var(--text-tertiary)] mb-4">
         {icon}
       </span>
-      <h4 className="font-bebas text-2xl uppercase tracking-wide text-[var(--text-primary)]">{title}</h4>
-      <p className="font-monob text-[11px] text-[var(--text-tertiary)] mt-2 max-w-xs mx-auto leading-relaxed">{body}</p>
+      <h4 className="text-sm font-bold text-[var(--text-primary)]">{title}</h4>
+      <p className="text-xs text-[var(--text-secondary)] mt-1.5 max-w-xs mx-auto leading-relaxed">{body}</p>
       {action && (
-        <button
+        <motion.button
           onClick={action.onClick}
-          className="brut-btn mt-5 px-5 h-11 font-monob text-[11px] font-bold uppercase tracking-[0.16em] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.97 }}
+          transition={spring}
+          className="mt-5 px-5 py-2.5 bg-[var(--accent)]/12 text-[var(--accent)] hover:bg-[var(--accent)]/20 border border-[var(--accent)]/15 text-xs font-extrabold rounded-full cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 shadow-sm"
         >
           {action.label}
-        </button>
+        </motion.button>
       )}
     </motion.div>
   );
