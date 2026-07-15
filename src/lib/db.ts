@@ -304,6 +304,30 @@ export async function getAllCanvasStates(): Promise<CanvasState[]> {
   return all.sort((a, b) => b.lastModified - a.lastModified);
 }
 
+/**
+ * Only the real, top-level canvases — the ones the landing gallery should list.
+ *
+ * A binder / heading opens a canvas-inside-a-canvas whose own state is keyed by
+ * the *object's* id (see InfiniteCanvas autosave, which persists the top of the
+ * canvas stack). Those nested sub-spaces are legitimate (they hold the sub-space
+ * camera + background) but they are NOT standalone canvases and must never show
+ * up on the landing page as separate cards. We detect them structurally: a
+ * canvas whose id is also an object id is a sub-space of that object. Reading
+ * just the object *keys* keeps this cheap (no image data URLs are loaded), and
+ * the structural test self-heals any duplicates already written to the DB.
+ */
+export async function getTopLevelCanvasStates(): Promise<CanvasState[]> {
+  const db = await getDB();
+  const [states, objectIds] = await Promise.all([
+    db.getAll('canvas'),
+    db.getAllKeys('objects'),
+  ]);
+  const nestedIds = new Set(objectIds as string[]);
+  return states
+    .filter((s) => !nestedIds.has(s.id))
+    .sort((a, b) => b.lastModified - a.lastModified);
+}
+
 export async function updateCanvasTheme(id: string, themeColor: string): Promise<void> {
   const db = await getDB();
   const state = await db.get('canvas', id);

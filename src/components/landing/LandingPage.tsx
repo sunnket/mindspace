@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { v4 as uuidv4 } from 'uuid';
 import {
-  getAllCanvasStates,
+  getTopLevelCanvasStates,
   CanvasState,
   CanvasObjectData,
   ConnectionData,
@@ -43,6 +43,15 @@ type SortMode = 'recent' | 'name' | 'cards';
 
 
 const spring = { type: 'spring' as const, stiffness: 260, damping: 26 };
+
+// The global `* { padding:0 }` reset is unlayered, so Tailwind's `p-*`/`px-*`
+// utilities are dead — text ends up flush against a card's rounded corner and
+// the curve clips the first/last glyphs. Inline padding is the one thing that
+// still wins (see the marginTop:'2cm' workaround below), so the card surfaces
+// that were relying on dead padding classes get their spacing set inline.
+const CARD_TEXT_PAD: React.CSSProperties = { paddingLeft: 14, paddingRight: 12, paddingBottom: 8 };
+const GRID_CARD_PAD: React.CSSProperties = { padding: 20 };
+const TABLE_CELL_PAD: React.CSSProperties = { padding: '16px 24px' };
 
 /* ============================================================
    Small helpers
@@ -301,7 +310,7 @@ export default function LandingPage() {
   /* ---------- data ---------- */
 
   const refresh = useCallback(async () => {
-    const wsStates = await getAllCanvasStates();
+    const wsStates = await getTopLevelCanvasStates();
     const wsWithStats = await Promise.all(
       wsStates.map(async (ws) => {
         const [objs, strokes, conns] = await Promise.all([
@@ -844,7 +853,7 @@ export default function LandingPage() {
                     <div className="clay-inset h-32 rounded-2xl relative overflow-hidden">
                       <CanvasMiniPreview objects={ws.objects} connections={ws.connections} width={220} height={128} />
                     </div>
-                    <div className="px-1.5 pb-1 flex justify-between items-center gap-2">
+                    <div className="flex justify-between items-center gap-2" style={CARD_TEXT_PAD}>
                       <div className="min-w-0">
                         <h4 className="text-[15px] font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent)] transition-colors tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
                           {ws.title || 'untitled canvas'}
@@ -1156,7 +1165,8 @@ export default function LandingPage() {
                           transition={spring}
                           whileHover={{ y: -4 }}
                           onClick={() => router.push(`/canvas?id=${ws.id}`)}
-                          className="clay-card rounded-3xl p-5 flex items-center justify-between group cursor-pointer relative"
+                          className="clay-card rounded-3xl flex items-center justify-between group cursor-pointer relative"
+                          style={GRID_CARD_PAD}
                         >
                           <div className="flex items-center gap-4 min-w-0 flex-1 pr-2">
                             <button
@@ -1279,11 +1289,11 @@ export default function LandingPage() {
                       <table className="w-full border-collapse text-left min-w-[640px]">
                         <thead>
                           <tr className="border-b border-[var(--border)] bg-[#FAF6F1]/60 dark:bg-white/5 text-[10px] uppercase font-extrabold tracking-[0.15em] text-[var(--text-secondary)] select-none">
-                            <th className="py-4 px-6">Title</th>
-                            <th className="py-4 px-6">Category</th>
-                            <th className="py-4 px-6">Contents</th>
-                            <th className="py-4 px-6">Edited</th>
-                            <th className="py-4 px-6 text-right">Actions</th>
+                            <th className="text-left" style={TABLE_CELL_PAD}>Title</th>
+                            <th className="text-left" style={TABLE_CELL_PAD}>Category</th>
+                            <th className="text-left" style={TABLE_CELL_PAD}>Contents</th>
+                            <th className="text-left" style={TABLE_CELL_PAD}>Edited</th>
+                            <th className="text-right" style={TABLE_CELL_PAD}>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1293,7 +1303,7 @@ export default function LandingPage() {
                               onClick={() => router.push(`/canvas?id=${ws.id}`)}
                               className="border-b border-[var(--border)] last:border-b-0 hover:bg-[#FAF6F1]/50 dark:hover:bg-white/5 cursor-pointer transition-colors group"
                             >
-                              <td className="py-4 px-6 font-semibold text-[16px] tracking-tight group-hover:text-[var(--accent)] transition-colors" style={{ fontFamily: "'Playfair Display', serif" }}>
+                              <td className="font-semibold text-[16px] tracking-tight group-hover:text-[var(--accent)] transition-colors" style={{ ...TABLE_CELL_PAD, fontFamily: "'Playfair Display', serif" }}>
                                 <span className="flex items-center gap-1.5">
                                   {ws.title || 'untitled canvas'}
                                   {ws.isFavorite && (
@@ -1303,16 +1313,16 @@ export default function LandingPage() {
                                   )}
                                 </span>
                               </td>
-                              <td className="py-4 px-6">
+                              <td style={TABLE_CELL_PAD}>
                                 <span className="px-2.5 py-1 rounded-full text-[9px] uppercase tracking-wider font-extrabold clay-inset text-[var(--text-secondary)]">
                                   {ws.category || 'personal'}
                                 </span>
                               </td>
-                              <td className="py-4 px-6 text-xs text-[var(--text-secondary)] tabular-nums">
+                              <td className="text-xs text-[var(--text-secondary)] tabular-nums" style={TABLE_CELL_PAD}>
                                 {ws.objectCount} cards · {ws.strokeCount} sketches · {ws.connectionCount} threads
                               </td>
-                              <td className="py-4 px-6 text-xs text-[var(--text-secondary)] tabular-nums">{getRelativeTime(ws.lastModified)}</td>
-                              <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                              <td className="text-xs text-[var(--text-secondary)] tabular-nums" style={TABLE_CELL_PAD}>{getRelativeTime(ws.lastModified)}</td>
+                              <td className="text-right" style={TABLE_CELL_PAD} onClick={(e) => e.stopPropagation()}>
                                 <div className="flex justify-end gap-0.5">
                                   {activeSidebarTab === 'deleted' ? (
                                     <>

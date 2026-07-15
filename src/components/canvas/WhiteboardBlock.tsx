@@ -272,6 +272,22 @@ export default function WhiteboardBlock({ obj }: { obj: CanvasObjectData }) {
   const stopDrag = (e: React.MouseEvent) => e.stopPropagation();
   const headerInk = boardIsDark ? 'text-white/85' : 'text-black/70';
 
+  // The settings pop-over floats on top of the whiteboard, whose background the
+  // user can set to anything (white → midnight). It used to inherit the canvas
+  // theme's translucent `--bg-glass` + dark `--text-primary`, so on a dark board
+  // it turned into a murky, near-illegible smear. Give it its own solid, board-
+  // aware surface (mirrors the marker tray's boardIsDark logic) so it stays sharp
+  // over any background. `padding` is inline because the global reset kills p-*.
+  const panelStyle: React.CSSProperties = {
+    padding: 12,
+    backgroundColor: boardIsDark ? 'rgba(30,30,32,0.97)' : 'rgba(255,255,255,0.98)',
+    color: boardIsDark ? 'rgba(255,255,255,0.92)' : 'rgba(24,24,27,0.92)',
+    border: boardIsDark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.12)',
+    boxShadow: '0 14px 34px rgba(0,0,0,0.32)',
+  };
+  const panelDivider = boardIsDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.10)';
+  const swatchBorder = boardIsDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.15)';
+
   return (
     <div
       ref={containerRef}
@@ -409,32 +425,36 @@ export default function WhiteboardBlock({ obj }: { obj: CanvasObjectData }) {
         {/* Background settings pop-over */}
         {showSettings && (
           <div
-            className="absolute top-2 right-2 w-56 p-3 rounded-xl border border-[var(--border)] shadow-xl bg-[var(--bg-glass)] backdrop-blur-md flex flex-col gap-2.5 z-20 text-[10px] text-[var(--text-primary)]"
+            className="absolute top-2 right-2 w-56 rounded-xl backdrop-blur-md flex flex-col gap-2.5 z-20 text-[10px]"
+            style={panelStyle}
             onMouseDown={stopDrag}
             onDoubleClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-[var(--text-secondary)]">Background:</span>
+              <span className="font-semibold" style={{ opacity: 0.72 }}>Background:</span>
               <div className="flex gap-1">
-                {BG_PRESETS.map((preset) => (
-                  <button
-                    key={preset.name}
-                    type="button"
-                    onClick={() => handleBgColorChange(preset.color)}
-                    title={preset.name}
-                    className={`w-5 h-5 rounded-md border cursor-pointer transition-transform hover:scale-110 ${bgColor.toLowerCase() === preset.color.toLowerCase() ? 'ring-2 ring-[var(--accent)] border-transparent' : 'border-black/15 dark:border-white/25'}`}
-                    style={{ backgroundColor: preset.color }}
-                  />
-                ))}
+                {BG_PRESETS.map((preset) => {
+                  const selected = bgColor.toLowerCase() === preset.color.toLowerCase();
+                  return (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      onClick={() => handleBgColorChange(preset.color)}
+                      title={preset.name}
+                      className={`w-5 h-5 rounded-md cursor-pointer transition-transform hover:scale-110 ${selected ? 'ring-2 ring-[var(--accent)]' : ''}`}
+                      style={{ backgroundColor: preset.color, border: selected ? '1px solid transparent' : `1px solid ${swatchBorder}` }}
+                    />
+                  );
+                })}
               </div>
             </div>
 
-            <hr className="border-[var(--border)]" />
+            <hr style={{ border: 'none', borderTop: `1px solid ${panelDivider}` }} />
 
             <div className="flex flex-col gap-1.5">
               <div className="flex justify-between items-center text-[9px]">
-                <span className="font-semibold text-[var(--text-secondary)]">RGB Editor:</span>
-                <span className="font-mono text-[var(--text-tertiary)] uppercase">{bgColor}</span>
+                <span className="font-semibold" style={{ opacity: 0.72 }}>RGB Editor:</span>
+                <span className="font-mono uppercase" style={{ opacity: 0.6 }}>{bgColor}</span>
               </div>
               <div className="space-y-1">
                 {(['r', 'g', 'b'] as const).map((ch) => (
