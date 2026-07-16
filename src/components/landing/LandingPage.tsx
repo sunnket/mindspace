@@ -52,6 +52,7 @@ const spring = { type: 'spring' as const, stiffness: 260, damping: 26 };
 const CARD_TEXT_PAD: React.CSSProperties = { paddingLeft: 14, paddingRight: 12, paddingBottom: 8 };
 const GRID_CARD_PAD: React.CSSProperties = { padding: 20 };
 const TABLE_CELL_PAD: React.CSSProperties = { padding: '16px 24px' };
+const CONTINUE_CARD_PAD: React.CSSProperties = { padding: 32 };
 // The "All canvases" control strip — sort button, grid/list segmented toggle,
 // category pills, count badges — all leaned on dead px-*/py-* utilities, so they
 // collapsed and jammed together ("gridlist"). Restore their spacing inline.
@@ -706,7 +707,7 @@ export default function LandingPage() {
                 transition={spring}
                 className="w-full"
               >
-                <div className="clay-card rounded-[28px] p-7 md:p-9 grid grid-cols-1 md:grid-cols-[3fr_2fr] gap-8 items-center relative overflow-hidden group">
+                <div className="clay-card rounded-[28px] grid grid-cols-1 md:grid-cols-[3fr_2fr] gap-8 items-center relative overflow-hidden group" style={CONTINUE_CARD_PAD}>
                   {/* soft accent bloom */}
                   <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-[radial-gradient(circle,rgba(var(--accent-rgb),0.10),transparent_65%)] pointer-events-none" />
 
