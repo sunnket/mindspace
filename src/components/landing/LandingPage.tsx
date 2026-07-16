@@ -53,6 +53,7 @@ const CARD_TEXT_PAD: React.CSSProperties = { paddingLeft: 14, paddingRight: 12, 
 const GRID_CARD_PAD: React.CSSProperties = { padding: 20 };
 const TABLE_CELL_PAD: React.CSSProperties = { padding: '16px 24px' };
 const CONTINUE_CARD_PAD: React.CSSProperties = { padding: 32 };
+const SEARCH_BAR_PAD: React.CSSProperties = { paddingLeft: 16, paddingRight: 8, paddingTop: 10, paddingBottom: 10 };
 // The "All canvases" control strip — sort button, grid/list segmented toggle,
 // category pills, count badges — all leaned on dead px-*/py-* utilities, so they
 // collapsed and jammed together ("gridlist"). Restore their spacing inline.
@@ -656,9 +657,13 @@ export default function LandingPage() {
             </div>
 
             <div className="flex items-center gap-3 shrink-0">
-              {/* Liquid-glass search */}
-              <div className="glass-bar relative flex items-center rounded-full pl-4 pr-2 py-2.5 w-full sm:w-80 focus-within:ring-2 focus-within:ring-[var(--accent)]/35 transition-shadow">
-                <span className="text-[var(--text-tertiary)] mr-2.5 shrink-0">{ICONS.search}</span>
+              {/* Recessed clay well — matches the sort button / layout toggle /
+                  category pills right below it. glass-bar's dark-theme tint
+                  (5% white) was nearly invisible against this page's default
+                  dark background, reading as flat/plain next to everything
+                  else's visible depth. */}
+              <div className="clay-inset relative flex items-center gap-2.5 rounded-full w-full sm:w-80 focus-within:ring-2 focus-within:ring-[var(--accent)]/35 transition-shadow" style={SEARCH_BAR_PAD}>
+                <span className="text-[var(--text-tertiary)] shrink-0">{ICONS.search}</span>
                 <input
                   ref={searchInputRef}
                   type="text"
