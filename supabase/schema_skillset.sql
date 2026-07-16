@@ -1,0 +1,22 @@
+-- ============================================================================
+-- Mindspace — Canvas Skill Sets migration (idempotent, safe to run repeatedly)
+-- ----------------------------------------------------------------------------
+-- Adds the per-canvas Skill Set: a persona + ordered rules the AI agent obeys
+-- inside that one canvas. It rides along with the canvas row (like scenes,
+-- threads and background) so it syncs and is protected by the SAME Row-Level
+-- Security already on public.canvases — no new policies are needed.
+--
+-- Run this in the Supabase SQL editor (or just re-run schema.sql, which now
+-- includes this column).
+--
+-- Shape stored in the jsonb column:
+--   {
+--     "enabled":  true,
+--     "persona":  "You are a patient physics tutor…",
+--     "rules":    [ { "id": "sr_ab12", "text": "Show all math in LaTeX.", "enabled": true } ],
+--     "presets":  [ "study-buddy" ],
+--     "updatedAt": 1750000000000
+--   }
+-- ============================================================================
+
+alter table public.canvases add column if not exists skillset jsonb;

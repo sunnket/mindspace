@@ -23,6 +23,9 @@ import LinkPreviewBlock from './LinkPreviewBlock';
 import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock, TimelineBlock } from './ExtensionBlocks';
 import WhiteboardBlock from './WhiteboardBlock';
 import BinderBlock from './BinderBlock';
+import MirrorBlock from './MirrorBlock';
+import { createPortal } from 'react-dom';
+import { ImageShape, imageShapeStyle, nextImageShape, IMAGE_SHAPE_LABEL } from '@/lib/imageShapes';
 
 /**
  * The DOM range at a viewport point. Two engines, two spellings: Firefox ships
@@ -438,6 +441,52 @@ function CommentBubble({ obj, isEditing, onStartEditing, onStopEditing }: Commen
 }
 
 
+/**
+ * A dimmed, full-page preview of an image at its natural proportions. Opened by
+ * the "full view" button on an image block and rendered through a portal to the
+ * document body, so it sits above the whole app rather than inside the scaled
+ * canvas. Closes on backdrop click, the ✕, or Esc.
+ */
+function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onMouseDown={onClose}
+      className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/80 backdrop-blur-sm cursor-zoom-out"
+    >
+      <button
+        onMouseDown={(e) => { e.stopPropagation(); onClose(); }}
+        aria-label="Close full view"
+        className="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+      <motion.img
+        src={src}
+        alt="Full view"
+        draggable={false}
+        initial={{ scale: 0.94 }}
+        animate={{ scale: 1 }}
+        exit={{ scale: 0.94 }}
+        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{ maxWidth: '92vw', maxHeight: '92vh', objectFit: 'contain' }}
+        className="rounded-lg shadow-2xl cursor-default select-none"
+      />
+    </motion.div>
+  );
+}
+
 interface CanvasObjectProps {
   obj: CanvasObjectData;
   isSelected: boolean;
@@ -468,6 +517,11 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  /** Full-screen image preview ("full view" frame button). */
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  /** True right after a real drag so the mouseup's click doesn't also cycle the
+   *  image/mirror shape. Reset on the next tick after the drag ends. */
+  const dragMovedRef = useRef(false);
 
   // ---- Embedded browser block state -------------------------------------
   const [browserUrlDraft, setBrowserUrlDraft] = useState('');
@@ -585,6 +639,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       const handleMouseMove = (moveE: MouseEvent) => {
         if (Math.abs(moveE.clientX - dragStart.current.x) > 8 || Math.abs(moveE.clientY - dragStart.current.y) > 8) {
           draggedFar = true;
+          dragMovedRef.current = true;
         }
         const inLeftCol = draggedFar && moveE.clientX < HOTZONE_W;
         // Frames/arrows can't be warped/sent meaningfully — neither has a
@@ -671,6 +726,9 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         setIsDragging(false);
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp, END_DRAG);
+        // Let the click that follows this mouseup see that we dragged (so it
+        // won't cycle the shape), then clear the flag for the next real tap.
+        if (dragMovedRef.current) setTimeout(() => { dragMovedRef.current = false; }, 0);
 
         const zone = document.getElementById('minimize-hotzone');
         const label = document.getElementById('minimize-hotzone-label');
@@ -1018,6 +1076,21 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         return;
       }
 
+      // Instagram-story "tap to cycle shapes": a tap on an already-selected
+      // image or camera-mirror advances it to the next mask (heart → star → …).
+      // The first click just selects (via handleMouseDown); a drag never counts
+      // as a tap (dragMovedRef). The store update broadcasts to collaborators,
+      // so a shape change is seen live by everyone.
+      if (obj.type === 'image' || obj.type === 'mirror') {
+        if (dragMovedRef.current) return;
+        if (isSelected && (obj.content || obj.type === 'mirror')) {
+          const shapeKey = obj.type === 'mirror' ? 'mirrorShape' : 'imageShape';
+          const next = nextImageShape(obj.style?.[shapeKey] as ImageShape | undefined);
+          updateObject(obj.id, { style: { ...obj.style, [shapeKey]: next } });
+        }
+        return;
+      }
+
       // If it's a pure click (no drag) and already selected, enter edit mode.
       // Functional blocks (poll, timer, …) edit through their own inline
       // inputs, so the contentEditable edit mode never applies to them.
@@ -1033,14 +1106,15 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
          somewhere else, watch it vanish, never having been given a chance to
          write in it. There is nothing to select on an empty block anyway. */
       const isBlank = !(obj.content || '').trim();
-      const canType = obj.type !== 'image' && !isFunctionalBlock;
+      // image & mirror already returned above (they tap-to-cycle, never type).
+      const canType = !isFunctionalBlock;
 
       if (canType && (isSelected || isBlank)) {
         caretPoint.current = { x: e.clientX, y: e.clientY };
         setEditingId(obj.id);
       }
     },
-    [mode, isEditing, isSelected, obj, setEditingId]
+    [mode, isEditing, isSelected, obj, setEditingId, updateObject, toggleConnectorSelection]
   );
 
   // Handle unified content saving. Compares against the LIVE stored content
@@ -3461,15 +3535,24 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         );
       }
 
-      case 'image':
+      case 'image': {
+        // Tap-to-cycle shape (heart, star, …). `original` keeps the rounded
+        // frame + contain fit; any real shape switches to a cover-fill clip with
+        // a shape-following shadow, so overflow must stay visible for that shadow.
+        const imageShape = (obj.style?.imageShape as ImageShape) || 'original';
+        const shaped = imageShape !== 'original';
         return (
-          <div className="image-block" style={{ width: '100%', height: '100%' }}>
+          <div
+            className={shaped ? 'w-full h-full' : 'image-block'}
+            style={{ width: '100%', height: '100%', overflow: shaped ? 'visible' : undefined }}
+          >
             {obj.content ? (
               <img
                 src={obj.content}
                 alt="Canvas image"
                 draggable={false}
                 style={{
+                  ...(shaped ? { width: '100%', height: '100%', ...imageShapeStyle(imageShape) } : {}),
                   transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
                 }}
               />
@@ -3480,6 +3563,10 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             )}
           </div>
         );
+      }
+
+      case 'mirror':
+        return <MirrorBlock obj={obj} />;
 
       default:
         return null;
@@ -3725,8 +3812,28 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           }`}
           style={getButtonsPosition()}
         >
+          {/* Full-view button — opens the whole, uncropped image in a lightbox.
+              Sits alongside the shape-tap so you can always see the original. */}
+          {obj.type === 'image' && obj.content && (
+            <motion.button
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="w-8 h-8 rounded-full bg-white dark:bg-white/10 border border-[var(--border)] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-all shadow-md"
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                setLightboxOpen(true);
+              }}
+              title="View full image"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" />
+              </svg>
+            </motion.button>
+          )}
+
           {/* Heart Button */}
-          {!obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && (
+          {!obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && obj.type !== 'mirror' && (
             <motion.button
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
@@ -3748,7 +3855,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           )}
 
           {/* Comment Button */}
-          {!obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && (
+          {!obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && obj.type !== 'mirror' && (
             <motion.button
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
@@ -3819,13 +3926,32 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
       {/* Comment Bubble (Attached & Movable) */}
       {obj.type !== 'shape' && obj.type !== 'arrow' && (obj.style?.comment !== undefined && obj.style?.comment !== null) && (
-        <CommentBubble 
-          obj={obj} 
+        <CommentBubble
+          obj={obj}
           isEditing={editingCommentId === obj.id}
           onStartEditing={() => setEditingCommentId(obj.id)}
           onStopEditing={() => setEditingCommentId(null)}
         />
       )}
+
+      {/* Tap-to-cycle hint — a quiet nudge under a selected image/mirror. */}
+      {(obj.type === 'image' || obj.type === 'mirror') && isSelected && !isDragging && !isResizing && (
+        <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 z-[101] pointer-events-none whitespace-nowrap px-2.5 py-1 rounded-full bg-black/55 backdrop-blur-sm text-[9px] font-bold uppercase tracking-widest text-white/90 shadow-md flex items-center gap-1.5">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9 11.5a2.5 2.5 0 1 1 5 0V13" /><path d="M12 2v2M2 12h2m16 0h2M5 5l1.5 1.5M19 5l-1.5 1.5" />
+          </svg>
+          Tap to cycle shape · {IMAGE_SHAPE_LABEL[((obj.type === 'mirror' ? obj.style?.mirrorShape : obj.style?.imageShape) as ImageShape) || 'original']}
+        </div>
+      )}
+
+      {/* Full-view lightbox — the whole, uncropped image over a dimmed page.
+          Rendered through a portal so the canvas transform never scales or
+          clips it. Click anywhere (or Esc) to close. */}
+      {lightboxOpen && obj.type === 'image' && obj.content && typeof document !== 'undefined' &&
+        createPortal(
+          <ImageLightbox src={obj.content} onClose={() => setLightboxOpen(false)} />,
+          document.body
+        )}
 
 
 

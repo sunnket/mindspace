@@ -8,6 +8,7 @@ import { screenToCanvas, clamp, fitImageBox } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import { ingestFile } from '@/lib/fileIngest';
 import { applyCanvasTheme, resetCanvasTheme, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
+import { IMAGE_SHAPE_CLIP, imageClipId } from '@/lib/imageShapes';
 import {
   saveObjects,
   saveStrokes,
@@ -30,6 +31,8 @@ import CommandPalette from '@/components/ui/CommandPalette';
 import PlusMenu from '@/components/ui/PlusMenu';
 import SlashCommandMenu from '@/components/ui/SlashCommandMenu';
 import AgentOverlay from '@/components/ui/AgentOverlay';
+import SkillSetPanel from '@/components/ui/SkillSetPanel';
+import { isSkillsetActive, activeRuleCount } from '@/lib/skillset';
 import SelectionPanel from '@/components/ui/SelectionPanel';
 import Minimap from '@/components/ui/Minimap';
 import CheckpointIndex from '@/components/ui/CheckpointIndex';
@@ -130,6 +133,9 @@ export default function InfiniteCanvas() {
   const setPlusMenuPos = useCanvasStore((s) => s.setPlusMenuPos);
   const workspaceTitle = useCanvasStore((s) => s.workspaceTitle);
   const setWorkspaceTitle = useCanvasStore((s) => s.setWorkspaceTitle);
+  const skillset = useCanvasStore((s) => s.skillset);
+  const setSkillset = useCanvasStore((s) => s.setSkillset);
+  const setSkillSetPanelOpen = useCanvasStore((s) => s.setSkillSetPanelOpen);
   const checkpoint = useCanvasStore((s) => s.checkpoint);
   const setCheckpoint = useCanvasStore((s) => s.setCheckpoint);
   const addToTrash = useCanvasStore((s) => s.addToTrash);
@@ -229,6 +235,8 @@ export default function InfiniteCanvas() {
         // Load this canvas's saved scenes + comment threads (reset when switching canvases)
         useCanvasStore.getState().setScenes(savedCamera?.scenes || []);
         useCanvasStore.getState().setThreads(savedCamera?.threads || []);
+        // Load this canvas's Skill Set (per-canvas agent rules); null when none.
+        setSkillset(savedCamera?.skillset || null);
         setLoaded(true);
       } catch (err) {
         console.error('Failed to load canvas data:', err);
@@ -236,7 +244,7 @@ export default function InfiniteCanvas() {
       }
     }
     load();
-  }, [canvasStack, setObjects, setStrokes, setCamera, setWorkspaceTitle, effectiveCanvasId, setCanvasBackground]);
+  }, [canvasStack, setObjects, setStrokes, setCamera, setWorkspaceTitle, effectiveCanvasId, setCanvasBackground, setSkillset]);
 
   // Save on unmount to prevent losing last-second pans or edits
   useEffect(() => {
@@ -257,6 +265,7 @@ export default function InfiniteCanvas() {
         background: state.canvasBackground,
         scenes: state.scenes,
         threads: state.threads,
+        skillset: state.skillset || undefined,
         lastModified: Date.now(),
       }).catch(err => console.error('Failed to save canvas state on unmount:', err));
 
@@ -279,6 +288,7 @@ export default function InfiniteCanvas() {
                   background: state.canvasBackground,
                   scenes: state.scenes,
                   threads: state.threads,
+                  skillset: state.skillset || undefined,
                   lastModified: Date.now(),
                 },
                 state.objects,
@@ -315,6 +325,7 @@ export default function InfiniteCanvas() {
             background: canvasBackground,
             scenes: useCanvasStore.getState().scenes,
             threads: useCanvasStore.getState().threads,
+            skillset: useCanvasStore.getState().skillset || undefined,
             lastModified: Date.now(),
           }),
         ]);
@@ -335,6 +346,7 @@ export default function InfiniteCanvas() {
               background: canvasBackground,
               scenes: useCanvasStore.getState().scenes,
               threads: useCanvasStore.getState().threads,
+              skillset: useCanvasStore.getState().skillset || undefined,
               lastModified: Date.now(),
             },
             objects,
@@ -1127,37 +1139,96 @@ export default function InfiniteCanvas() {
             <feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="3" seed="13" result="n" />
             <feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" />
           </filter>
+          {/* "Tap to cycle" clip masks for image & camera-mirror blocks.
+              objectBoundingBox units (0..1) so one clip fits any block size. */}
+          {(Object.keys(IMAGE_SHAPE_CLIP) as (keyof typeof IMAGE_SHAPE_CLIP)[]).map((shape) => {
+            const clip = IMAGE_SHAPE_CLIP[shape];
+            return (
+              <clipPath key={shape} id={imageClipId(shape)} clipPathUnits="objectBoundingBox">
+                {clip.kind === 'circle' ? (
+                  <circle cx="0.5" cy="0.5" r="0.5" />
+                ) : clip.kind === 'polygon' ? (
+                  <polygon points={clip.points} />
+                ) : (
+                  <path d={clip.d} />
+                )}
+              </clipPath>
+            );
+          })}
         </defs>
       </svg>
 
       {/* UI overlays */}
       <div className="fixed top-12 left-10 z-50 pointer-events-auto flex flex-col items-start">
-        {isEditingTitle ? (
-          <input
-            autoFocus
-            type="text"
-            value={workspaceTitle}
-            onChange={(e) => setWorkspaceTitle(e.target.value)}
-            onBlur={() => setIsEditingTitle(false)}
-            onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)}
-            className="bg-white/80 dark:bg-white/10 border-none outline-none text-2xl text-[var(--text-primary)] w-80 px-4 py-2 rounded-xl transition-all shadow-xl backdrop-blur-md"
-            placeholder="Untitled Workspace"
-            style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300 }}
-          />
-        ) : (
-          <button
-            onClick={() => setIsEditingTitle(true)}
-            className="group flex flex-col items-start text-left"
-          >
-            <h1 
-              className="text-2xl text-[var(--text-primary)] transition-all group-hover:text-[var(--accent)]"
-              style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300, letterSpacing: '-0.02em' }}
+        <div className="group/head flex items-center gap-2.5">
+          {isEditingTitle ? (
+            <input
+              autoFocus
+              type="text"
+              value={workspaceTitle}
+              onChange={(e) => setWorkspaceTitle(e.target.value)}
+              onBlur={() => setIsEditingTitle(false)}
+              onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)}
+              className="bg-white/80 dark:bg-white/10 border-none outline-none text-2xl text-[var(--text-primary)] w-80 px-4 py-2 rounded-xl transition-all shadow-xl backdrop-blur-md"
+              placeholder="Untitled Workspace"
+              style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300 }}
+            />
+          ) : (
+            <button
+              onClick={() => setIsEditingTitle(true)}
+              className="group flex flex-col items-start text-left"
             >
-              {truncatedTitle}
-            </h1>
-            <div className="h-px w-0 group-hover:w-full bg-[var(--accent)] transition-all duration-300 opacity-30" />
-          </button>
-        )}
+              <h1
+                className="text-2xl text-[var(--text-primary)] transition-all group-hover:text-[var(--accent)]"
+                style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 300, letterSpacing: '-0.02em' }}
+              >
+                {truncatedTitle}
+              </h1>
+              <div className="h-px w-0 group-hover:w-full bg-[var(--accent)] transition-all duration-300 opacity-30" />
+            </button>
+          )}
+
+          {/* Skill Set — hover the heading to reveal it; stays pinned while a
+              skill set is active so the user always knows one is applied. */}
+          {!isEditingTitle && (() => {
+            const skillActive = isSkillsetActive(skillset);
+            const ruleCount = activeRuleCount(skillset);
+            return (
+              <button
+                onClick={() => setSkillSetPanelOpen(true)}
+                title="Skill Set — rules the agent follows in this canvas"
+                className={`flex items-center gap-1.5 rounded-full border shadow-sm backdrop-blur-md transition-all duration-200 ${
+                  skillActive
+                    ? 'opacity-100 translate-x-0'
+                    : 'opacity-0 -translate-x-1 pointer-events-none group-hover/head:opacity-100 group-hover/head:translate-x-0 group-hover/head:pointer-events-auto'
+                }`}
+                style={{
+                  padding: '5px 11px',
+                  background: skillActive ? 'var(--accent-subtle)' : 'var(--bg-glass)',
+                  borderColor: skillActive ? 'rgba(var(--accent-rgb),0.4)' : 'var(--border)',
+                  color: skillActive ? 'var(--accent)' : 'var(--text-secondary)',
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                  <path d="M9 7h7M9 11h5" />
+                </svg>
+                <span className="text-[11px] font-semibold whitespace-nowrap" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  Skill Set
+                </span>
+                {skillActive && ruleCount > 0 && (
+                  <span
+                    className="flex items-center justify-center text-[9px] font-bold text-white rounded-full"
+                    style={{ minWidth: 15, height: 15, padding: '0 4px', background: 'var(--accent)' }}
+                  >
+                    {ruleCount}
+                  </span>
+                )}
+              </button>
+            );
+          })()}
+        </div>
         {canvasStack.length > 0 && (
           <button 
             onClick={() => popCanvas()}
@@ -1174,6 +1245,7 @@ export default function InfiniteCanvas() {
       <PlusMenu />
       <SlashCommandMenu />
       <AgentOverlay />
+      <SkillSetPanel />
       <SelectionPanel />
       <Minimap />
       <CheckpointIndex />

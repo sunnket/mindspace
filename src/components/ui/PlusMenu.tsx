@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { screenToCanvas, randomStickyColor } from '@/lib/utils';
 import { ingestFile } from '@/lib/fileIngest';
 import { newTimeline } from '@/lib/timeline';
+import { pendingCameraStart } from '@/components/canvas/MirrorBlock';
 
 // One consistent outline icon family for the insert menu
 function MenuIcon({ children }: { children: React.ReactNode }) {
@@ -177,6 +178,26 @@ export default function PlusMenu() {
           content: 'graph TD;\n    A[Start] --> B{Is it powerful?};\n    B -- Yes --> C[Awesome!];\n    B -- No --> D[Make it goated];',
           style: { isMermaid: true },
         });
+      },
+    },
+    {
+      icon: (<MenuIcon><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></MenuIcon>),
+      label: 'Camera Mirror',
+      action: () => {
+        // A live webcam framed on the canvas. Tap it to cycle its shape; in a
+        // collab session its feed streams to everyone in real time. Creating it
+        // is the user gesture getUserMedia needs, so flag it to auto-start.
+        const block = addObject({
+          type: 'mirror',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 280,
+          height: 340,
+          content: '',
+          style: { mirrorShape: 'original' },
+        });
+        pendingCameraStart.add(block.id);
+        useCanvasStore.getState().setSelectedId(block.id);
       },
     },
     {
