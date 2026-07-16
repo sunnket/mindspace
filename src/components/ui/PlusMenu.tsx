@@ -6,6 +6,7 @@ import { useCanvasStore } from '@/store/canvasStore';
 import { v4 as uuidv4 } from 'uuid';
 import { screenToCanvas, randomStickyColor } from '@/lib/utils';
 import { ingestFile } from '@/lib/fileIngest';
+import { createRepoBlock, ingestFolderPickerIntoBlock } from '@/lib/repoIngest';
 import { newTimeline } from '@/lib/timeline';
 import { pendingCameraStart } from '@/components/canvas/MirrorBlock';
 
@@ -233,6 +234,24 @@ export default function PlusMenu() {
           content: JSON.stringify(initialItems),
           style: { isTodo: true, todoTitle: 'todos' },
         });
+      },
+    },
+    {
+      icon: (<MenuIcon><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2Z" /><path d="M8 13h8" /><path d="M8 16h5" /></MenuIcon>),
+      label: 'Code Repo',
+      action: () => {
+        // A VS Code-style explorer: pick a folder now, or drop a folder/.zip
+        // onto the block. It reads the tree + source and browses like an editor.
+        const block = createRepoBlock(canvasPos.x, canvasPos.y);
+        const input = document.createElement('input');
+        input.type = 'file';
+        (input as HTMLInputElement & { webkitdirectory: boolean }).webkitdirectory = true;
+        input.multiple = true;
+        input.onchange = (e) => {
+          const files = (e.target as HTMLInputElement).files;
+          if (files && files.length) void ingestFolderPickerIntoBlock(block.id, files);
+        };
+        input.click();
       },
     },
     {

@@ -7,6 +7,7 @@ import { useCanvasStore } from '@/store/canvasStore';
 import { screenToCanvas, clamp, fitImageBox } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import { ingestFile } from '@/lib/fileIngest';
+import { collectDropEntries, hasDirectoryEntry, ingestDroppedFolder } from '@/lib/repoIngest';
 import { applyCanvasTheme, resetCanvasTheme, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 import { IMAGE_SHAPE_CLIP, imageClipId } from '@/lib/imageShapes';
 import {
@@ -803,6 +804,14 @@ export default function InfiniteCanvas() {
       e.preventDefault();
       const dt = e.dataTransfer;
       const origin = screenToCanvas(e.clientX, e.clientY, camera);
+
+      // 0) A dragged folder → a Code Repo explorer (file tree + syntax
+      //    highlighting). Entries must be read synchronously, before any await.
+      const dropEntries = collectDropEntries(dt);
+      if (hasDirectoryEntry(dropEntries)) {
+        void ingestDroppedFolder(dropEntries, origin.x, origin.y);
+        return;
+      }
 
       // 1) Real files (from disk) keep their rich file-ingest treatment.
       const files = Array.from(dt.files);

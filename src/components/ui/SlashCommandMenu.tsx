@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useCanvasStore } from '@/store/canvasStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { newTimeline } from '@/lib/timeline';
+import { ingestFolderPickerIntoBlock } from '@/lib/repoIngest';
 
 interface SlashItem {
   id: string;
@@ -254,6 +255,33 @@ const ITEMS: SlashItem[] = [
         style: { isVoiceNote: true, braindump: true, autoRecord: true },
       });
       setEditingId(null);
+    }
+  },
+  {
+    id: 'repo',
+    label: 'Code Repo',
+    sublabel: 'Browse a folder or .zip like a code editor — tree + highlighting',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2Z" /><path d="M8 13h8" /><path d="M8 16h5" /></svg>),
+    keywords: ['repo', 'folder', 'code', 'files', 'tree', 'explorer', 'project', 'directory', 'zip', 'source'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'card',
+        width: 760,
+        height: 500,
+        content: '',
+        style: { isRepo: true, repoStatus: 'empty' },
+      });
+      setEditingId(null);
+      // Offer the folder picker immediately (still inside the click gesture).
+      const input = document.createElement('input');
+      input.type = 'file';
+      (input as HTMLInputElement & { webkitdirectory: boolean }).webkitdirectory = true;
+      input.multiple = true;
+      input.onchange = (e) => {
+        const files = (e.target as HTMLInputElement).files;
+        if (files && files.length) void ingestFolderPickerIntoBlock(objectId, files);
+      };
+      input.click();
     }
   },
   {

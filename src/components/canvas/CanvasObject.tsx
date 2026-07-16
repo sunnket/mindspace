@@ -16,6 +16,7 @@ import MapBlock from './MapBlock';
 import WeatherBlock from './WeatherBlock';
 import RichText from './RichText';
 import CodeSandboxBlock from './CodeSandboxBlock';
+import RepoExplorerBlock from './RepoExplorerBlock';
 import QuoteBlock from './QuoteBlock';
 import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
@@ -2334,6 +2335,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <TodoBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isRepo) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <RepoExplorerBlock obj={obj} />
             </div>
           );
         }
