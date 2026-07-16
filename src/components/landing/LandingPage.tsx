@@ -704,9 +704,13 @@ export default function LandingPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
                 transition={spring}
-                className="w-full"
+                className="w-full flex justify-center"
               >
-                <div className="clay-card rounded-[28px] p-7 md:p-9 grid grid-cols-1 md:grid-cols-[3fr_2fr] gap-8 items-center relative overflow-hidden group">
+                {/* Trimmed horizontally to ~88% width instead of the full row —
+                    `width`/flex are real properties (unlike margin/padding,
+                    which the global reset kills), so this is a genuine narrower
+                    card, centered, not a no-op. */}
+                <div className="clay-card rounded-[28px] p-7 md:p-9 grid grid-cols-1 md:grid-cols-[3fr_2fr] gap-8 items-center relative overflow-hidden group w-[88%]">
                   {/* soft accent bloom */}
                   <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-[radial-gradient(circle,rgba(var(--accent-rgb),0.10),transparent_65%)] pointer-events-none" />
 
@@ -754,7 +758,7 @@ export default function LandingPage() {
                     onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
                     whileHover={{ scale: 1.015 }}
                     transition={spring}
-                    className="clay-inset w-full h-36 md:h-44 rounded-2xl overflow-hidden relative cursor-pointer"
+                    className="clay-inset w-full h-48 md:h-56 rounded-2xl overflow-hidden relative cursor-pointer"
                   >
                     <CanvasMiniPreview
                       objects={continueWorkspace.objects}
