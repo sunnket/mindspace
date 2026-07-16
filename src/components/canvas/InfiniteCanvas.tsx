@@ -8,6 +8,7 @@ import { screenToCanvas, clamp, fitImageBox } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import { ingestFile } from '@/lib/fileIngest';
 import { applyCanvasTheme, resetCanvasTheme, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
+import { IMAGE_SHAPE_CLIP, imageClipId } from '@/lib/imageShapes';
 import {
   saveObjects,
   saveStrokes,
@@ -1127,6 +1128,22 @@ export default function InfiniteCanvas() {
             <feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="3" seed="13" result="n" />
             <feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" />
           </filter>
+          {/* "Tap to cycle" clip masks for image & camera-mirror blocks.
+              objectBoundingBox units (0..1) so one clip fits any block size. */}
+          {(Object.keys(IMAGE_SHAPE_CLIP) as (keyof typeof IMAGE_SHAPE_CLIP)[]).map((shape) => {
+            const clip = IMAGE_SHAPE_CLIP[shape];
+            return (
+              <clipPath key={shape} id={imageClipId(shape)} clipPathUnits="objectBoundingBox">
+                {clip.kind === 'circle' ? (
+                  <circle cx="0.5" cy="0.5" r="0.5" />
+                ) : clip.kind === 'polygon' ? (
+                  <polygon points={clip.points} />
+                ) : (
+                  <path d={clip.d} />
+                )}
+              </clipPath>
+            );
+          })}
         </defs>
       </svg>
 

@@ -23,6 +23,8 @@ export interface PulseSenders {
   reaction: (emoji: string, x: number, y: number) => void;
   laser: (x: number, y: number, active: boolean) => void;
   presenter: (camera: Cam | null) => void;
+  /** Broadcast one downscaled JPEG frame for a live camera-mirror object. */
+  mirrorFrame: (objectId: string, frame: string) => void;
 }
 
 interface CollabState {
@@ -46,6 +48,8 @@ interface CollabState {
   lasers: Record<string, { x: number; y: number }>;
   presenter: PresenterState | null;
   following: boolean;
+  /** Latest received video frame per live camera-mirror object id (data URL). */
+  mirrorFrames: Record<string, string>;
 
   /** Set by the collab service so the canvas can push cursor positions without a dynamic import per move. */
   _cursorSender: ((x: number, y: number) => void) | null;
@@ -80,6 +84,8 @@ interface CollabState {
   _setLaser: (id: string, x: number, y: number) => void;
   _clearLaser: (id: string) => void;
   _setPresenter: (p: PresenterState | null) => void;
+  _setMirrorFrame: (objectId: string, frame: string) => void;
+  _clearMirrorFrame: (objectId: string) => void;
   _reset: () => void;
 }
 
@@ -101,6 +107,7 @@ export const useCollabStore = create<CollabState>((set, get) => ({
   lasers: {},
   presenter: null,
   following: false,
+  mirrorFrames: {},
   _cursorSender: null,
   _pulse: null,
 
@@ -208,11 +215,34 @@ export const useCollabStore = create<CollabState>((set, get) => ({
       return { lasers };
     }),
   _setPresenter: (presenter) =>
-    set((state) => ({
-      presenter,
-      // auto-follow a newly started presenter (unless it's me)
-      following: presenter && presenter.id !== state.me?.id ? true : false,
-    })),
+    set((state) => {
+      // Auto-follow only when a NEW presenter starts — not on every camera
+      // frame from the same presenter. Otherwise the ~60ms presenter updates
+      // would keep flipping `following` back to true, and a viewer who clicked
+      // "break free" could never actually break free while the presenter moved.
+      const startedNew =
+        !!presenter && presenter.id !== state.presenter?.id && presenter.id !== state.me?.id;
+      return {
+        presenter,
+        following: !presenter
+          ? false
+          : presenter.id === state.me?.id
+            ? false
+            : startedNew
+              ? true
+              : state.following,
+      };
+    }),
+
+  _setMirrorFrame: (objectId, frame) =>
+    set((state) => ({ mirrorFrames: { ...state.mirrorFrames, [objectId]: frame } })),
+  _clearMirrorFrame: (objectId) =>
+    set((state) => {
+      if (!(objectId in state.mirrorFrames)) return {};
+      const mirrorFrames = { ...state.mirrorFrames };
+      delete mirrorFrames[objectId];
+      return { mirrorFrames };
+    }),
 
   _addPeer: (peer) =>
     set((state) => {
@@ -278,6 +308,7 @@ export const useCollabStore = create<CollabState>((set, get) => ({
       lasers: {},
       presenter: null,
       following: false,
+      mirrorFrames: {},
       _cursorSender: null,
       _pulse: null,
     }),

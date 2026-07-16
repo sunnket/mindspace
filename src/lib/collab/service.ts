@@ -177,6 +177,14 @@ const pulseSenders = {
     const me = useCollabStore.getState().me;
     transport.send({ t: 'presenter', from: myId, name: me?.name || 'Presenter', camera });
   },
+  mirrorFrame: (objectId: string, frame: string) => {
+    // The MirrorBlock already paces its captures; a size guard is the only
+    // thing left — an oversized frame just gets dropped rather than killing
+    // the channel (Supabase broadcast caps payloads).
+    if (!transport) return;
+    if (frame.length > 200_000) return;
+    transport.send({ t: 'mirror-frame', from: myId, id: objectId, frame });
+  },
 };
 
 function sendSnapshot(toPeerId: string) {
@@ -238,6 +246,9 @@ function handleMessage(msg: WireMessage) {
     case 'presenter':
       if (msg.camera) collab._setPresenter({ id: msg.from, name: msg.name, camera: msg.camera });
       else collab._setPresenter(null);
+      break;
+    case 'mirror-frame':
+      collab._setMirrorFrame(msg.id, msg.frame);
       break;
   }
 }

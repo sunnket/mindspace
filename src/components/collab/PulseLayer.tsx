@@ -161,22 +161,37 @@ export default function PulseLayer() {
         </div>
       </div>
 
-      {/* Follow banner */}
+      {/* Follow banner — while someone else is presenting, either "break free"
+          (when following) or hop back on their view (when you've broken free).
+          Without the re-follow path, breaking free once left present mode
+          permanently un-rejoinable until the presenter restarted. */}
       <AnimatePresence>
-        {following && presenter && presenter.id !== me?.id && (
+        {presenter && presenter.id !== me?.id && (
           <motion.button
+            key={following ? 'following' : 'rejoin'}
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -20, opacity: 0 }}
-            onClick={() => setFollowing(false)}
+            onClick={() => setFollowing(!following)}
             className="fixed top-4 right-6 z-[140] glass-bar rounded-full pl-3 pr-4 py-2 flex items-center gap-2 pointer-events-auto cursor-pointer group"
           >
             <span className="relative flex w-2 h-2">
-              <span className="absolute inline-flex w-full h-full rounded-full opacity-60 animate-ping" style={{ background: presenter && peers[presenter.id]?.color }} />
-              <span className="relative inline-flex w-2 h-2 rounded-full" style={{ background: (presenter && peers[presenter.id]?.color) || 'var(--accent)' }} />
+              {following && (
+                <span className="absolute inline-flex w-full h-full rounded-full opacity-60 animate-ping" style={{ background: peers[presenter.id]?.color }} />
+              )}
+              <span className="relative inline-flex w-2 h-2 rounded-full" style={{ background: peers[presenter.id]?.color || 'var(--accent)' }} />
             </span>
-            <span className="text-[11px] font-bold text-[var(--text-primary)]">Following {presenter.name}</span>
-            <span className="text-[10px] text-[var(--text-tertiary)] group-hover:text-[var(--accent)]">— break free</span>
+            {following ? (
+              <>
+                <span className="text-[11px] font-bold text-[var(--text-primary)]">Following {presenter.name}</span>
+                <span className="text-[10px] text-[var(--text-tertiary)] group-hover:text-[var(--accent)]">— break free</span>
+              </>
+            ) : (
+              <>
+                <span className="text-[11px] font-bold text-[var(--text-primary)]">{presenter.name} is presenting</span>
+                <span className="text-[10px] text-[var(--accent)]">— follow</span>
+              </>
+            )}
           </motion.button>
         )}
       </AnimatePresence>

@@ -14,7 +14,7 @@ function isCollabSessionId(id?: string): boolean {
 
 export interface CanvasObjectData {
   id: string;
-  type: 'text' | 'sticky' | 'image' | 'drawing' | 'card' | 'heading' | 'shape' | 'arrow' | 'workflow-node' | 'frame' | 'browser';
+  type: 'text' | 'sticky' | 'image' | 'drawing' | 'card' | 'heading' | 'shape' | 'arrow' | 'workflow-node' | 'frame' | 'browser' | 'mirror';
   x: number;
   y: number;
   width: number;
