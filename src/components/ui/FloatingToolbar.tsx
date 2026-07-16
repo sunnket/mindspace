@@ -348,8 +348,7 @@ export default function FloatingToolbar() {
       </AnimatePresence>
 
       <motion.div
-        className="glass-panel flex items-center gap-1"
-        style={{ padding: '6px 8px' }}
+        className="glass-panel flex items-center gap-1 px-2 py-1.5"
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.3, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
