@@ -45,8 +45,8 @@ import ShortcutsOverlay from './ShortcutsOverlay';
 import MinimizeDock from './MinimizeDock';
 import WarpPortal from './WarpPortal';
 import ScenesPanel from './ScenesPanel';
-import MarginsLayer from './MarginsLayer';
 import ChatLauncher from '@/components/chat/ChatLauncher';
+import AgentChatPanel from '@/components/chat/AgentChatPanel';
 import CollabBar from '@/components/collab/CollabBar';
 import CollabCursors from '@/components/collab/CollabCursors';
 import CollabModal from '@/components/collab/CollabModal';
@@ -1281,9 +1281,10 @@ export default function InfiniteCanvas() {
       {/* Scenes: cinematic camera tours */}
       <ScenesPanel />
 
-      {/* Margins: spatial comment threads */}
-      <MarginsLayer />
+      {/* Human↔human DM chat (launched from the toolbar's Messages button) */}
       <ChatLauncher />
+      {/* AI agent chat — corner launcher + resizable right-side panel */}
+      <AgentChatPanel />
     </>
   );
 }

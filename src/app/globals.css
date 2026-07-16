@@ -715,3 +715,26 @@ html, body {
     radial-gradient(ellipse at 80% 20%, rgba(255, 255, 255, 0.015) 0%, transparent 50%),
     radial-gradient(ellipse at 50% 80%, rgba(255, 255, 255, 0.015) 0%, transparent 50%);
 }
+
+/* ---- AI Agent chat panel ------------------------------------------------- */
+/* Reveal an assistant message's actions (Add to canvas / Copy) on hover. These
+   rules carry real specificity, so they win over the unlayered `*` reset. */
+.agent-msg:hover .agent-msg-actions { opacity: 1 !important; }
+
+/* Markdown rendered inside an assistant bubble — restore the spacing the global
+   reset zeroes out (higher specificity than `*`, so these apply). */
+.agent-md p { margin: 0 0 8px; }
+.agent-md p:last-child { margin-bottom: 0; }
+.agent-md ul, .agent-md ol { margin: 4px 0 8px; padding-left: 20px; }
+.agent-md ul { list-style: disc; }
+.agent-md ol { list-style: decimal; }
+.agent-md li { margin: 3px 0; }
+.agent-md h1 { font-size: 17px; font-weight: 700; margin: 12px 0 6px; }
+.agent-md h2 { font-size: 15px; font-weight: 700; margin: 12px 0 6px; }
+.agent-md h3 { font-size: 13.5px; font-weight: 700; margin: 10px 0 5px; }
+.agent-md h1:first-child, .agent-md h2:first-child, .agent-md h3:first-child { margin-top: 0; }
+.agent-md pre { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,0.28); overflow-x: auto; }
+.agent-md :not(pre) > code { background: rgba(0,0,0,0.08); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+.agent-md pre code { background: none; padding: 0; color: #e6e9ef; }
+.agent-md blockquote { margin: 8px 0; padding: 4px 12px; border-left: 3px solid var(--accent); opacity: 0.9; }
+.agent-md a { color: var(--accent); text-decoration: underline; }

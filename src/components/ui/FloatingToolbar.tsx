@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, InteractionMode } from '@/store/canvasStore';
+import { useChatStore, useChatUnreadTotal } from '@/store/chatStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import WorkflowMenu from './WorkflowMenu';
@@ -136,11 +137,13 @@ export default function FloatingToolbar() {
   const camera = useCanvasStore((s) => s.camera);
   const checkpoint = useCanvasStore((s) => s.checkpoint);
   const setCheckpoint = useCanvasStore((s) => s.setCheckpoint);
-  const commentMode = useCanvasStore((s) => s.commentMode);
   const setCommentMode = useCanvasStore((s) => s.setCommentMode);
-  const threadsSidebarOpen = useCanvasStore((s) => s.threadsSidebarOpen);
   const setThreadsSidebarOpen = useCanvasStore((s) => s.setThreadsSidebarOpen);
-  const openThreadCount = useCanvasStore((s) => s.threads.filter((t) => !t.resolved).length);
+  // Human↔human DM chat now lives in the toolbar (replacing the old thread pins).
+  const chatPanelOpen = useChatStore((s) => s.panelOpen);
+  const openChat = useChatStore((s) => s.openPanel);
+  const closeChat = useChatStore((s) => s.closePanel);
+  const chatUnread = useChatUnreadTotal();
 
   const [showDrawOptions, setShowDrawOptions] = useState(false);
   const [showAdvancedDraw, setShowAdvancedDraw] = useState(false);
@@ -478,61 +481,26 @@ export default function FloatingToolbar() {
           </span>
         </motion.button>
 
-        {/* Threads — add a pin / view all threads */}
+        {/* Messages — human↔human DM chat (moved here from the corner; replaces
+            the old thread pins, which are gone). */}
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={() => {
-            const next = !commentMode;
-            closeAllPanels();
-            setThreadsSidebarOpen(false);
-            setCommentMode(next);
-          }}
-          className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
-            commentMode
-              ? 'text-[var(--accent)]'
-              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-          }`}
-          title="Add a thread"
-        >
-          {commentMode && (
-            <motion.span
-              layoutId="toolbar-active"
-              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-              className="absolute inset-0 rounded-lg clay-inset"
-            />
-          )}
-          <span className="relative flex items-center justify-center">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M17.2 6.6 15 4.4M14.2 3.6l6.2 6.2" />
-              <path d="M15.6 5 9.9 8.1a2 2 0 0 0-.9 2.4l.6 1.6-3.7 3.7 6.3 6.3" opacity="0" />
-              <path d="M16.4 5.8 10.3 8.6a1.8 1.8 0 0 0-.9 2.3l1 2.2-4.1 4.1" />
-              <path d="M18.2 7.6l-2.5 6.4a1.8 1.8 0 0 1-2.4 1l-2.1-1" />
-              <path d="M5.4 18.6 3 21" />
-            </svg>
-          </span>
-          {openThreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 rounded-full bg-[var(--accent)] text-white text-[8px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">{openThreadCount}</span>
-          )}
-        </motion.button>
-
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => {
-            const next = !threadsSidebarOpen;
             closeAllPanels();
             setCommentMode(false);
-            setThreadsSidebarOpen(next);
+            setThreadsSidebarOpen(false);
+            if (chatPanelOpen) closeChat();
+            else openChat();
           }}
           className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
-            threadsSidebarOpen
+            chatPanelOpen
               ? 'text-[var(--accent)]'
               : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
           }`}
-          title="All threads"
+          title="Messages"
         >
-          {threadsSidebarOpen && (
+          {chatPanelOpen && (
             <motion.span
               layoutId="toolbar-active"
               transition={{ type: 'spring', stiffness: 380, damping: 30 }}
@@ -540,12 +508,20 @@ export default function FloatingToolbar() {
             />
           )}
           <span className="relative flex items-center justify-center">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20.4 12.4a1.9 1.9 0 0 1-1.9 1.9H9.6L6 17.6V6.3a1.9 1.9 0 0 1 1.9-1.9h10.6a1.9 1.9 0 0 1 1.9 1.9Z" />
-              <path d="M3 8.6v9.8a1.9 1.9 0 0 0 1.9 1.9h9.7" opacity="0.45" />
-              <path d="M9.6 8.3h7.2M9.6 11.1h4.4" opacity="0.8" />
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <defs>
+                <mask id="toolbar-chat-bubble-mask">
+                  <rect x="0" y="0" width="24" height="24" fill="white" />
+                  <path d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292" fill="black" stroke="black" strokeWidth="3.5" />
+                </mask>
+              </defs>
+              <path d="M18.85 12C18.9484 11.5153 19 11.0137 19 10.5C19 6.35786 15.6421 3 11.5 3C7.35786 3 4 6.35786 4 10.5C4 11.3766 4.15039 12.2181 4.42676 13C5.50098 16.0117 3 18 3 18H9.5" mask="url(#toolbar-chat-bubble-mask)" />
+              <path d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292" />
             </svg>
           </span>
+          {chatUnread > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 rounded-full bg-[var(--accent)] text-white text-[8px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">{chatUnread}</span>
+          )}
         </motion.button>
 
         {/* Separator */}

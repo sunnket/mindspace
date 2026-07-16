@@ -634,6 +634,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       let overMinimizeZone = false;
       let overWarpZone = false;
       let overChatZone = false;
+      let overAgentChatZone = false;
       let draggedFar = false;
       const HOTZONE_W = 210;
 
@@ -653,6 +654,19 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const canWarp = warpable && !useCollabStore.getState().guestOriginView;
         overMinimizeZone = inLeftCol && moveE.clientY >= 72 && moveE.clientY < 232;
         overWarpZone = canWarp && inLeftCol && moveE.clientY >= 240 && moveE.clientY < 404;
+
+        // Dropping a block onto the AI agent chat adds it as context there.
+        const agentPanel = document.getElementById('agent-chat-panel');
+        if (agentPanel && warpable && draggedFar) {
+          const rect = agentPanel.getBoundingClientRect();
+          overAgentChatZone = moveE.clientX >= rect.left && moveE.clientX <= rect.right &&
+                              moveE.clientY >= rect.top && moveE.clientY <= rect.bottom;
+          agentPanel.style.boxShadow = overAgentChatZone
+            ? '0 0 0 2px var(--accent), 0 24px 60px -12px rgba(0,0,0,0.35)'
+            : '0 24px 60px -12px rgba(0,0,0,0.35)';
+        } else {
+          overAgentChatZone = false;
+        }
 
         const chatPanel = document.getElementById('chat-panel-container');
         if (chatPanel && warpable && draggedFar) {
@@ -742,9 +756,24 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         
         const chatPanel = document.getElementById('chat-panel-container');
         if (chatPanel) chatPanel.style.transform = 'scale(1)';
+        const agentPanelEl = document.getElementById('agent-chat-panel');
+        if (agentPanelEl) agentPanelEl.style.boxShadow = '0 24px 60px -12px rgba(0,0,0,0.35)';
 
         if (overMinimizeZone) {
           useCanvasStore.getState().minimizeObject(dragObj.id);
+          return;
+        }
+
+        // Drop onto the AI agent chat → attach the block as context there.
+        if (overAgentChatZone) {
+          updateObject(dragObj.id, { x: before.x, y: before.y });
+          const label = (dragObj.content || '').split('\n')[0].trim().slice(0, 60) || dragObj.type;
+          window.dispatchEvent(new CustomEvent('agent-chat-add-block', {
+            detail: {
+              snapshot: { type: dragObj.type, content: dragObj.content, width: dragObj.width, height: dragObj.height, style: dragObj.style },
+              label,
+            },
+          }));
           return;
         }
 
