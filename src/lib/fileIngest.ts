@@ -171,10 +171,13 @@ export async function extractTextForBlock(objId: string): Promise<string> {
 
   patchStyle(objId, { fileTextStatus: 'reading', fileError: '' });
 
+  // Never let a slow/hung parser (e.g. a malformed .doc) spin forever.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
   try {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch('/api/file-extract', { method: 'POST', body: form });
+    const res = await fetch('/api/file-extract', { method: 'POST', body: form, signal: controller.signal });
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -203,8 +206,13 @@ export async function extractTextForBlock(objId: string): Promise<string> {
       fileMeta: data.meta || {},
     });
     return data.text || '';
-  } catch {
-    patchStyle(objId, { fileTextStatus: 'error', fileError: 'Extraction failed — check your connection.' });
+  } catch (e) {
+    const msg = (e as Error)?.name === 'AbortError'
+      ? 'Reading timed out — the file may be too large or complex.'
+      : 'Extraction failed — check your connection.';
+    patchStyle(objId, { fileTextStatus: 'error', fileError: msg });
     return '';
+  } finally {
+    clearTimeout(timer);
   }
 }

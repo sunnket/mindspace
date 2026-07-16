@@ -36,8 +36,11 @@ function viewerKindOf(ext: string, mime: string): ViewerKind {
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'apng'].includes(e) || mime.startsWith('image/')) return 'image';
   if (['mp4', 'webm', 'ogv', 'mov', 'm4v', 'mkv'].includes(e) || mime.startsWith('video/')) return 'video';
   if (['mp3', 'wav', 'ogg', 'oga', 'm4a', 'aac', 'flac', 'opus'].includes(e) || mime.startsWith('audio/')) return 'audio';
-  if (TEXT_EXTS.has(e) || mime.startsWith('text/') || mime.includes('json') || mime.includes('xml') || mime.includes('javascript')) return 'text';
-  if (OFFICE_EXTS.has(e) || /word|excel|powerpoint|opendocument|officedocument/i.test(mime)) return 'office';
+  // Office MUST be checked before text: OOXML mimes contain the substring "xml"
+  // (application/vnd.openxmlformats-officedocument…), so the text branch below
+  // would otherwise grab a .docx and render its raw zip bytes as gibberish.
+  if (OFFICE_EXTS.has(e) || /msword|wordprocessingml|spreadsheetml|presentationml|ms-excel|ms-powerpoint|opendocument|officedocument/i.test(mime)) return 'office';
+  if (TEXT_EXTS.has(e) || mime.startsWith('text/') || mime === 'application/json' || mime === 'application/xml' || mime.endsWith('+xml') || mime.includes('javascript')) return 'text';
   return 'none';
 }
 
@@ -69,12 +72,12 @@ function metaLine(style: Record<string, unknown>): string {
 }
 
 const OPEN_SIZE: Record<ViewerKind, { w: number; h: number }> = {
-  pdf: { w: 560, h: 720 },
-  office: { w: 520, h: 660 },
+  pdf: { w: 720, h: 900 },
+  office: { w: 560, h: 700 },
   image: { w: 520, h: 560 },
-  video: { w: 580, h: 380 },
+  video: { w: 620, h: 400 },
   audio: { w: 380, h: 210 },
-  text: { w: 560, h: 640 },
+  text: { w: 580, h: 680 },
   none: { w: 360, h: 280 },
 };
 
@@ -100,6 +103,8 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
   const readerFontSize = (style.readerFontSize as number) || 13;
 
   const [busy, setBusy] = React.useState(false); // Ask AI extraction in flight
+  const [asking, setAsking] = React.useState(false); // query composer open
+  const [query, setQuery] = React.useState('');
   const [mediaUrl, setMediaUrl] = React.useState('');
   const [decoded, setDecoded] = React.useState<string | null>(null);
 
@@ -166,21 +171,29 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
     if (file) setTimeout(() => URL.revokeObjectURL(href), 4000);
   };
 
-  const askAgent = async () => {
+  // Run the agent on this file. An empty query = a general briefing; otherwise
+  // the agent answers the USER's own question, grounded strictly in the file.
+  const runAsk = async (rawQuery: string) => {
     if (busy) return;
     setBusy(true);
     try {
       const body = text || (await extractTextForBlock(obj.id));
       if (!body) return; // error surfaced on the block
+      const q = rawQuery.trim();
+      const prompt = q
+        ? `Answer this question about the attached file "${name}": “${q}”. Use ONLY the file's real content as your source, build a clear, well-structured answer on the canvas, and if the answer isn't in the file, say so plainly rather than guessing.`
+        : `Read the attached file "${name}" in full and build a clear, well-structured briefing on the canvas about it — a heading with the file name, a concise summary, the key points, any links or figures, and (if it's code) what it does. Ground everything strictly in the file's real content.`;
       window.dispatchEvent(new CustomEvent('run-agent', {
         detail: {
-          prompt: `Read the attached file "${name}" in full and build a clear, well-structured briefing on the canvas about it — a heading with the file name, a concise summary, the key points, any links or figures, and (if it's code) what it does. Ground everything strictly in the file's real content.`,
+          prompt,
           apiKeyIndex: 0,
           x: obj.x + obj.width + 90,
           y: obj.y,
           filesContext: `FILE: ${name}\n${body}`,
         },
       }));
+      setAsking(false);
+      setQuery('');
     } finally {
       setBusy(false);
     }
@@ -201,6 +214,43 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
   const readerText = viewer === 'office' ? text : (decoded ?? '');
   const isCsv = viewer === 'text' && (ext === 'csv' || ext === 'tsv');
   const isCode = viewer === 'text' && CODE_EXTS.has(ext) && !isCsv;
+
+  // The query composer: the user types their OWN question about the file.
+  const composer = (
+    <div className="flex items-center gap-1.5 w-full" onMouseDown={stop}>
+      <input
+        autoFocus
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); runAsk(query); }
+          else if (e.key === 'Escape') { e.preventDefault(); setAsking(false); setQuery(''); }
+        }}
+        placeholder="Ask anything about this file…"
+        className="flex-1 min-w-0 rounded-full bg-[var(--well)] text-[12.5px] text-[var(--text-primary)] outline-none border border-[var(--border)] focus:border-[var(--accent)] placeholder:text-[var(--text-tertiary)]"
+        style={{ padding: '8px 13px', fontFamily: "'Outfit', sans-serif" }}
+      />
+      <button
+        onClick={() => runAsk(query)}
+        disabled={busy}
+        title={query.trim() ? 'Ask' : 'Brief me on this file'}
+        className="shrink-0 flex items-center justify-center rounded-full text-white shadow-sm cursor-pointer disabled:opacity-60 active:scale-95 transition-transform"
+        style={{ width: 32, height: 32, background: 'var(--accent)' }}
+      >
+        {busy
+          ? <span className="rounded-full border-2 border-white border-t-transparent animate-spin" style={{ width: 12, height: 12 }} />
+          : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>}
+      </button>
+      <button
+        onClick={() => { setAsking(false); setQuery(''); }}
+        title="Cancel"
+        className="shrink-0 flex items-center justify-center rounded-full bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+        style={{ width: 30, height: 30 }}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+      </button>
+    </div>
+  );
 
   // ---- shared shells --------------------------------------------------------
   const shell = 'w-full h-full rounded-2xl bg-[rgba(255,252,248,0.72)] dark:bg-[rgba(30,28,26,0.72)] backdrop-blur-2xl border border-white/40 dark:border-white/10 shadow-lg flex flex-col overflow-hidden group select-none pointer-events-auto';
@@ -252,8 +302,8 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
           <button onClick={download} onMouseDown={stop} title="Download" className="flex items-center justify-center rounded-lg bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer" style={{ width: 28, height: 26 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
           </button>
-          <button onClick={askAgent} onMouseDown={stop} disabled={busy} title="Read with AI" className="flex items-center gap-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-[var(--accent)] transition-colors cursor-pointer disabled:opacity-50" style={{ padding: '5px 9px', background: 'var(--accent-subtle)', border: '1px solid rgba(var(--accent-rgb),0.3)' }}>
-            {busy ? <span className="rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" style={{ width: 11, height: 11 }} /> : <SparkleIcon size={11} />} AI
+          <button onClick={() => setAsking((v) => !v)} onMouseDown={stop} disabled={busy} title="Ask the AI about this file" className={`flex items-center gap-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50 ${asking ? 'text-white' : 'text-[var(--accent)]'}`} style={{ padding: '5px 9px', background: asking ? 'var(--accent)' : 'var(--accent-subtle)', border: '1px solid rgba(var(--accent-rgb),0.3)' }}>
+            {busy ? <span className="rounded-full border-2 border-current border-t-transparent animate-spin" style={{ width: 11, height: 11 }} /> : <SparkleIcon size={11} />} AI
           </button>
           <button onClick={closeReader} onMouseDown={stop} title="Close" className="flex items-center justify-center rounded-lg bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer" style={{ width: 28, height: 26 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -270,7 +320,10 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
         <div className="flex-1 min-h-0 relative" onMouseDown={stop}>
           {viewer === 'pdf' && (
             mediaUrl
-              ? <iframe src={mediaUrl} className="w-full h-full border-0 bg-white" title={name} />
+              /* #view=FitH → fit each page to the card WIDTH (one readable page
+                 per row, not the tiny 2-up spread the viewer defaults to);
+                 navpanes=0 hides the thumbnail rail for more reading room. */
+              ? <iframe src={`${mediaUrl}#view=FitH&navpanes=0`} className="w-full h-full border-0 bg-white" title={name} />
               : <NoBytes onDownload={download} hasContent={false} />
           )}
 
@@ -347,6 +400,13 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
 
           {viewer === 'none' && <NoBytes onDownload={download} hasContent={Boolean(obj.content?.startsWith('data:') || getFileForBlock(obj.id))} label={label} color={color} />}
         </div>
+
+        {/* Query composer, pinned to the bottom of the viewer */}
+        {asking && (
+          <div className="shrink-0 border-t border-[var(--border)] bg-[var(--bg-glass)]" style={{ padding: '9px 10px' }}>
+            {composer}
+          </div>
+        )}
       </div>
     );
   }
@@ -371,40 +431,46 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
         <div className="text-[11px] text-red-500/80 leading-relaxed shrink-0" style={{ padding: '0 14px 6px' }}>{fileError}</div>
       )}
 
-      <div className="flex items-center gap-2 shrink-0" style={{ padding: '2px 14px 13px', marginTop: 'auto' }}>
-        <button
-          onClick={(e) => { stop(e); openReader(); }}
-          onMouseDown={stop}
-          className="flex items-center gap-1.5 rounded-full text-[10px] font-bold tracking-wider uppercase transition-all active:scale-95 cursor-pointer shadow-sm"
-          style={{ padding: '7px 13px', background: canPreview ? 'var(--accent-subtle)' : 'var(--well)', border: canPreview ? '1px solid rgba(var(--accent-rgb),0.3)' : '1px solid var(--border)', color: canPreview ? 'var(--accent)' : 'var(--text-secondary)' }}
-          title={canPreview ? 'Open an embedded preview' : 'Open details'}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
-          Open
-        </button>
+      {asking ? (
+        <div className="flex items-center shrink-0" style={{ padding: '2px 12px 12px', marginTop: 'auto' }}>
+          {composer}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 shrink-0" style={{ padding: '2px 14px 13px', marginTop: 'auto' }}>
+          <button
+            onClick={(e) => { stop(e); openReader(); }}
+            onMouseDown={stop}
+            className="flex items-center gap-1.5 rounded-full text-[10px] font-bold tracking-wider uppercase transition-all active:scale-95 cursor-pointer shadow-sm"
+            style={{ padding: '7px 13px', background: canPreview ? 'var(--accent-subtle)' : 'var(--well)', border: canPreview ? '1px solid rgba(var(--accent-rgb),0.3)' : '1px solid var(--border)', color: canPreview ? 'var(--accent)' : 'var(--text-secondary)' }}
+            title={canPreview ? 'Open an embedded preview' : 'Open details'}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+            Open
+          </button>
 
-        <button
-          onClick={(e) => { stop(e); askAgent(); }}
-          onMouseDown={stop}
-          disabled={busy}
-          title="Let the agent read this file and brief you"
-          className="flex items-center gap-1.5 rounded-full text-[10px] font-bold tracking-wider uppercase transition-all active:scale-95 cursor-pointer shadow-sm disabled:cursor-wait"
-          style={{ padding: '7px 13px', background: 'var(--accent)', color: '#fff', border: '1px solid rgba(var(--accent-rgb),0.5)', opacity: busy ? 0.7 : 1 }}
-        >
-          {busy ? <span className="rounded-full border-2 border-white border-t-transparent animate-spin" style={{ width: 11, height: 11 }} /> : <SparkleIcon size={12} />}
-          {busy ? 'Reading' : 'Ask AI'}
-        </button>
+          <button
+            onClick={(e) => { stop(e); setAsking(true); }}
+            onMouseDown={stop}
+            disabled={busy}
+            title="Ask the AI a question about this file"
+            className="flex items-center gap-1.5 rounded-full text-[10px] font-bold tracking-wider uppercase transition-all active:scale-95 cursor-pointer shadow-sm disabled:cursor-wait"
+            style={{ padding: '7px 13px', background: 'var(--accent)', color: '#fff', border: '1px solid rgba(var(--accent-rgb),0.5)', opacity: busy ? 0.7 : 1 }}
+          >
+            {busy ? <span className="rounded-full border-2 border-white border-t-transparent animate-spin" style={{ width: 11, height: 11 }} /> : <SparkleIcon size={12} />}
+            {busy ? 'Reading' : 'Ask AI'}
+          </button>
 
-        <button
-          onClick={(e) => { stop(e); download(); }}
-          onMouseDown={stop}
-          title="Download file"
-          className="flex items-center justify-center rounded-full bg-white/60 dark:bg-white/5 border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] transition-all shadow-sm active:scale-95 cursor-pointer"
-          style={{ width: 30, height: 30, marginLeft: 'auto' }}
-        >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
-        </button>
-      </div>
+          <button
+            onClick={(e) => { stop(e); download(); }}
+            onMouseDown={stop}
+            title="Download file"
+            className="flex items-center justify-center rounded-full bg-white/60 dark:bg-white/5 border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] transition-all shadow-sm active:scale-95 cursor-pointer"
+            style={{ width: 30, height: 30, marginLeft: 'auto' }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
