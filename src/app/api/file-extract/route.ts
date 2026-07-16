@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRequire } from 'module';
+import path from 'path';
+import fs from 'fs';
+import { pathToFileURL } from 'url';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -30,6 +33,25 @@ const { PDFParse } = require('pdf-parse');
 const mammoth = require('mammoth');
 const WordExtractor = require('word-extractor');
 const JSZip = require('jszip');
+
+/* pdf-parse loads its pdf.js worker with a bare `import("./pdf.worker.mjs")`.
+   Because pdf-parse is a serverExternalPackage its code runs as REAL Node (not
+   through the bundler), so pinning workerSrc to the worker's true absolute path
+   as a file:// URL makes import() succeed on Windows AND on serverless Linux —
+   sidestepping both the bundler's virtualized resolution and the file tracer
+   dropping the .mjs. We derive the path from process.cwd() (NOT the bundler's
+   virtualized require.resolve) and only pin it when the file actually exists, so
+   a wrong guess can never override a working default. */
+try {
+  const candidates = [
+    path.join(process.cwd(), 'node_modules', 'pdf-parse', 'dist', 'pdf-parse', 'cjs', 'pdf.worker.mjs'),
+    path.join(process.cwd(), 'node_modules', 'pdf-parse', 'dist', 'pdf-parse', 'esm', 'pdf.worker.mjs'),
+  ];
+  const workerPath = candidates.find((p) => fs.existsSync(p));
+  if (workerPath) PDFParse.setWorker(pathToFileURL(workerPath).href);
+} catch (e) {
+  console.error('Could not pin pdf.worker.mjs path:', e);
+}
 
 /**
  * Universal file reader. The canvas agent is text-based, so when the user drops
