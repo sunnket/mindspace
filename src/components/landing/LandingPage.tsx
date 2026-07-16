@@ -65,6 +65,47 @@ const MENU_PAD: React.CSSProperties = { padding: 6 };               // sort drop
 const MENU_ITEM_PAD: React.CSSProperties = { padding: '8px 12px' }; // sort dropdown items
 
 /* ============================================================
+   Wordmark font tryout — tap "canvabrains" to cycle candidates.
+   Every family here is already loaded app-wide (the Google Fonts @import
+   in globals.css, plus Instrument Serif via layout.tsx's <link>), so
+   cycling is instant with no extra network requests. `italic` is only set
+   for families actually meant to be read slanted — forcing italic on a
+   display/script face that has no italic cut just triggers a faux-oblique
+   skew in most browsers, which looks broken.
+   ============================================================ */
+const WORDMARK_FONTS: { name: string; family: string; italic?: boolean }[] = [
+  { name: 'Instrument Serif', family: "'Instrument Serif', serif", italic: true },
+  { name: 'Playfair Display', family: "'Playfair Display', serif" },
+  { name: 'Lora', family: "'Lora', serif" },
+  { name: 'Merriweather', family: "'Merriweather', serif" },
+  { name: 'Cinzel', family: "'Cinzel', serif" },
+  { name: 'Cinzel Decorative', family: "'Cinzel Decorative', serif" },
+  { name: 'Abril Fatface', family: "'Abril Fatface', serif" },
+  { name: 'Dancing Script', family: "'Dancing Script', cursive" },
+  { name: 'Caveat', family: "'Caveat', cursive" },
+  { name: 'Pacifico', family: "'Pacifico', cursive" },
+  { name: 'Sacramento', family: "'Sacramento', cursive" },
+  { name: 'Shadows Into Light', family: "'Shadows Into Light', cursive" },
+  { name: 'Gloria Hallelujah', family: "'Gloria Hallelujah', cursive" },
+  { name: 'Architects Daughter', family: "'Architects Daughter', cursive" },
+  { name: 'Pinyon Script', family: "'Pinyon Script', cursive" },
+  { name: 'Amatic SC', family: "'Amatic SC', sans-serif" },
+  { name: 'Permanent Marker', family: "'Permanent Marker', cursive" },
+  { name: 'Bebas Neue', family: "'Bebas Neue', sans-serif" },
+  { name: 'Anton', family: "'Anton', sans-serif" },
+  { name: 'Oswald', family: "'Oswald', sans-serif" },
+  { name: 'Montserrat', family: "'Montserrat', sans-serif" },
+  { name: 'Quicksand', family: "'Quicksand', sans-serif" },
+  { name: 'Comfortaa', family: "'Comfortaa', sans-serif" },
+  { name: 'Fredoka', family: "'Fredoka', sans-serif" },
+  { name: 'Outfit', family: "'Outfit', sans-serif" },
+  { name: 'Righteous', family: "'Righteous', sans-serif" },
+  { name: 'Poiret One', family: "'Poiret One', sans-serif" },
+  { name: 'Special Elite', family: "'Special Elite', monospace" },
+];
+const WORDMARK_FONT_KEY = 'canvabrains_wordmark_font_index';
+
+/* ============================================================
    Small helpers
    ============================================================ */
 
@@ -278,6 +319,7 @@ export default function LandingPage() {
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [wordmarkFontIndex, setWordmarkFontIndex] = useState(0);
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState('');
@@ -327,6 +369,14 @@ export default function LandingPage() {
         setCategories(JSON.parse(storedCategories));
       } catch {
         // default
+      }
+    }
+
+    const storedFontIndex = localStorage.getItem(WORDMARK_FONT_KEY);
+    if (storedFontIndex) {
+      const parsed = parseInt(storedFontIndex, 10);
+      if (!Number.isNaN(parsed) && parsed >= 0 && parsed < WORDMARK_FONTS.length) {
+        setWordmarkFontIndex(parsed);
       }
     }
 
@@ -395,6 +445,14 @@ export default function LandingPage() {
   const saveCategories = (newCats: string[]) => {
     setCategories(newCats);
     localStorage.setItem('mindspace_categories', JSON.stringify(newCats));
+  };
+
+  const cycleWordmarkFont = () => {
+    setWordmarkFontIndex((i) => {
+      const next = (i + 1) % WORDMARK_FONTS.length;
+      localStorage.setItem(WORDMARK_FONT_KEY, String(next));
+      return next;
+    });
   };
 
   const addCategory = () => {
@@ -526,6 +584,8 @@ export default function LandingPage() {
 
   /* ---------- derived data ---------- */
 
+  const currentWordmarkFont = WORDMARK_FONTS[wordmarkFontIndex] || WORDMARK_FONTS[0];
+
   const nonDeleted = workspaces.filter((w) => !w.deleted && !w.archived);
 
   const continueWorkspace = nonDeleted.length > 0
@@ -642,16 +702,32 @@ export default function LandingPage() {
           {/* Header */}
           <header className="flex flex-col lg:flex-row lg:justify-between lg:items-end gap-6 w-full">
             <div className="min-w-0 flex items-center gap-3.5">
-              {/* Wordmark */}
+              {/* Wordmark — tap the name to try the next candidate font;
+                  choice persists to localStorage (WORDMARK_FONT_KEY). */}
               <div className="w-12 h-12 rounded-2xl clay-inset flex items-center justify-center shrink-0" aria-hidden="true">
-                <span className="text-[var(--accent)] text-[26px] italic leading-none" style={{ fontFamily: "'Instrument Serif', serif" }}>c</span>
+                <span
+                  className={`text-[var(--accent)] text-[26px] leading-none ${currentWordmarkFont.italic ? 'italic' : ''}`}
+                  style={{ fontFamily: currentWordmarkFont.family }}
+                >
+                  c
+                </span>
               </div>
               <div className="min-w-0 flex flex-col gap-1.5">
-                <h1 className="text-3xl md:text-[2.6rem] italic font-light tracking-tight leading-none" style={{ fontFamily: "'Instrument Serif', serif" }}>
+                <h1
+                  onClick={cycleWordmarkFont}
+                  title={`Font: ${currentWordmarkFont.name} — tap to try another`}
+                  className={`text-3xl md:text-[2.6rem] font-light tracking-tight leading-none cursor-pointer hover:text-[var(--accent)] transition-colors ${currentWordmarkFont.italic ? 'italic' : ''}`}
+                  style={{ fontFamily: currentWordmarkFont.family }}
+                >
                   canvabrains
                 </h1>
                 <p className="text-[11px] font-semibold text-[var(--text-tertiary)] tabular-nums tracking-wide select-none">
-                  {getFormattedDate()}
+                  {/* mx-2 on the separators is margin, so it's dead under the
+                      reset — literal spaces around the dot are the fix, same
+                      as everywhere else spacing had to become "real". */}
+                  {getFormattedDate()}{' · '}
+                  <span className="opacity-80">{currentWordmarkFont.name}</span>{' · '}
+                  <span className="italic opacity-60">tap the name to try another font</span>
                 </p>
               </div>
             </div>

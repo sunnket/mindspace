@@ -176,17 +176,24 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
             </AnimatePresence>
           </div>
         ) : (
-          /* Guest: Sign In Button */
-          <div className="flex items-center gap-2">
+          /* Guest: Sign In / Sign Up — clay-inset (recessed well, matches the
+             search bar/sort button) for the secondary action, and a bolder
+             tinted-accent pill with a real glow for the primary one. Both were
+             using px-4/py-1.5, which is dead under the app-wide unlayered
+             `* { padding:0 }` reset, so they rendered as cramped, nearly-flat
+             pills — padding is inline here for that reason, not style. */
+          <div className="flex items-center gap-2.5">
             <button
               onClick={() => handleOpenAuth('signin')}
-              className="glass-panel px-4 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] hover:shadow-sm transition-all focus:outline-none cursor-pointer"
+              style={{ padding: '8px 18px' }}
+              className="clay-inset rounded-full text-[12px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all focus:outline-none cursor-pointer"
             >
               Sign In
             </button>
             <button
               onClick={() => handleOpenAuth('signup')}
-              className="bg-[var(--accent)]/12 text-[var(--accent)] hover:bg-[var(--accent)]/20 border border-[var(--accent)]/15 px-4 py-1.5 text-xs font-extrabold rounded-xl transition-all shadow-sm focus:outline-none cursor-pointer"
+              style={{ padding: '8px 18px' }}
+              className="bg-[var(--accent)]/15 text-[var(--accent)] hover:bg-[var(--accent)]/25 border border-[var(--accent)]/25 text-[12px] font-extrabold rounded-full transition-all shadow-[0_8px_20px_-8px_rgba(var(--accent-rgb),0.5)] focus:outline-none cursor-pointer"
             >
               Sign Up
             </button>
