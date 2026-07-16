@@ -606,10 +606,19 @@ export default function LandingPage() {
       <div className="noise-overlay" />
 
       {/* ---------- Floating clay dock ---------- */}
+      {/* The dock was rendering flush against x=0 — `ml-4` never did anything
+          (one more casualty of the unlayered `* { margin:0 }` reset in
+          globals.css; see mindspace-tailwind-margin-reset memory), so the
+          44px-square icon buttons' clickable area started right at the true
+          edge of the browser, easy to fat-finger. Nudged 24px in via inline
+          marginLeft (the one thing that beats the reset) — comfortably inside
+          the aside's existing 92px lane (nav itself is only ~46px wide), so
+          nothing else in the layout needs to move. */}
       <aside className="w-[92px] h-screen sticky top-0 z-40 flex items-center shrink-0">
         <nav
           aria-label="Main navigation"
-          className="clay-card ml-4 rounded-[26px] py-5 px-2.5 flex flex-col items-center gap-1.5 max-h-[calc(100vh-48px)]"
+          style={{ marginLeft: 24 }}
+          className="clay-card rounded-[26px] py-5 px-2.5 flex flex-col items-center gap-1.5 max-h-[calc(100vh-48px)]"
         >
           <DockButton label="Home" active={activeSidebarTab === 'home'} onClick={() => setActiveSidebarTab('home')} icon={ICONS.home} />
           <DockButton label="Favorites" active={activeSidebarTab === 'favorites'} onClick={() => setActiveSidebarTab('favorites')} icon={ICONS.heart} />
@@ -633,11 +642,11 @@ export default function LandingPage() {
             <div className="min-w-0 flex items-center gap-3.5">
               {/* Wordmark */}
               <div className="w-12 h-12 rounded-2xl clay-inset flex items-center justify-center shrink-0" aria-hidden="true">
-                <span className="text-[var(--accent)] text-[26px] italic leading-none" style={{ fontFamily: "'Instrument Serif', serif" }}>m</span>
+                <span className="text-[var(--accent)] text-[26px] italic leading-none" style={{ fontFamily: "'Instrument Serif', serif" }}>c</span>
               </div>
               <div className="min-w-0 flex flex-col gap-1.5">
                 <h1 className="text-3xl md:text-[2.6rem] italic font-light tracking-tight leading-none" style={{ fontFamily: "'Instrument Serif', serif" }}>
-                  mindspace
+                  canvabrains
                 </h1>
                 <p className="text-[11px] font-semibold text-[var(--text-tertiary)] tabular-nums tracking-wide select-none">
                   {getFormattedDate()}
@@ -713,8 +722,8 @@ export default function LandingPage() {
                     <div className="min-w-0">
                       <h2
                         onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
-                        className="text-3xl md:text-[2.6rem] leading-[1.05] italic text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors truncate"
-                        style={{ fontFamily: "'Instrument Serif', serif" }}
+                        className="text-3xl md:text-4xl leading-[1.05] font-semibold tracking-tight text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors truncate"
+                        style={{ fontFamily: "'Playfair Display', serif" }}
                       >
                         {continueWorkspace.title || 'untitled canvas'}
                       </h2>
@@ -1348,21 +1357,6 @@ export default function LandingPage() {
           </footer>
         </div>
       </main>
-
-      {/* ---------- FAB ---------- */}
-      <motion.button
-        onClick={openNewCanvas}
-        whileHover={{ scale: 1.08, y: -2 }}
-        whileTap={{ scale: 0.92 }}
-        transition={spring}
-        aria-label="Create new canvas"
-        className="fixed bottom-8 right-24 w-14 h-14 rounded-full bg-[var(--accent)]/12 text-[var(--accent)] border border-[var(--accent)]/15 flex items-center justify-center z-50 cursor-pointer shadow-[0_12px_24px_-8px_rgba(var(--accent-rgb),0.3)] hover:bg-[var(--accent)]/20 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
-      >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </motion.button>
     </div>
   );
 }

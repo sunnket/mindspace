@@ -9,10 +9,10 @@ export default function DocsPage() {
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-light)] flex items-center justify-center text-white text-sm font-semibold shadow-md">
-              M
+              C
             </div>
             <Link href="/" className="text-base font-medium text-[var(--text-primary)] hover:text-[var(--accent)] transition-colors">
-              Mindspace
+              Canvabrains
             </Link>
           </div>
           <Link href="/docs" className="text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
@@ -31,7 +31,7 @@ export default function DocsPage() {
           Documentation
         </h1>
         <p className="text-lg text-[var(--text-secondary)] font-light mb-16 leading-relaxed">
-          Welcome to the Mindspace documentation. Learn how to navigate your infinite thinking space, use keyboard shortcuts, and organize your creative worlds.
+          Welcome to the Canvabrains documentation. Learn how to navigate your infinite thinking space, use keyboard shortcuts, and organize your creative worlds.
         </p>
 
         <section className="mb-16">

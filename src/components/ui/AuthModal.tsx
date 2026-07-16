@@ -267,7 +267,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'signin' }: A
             <div className="text-center mt-6 pt-4 border-t border-black/5 text-xs text-[var(--text-muted)] font-light">
               {mode === 'signin' && (
                 <p>
-                  New to Mindspace?{' '}
+                  New to Canvabrains?{' '}
                   <button onClick={() => setMode('signup')} className="text-[var(--accent)] hover:underline font-normal">
                     Create an account
                   </button>

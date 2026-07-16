@@ -3,7 +3,7 @@ import "./globals.css";
 import AuthProvider from "@/components/providers/AuthProvider";
 
 export const metadata: Metadata = {
-  title: "Mindspace — Your Infinite Thinking Space",
+  title: "Canvabrains — Your Infinite Thinking Space",
   description: "An infinite canvas for creative thinking. Draw, write, and organize your thoughts in a beautiful spatial mind space. No sign up required.",
   keywords: ["infinite canvas", "thinking space", "creative tool", "drawing", "notes", "spatial thinking"],
 };
