@@ -348,7 +348,8 @@ export default function FloatingToolbar() {
       </AnimatePresence>
 
       <motion.div
-        className="glass-panel flex items-center gap-1 px-2 py-1.5"
+        className="glass-panel flex items-center gap-1"
+        style={{ padding: '6px 8px' }}
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.3, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
@@ -586,9 +587,10 @@ export default function FloatingToolbar() {
       <AnimatePresence>
         {showDrawOptions && mode === 'draw' && (
           <motion.div
-            className={`glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-              showAdvancedDraw 
-                ? 'w-[840px] max-w-[95vw]' 
+            style={{ padding: 16 }}
+            className={`glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+              showAdvancedDraw
+                ? 'w-[840px] max-w-[95vw]'
                 : 'w-[270px]'
             }`}
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -606,13 +608,14 @@ export default function FloatingToolbar() {
                 </div>
 
                 {/* Tool Switcher */}
-                <div className="flex bg-[var(--bg-tertiary)] p-1 rounded-lg border border-[var(--border)] gap-1 shrink-0">
+                <div className="flex bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border)] gap-1 shrink-0" style={{ padding: 3 }}>
                   <button
                     onClick={() => {
                       setEraserMode(false);
                       setHighlighterMode(false);
                     }}
-                    className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                    style={{ padding: '6px 8px' }}
+                    className={`flex-1 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                       !eraserMode && !highlighterMode
                         ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -629,7 +632,8 @@ export default function FloatingToolbar() {
                       setHighlighterMode(true);
                       setEraserMode(false);
                     }}
-                    className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                    style={{ padding: '6px 8px' }}
+                    className={`flex-1 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                       highlighterMode
                         ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -646,7 +650,8 @@ export default function FloatingToolbar() {
                       setEraserMode(true);
                       setHighlighterMode(false);
                     }}
-                    className={`flex-1 py-1.5 px-2 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                    style={{ padding: '6px 8px' }}
+                    className={`flex-1 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                       eraserMode
                         ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -1128,7 +1133,8 @@ export default function FloatingToolbar() {
             {/* Toggle advanced settings button */}
             <button
               onClick={() => setShowAdvancedDraw(!showAdvancedDraw)}
-              className="mt-0.5 py-1.5 px-3 rounded-lg bg-[rgba(var(--accent-rgb),0.08)] hover:bg-[rgba(var(--accent-rgb),0.13)] text-[var(--accent)] text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 w-full"
+              style={{ padding: '7px 12px' }}
+              className="rounded-lg bg-[rgba(var(--accent-rgb),0.08)] hover:bg-[rgba(var(--accent-rgb),0.13)] text-[var(--accent)] text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 w-full"
             >
               <span>{showAdvancedDraw ? 'Simple Settings' : 'Advanced Mode →'}</span>
             </button>
@@ -1142,14 +1148,15 @@ export default function FloatingToolbar() {
       <AnimatePresence>
         {showShapeOptions && mode === 'shape' && (
           <motion.div
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[280px]"
+            style={{ padding: 16 }}
+            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 min-w-[280px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider px-1">Shape Domain</span>
+              <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">Shape Domain</span>
               {/* Category tabs */}
               <div className="flex flex-wrap gap-1 border-b border-[var(--border)] pb-2 mb-1">
                 {[
@@ -1164,7 +1171,8 @@ export default function FloatingToolbar() {
                   <button
                     key={domain.id}
                     onClick={() => setSelectedShapeDomain(domain.id as typeof selectedShapeDomain)}
-                    className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${
+                    style={{ padding: '4px 9px' }}
+                    className={`rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
                       selectedShapeDomain === domain.id
                         ? 'bg-[var(--accent)] text-white shadow-sm font-bold'
                         : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
@@ -1509,13 +1517,14 @@ export default function FloatingToolbar() {
       <AnimatePresence>
         {showFrameOptions && mode === 'frame' && (
           <motion.div
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[240px]"
+            style={{ padding: 16 }}
+            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 min-w-[240px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
-            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider px-1">
+            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
               Frame color
             </span>
             <div className="flex gap-1.5 justify-center">
@@ -1552,13 +1561,14 @@ export default function FloatingToolbar() {
       <AnimatePresence>
         {showRelaxOptions && mode === 'relax' && (
           <motion.div
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[240px]"
+            style={{ padding: 16 }}
+            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 min-w-[240px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
-            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider px-1">
+            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
               Stress Reliefer
             </span>
 
@@ -1574,7 +1584,8 @@ export default function FloatingToolbar() {
                       // Get out of the way immediately — the canvas is the point.
                       setShowRelaxOptions(false);
                     }}
-                    className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-lg border transition-all ${
+                    style={{ padding: '10px 8px' }}
+                    className={`flex flex-col items-center gap-1 rounded-lg border transition-all cursor-pointer ${
                       active
                         ? 'bg-[var(--accent-subtle)] text-[var(--accent)] border-[var(--accent-light)] shadow-sm'
                         : 'bg-transparent text-[var(--text-secondary)] border-transparent hover:bg-[var(--bg-tertiary)]'
@@ -1600,7 +1611,8 @@ export default function FloatingToolbar() {
       <AnimatePresence>
         {showBgOptions && (
           <motion.div
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4"
+            style={{ padding: 16 }}
+            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
