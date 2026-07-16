@@ -118,7 +118,10 @@ function SceneList({ onPlay }: { onPlay: () => void }) {
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={{ opacity: 0, x: -12, scale: 0.97 }}
       transition={spring}
-      className="clay-card w-72 max-h-[70vh] rounded-[24px] p-4 flex flex-col gap-3 overflow-hidden"
+      // Inline padding: Tailwind p-* is dead here (global `* { padding:0 }`
+      // reset wins), and with zero padding the rounded corner clips the "S".
+      style={{ padding: 16 }}
+      className="clay-card w-72 max-h-[70vh] rounded-[24px] flex flex-col gap-3 overflow-hidden"
     >
       <div className="flex items-center justify-between shrink-0">
         <h3 className="text-[11px] uppercase font-extrabold tracking-[0.16em] text-[var(--text-secondary)]">Scenes</h3>

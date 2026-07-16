@@ -293,15 +293,17 @@ const PRESET_PALETTES = [
 
 const renderTemplateIcon = (id: string) => {
   const props = {
-    width: "20",
-    height: "20",
+    width: "18",
+    height: "18",
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
-    strokeWidth: "2",
+    strokeWidth: "1.9",
     strokeLinecap: "round",
     strokeLinejoin: "round",
-    className: "text-[var(--accent)] shrink-0"
+    // Neutral outline like the Plus menu — inherits the row's text colour and
+    // warms to the accent on hover, instead of being a permanently orange icon.
+    className: "text-[var(--text-secondary)] group-hover:text-[var(--accent)] transition-colors shrink-0"
   } as const;
 
   switch (id) {
@@ -538,9 +540,9 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
   }, [selectedCategory, favorites]);
 
   return (
-    <div className="workflow-menu glass-panel p-5 max-w-[420px] w-full text-sm font-sans flex flex-col gap-4 max-h-[82vh] overflow-y-auto select-none pointer-events-auto border border-[var(--border)] shadow-xl bg-[var(--bg-glass)]">
+    <div style={{ padding: 20 }} className="workflow-menu glass-panel max-w-[420px] w-full text-sm font-sans flex flex-col gap-4 max-h-[82vh] overflow-y-auto select-none pointer-events-auto border border-[var(--border)] shadow-xl bg-[var(--bg-glass)]">
       {/* Title */}
-      <div className="flex items-center justify-between pb-2 border-b border-[var(--border)]">
+      <div className="flex items-center justify-between border-b border-[var(--border)]" style={{ paddingBottom: 10 }}>
         <div>
           <h3 className="font-semibold text-base text-[var(--text-primary)] flex items-center gap-2">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--accent)]">
@@ -562,13 +564,14 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* AI Workflow generator — describe anything, get a full end-to-end build */}
-      <div className="relative overflow-hidden rounded-xl border p-3 flex flex-col gap-2.5"
+      <div className="relative overflow-hidden rounded-xl border flex flex-col gap-2.5"
         style={{
+          padding: 14,
           borderColor: 'rgba(var(--accent-rgb), 0.35)',
           background: 'linear-gradient(135deg, var(--accent-subtle) 0%, rgba(var(--accent-rgb),0.02) 60%, transparent 100%)',
         }}>
-             <div className="flex items-start gap-2 pt-1.5">
-          <span className="mt-2 shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-[var(--accent)] text-white shadow-sm">
+        <div className="flex items-start gap-2.5">
+          <span className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-[var(--accent)] text-white shadow-sm">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z" />
               <path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2z" />
@@ -593,13 +596,15 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
           }}
           rows={3}
           placeholder="e.g. A full go-to-market plan for a B2B SaaS launch — research, build, beta, marketing, launch, and post-launch loops…"
-          className="w-full resize-none text-xs leading-relaxed p-2.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent)] transition"
+          style={{ padding: '10px 12px' }}
+          className="w-full resize-none text-xs leading-relaxed rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent)] transition"
         />
 
         <button
           onClick={handleGenerateAI}
           disabled={!aiPrompt.trim()}
-          className={`w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+          style={{ padding: '9px 0' }}
+          className={`w-full rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
             aiPrompt.trim()
               ? 'bg-[var(--accent)] text-white shadow-sm hover:shadow-md hover:brightness-105 cursor-pointer'
               : 'bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] cursor-not-allowed'
@@ -624,7 +629,8 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
           <button
             key={cat}
             onClick={() => setSelectedCategory(cat)}
-            className={`px-2 py-1 rounded-full text-[10px] uppercase tracking-wider font-semibold transition border cursor-pointer ${
+            style={{ padding: '5px 11px' }}
+            className={`rounded-full text-[10px] uppercase tracking-wider font-semibold transition border cursor-pointer ${
               selectedCategory === cat
                 ? 'bg-[var(--accent)]/70 border-[var(--accent)]/75 text-white/90 shadow-sm'
                 : 'bg-[var(--bg-card)] border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
@@ -638,7 +644,7 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
       {/* Presets List */}
       <div className="flex flex-col gap-2 max-h-[260px] overflow-y-auto pr-1">
         {filteredTemplates.length === 0 ? (
-          <div className="py-8 text-center text-xs text-[var(--text-tertiary)] italic bg-[var(--bg-card)] rounded-lg border border-[var(--border)]">
+          <div className="text-center text-xs text-[var(--text-tertiary)] italic bg-[var(--bg-card)] rounded-lg border border-[var(--border)]" style={{ padding: '28px 12px' }}>
             No workflow templates found
           </div>
         ) : (
@@ -648,17 +654,22 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
               <div
                 key={template.id}
                 onClick={() => handleSpawn(template)}
-                className="group p-2.5 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent-light)] transition flex items-center justify-between cursor-pointer shadow-sm hover:shadow-md hover:-translate-y-0.5"
+                style={{ padding: '10px 12px' }}
+                className="group rounded-xl border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent-light)] hover:bg-[var(--bg-tertiary)] transition-all flex items-center justify-between gap-3 cursor-pointer"
               >
-                <div className="flex items-center gap-3">
-                  {renderTemplateIcon(template.id)}
-                  <div>
-                    <h4 className="font-semibold text-xs text-[var(--text-primary)]">{template.name}</h4>
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center bg-[var(--bg-secondary)] group-hover:bg-[var(--accent)]/10 transition-colors">
+                    {renderTemplateIcon(template.id)}
+                  </span>
+                  <div className="min-w-0">
+                    <h4 className="font-semibold text-xs text-[var(--text-primary)] truncate">{template.name}</h4>
+                    <p className="text-[10px] text-[var(--text-tertiary)] leading-tight truncate">{template.description}</p>
                   </div>
                 </div>
                 <button
                   onClick={(e) => toggleFavorite(template.id, e)}
-                  className="p-1 hover:scale-110 transition cursor-pointer"
+                  style={{ padding: 4 }}
+                  className="shrink-0 hover:scale-110 transition cursor-pointer"
                 >
                   {isFav ? (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-red-500">
@@ -678,14 +689,15 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
 
       {/* Spelled out Canvas Selection context */}
       {spawnedWorkflowsOnCanvas.length > 0 && (
-        <div className="flex flex-col gap-2 p-3 bg-[var(--bg-card)] rounded-xl border border-[var(--border)]">
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-secondary)] mb-1">
+        <div className="flex flex-col gap-2 bg-[var(--bg-card)] rounded-xl border border-[var(--border)]" style={{ padding: 12 }}>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
             Active Workflow Target
           </label>
           <select
             value={activeWorkflowId || ''}
             onChange={(e) => setActiveWorkflowId(e.target.value || null)}
-            className="w-full text-xs p-1.5 rounded-md bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] cursor-pointer"
+            style={{ padding: '7px 8px' }}
+            className="w-full text-xs rounded-md bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] cursor-pointer"
           >
             <option value="">-- No Active Workflow Selected --</option>
             {spawnedWorkflowsOnCanvas.map((id, index) => {
@@ -703,7 +715,7 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
 
       {/* Active layout switcher & coloring (only shows if activeWorkflowId is set) */}
       {activeWorkflowId ? (
-        <div className="flex flex-col gap-3 p-3 bg-[rgba(var(--accent-rgb),0.04)] rounded-xl border border-[rgba(var(--accent-rgb),0.15)] animate-fade-in">
+        <div className="flex flex-col gap-3 bg-[rgba(var(--accent-rgb),0.04)] rounded-xl border border-[rgba(var(--accent-rgb),0.15)] animate-fade-in" style={{ padding: 12 }}>
           {/* Section: Layout Switcher */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
@@ -775,7 +787,8 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
                 <button
                   key={item.mode}
                   onClick={() => layoutWorkflow(activeWorkflowId, item.mode as any)}
-                  className="p-1.5 flex flex-col items-center gap-1 rounded bg-[var(--bg-card)] border border-[var(--border)] hover:border-[var(--accent-light)] transition hover:bg-[var(--bg-primary)] cursor-pointer"
+                  style={{ padding: '7px 4px' }}
+                  className="flex flex-col items-center gap-1 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] hover:border-[var(--accent-light)] transition hover:bg-[var(--bg-primary)] cursor-pointer"
                   title={`${item.label} Layout`}
                 >
                   <span className="flex items-center justify-center text-xs h-4">{item.icon}</span>
@@ -786,7 +799,7 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
           </div>
 
           {/* Section: Recolor System */}
-          <div className="border-t border-[var(--border)] pt-2.5">
+          <div className="border-t border-[var(--border)]" style={{ paddingTop: 10 }}>
             <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-secondary)] block mb-2">
               Recolor Group Scheme
             </span>
@@ -812,19 +825,22 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
               <div className="flex flex-wrap gap-1.5 mt-1">
                 <button
                   onClick={() => recolorWorkflowGroup(activeWorkflowId, { color: 'rgba(255,255,255,0.05)', borderColor: 'rgba(45,42,38,0.15)' })}
-                  className="px-2 py-1 rounded bg-[var(--bg-card)] border border-[var(--border)] hover:bg-[var(--bg-tertiary)] transition text-[9px] uppercase font-bold text-[var(--text-secondary)] cursor-pointer"
+                  style={{ padding: '4px 9px' }}
+                  className="rounded-md bg-[var(--bg-card)] border border-[var(--border)] hover:bg-[var(--bg-tertiary)] transition text-[9px] uppercase font-bold text-[var(--text-secondary)] cursor-pointer"
                 >
                   Transparent Glass
                 </button>
                 <button
                   onClick={() => recolorWorkflowGroup(activeWorkflowId, { branchColor: '#E07A5F' })}
-                  className="px-2 py-1 rounded bg-[var(--bg-card)] border border-[var(--border)] hover:bg-[var(--bg-tertiary)] transition text-[9px] uppercase font-bold text-[var(--text-secondary)] cursor-pointer"
+                  style={{ padding: '4px 9px' }}
+                  className="rounded-md bg-[var(--bg-card)] border border-[var(--border)] hover:bg-[var(--bg-tertiary)] transition text-[9px] uppercase font-bold text-[var(--text-secondary)] cursor-pointer"
                 >
                   Orange Branches
                 </button>
                 <button
                   onClick={() => recolorWorkflowGroup(activeWorkflowId, { branchColor: '#81B29A' })}
-                  className="px-2 py-1 rounded bg-[var(--bg-card)] border border-[var(--border)] hover:bg-[var(--bg-tertiary)] transition text-[9px] uppercase font-bold text-[var(--text-secondary)] cursor-pointer"
+                  style={{ padding: '4px 9px' }}
+                  className="rounded-md bg-[var(--bg-card)] border border-[var(--border)] hover:bg-[var(--bg-tertiary)] transition text-[9px] uppercase font-bold text-[var(--text-secondary)] cursor-pointer"
                 >
                   Sage Branches
                 </button>
@@ -833,7 +849,7 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       ) : (
-        <div className="text-[10px] text-center italic text-[var(--text-tertiary)] py-1 bg-[var(--bg-card)] rounded-md border border-[var(--border)]">
+        <div className="text-[10px] text-center italic text-[var(--text-tertiary)] bg-[var(--bg-card)] rounded-md border border-[var(--border)]" style={{ padding: '8px 12px' }}>
           Spawn a blueprint or select a workflow node to open layouts/coloring
         </div>
       )}

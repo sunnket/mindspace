@@ -142,7 +142,10 @@ export default function MarginsLayer() {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitDraft(); } if (e.key === 'Escape') setDraft(null); }}
               placeholder="Leave a note…"
               rows={3}
-              className="w-full resize-none rounded-xl border border-[var(--border)] bg-black/5 dark:bg-black/25 pl-6 pr-4 py-2.5 text-[12px] leading-relaxed outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/35 text-[var(--text-primary)] placeholder-[var(--text-muted)]"
+              // Inline padding so the first characters clear the rounded border
+              // (Tailwind pl-*/py-* are dead under the global padding reset).
+              style={{ padding: '10px 14px' }}
+              className="w-full resize-none rounded-xl border border-[var(--border)] bg-black/5 dark:bg-black/25 text-[12px] leading-relaxed outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/35 text-[var(--text-primary)] placeholder-[var(--text-muted)]"
             />
             <div className="flex justify-end gap-2 mt-1">
               <button onClick={() => setDraft(null)} className="px-3.5 py-1.5 rounded-full text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer shrink-0">Cancel</button>
@@ -192,7 +195,8 @@ export default function MarginsLayer() {
                 onChange={(e) => setReplyText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && replyText.trim()) { addReply(activeThread.id, { author: authorName(), text: replyText.trim() }); setReplyText(''); } }}
                 placeholder="Reply…"
-                className="flex-1 min-w-0 rounded-full border border-[var(--border)] bg-black/5 dark:bg-black/25 pl-5 pr-4 py-1.5 text-[12px] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/35 text-[var(--text-primary)] placeholder-[var(--text-muted)]"
+                style={{ padding: '6px 16px' }}
+                className="flex-1 min-w-0 rounded-full border border-[var(--border)] bg-black/5 dark:bg-black/25 text-[12px] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/35 text-[var(--text-primary)] placeholder-[var(--text-muted)]"
               />
               <button
                 onClick={() => { if (replyText.trim()) { addReply(activeThread.id, { author: authorName(), text: replyText.trim() }); setReplyText(''); } }}
@@ -214,13 +218,16 @@ export default function MarginsLayer() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 16 }}
             transition={{ type: 'spring', stiffness: 320, damping: 30 }}
-            className="fixed right-20 top-28 z-[124] clay-card w-72 max-h-[70vh] rounded-[24px] p-4 flex flex-col gap-3 pointer-events-auto"
+            // Inline padding: Tailwind p-* is dead (global `* { padding:0 }`),
+            // so without it the header/toggle clip against the rounded corners.
+            style={{ padding: 16 }}
+            className="fixed right-20 top-28 z-[124] clay-card w-72 max-h-[70vh] rounded-[24px] flex flex-col gap-3 pointer-events-auto"
           >
-            <div className="flex items-center justify-between shrink-0">
+            <div className="flex items-center justify-between gap-2 shrink-0">
               <h3 className="text-[11px] uppercase font-extrabold tracking-[0.16em] text-[var(--text-secondary)]">Threads</h3>
-              <div className="clay-inset flex p-0.5 rounded-full text-[10px] font-bold">
+              <div className="clay-inset flex gap-0.5 rounded-full text-[10px] font-bold shrink-0" style={{ padding: 3 }}>
                 {(['open', 'all'] as const).map((f) => (
-                  <button key={f} onClick={() => setFilter(f)} className={`px-2.5 py-1 rounded-full cursor-pointer transition-colors ${filter === f ? 'bg-white dark:bg-white/15 text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)]'}`}>{f === 'open' ? 'Open' : 'All'}</button>
+                  <button key={f} onClick={() => setFilter(f)} style={{ padding: '3px 11px' }} className={`rounded-full cursor-pointer transition-colors ${filter === f ? 'bg-white dark:bg-white/15 text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)]'}`}>{f === 'open' ? 'Open' : 'All'}</button>
                 ))}
               </div>
             </div>
@@ -232,7 +239,7 @@ export default function MarginsLayer() {
                   if (filter === 'open' && t.resolved) return null;
                   const first = t.replies[0];
                   return (
-                    <button key={t.id} onClick={() => flyTo(t)} className="clay-inset rounded-xl p-2.5 text-left flex gap-2 hover:ring-1 hover:ring-[var(--accent)]/30 transition-all cursor-pointer">
+                    <button key={t.id} onClick={() => flyTo(t)} style={{ padding: 10 }} className="clay-inset rounded-xl text-left flex gap-2 hover:ring-1 hover:ring-[var(--accent)]/30 transition-all cursor-pointer">
                       <span className="w-5 h-5 shrink-0 rounded-full flex items-center justify-center text-[9px] font-extrabold text-white" style={{ background: t.resolved ? '#2F9E6E' : '#C97B4B' }}>{i + 1}</span>
                       <div className="min-w-0 flex-1">
                         <p className="text-[11px] font-semibold text-[var(--text-primary)] truncate">{first?.text || 'Empty'}</p>
@@ -260,8 +267,8 @@ function ThreadPopover({ screen, children, onClose }: { screen: { x: number; y: 
       initial={{ opacity: 0, scale: 0.96, y: 6 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ type: 'spring', stiffness: 340, damping: 28 }}
-      className="fixed z-[146] clay-card w-[272px] rounded-[20px] p-3.5 pointer-events-auto"
-      style={{ left, top }}
+      className="fixed z-[146] clay-card w-[272px] rounded-[20px] pointer-events-auto"
+      style={{ left, top, padding: 14 }}
       onMouseDown={(e) => e.stopPropagation()}
     >
       <button onClick={onClose} aria-label="Close" className="absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-black/5 transition-colors cursor-pointer">
