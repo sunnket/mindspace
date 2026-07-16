@@ -26,6 +26,24 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// The global `* { padding:0 }` reset kills Tailwind p-*/px-* utilities app-wide,
+// which left every chat surface (bubbles, composer, rows) collapsed and cramped.
+// Spacing is restored inline here — the one thing that beats the unlayered reset.
+const P_HEADER: React.CSSProperties = { padding: '11px 15px' };
+const P_ROW: React.CSSProperties = { padding: '9px 10px' };
+const P_INPUT: React.CSSProperties = { padding: '9px 15px' };
+const P_BUBBLE: React.CSSProperties = { padding: '7px 12px' };
+const P_IDENTITY: React.CSSProperties = { padding: '10px 12px' };
+const P_LIST: React.CSSProperties = { padding: 12 };
+
+/** A stable, name-derived gradient so every person reads as a distinct avatar
+ *  even without an uploaded photo. */
+function avatarGradient(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+  return `linear-gradient(135deg, hsl(${h} 62% 56%), hsl(${(h + 42) % 360} 58% 46%))`;
+}
+
 function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -59,7 +77,8 @@ function SignInGate({ mode, onClose }: { mode: 'overlay' | 'embedded'; onClose?:
       </p>
       <button
         onClick={() => setAuthOpen(true)}
-        className="mt-1 h-8 px-4 rounded-full text-[12px] font-bold text-white bg-[var(--accent)] hover:brightness-105 cursor-pointer"
+        style={{ padding: '8px 18px' }}
+        className="mt-1 rounded-full text-[12px] font-bold text-white bg-[var(--accent)] hover:brightness-105 cursor-pointer"
       >
         Sign in
       </button>
@@ -90,6 +109,12 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
   const sendCanvasObjectAttachment = useChatStore((s) => s.sendCanvasObjectAttachment);
   const pendingCanvasDrop = useChatStore((s) => s.pendingCanvasDrop);
   const setPendingCanvasDrop = useChatStore((s) => s.setPendingCanvasDrop);
+
+  // The signed-in user's own name + photo (set in the profile modal) so their
+  // identity shows in the chat — on their own messages and the "you" footer.
+  const me = useAuthStore((s) => s.user);
+  const myAvatar = (me?.user_metadata?.avatar_url as string) || null;
+  const myName = (me?.user_metadata?.full_name as string) || me?.email?.split('@')[0] || 'You';
 
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounced(query, 250);
@@ -181,12 +206,13 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
                 </button>
               </div>
             )}
-            <div className="p-3 shrink-0">
+            <div className="shrink-0" style={P_LIST}>
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search username or email…"
-                className="w-full clay-inset rounded-full px-3.5 py-2 text-[12px] outline-none focus:ring-2 focus:ring-[var(--accent)]/35"
+                style={P_INPUT}
+                className="w-full clay-inset rounded-full text-[12px] outline-none focus:ring-2 focus:ring-[var(--accent)]/35"
               />
             </div>
             <div className="flex-1 overflow-y-auto min-h-0 px-2 pb-2">
@@ -206,9 +232,10 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
                         const roomId = await startDm(userId, r.id, r.username);
                         await completePendingDrop(roomId);
                       }}
-                      className="w-full flex items-center gap-2 px-2 py-2 rounded-xl text-left hover:bg-[var(--well)] transition-colors cursor-pointer"
+                      style={P_ROW}
+                      className="w-full flex items-center gap-2.5 rounded-xl text-left hover:bg-[var(--well)] transition-colors cursor-pointer"
                     >
-                      <Avatar name={r.username} />
+                      <Avatar name={r.username} size={30} />
                       <span className="text-[12px] font-semibold text-[var(--text-primary)] truncate">{r.username}</span>
                     </button>
                   ))}
@@ -230,11 +257,12 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
                         await setActiveRoom(r.id);
                         await completePendingDrop(r.id);
                       }}
-                      className={`w-full flex items-center gap-2 px-2 py-2.5 rounded-xl text-left transition-colors cursor-pointer ${
+                      style={P_ROW}
+                      className={`w-full flex items-center gap-2.5 rounded-xl text-left transition-colors cursor-pointer ${
                         activeRoomId === r.id ? 'bg-[var(--well)]' : 'hover:bg-[var(--well)]'
                       }`}
                     >
-                      <Avatar name={r.otherUsername} />
+                      <Avatar name={r.otherUsername} size={38} />
                       <div className="min-w-0 flex-1">
                         <p className="text-[12px] font-semibold text-[var(--text-primary)] truncate">{r.otherUsername}</p>
                         <p className="text-[10px] text-[var(--text-tertiary)] truncate">{r.lastMessagePreview || 'Say hi 👋'}</p>
@@ -247,6 +275,17 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
                 </>
               )}
             </div>
+
+            {/* Your own identity — the profile name + photo you set */}
+            <div className="shrink-0 border-t border-[var(--border)] flex items-center gap-2.5" style={P_IDENTITY}>
+              <Avatar name={myName} src={myAvatar} size={32} />
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-bold text-[var(--text-primary)] truncate leading-tight">{myName}</p>
+                <p className="text-[9px] text-[var(--text-tertiary)] leading-tight flex items-center gap-1 mt-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" /> You
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -258,15 +297,23 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
               </div>
             ) : (
               <>
-                <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 px-3 py-3 flex flex-col gap-2">
+                <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-2.5" style={{ padding: 14 }}>
                   {messages.map((m) => (
-                    <MessageBubble key={m.id} message={m} mine={m.senderId === userId} mode={mode} otherUsername={activeRoom?.otherUsername || 'User'} />
+                    <MessageBubble
+                      key={m.id}
+                      message={m}
+                      mine={m.senderId === userId}
+                      mode={mode}
+                      otherUsername={activeRoom?.otherUsername || 'User'}
+                      myName={myName}
+                      myAvatar={myAvatar}
+                    />
                   ))}
                 </div>
                 {attachError && (
                   <p className="px-3 pb-1 text-[10px] font-semibold text-red-500 shrink-0">{attachError}</p>
                 )}
-                <div className="relative flex items-center gap-1.5 p-3 pt-2 border-t border-[var(--border)] shrink-0">
+                <div className="relative flex items-center gap-1.5 border-t border-[var(--border)] shrink-0" style={{ padding: 12 }}>
                   <input ref={fileInputRef} type="file" onChange={onFileChosen} className="hidden" />
                   <button
                     onClick={pickFile}
@@ -307,7 +354,8 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
                     placeholder="Message…"
-                    className="flex-1 min-w-0 clay-inset rounded-full px-4 py-2 text-[12px] outline-none focus:ring-2 focus:ring-[var(--accent)]/35"
+                    style={P_INPUT}
+                    className="flex-1 min-w-0 clay-inset rounded-full text-[12px] outline-none focus:ring-2 focus:ring-[var(--accent)]/35"
                   />
                   <button
                     onClick={send}
@@ -327,25 +375,24 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
   );
 }
 
-function MessageBubble({ message, mine, mode, otherUsername }: { message: ChatMessage; mine: boolean; mode: 'overlay' | 'embedded'; otherUsername: string }) {
+function MessageBubble({ message, mine, mode, otherUsername, myName, myAvatar }: { message: ChatMessage; mine: boolean; mode: 'overlay' | 'embedded'; otherUsername: string; myName: string; myAvatar: string | null }) {
   const attachments = message.attachments || [];
   return (
     <div className={`flex gap-2 max-w-[85%] ${mine ? 'self-end flex-row-reverse' : 'self-start flex-row'}`}>
-      {!mine && (
-        <div className="mt-0.5 shrink-0">
-          <Avatar name={otherUsername} />
-        </div>
-      )}
+      <div className="shrink-0" style={{ marginTop: 2 }}>
+        <Avatar name={mine ? myName : otherUsername} src={mine ? myAvatar : null} size={26} />
+      </div>
       <div className={`flex flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
         {attachments.map((att, i) => (
           <AttachmentBubble key={i} attachment={att} mine={mine} mode={mode} />
         ))}
         {message.body && (
           <div
-            className={`rounded-2xl px-3 py-1.5 text-[12px] leading-snug break-words ${
+            style={P_BUBBLE}
+            className={`text-[12px] leading-snug break-words ${
               mine
-                ? 'bg-[var(--accent-subtle)] border border-[rgba(var(--accent-rgb),0.3)] text-[var(--text-primary)] dark:text-white'
-                : 'clay-inset text-[var(--text-primary)]'
+                ? 'rounded-[16px_16px_5px_16px] bg-[var(--accent)] text-white shadow-[0_4px_12px_-4px_rgba(var(--accent-rgb),0.5)]'
+                : 'rounded-[16px_16px_16px_5px] clay-inset text-[var(--text-primary)]'
             }`}
           >
             {message.body}
@@ -603,11 +650,26 @@ function AttachmentBubble({ attachment, mine, mode }: { attachment: ChatAttachme
   );
 }
 
-function Avatar({ name }: { name: string }) {
-  const initials = name.slice(0, 2).toUpperCase();
+function Avatar({ name, src, size = 32 }: { name: string; src?: string | null; size?: number }) {
+  const initials = (name || '?').slice(0, 2).toUpperCase();
   return (
-    <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-[10px] font-extrabold text-white select-none" style={{ background: '#C97B4B' }}>
-      {initials}
+    <div
+      className="shrink-0 rounded-full overflow-hidden flex items-center justify-center font-extrabold text-white select-none"
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.34),
+        background: src ? 'var(--well)' : avatarGradient(name),
+        boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.16)',
+      }}
+      title={name}
+    >
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={name} className="w-full h-full object-cover" draggable={false} />
+      ) : (
+        initials
+      )}
     </div>
   );
 }
@@ -625,7 +687,7 @@ function ChatShell({
   if (mode === 'embedded') {
     return (
       <div className="flex-1 min-h-0 flex flex-col clay-card rounded-[24px] overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border)] shrink-0">
+        <div className="flex items-center gap-2.5 border-b border-[var(--border)] shrink-0" style={P_HEADER}>
           {avatar}
           <h2 className="text-[13px] font-extrabold text-[var(--text-primary)]">{title}</h2>
         </div>
@@ -643,8 +705,8 @@ function ChatShell({
         transition={{ type: 'spring', stiffness: 320, damping: 32 }}
         className="fixed right-5 top-44 z-[150] clay-card w-80 h-[70vh] max-h-[560px] rounded-[24px] flex flex-col overflow-hidden pointer-events-auto"
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center justify-between border-b border-[var(--border)] shrink-0" style={P_HEADER}>
+          <div className="flex items-center gap-2.5 min-w-0">
             {onBack && (
               <button onClick={onBack} aria-label="Back" className="w-6 h-6 rounded-full flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer shrink-0">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>

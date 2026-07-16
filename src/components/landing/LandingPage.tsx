@@ -87,27 +87,6 @@ function getFormattedDate() {
   return `${days[date.getDay()]} · ${date.getDate()} ${months[date.getMonth()]}`;
 }
 
-function pickGreeting(visits: number) {
-  const hours = new Date().getHours();
-  const pool: string[] = [];
-  if (hours >= 5 && hours < 12) {
-    pool.push('good morning', 'rise and shine', 'morning spark', 'fresh start', 'start creating');
-  } else if (hours >= 12 && hours < 17) {
-    pool.push('good afternoon', 'afternoon flow', 'mid-day focus', 'keep going', 'mid-day spark');
-  } else if (hours >= 17 && hours < 22) {
-    pool.push('good evening', 'evening vibes', 'winding down', 'productive evening', 'ideas never sleep');
-  } else {
-    pool.push('burning the midnight oil', 'night owl mode', 'late night thoughts', 'midnight spark', 'ideas in the dark', 'quiet hours');
-  }
-  if (visits > 1) {
-    pool.push('welcome back', 'back to create', 'your digital desk awaits');
-    if (visits > 10) pool.push('back at it', 'make magic happen');
-  } else {
-    pool.push('welcome to mindspace', "let's get started", 'your canvas awaits');
-  }
-  return pool[Math.floor(Math.random() * pool.length)];
-}
-
 /* ============================================================
    Icons — one consistent 1.75-stroke outline family
    ============================================================ */
@@ -298,11 +277,6 @@ export default function LandingPage() {
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
 
-  const [username, setUsername] = useState('Sanket');
-  const [isEditingUsername, setIsEditingUsername] = useState(false);
-  const [usernameInput, setUsernameInput] = useState('Sanket');
-  const [greeting, setGreeting] = useState('welcome');
-
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState('');
   const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
@@ -344,15 +318,6 @@ export default function LandingPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
-    const storedUsername = localStorage.getItem('username');
-    if (storedUsername) {
-      setUsername(storedUsername);
-      setUsernameInput(storedUsername);
-    }
-    const storedVisits = localStorage.getItem('mindspace_visit_count');
-    const visits = storedVisits ? parseInt(storedVisits, 10) + 1 : 1;
-    localStorage.setItem('mindspace_visit_count', visits.toString());
-    setGreeting(pickGreeting(visits));
 
     const storedCategories = localStorage.getItem('mindspace_categories');
     if (storedCategories) {
@@ -475,13 +440,6 @@ export default function LandingPage() {
     setEditingCategory(null);
   };
 
-  const handleUsernameSave = () => {
-    const finalName = usernameInput.trim() || 'Sanket';
-    setUsername(finalName);
-    localStorage.setItem('username', finalName);
-    setIsEditingUsername(false);
-  };
-
   const patchWorkspace = async (id: string, patch: Partial<CanvasState>) => {
     setWorkspaces((prev) => prev.map((w) => (w.id === id ? { ...w, ...patch } : w)));
     await updateCanvasMeta(id, patch);
@@ -567,10 +525,6 @@ export default function LandingPage() {
   /* ---------- derived data ---------- */
 
   const nonDeleted = workspaces.filter((w) => !w.deleted && !w.archived);
-  const totalCanvases = nonDeleted.length;
-  const totalCards = nonDeleted.reduce((s, w) => s + w.objectCount, 0);
-  const totalSketches = nonDeleted.reduce((s, w) => s + w.strokeCount, 0);
-  const totalThreads = nonDeleted.reduce((s, w) => s + w.connectionCount, 0);
 
   const continueWorkspace = nonDeleted.length > 0
     ? [...nonDeleted].sort((a, b) => b.lastModified - a.lastModified)[0]
@@ -676,46 +630,18 @@ export default function LandingPage() {
 
           {/* Header */}
           <header className="flex flex-col lg:flex-row lg:justify-between lg:items-end gap-6 w-full">
-            <div className="min-w-0">
-              {isEditingUsername ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={usernameInput}
-                    onChange={(e) => setUsernameInput(e.target.value)}
-                    onBlur={handleUsernameSave}
-                    onKeyDown={(e) => e.key === 'Enter' && handleUsernameSave()}
-                    aria-label="Your name"
-                    className="text-4xl md:text-5xl italic bg-transparent border-b-2 border-[var(--accent)] outline-none text-[var(--text-primary)] max-w-[300px]"
-                    style={{ fontFamily: "'Instrument Serif', serif" }}
-                    autoFocus
-                  />
-                </div>
-              ) : (
-                <h1
-                  onClick={() => setIsEditingUsername(true)}
-                  title="Click to edit your name"
-                  className="text-4xl md:text-5xl italic font-light tracking-tight cursor-pointer leading-none group"
-                  style={{ fontFamily: "'Instrument Serif', serif" }}
-                >
-                  {greeting},{' '}
-                  <span className="text-[var(--accent)] underline decoration-dotted decoration-2 decoration-[var(--accent)]/30 underline-offset-4 group-hover:decoration-[var(--accent)]/70 transition-all">
-                    {username}
-                  </span>
+            <div className="min-w-0 flex items-center gap-3.5">
+              {/* Wordmark */}
+              <div className="w-12 h-12 rounded-2xl clay-inset flex items-center justify-center shrink-0" aria-hidden="true">
+                <span className="text-[var(--accent)] text-[26px] italic leading-none" style={{ fontFamily: "'Instrument Serif', serif" }}>m</span>
+              </div>
+              <div className="min-w-0 flex flex-col gap-1.5">
+                <h1 className="text-3xl md:text-[2.6rem] italic font-light tracking-tight leading-none" style={{ fontFamily: "'Instrument Serif', serif" }}>
+                  mindspace
                 </h1>
-              )}
-
-              {/* Honest live stats strip */}
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-[11px] font-medium text-[var(--text-secondary)] select-none tabular-nums">
-                <span>{getFormattedDate()}</span>
-                <span className="w-1 h-1 rounded-full bg-[var(--text-muted)]" />
-                <span><strong className="text-[var(--accent)] font-bold">{totalCanvases}</strong> canvases</span>
-                <span className="w-1 h-1 rounded-full bg-[var(--text-muted)]" />
-                <span><strong className="text-[var(--text-primary)] font-bold">{totalCards}</strong> cards</span>
-                <span className="w-1 h-1 rounded-full bg-[var(--text-muted)]" />
-                <span><strong className="text-[var(--text-primary)] font-bold">{totalSketches}</strong> sketches</span>
-                <span className="w-1 h-1 rounded-full bg-[var(--text-muted)]" />
-                <span><strong className="text-[var(--text-primary)] font-bold">{totalThreads}</strong> threads</span>
+                <p className="text-[11px] font-semibold text-[var(--text-tertiary)] tabular-nums tracking-wide select-none">
+                  {getFormattedDate()}
+                </p>
               </div>
             </div>
 
@@ -1416,8 +1342,6 @@ export default function LandingPage() {
           <footer className="flex justify-center pt-4 select-none">
             <p className="text-[10px] font-medium text-[var(--text-muted)] tracking-wide">
               <kbd className="px-1.5 py-0.5 rounded bg-white/70 dark:bg-white/10 border border-[var(--border)] font-mono text-[9px]">⌘K</kbd> search
-              <span className="mx-2">·</span>
-              click your name to edit it
               <span className="mx-2">·</span>
               everything saves on this device
             </p>
