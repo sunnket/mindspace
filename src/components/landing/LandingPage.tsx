@@ -754,7 +754,7 @@ export default function LandingPage() {
                     onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
                     whileHover={{ scale: 1.015 }}
                     transition={spring}
-                    className="clay-inset w-full h-48 md:h-56 rounded-2xl overflow-hidden relative cursor-pointer"
+                    className="clay-inset w-full h-36 md:h-44 rounded-2xl overflow-hidden relative cursor-pointer"
                   >
                     <CanvasMiniPreview
                       objects={continueWorkspace.objects}
