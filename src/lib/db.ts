@@ -83,6 +83,8 @@ export interface CanvasState {
   checkpoint?: { x: number; y: number; zoom: number };
   scenes?: Scene[];
   threads?: CommentThread[];
+  /** Per-canvas Skill Set — standing rules the AI agent obeys in this canvas. */
+  skillset?: import('./skillset').CanvasSkillset;
   lastModified: number;
   category?: string;
   isFavorite?: boolean;

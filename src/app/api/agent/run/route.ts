@@ -60,7 +60,7 @@ const TTFT_DEADLINE_MS = 12_000;
 const SYSTEM_PROMPT = `You are the Mindspace Canvas Agent — a genius creative partner with god-tier taste and instant hands, and the absolute master of THIS infinite spatial canvas. Think like the best designer, strategist, engineer and teacher in the world rolled into one. You can do ANYTHING on the canvas: create, rewrite, reorganize, connect, delete, fetch real links AND real photos from the web, write runnable code, draw live diagrams and maps, set timers and countdowns, show live weather, look up definitions, search the web for facts, pull Wikipedia knowledge, and bring in exactly what the user asks for — then go further and add the thing they'll wish they'd asked for. Be ambitious and complete: never do the bare minimum, always deliver something that makes the user go "whoa". Act like a trusted buddy who just gets it done, beautifully.
 Today is {today}. The user invoked you at coordinates (x: {agentX}, y: {agentY}). When you ADD new work, build near there, growing right and down. When you EDIT existing work, act on it wherever it already lives.
 
-Understand the user's intent (terse prompts deserve generous, thoughtful interpretation), READ THE CANVAS SNAPSHOT CAREFULLY, and emit a plan as ONE JSON object. You plan AND build in a single pass — no chatter.
+{skillsetSection}Understand the user's intent (terse prompts deserve generous, thoughtful interpretation), READ THE CANVAS SNAPSHOT CAREFULLY, and emit a plan as ONE JSON object. You plan AND build in a single pass — no chatter.
 
 ### FIRST decide the intent, then act accordingly
 - THE USER'S EXISTING CONTENT IS SACRED. Deleting their work in order to "improve", "extend", or "redo" it is the #1 forbidden mistake. Only ever DELETE_OBJECT when the user EXPLICITLY says delete / remove / clear / "get rid of" / "replace this with", or when a block is a literal exact duplicate. If in doubt, keep it.
@@ -206,7 +206,7 @@ const WORKFLOW_SYSTEM_PROMPT =
 `You are the Mindspace Workflow Architect — a world-class systems & information designer who turns ANY request into a complete, breathtaking, END-TO-END workflow on this infinite canvas. You have instant hands and impeccable taste. You plan AND build in a single pass — no chatter.
 Today is {today}. The user invoked you at coordinates (x: {agentX}, y: {agentY}). Build the whole workflow starting there, growing right and down with generous spacing.
 
-### YOUR MISSION — build a DOPE, end-to-end workflow, NEVER a mini stub
+{skillsetSection}### YOUR MISSION — build a DOPE, end-to-end workflow, NEVER a mini stub
 - READ THE USER'S REQUEST LIKE A DESIGNER. Extract the real goal, the domain, the actors, the inputs and outputs, the phases, the decision points, the tools, and the deliverables. If the request is long or complex, honor ALL of it — cover every part they mentioned. If it is short, interpret generously and still design a rich, genuinely useful workflow.
 - SCALE THE DEPTH TO THE ASK. A big or broad request → 5–9 named PHASES, each with 3–6 concrete steps, plus branches, parallel tracks, decision gates and feedback loops. A simple request → still a generous 10–20+ step flow. NEVER ship a thin 3-node diagram.
 - EXPLAIN EVERYTHING. Alongside the diagram, write real explanatory notes so the user actually understands the process: what each phase does, why it matters, and how to do it. Use structured markdown (headings, bullets, numbered steps, "> " callouts). Real, specific, expert content — never "Step 1", never lorem ipsum.
@@ -401,7 +401,7 @@ async function openModelStream(
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext, webContext, memoriesContext, searchContext, wikiContext, weatherContext, dictContext, newsContext, youtubeContext, quotesContext, countryContext, triviaContext, mode, modelProfile } = await req.json();
+    const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext, webContext, memoriesContext, searchContext, wikiContext, weatherContext, dictContext, newsContext, youtubeContext, quotesContext, countryContext, triviaContext, skillsetContext, mode, modelProfile } = await req.json();
     if (!prompt) {
       return NextResponse.json({ success: false, error: 'Prompt is required' }, { status: 400 });
     }
@@ -483,12 +483,19 @@ export async function POST(req: NextRequest) {
       ? `The following are things you previously remembered about this user. Use them to personalize your responses and anticipate their needs:\n${memoriesContext.trim().slice(0, 3000)}\n\n`
       : 'No memories saved for this user yet.\n\n';
 
+    // Per-canvas Skill Set — the user's standing rules for THIS canvas, already
+    // formatted by the client. Injected near the top so the agent reads it first.
+    const skillsetSection = (typeof skillsetContext === 'string' && skillsetContext.trim())
+      ? `${skillsetContext.trim().slice(0, 4000)}\n\n`
+      : '';
+
     const isWorkflow = mode === 'workflow';
     const basePrompt = isWorkflow ? WORKFLOW_SYSTEM_PROMPT : SYSTEM_PROMPT;
     const systemPrompt = basePrompt
       .replace(/{agentX}/g, String(x))
       .replace(/{agentY}/g, String(y))
       .replace(/{today}/g, todayStr)
+      .replace(/{skillsetSection}/g, skillsetSection)
       .replace('{assignmentSection}', assignmentSection)
       .replace('{memorySection}', memorySection)
       .replace('{canvasObjects}', snapObjects.length ? JSON.stringify(snapObjects) : '(empty)')

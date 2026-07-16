@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import { Occupancy, rectOf, isBackdrop, settle, fitFrame } from '@/lib/canvasLayout';
+import { formatSkillsetForAgent } from '@/lib/skillset';
 import { extractUrl, newLinkCard, linkPreviewStyle, normalizeUrl, LINK_CARD_SIZE } from '@/lib/linkPreview';
 
 /* CREATE_STROKE is deliberately absent. The agent used to be able to lay down
@@ -991,6 +992,8 @@ export default function AgentOverlay() {
           countryContext,
           triviaContext,
           filesContext: filesContext || undefined,
+          // Per-canvas Skill Set — standing rules the agent must obey here.
+          skillsetContext: formatSkillsetForAgent(store.skillset) || undefined,
           canvas: {
             isDark: store.canvasBackground.dark,
             // Send the height each block ACTUALLY renders at, not the nominal one

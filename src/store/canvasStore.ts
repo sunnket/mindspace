@@ -4,6 +4,7 @@ import { CanvasObjectData, DrawingStroke, ConnectionData, Scene, CommentThread }
 import type { CanvasOp } from '@/lib/collab/types';
 import { CanvasBackground, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 import type { RelaxEffectId } from '@/lib/relaxEffects';
+import { CanvasSkillset, emptySkillset, makeRule, getPreset, installPreset } from '@/lib/skillset';
 
 export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax';
 
@@ -100,6 +101,21 @@ interface CanvasStore {
   setCommentMode: (v: boolean) => void;
   threadsSidebarOpen: boolean;
   setThreadsSidebarOpen: (v: boolean) => void;
+
+  // Skill Set (per-canvas agent rules)
+  skillset: CanvasSkillset | null;
+  /** Replace the skill set without marking dirty — used when loading a canvas. */
+  setSkillset: (s: CanvasSkillset | null) => void;
+  toggleSkillsetEnabled: () => void;
+  setSkillsetPersona: (text: string) => void;
+  addSkillRule: (text?: string) => void;
+  updateSkillRule: (id: string, text: string) => void;
+  toggleSkillRule: (id: string) => void;
+  removeSkillRule: (id: string) => void;
+  installSkillPreset: (presetId: string) => void;
+  clearSkillset: () => void;
+  skillSetPanelOpen: boolean;
+  setSkillSetPanelOpen: (v: boolean) => void;
 
   // Objects
   objects: CanvasObjectData[];
@@ -453,6 +469,76 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   setCommentMode: (commentMode) => set({ commentMode }),
   threadsSidebarOpen: false,
   setThreadsSidebarOpen: (threadsSidebarOpen) => set({ threadsSidebarOpen }),
+
+  // Skill Set (per-canvas agent rules) — persisted with the canvas state.
+  skillset: null,
+  setSkillset: (skillset) => set({ skillset }),
+  toggleSkillsetEnabled: () =>
+    set((state) => {
+      // Flip from the CURRENTLY displayed state: with no skill set yet the UI
+      // shows "Off", so the first toggle must turn a fresh one ON.
+      const current = state.skillset?.enabled ?? false;
+      const base = state.skillset ?? emptySkillset();
+      return { skillset: { ...base, enabled: !current, updatedAt: Date.now() }, isDirty: true };
+    }),
+  setSkillsetPersona: (text) =>
+    set((state) => {
+      const base = state.skillset ?? emptySkillset();
+      return { skillset: { ...base, persona: text, updatedAt: Date.now() }, isDirty: true };
+    }),
+  addSkillRule: (text = '') =>
+    set((state) => {
+      const base = state.skillset ?? emptySkillset();
+      return {
+        skillset: { ...base, enabled: true, rules: [...base.rules, makeRule(text)], updatedAt: Date.now() },
+        isDirty: true,
+      };
+    }),
+  updateSkillRule: (id, text) =>
+    set((state) => {
+      if (!state.skillset) return {};
+      return {
+        skillset: {
+          ...state.skillset,
+          rules: state.skillset.rules.map((r) => (r.id === id ? { ...r, text } : r)),
+          updatedAt: Date.now(),
+        },
+        isDirty: true,
+      };
+    }),
+  toggleSkillRule: (id) =>
+    set((state) => {
+      if (!state.skillset) return {};
+      return {
+        skillset: {
+          ...state.skillset,
+          rules: state.skillset.rules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)),
+          updatedAt: Date.now(),
+        },
+        isDirty: true,
+      };
+    }),
+  removeSkillRule: (id) =>
+    set((state) => {
+      if (!state.skillset) return {};
+      return {
+        skillset: {
+          ...state.skillset,
+          rules: state.skillset.rules.filter((r) => r.id !== id),
+          updatedAt: Date.now(),
+        },
+        isDirty: true,
+      };
+    }),
+  installSkillPreset: (presetId) =>
+    set((state) => {
+      const preset = getPreset(presetId);
+      if (!preset) return {};
+      return { skillset: installPreset(state.skillset, preset), isDirty: true };
+    }),
+  clearSkillset: () => set({ skillset: null, isDirty: true }),
+  skillSetPanelOpen: false,
+  setSkillSetPanelOpen: (skillSetPanelOpen) => set({ skillSetPanelOpen }),
 
   // Objects
   objects: [],

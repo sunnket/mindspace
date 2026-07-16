@@ -20,6 +20,7 @@ create table if not exists public.canvases (
   scenes        jsonb default '[]'::jsonb,
   threads       jsonb default '[]'::jsonb,
   background    jsonb,
+  skillset      jsonb,
   last_modified bigint,
   category      text,
   is_favorite   boolean default false,
@@ -31,6 +32,7 @@ create table if not exists public.canvases (
 alter table public.canvases add column if not exists scenes     jsonb default '[]'::jsonb;
 alter table public.canvases add column if not exists threads    jsonb default '[]'::jsonb;
 alter table public.canvases add column if not exists background  jsonb;
+alter table public.canvases add column if not exists skillset    jsonb;
 alter table public.canvases add column if not exists checkpoint  jsonb;
 alter table public.canvases add column if not exists category    text;
 alter table public.canvases add column if not exists is_favorite boolean default false;
