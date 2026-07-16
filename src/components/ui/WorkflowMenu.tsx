@@ -542,7 +542,7 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
   return (
     <div style={{ padding: 20 }} className="workflow-menu glass-panel max-w-[420px] w-full text-sm font-sans flex flex-col gap-4 max-h-[82vh] overflow-y-auto select-none pointer-events-auto border border-[var(--border)] shadow-xl bg-[var(--bg-glass)]">
       {/* Title */}
-      <div className="flex items-center justify-between border-b border-[var(--border)]" style={{ paddingBottom: 10 }}>
+      <div className="flex items-center justify-between border-b border-[var(--border)] shrink-0" style={{ paddingBottom: 10 }}>
         <div>
           <h3 className="font-semibold text-base text-[var(--text-primary)] flex items-center gap-2">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--accent)]">
@@ -563,26 +563,23 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
-      {/* AI Workflow generator — describe anything, get a full end-to-end build */}
-      <div className="relative overflow-hidden rounded-xl border flex flex-col gap-2.5"
+      {/* AI Workflow generator — describe anything, get a full end-to-end build.
+          shrink-0 (and no overflow-hidden) so the tall menu's flex column can't
+          compress this box and clip its own textarea/button — that was the
+          "compacted" bug. Tint is a faint accent wash, not a loud orange fill. */}
+      <div className="shrink-0 rounded-xl border flex flex-col gap-2"
         style={{
-          padding: 14,
-          borderColor: 'rgba(var(--accent-rgb), 0.35)',
-          background: 'linear-gradient(135deg, var(--accent-subtle) 0%, rgba(var(--accent-rgb),0.02) 60%, transparent 100%)',
+          padding: 12,
+          borderColor: 'rgba(var(--accent-rgb), 0.14)',
+          background: 'rgba(var(--accent-rgb), 0.04)',
         }}>
-        <div className="flex items-start gap-2.5">
-          <span className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-[var(--accent)] text-white shadow-sm">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z" />
-              <path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2z" />
-            </svg>
-          </span>
-          <div className="flex flex-col">
-            <h4 className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
-              AI Workflow
-            </h4>
-            <p className="text-[10px] text-[var(--text-secondary)] leading-snug">Describe anything — get a complete, end-to-end workflow, styled and explained.</p>
-          </div>
+        {/* Compact one-line header: simple sparkle + title + inline hint */}
+        <div className="flex items-center gap-2">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[var(--accent)]" aria-hidden="true">
+            <path d="M12 3l1.7 5.3L19 11l-5.3 1.7L12 18l-1.7-5.3L5 11l5.3-1.7z" />
+          </svg>
+          <h4 className="text-xs font-bold text-[var(--text-primary)] shrink-0">AI Workflow</h4>
+          <p className="text-[10px] text-[var(--text-tertiary)] leading-snug truncate">— describe it, get a full styled build</p>
         </div>
 
         <textarea
@@ -594,37 +591,37 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
               handleGenerateAI();
             }
           }}
-          rows={3}
-          placeholder="e.g. A full go-to-market plan for a B2B SaaS launch — research, build, beta, marketing, launch, and post-launch loops…"
-          style={{ padding: '10px 12px' }}
+          rows={2}
+          placeholder="e.g. A go-to-market plan for a B2B SaaS launch — research, build, beta, launch…"
+          style={{ padding: '9px 11px' }}
           className="w-full resize-none text-xs leading-relaxed rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-[var(--accent)] transition"
         />
 
         <button
           onClick={handleGenerateAI}
           disabled={!aiPrompt.trim()}
-          style={{ padding: '9px 0' }}
+          style={{ padding: '8px 0' }}
           className={`w-full rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
             aiPrompt.trim()
               ? 'bg-[var(--accent)] text-white shadow-sm hover:shadow-md hover:brightness-105 cursor-pointer'
               : 'bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] cursor-not-allowed'
           }`}
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z" />
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3l1.7 5.3L19 11l-5.3 1.7L12 18l-1.7-5.3L5 11l5.3-1.7z" />
           </svg>
           Generate workflow
         </button>
       </div>
 
       {/* Blueprint library divider */}
-      <div className="flex items-center gap-2 -mb-1">
+      <div className="flex items-center gap-2 shrink-0">
         <span className="text-[9px] uppercase tracking-widest font-semibold text-[var(--text-tertiary)]">Or start from a blueprint</span>
         <div className="flex-1 h-px bg-[var(--border)]" />
       </div>
 
       {/* Categories */}
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1.5 shrink-0">
         {['All', 'Favorites', 'Business', 'Academic', 'Creative', 'Productivity'].map(cat => (
           <button
             key={cat}
