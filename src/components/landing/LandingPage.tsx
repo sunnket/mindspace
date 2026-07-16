@@ -52,6 +52,15 @@ const spring = { type: 'spring' as const, stiffness: 260, damping: 26 };
 const CARD_TEXT_PAD: React.CSSProperties = { paddingLeft: 14, paddingRight: 12, paddingBottom: 8 };
 const GRID_CARD_PAD: React.CSSProperties = { padding: 20 };
 const TABLE_CELL_PAD: React.CSSProperties = { padding: '16px 24px' };
+// The "All canvases" control strip — sort button, grid/list segmented toggle,
+// category pills, count badges — all leaned on dead px-*/py-* utilities, so they
+// collapsed and jammed together ("gridlist"). Restore their spacing inline.
+const CONTROL_PAD: React.CSSProperties = { padding: '8px 16px' };   // pill / dropdown buttons
+const BADGE_PAD: React.CSSProperties = { padding: '2px 7px' };      // count badges
+const SEG_TRAY_PAD: React.CSSProperties = { padding: 4 };           // segmented toggle tray
+const SEG_BTN_PAD: React.CSSProperties = { padding: '6px 18px' };   // grid / list buttons
+const MENU_PAD: React.CSSProperties = { padding: 6 };               // sort dropdown container
+const MENU_ITEM_PAD: React.CSSProperties = { padding: '8px 12px' }; // sort dropdown items
 
 /* ============================================================
    Small helpers
@@ -970,11 +979,11 @@ export default function LandingPage() {
           )}
 
           {/* ---------- COLLECTION SECTIONS (home / favorites / archive / trash) ---------- */}
-          {/* mt-* utilities are dead here (the global `* { margin:0 }` reset is
-              unlayered and outranks Tailwind's layered utilities), so the 2cm
-              downward shift is set inline where it actually takes effect. */}
+          {/* The parent already spaces sections with gap-12 (48px); the old 2cm
+              inline shift stacked on top of that and left an awkward void above
+              this section, so it's dropped in favour of the uniform gap. */}
           {!isLoading && isCollectionTab && (
-            <section className="w-full flex flex-col gap-6" style={{ marginTop: '2cm' }}>
+            <section className="w-full flex flex-col gap-6">
               <div className="flex flex-wrap justify-between items-center gap-x-6 gap-y-4 border-b border-[var(--border)] pb-5">
                 <SectionHeading
                   title={sectionTitles[activeSidebarTab]}
@@ -987,7 +996,8 @@ export default function LandingPage() {
                   {activeSidebarTab === 'deleted' && trashCount > 0 && (
                     <button
                       onClick={handleEmptyTrash}
-                      className={`px-4 py-2 rounded-full text-[11px] font-bold tracking-wide transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 ${
+                      style={CONTROL_PAD}
+                      className={`rounded-full text-[11px] font-bold tracking-wide transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 ${
                         armedEmptyTrash
                           ? 'bg-red-500 text-white shadow-[0_8px_18px_-6px_rgba(239,68,68,0.6)]'
                           : 'clay-inset text-red-600/80 hover:text-red-600'
@@ -1003,7 +1013,8 @@ export default function LandingPage() {
                       onClick={() => setSortMenuOpen((o) => !o)}
                       aria-haspopup="listbox"
                       aria-expanded={sortMenuOpen}
-                      className="clay-inset flex items-center gap-1.5 px-4 py-2 rounded-full text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+                      style={CONTROL_PAD}
+                      className="clay-inset flex items-center gap-1.5 rounded-full text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
                     >
                       {sortMode === 'recent' ? 'recent' : sortMode === 'name' ? 'a → z' : 'most cards'}
                       {ICONS.chevron}
@@ -1016,7 +1027,8 @@ export default function LandingPage() {
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: -6, scale: 0.96 }}
                           transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                          className="glass-bar absolute right-0 top-full mt-2 rounded-2xl p-1.5 flex flex-col w-36 z-30"
+                          style={{ ...MENU_PAD, marginTop: 8 }}
+                          className="glass-bar absolute right-0 top-full rounded-2xl flex flex-col w-36 z-30"
                         >
                           {(['recent', 'name', 'cards'] as SortMode[]).map((mode) => (
                             <li key={mode}>
@@ -1024,7 +1036,8 @@ export default function LandingPage() {
                                 role="option"
                                 aria-selected={sortMode === mode}
                                 onClick={() => { setSortMode(mode); setSortMenuOpen(false); }}
-                                className={`w-full text-left px-3 py-2 rounded-xl text-[11px] font-bold transition-colors cursor-pointer ${
+                                style={MENU_ITEM_PAD}
+                                className={`w-full text-left rounded-xl text-[11px] font-bold transition-colors cursor-pointer ${
                                   sortMode === mode ? 'bg-[var(--accent)]/15 text-[var(--accent)] font-extrabold' : 'text-[var(--text-secondary)] hover:bg-black/5'
                                 }`}
                               >
@@ -1041,14 +1054,15 @@ export default function LandingPage() {
                   <span className="w-px h-6 bg-[var(--border)] mx-0.5" aria-hidden="true" />
 
                   {/* Grid / list segmented toggle with sliding thumb */}
-                  <div className="clay-inset flex p-1 rounded-full" role="tablist" aria-label="Layout mode">
+                  <div className="clay-inset flex rounded-full" role="tablist" aria-label="Layout mode" style={SEG_TRAY_PAD}>
                     {(['grid', 'list'] as const).map((mode) => (
                       <button
                         key={mode}
                         role="tab"
                         aria-selected={layoutMode === mode}
                         onClick={() => setLayoutMode(mode)}
-                        className={`relative px-4 py-1.5 rounded-full text-[11px] font-bold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 ${
+                        style={SEG_BTN_PAD}
+                        className={`relative rounded-full text-[11px] font-bold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 ${
                           layoutMode === mode ? 'text-[var(--text-primary)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
                         }`}
                       >
@@ -1074,7 +1088,8 @@ export default function LandingPage() {
                     role="tab"
                     aria-selected={activeCategory === 'all'}
                     onClick={() => setActiveCategory('all')}
-                    className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+                    style={CONTROL_PAD}
+                    className={`relative inline-flex items-center gap-2 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
                       activeCategory === 'all' ? 'text-[var(--accent)] font-extrabold' : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                     }`}
                   >
@@ -1086,7 +1101,7 @@ export default function LandingPage() {
                       />
                     )}
                     <span className="relative">all</span>
-                    <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === 'all' ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
+                    <span style={BADGE_PAD} className={`relative text-[9px] rounded-full font-extrabold tabular-nums ${activeCategory === 'all' ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
                       {counts.all}
                     </span>
                   </button>
@@ -1105,7 +1120,8 @@ export default function LandingPage() {
                           setActiveCategory(cat);
                         }
                       }}
-                      className={`relative inline-flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
+                      style={CONTROL_PAD}
+                      className={`relative inline-flex items-center gap-2 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 ${
                         activeCategory === cat ? 'text-[var(--accent)] font-extrabold' : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
                     >
@@ -1133,7 +1149,7 @@ export default function LandingPage() {
                       ) : (
                         <span className="relative">{cat}</span>
                       )}
-                      <span className={`relative text-[9px] px-1.5 py-0.5 rounded-full font-extrabold tabular-nums ${activeCategory === cat ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
+                      <span style={BADGE_PAD} className={`relative text-[9px] rounded-full font-extrabold tabular-nums ${activeCategory === cat ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'bg-white/70 dark:bg-white/10 border border-[var(--border)]'}`}>
                         {counts[cat] || 0}
                       </span>
                     </button>
