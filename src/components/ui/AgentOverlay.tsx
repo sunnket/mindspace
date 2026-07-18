@@ -161,54 +161,13 @@ function makeActionScanner(onAction: (a: Action) => void) {
 }
 
 
-/**
- * Guaranteed local build. When every model is unreachable we still put something
- * useful on the canvas from the prompt alone, so the agent NEVER produces nothing.
- */
-function localFallbackActions(prompt: string, context: string | undefined, x: number, y: number): Action[] {
-  const source = (context && context.trim()) ? context : prompt;
-  const title = prompt.trim().replace(/\s+/g, ' ').slice(0, 60).replace(/^./, (c) => c.toUpperCase());
-
-  const actions: Action[] = [{
-    type: 'CREATE_OBJECT', tempId: 'fb_h',
-    objData: { type: 'heading', x, y, width: 440, height: 60, content: title || 'New note', style: {} },
-    log: 'Adding a heading...',
-  }];
-
-  // Split the source into list-ish items
-  const items = source
-    .split(/\n|;|(?:,\s)|(?:\d+[.)]\s)|(?:[-*•]\s)/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 1 && s.toLowerCase() !== prompt.trim().toLowerCase())
-    .slice(0, 8);
-
-  if (items.length >= 2) {
-    const todo = items.map((t, idx) => ({ id: String(idx + 1), text: t.slice(0, 120), done: false }));
-    actions.push({
-      type: 'CREATE_OBJECT', tempId: 'fb_todo',
-      objData: {
-        type: 'card', x, y: y + 84, width: 320, height: 300,
-        content: JSON.stringify(todo),
-        style: { isTodo: true, todoTitle: title || 'Checklist' },
-      },
-      log: 'Turning it into a checklist...',
-    });
-  } else {
-    const palette = ['#FEF3C7', '#F3E8FF', '#ECFDF5'];
-    const notes = (source.match(/[^.!?\n]+[.!?]?/g) || [source]).map((s) => s.trim()).filter(Boolean).slice(0, 3);
-    notes.forEach((note, idx) => {
-      actions.push({
-        type: 'CREATE_OBJECT', tempId: `fb_s${idx}`,
-        objData: {
-          type: 'sticky', x: x + idx * 224, y: y + 84, width: 200, height: 160,
-          content: note.slice(0, 180), style: { color: palette[idx % palette.length] },
-        },
-        log: 'Adding a note...',
-      });
-    });
-  }
-  return actions;
-}
+/* The "guaranteed local build" that used to live here is DEAD, deliberately.
+   When every model failed it echoed the user's own prompt back onto the canvas
+   as a heading + sticky — output-shaped noise that read as the agent
+   gaslighting you with your own words (and got reported as a hallucination
+   twice). The replacement contract: retry the whole model race once on fresh
+   keys, and if that also fails, say so honestly in the status pill and put
+   NOTHING fake on the board. */
 
 export default function AgentOverlay() {
   const agentLogs = useCanvasStore((s) => s.agentLogs);
@@ -735,10 +694,17 @@ export default function AgentOverlay() {
       }, 2200);
     };
 
-    const runLocalFallback = () => {
-      addLog('[Agent] Building offline...');
-      localFallbackActions(promptText, refContext, startX, startY).forEach(runAction);
-      finishSuccess();
+    /* Honest failure: red pill with a real message, build chip → error, nothing
+       fake on the canvas. Auto-clears so it doesn't linger. */
+    const failRun = (msg: string) => {
+      addLog(`[Failure] ${msg}`);
+      setAgentState({ agentStatus: 'failed', agentRunning: false });
+      runningRef.current = false;
+      emitBuildState('error');
+      activeSourceIdRef.current = null;
+      setTimeout(() => {
+        if (useCanvasStore.getState().agentStatus === 'failed') setAgentState({ agentStatus: 'idle', agentLogs: [] });
+      }, 6000);
     };
 
     try {
@@ -997,71 +963,97 @@ export default function AgentOverlay() {
       addLog(`[Agent] Context ready in ${((Date.now() - ctxStart) / 1000).toFixed(1)}s — thinking…`);
       if (!runningRef.current) return;
 
-      const res = await fetch('/api/agent/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: promptText,
-          apiKeyIndex: keyIdx,
-          agentX: startX, agentY: startY,
-          context: refContext,
-          brief: briefArg,
-          mode: modeArg,
-          visionContext,
-          webContext,
-          memoriesContext,
-          searchContext,
-          weatherContext,
-          dictContext,
-          wikiContext,
-          newsContext,
-          youtubeContext,
-          quotesContext,
-          countryContext,
-          triviaContext,
-          filesContext: filesContext || undefined,
-          // Per-canvas Skill Set — standing rules the agent must obey here.
-          skillsetContext: formatSkillsetForAgent(store.skillset) || undefined,
-          canvas: {
-            isDark: store.canvasBackground.dark,
-            // Send the height each block ACTUALLY renders at, not the nominal one
-            // it was stored with. A note created as height:120 that grew to 600px
-            // of text has to look 600px tall to the model, or it plans the next
-            // block 200px down — straight through the middle of the note.
-            objects: visibleObjects.map((o) => ({
-              id: o.id, type: o.type, x: o.x, y: o.y,
-              width: o.width, height: Math.round(rectOf(o).h), content: o.content, style: o.style,
-            })),
-            connections: visibleConnections.map((c) => ({ id: c.id, fromId: c.fromId, toId: c.toId })),
-          },
-        }),
-        signal: controller.signal,
-      });
+      const requestBody = {
+        prompt: promptText,
+        agentX: startX, agentY: startY,
+        context: refContext,
+        brief: briefArg,
+        mode: modeArg,
+        visionContext,
+        webContext,
+        memoriesContext,
+        searchContext,
+        weatherContext,
+        dictContext,
+        wikiContext,
+        newsContext,
+        youtubeContext,
+        quotesContext,
+        countryContext,
+        triviaContext,
+        filesContext: filesContext || undefined,
+        // Per-canvas Skill Set — standing rules the agent must obey here.
+        skillsetContext: formatSkillsetForAgent(store.skillset) || undefined,
+        canvas: {
+          isDark: store.canvasBackground.dark,
+          // Send the height each block ACTUALLY renders at, not the nominal one
+          // it was stored with. A note created as height:120 that grew to 600px
+          // of text has to look 600px tall to the model, or it plans the next
+          // block 200px down — straight through the middle of the note.
+          objects: visibleObjects.map((o) => ({
+            id: o.id, type: o.type, x: o.x, y: o.y,
+            width: o.width, height: Math.round(rectOf(o).h), content: o.content, style: o.style,
+          })),
+          connections: visibleConnections.map((c) => ({ id: c.id, fromId: c.fromId, toId: c.toId })),
+        },
+      };
 
+      /* --- call the model & stream the plan, with ONE automatic retry --------
+         A hedged race can still lose an unlucky round to tier congestion (every
+         slot stalling past its deadline), and rarely a model streams JSON the
+         scanner can't use. Both used to end in the prompt-echo fallback. Now a
+         failed or empty round is re-raced ONCE on a rotated key alignment — a
+         fresh round usually lands on warmer workers. Returns true when this
+         round produced actions (or the user stopped — nothing left to do). */
+      let fullResponse = '';
+      const streamPlanRound = async (keyOffset: number): Promise<boolean> => {
+        const res = await fetch('/api/agent/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...requestBody, apiKeyIndex: keyIdx + keyOffset }),
+          signal: controller.signal,
+        });
+        if (!runningRef.current) return true; // stopped — don't retry
+        if (!res.ok || !res.body) return false;
+
+        // Stream the plan; execute each action the instant it completes.
+        const scan = makeActionScanner((action) => { if (runningRef.current) runAction(action); });
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        const roundStart = Date.now();
+        fullResponse = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!runningRef.current) { reader.cancel(); return true; }
+          const chunk = decoder.decode(value, { stream: true });
+          fullResponse += chunk;
+          scan(chunk);
+          /* DUD-ROUND WATCHDOG. A real plan puts "actions" FIRST, so its first
+             action completes within the first couple thousand characters. A
+             model that instead streams PROSE (live-verified: llama-70b answered
+             a heavy build with a 97-second markdown essay — zero actions) would
+             otherwise hold this loop hostage to the very end. If we're several
+             thousand chars or 45s in with NOTHING parsed, the round is a dud —
+             cut it loose and let the retry (or the honest failure) take over. */
+          if (executed === 0 && (fullResponse.length > 6000 || Date.now() - roundStart > 45_000)) {
+            reader.cancel();
+            return false;
+          }
+        }
+        return executed > 0;
+      };
+
+      let planOk = await streamPlanRound(0);
+      if (!planOk && runningRef.current) {
+        addLog('[Agent] The models are congested — retrying on fresh workers…');
+        planOk = await streamPlanRound(1);
+      }
       if (!runningRef.current) return;
-
-      // Non-streamed error response → guaranteed local build instead of failing
-      if (!res.ok || !res.body) {
-        runLocalFallback();
+      if (!planOk) {
+        failRun('The AI models are congested right now — nothing was built. Try again in a moment.');
         return;
       }
-
-      // Stream the plan; execute each action the instant it completes
-      const scan = makeActionScanner((action) => { if (runningRef.current) runAction(action); });
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let fullResponse = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!runningRef.current) { reader.cancel(); return; }
-        const chunk = decoder.decode(value, { stream: true });
-        fullResponse += chunk;
-        scan(chunk);
-      }
-
-      if (!runningRef.current) return;
 
       // Every link card fired off its own check the moment it landed (verifyLink).
       // Let those finish before we call the run done, so a dead card is gone from
@@ -1112,21 +1104,13 @@ export default function AgentOverlay() {
 
       if (!runningRef.current) return;
 
-      if (executed === 0) {
-        // Model responded but produced nothing usable → still guarantee output
-        runLocalFallback();
-        return;
-      }
-      finishSuccess();
+      finishSuccess(); // planOk guaranteed executed > 0 above
     } catch (err) {
       if (!runningRef.current) return; // user stopped
       console.error('[Agent]', err);
-      // Never leave the canvas empty — fall back locally
-      if (executed === 0) {
-        runLocalFallback();
-      } else {
-        finishSuccess();
-      }
+      // A partial board still deserves its settle pass; an empty run fails honestly.
+      if (executed === 0) failRun('Something went wrong mid-run — nothing was built. Try again.');
+      else finishSuccess();
     }
   }, [setAgentState]);
 

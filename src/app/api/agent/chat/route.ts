@@ -5,17 +5,24 @@ export const maxDuration = 300;
 
 const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
-/* Same serverless NIM models the canvas agent uses (measured fast TTFT). Chat
-   must feel INSTANT, so it leads with a fast-but-smart mid model and only falls
-   over to the heavier ones if that stalls — a 675B frontier model generates
-   tokens too slowly to lead an interactive chat. */
-const CHAIN = [
-  'mistralai/mistral-medium-3.5-128b',
-  'meta/llama-3.1-70b-instruct',
-  'mistralai/mistral-large-3-675b-instruct-2512',
+/* Same serverless NIM models the canvas agent uses. Chat must feel INSTANT, so
+   the launch PLAN leads with the fast-but-smart mid model, hedges the SAME
+   model on a different API key first (a stalled worker is per-account — another
+   key hits another queue without downgrading quality), then brings in the
+   heavier models, with the always-warm 8B as a far-out rescue: a decent quick
+   answer at 14s beats a spinner at 25s. */
+const PLAN: { model: string; delayMs: number }[] = [
+  { model: 'mistralai/mistral-medium-3.5-128b', delayMs: 0 },
+  { model: 'mistralai/mistral-medium-3.5-128b', delayMs: 2500 },
+  { model: 'meta/llama-3.1-70b-instruct', delayMs: 5000 },
+  { model: 'mistralai/mistral-large-3-675b-instruct-2512', delayMs: 8000 },
+  { model: 'meta/llama-3.1-8b-instruct', delayMs: 14_000 },
 ];
 
-const TTFT_DEADLINE_MS = 12_000;
+/* Give-up bound per attempt, NOT a latency dial — hedging owns perceived speed.
+   12s was too tight for the tier's congested days (probed 13-20s+ first tokens
+   on healthy models), and every breach became a user-facing failure. */
+const TTFT_DEADLINE_MS = 28_000;
 
 const SYSTEM_PROMPT = `You are the Mindspace Agent — a brilliant, warm AI partner living inside the user's infinite spatial canvas app. Right now you're talking with the user in a chat panel on the side of their canvas. You are, all at once, an expert software engineer, researcher, designer, analyst and writer, and you genuinely get things done.
 
@@ -142,54 +149,50 @@ async function openModelStream(
   });
 }
 
-/* HEDGED RACING (same scheme as the canvas build route): the lead model fires
-   immediately; if its first token hasn't landed within HEDGE_DELAY_MS, the next
-   model fires IN PARALLEL on a different API key. First token wins, losers are
-   aborted, a hard failure drafts the next model instantly. Chat must feel
-   INSTANT, so the hedge is even more impatient here. */
-const HEDGE_DELAY_MS = 2500;
-
+/* HEDGED RACING over PLAN (same scheme as the canvas build route): each slot
+   has its own launch delay; a later slot enters the race only if nobody has
+   produced a first token yet. First token wins, losers are aborted, and a hard
+   failure pulls the next unlaunched slot forward immediately. */
 function openHedgedStream(
   apiKeys: string[], startKey: number, messages: ChatMsg[],
 ): Promise<{ stream: ReadableStream<Uint8Array>; model: string }> {
   return new Promise((resolve, reject) => {
     const controllers: (AbortController | undefined)[] = [];
-    let launched = 0;
+    const timers: (ReturnType<typeof setTimeout> | undefined)[] = [];
+    let launchedCount = 0;
     let failed = 0;
     let settled = false;
     let lastError: Error = new Error('no models attempted');
-    let hedgeTimer: ReturnType<typeof setTimeout> | null = null;
 
     const launch = (i: number) => {
-      if (settled || i >= CHAIN.length) return;
-      launched++;
+      if (settled || controllers[i]) return; // already raced this slot
+      if (timers[i] !== undefined) { clearTimeout(timers[i]); timers[i] = undefined; }
+      launchedCount++;
       const controller = new AbortController();
       controllers[i] = controller;
-      openModelStream(apiKeys[(startKey + i) % apiKeys.length], CHAIN[i], messages, controller)
+      openModelStream(apiKeys[(startKey + i) % apiKeys.length], PLAN[i].model, messages, controller)
         .then((stream) => {
           if (settled) { controller.abort(); return; } // lost the race — cancel
           settled = true;
-          if (hedgeTimer) clearTimeout(hedgeTimer);
+          timers.forEach((t) => { if (t !== undefined) clearTimeout(t); });
           controllers.forEach((c, j) => { if (j !== i) c?.abort(); });
-          resolve({ stream, model: CHAIN[i] });
+          resolve({ stream, model: PLAN[i].model });
         })
         .catch((err) => {
           lastError = err instanceof Error ? err : new Error(String(err));
-          if (!settled) console.warn(`Agent chat model ${CHAIN[i]} failed:`, lastError.message);
+          if (!settled) console.warn(`Agent chat model ${PLAN[i].model} (slot ${i}) failed:`, lastError.message);
           failed++;
           if (settled) return;
-          if (launched < CHAIN.length) launch(launched);
-          else if (failed >= launched) reject(lastError);
+          const next = PLAN.findIndex((_, j) => !controllers[j]);
+          if (next !== -1) launch(next);
+          else if (failed >= launchedCount) reject(lastError);
         });
     };
 
-    const scheduleHedge = () => {
-      if (settled || launched >= CHAIN.length) return;
-      hedgeTimer = setTimeout(() => { launch(launched); scheduleHedge(); }, HEDGE_DELAY_MS);
-    };
-
-    launch(0);
-    scheduleHedge();
+    PLAN.forEach((slot, i) => {
+      if (slot.delayMs <= 0) launch(i);
+      else timers[i] = setTimeout(() => launch(i), slot.delayMs);
+    });
   });
 }
 

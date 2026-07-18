@@ -10,41 +10,59 @@ export const maxDuration = 300;
 
 const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
-/* Measured 2026-07-07 against NIM serverless: all of these stream a first token
-   in ~0.7-1.1s. Models that hang (llama-3.3-70b, qwen3.5-397b, glm-5.2,
-   deepseek-v4-pro) are deliberately excluded — re-test before adding. */
+/* Measured against NIM serverless. TTFT is WEATHER, not a constant: 2026-07-07
+   these all streamed a first token in ~0.7-1.1s; probed again 2026-07-19 under
+   load, mid and strong stalled 13-20s+ on the same trivial prompt. Design for
+   the bad day. Models that hang (llama-3.3-70b, qwen3.5-397b, glm-5.2,
+   deepseek-v4-pro) are excluded; kimi-k2.6 was removed from the NVIDIA catalog
+   (404s on every key) — do not re-add without probing first. */
 const MODELS = {
   frontier: 'mistralai/mistral-large-3-675b-instruct-2512',
-  strong: 'meta/llama-3.1-70b-instruct',
-  reasoner: 'moonshotai/kimi-k2.6',
+  /* strong (llama-3.1-70b) is BANNED from build plans: live-verified 2026-07-19
+     winning a heavy race and streaming a PROSE ESSAY instead of the JSON action
+     plan — zero actions, 97 seconds (throttled ~10 tok/s), which the client
+     then surfaced as the prompt-echo bug. It also ignores schema under load.
+     Chat still uses it (prose is what chat wants). Do not re-add here. */
   mid: 'mistralai/mistral-medium-3.5-128b',
   fast: 'meta/llama-3.1-8b-instruct',
 } as const;
 
 type Profile = 'heavy' | 'balanced' | 'quick';
 
-/* The model is chosen for the JOB, not fixed for the app.
-   The single ranked chain this replaces is why the agent "acted dumb for no
-   reason": a frontier model that merely stalled past the TTFT deadline dropped
-   the request straight down the list, and a hard build could end up answered by
-   an 8B model — which cannot hold this system prompt's layout rules in its head.
-   Now each profile has its OWN chain, and 8B is only ever reachable for the
-   trivial one-liners it's actually good at. */
-/* SPEED IS A FEATURE. Measured on the live NIM serverless tier (2026-07-18):
-   the 675B frontier took 60–110s per board and formatted its JSON inconsistently
-   (bare fenced arrays that broke the parser); llama-70b was throttled to ~10
-   tok/s (110s for a research board); but mistral-medium-128b built a RICHER
-   board in ~53s and answered a trivial edit in ~7s. So EVERY chain now LEADS
-   with mistral-medium-128b — it's the fastest AND the richest here, and leading
-   every profile with the one model keeps it warm (fewer cold-start fail-overs).
-   The heavier models are only fall-backs for when it stalls. */
-const CHAINS: Record<Profile, string[]> = {
+/* The model is chosen for the JOB, not fixed for the app — and the launch plan
+   is chosen for the NIM tier's real behavior. mistral-medium-128b is the
+   fastest AND richest model here (measured 2026-07-18: richer board in ~53s vs
+   60-110s for the 675B frontier whose JSON also broke the parser; llama-70b
+   throttled to ~10 tok/s), so it leads everything. But a single worker of it
+   can stall for 20s+ under load (probed 2026-07-19), so the FIRST hedge is the
+   SAME model on a DIFFERENT API key — a different account hits a different
+   worker/queue, which rescues a stall without downgrading quality. Only after
+   that do the heavier models enter, and the always-warm 8B is a last-resort
+   rescue ONLY for non-heavy work (it can't hold the layout rules for a complex
+   board, but a decent simple answer beats a failure). */
+interface HedgeSlot { model: string; delayMs: number }
+
+const PLANS: Record<Profile, HedgeSlot[]> = {
   // Long builds, workflows, dashboards, code, math, reorganising a whole board.
-  heavy: [MODELS.mid, MODELS.strong, MODELS.frontier],
+  // No 8B here — quality-critical; the client retries the whole race instead.
+  heavy: [
+    { model: MODELS.mid, delayMs: 0 },
+    { model: MODELS.mid, delayMs: 2500 },      // same model, different key/worker
+    { model: MODELS.mid, delayMs: 5000 },      // third key — beat the congestion
+    { model: MODELS.frontier, delayMs: 8000 },
+  ],
   // The everyday ask: explain this, add a few notes, pull some links.
-  balanced: [MODELS.mid, MODELS.strong],
-  // "add a heading", "make this bigger", "delete that" — latency is the feature.
-  quick: [MODELS.mid, MODELS.fast],
+  balanced: [
+    { model: MODELS.mid, delayMs: 0 },
+    { model: MODELS.mid, delayMs: 2500 },
+    { model: MODELS.frontier, delayMs: 6000 },
+    { model: MODELS.fast, delayMs: 15_000 },   // rescue: warm 8B beats a failure
+  ],
+  // "add a heading", "make this bigger" — latency IS the feature; 8B is fine.
+  quick: [
+    { model: MODELS.mid, delayMs: 0 },
+    { model: MODELS.fast, delayMs: 2000 },
+  ],
 };
 
 /** Signals that the task needs real reasoning, not a quick hand. */
@@ -70,11 +88,14 @@ function pickProfile(prompt: string, mode?: string): Profile {
   return 'balanced';
 }
 
-/* A model must emit its first token within this window or we abandon it and fail
-   over. 7s was too tight: a cold frontier worker regularly needs longer, and
-   every one of those was silently a downgrade. Give the strong models room, and
-   keep the impatient deadline for the small ones. */
-const TTFT_DEADLINE_MS = 12_000;
+/* A model must emit its first token within this window or its attempt is
+   abandoned. This is ONLY the give-up bound now — hedging owns perceived
+   latency (a stalled lead never makes the user wait; the next slot is already
+   racing). 12s was too tight: probed 2026-07-19 under tier congestion, healthy
+   models took 13-20s+ to their first token, so every attempt "failed", the
+   route 502'd, and the client echoed the user's prompt back as a fake board.
+   Congested-but-alive must stay in the race. */
+const TTFT_DEADLINE_MS = 28_000;
 
 const SYSTEM_PROMPT = `You are the Mindspace Canvas Agent — a genius creative partner with god-tier taste and instant hands, and the absolute master of THIS infinite spatial canvas. Think like the best designer, strategist, engineer and teacher in the world rolled into one. You can do ANYTHING on the canvas: create, rewrite, reorganize, connect, delete, fetch real links AND real photos from the web, write runnable code, draw live diagrams and maps, set timers and countdowns, show live weather, look up definitions, search the web for facts, pull Wikipedia knowledge, and bring in exactly what the user asks for — then go further and add the thing they'll wish they'd asked for. Be ambitious and complete: never do the bare minimum, always deliver something that makes the user go "whoa". Act like a trusted buddy who just gets it done, beautifully.
 Today is {today}. The user invoked you at coordinates (x: {agentX}, y: {agentY}). When you ADD new work, build near there, growing right and down. When you EDIT existing work, act on it wherever it already lives.
@@ -219,6 +240,7 @@ This is the task you get wrong most often. Follow this procedure literally, in o
 
 ### MEMORY — you remember things about this user
 {memorySection}### OUTPUT — return ONLY this JSON, no prose, no markdown fences. Put "actions" FIRST so building can start instantly.
+COMPACT JSON ONLY: emit it as ONE dense line — no pretty-printing, no indentation, no newlines between keys. Every whitespace token you emit is time the user spends waiting; compact JSON makes the same board appear on their canvas 2-3x sooner.
 If you learn something worth remembering about the user (their name, preferences, projects, facts they share), include a "memories" array in your output alongside "actions". Each memory is { "key": "short label", "value": "what to remember", "category": "preference|fact|instruction|context" }. Only save genuinely useful, durable facts — not ephemeral task details. If the user says "forget X" or "don't remember that", include { "forget": "the key to forget" } in the memories array.
 { "actions": [ { "type":"CREATE_OBJECT", "tempId":"a1", "objData":{ "type":"heading", "x":0, "y":0, "width":400, "height":60, "content":"Title", "style":{} }, "log":"Adding title..." } ], "memories": [], "planDescription":"one short sentence" }
 The "actions" array is REQUIRED and must be non-empty. The "memories" array is optional. Order actions logically (frames first, then contents, then connections). Deliver a complete, polished result.`;
@@ -425,59 +447,57 @@ async function openModelStream(
   });
 }
 
-/* HEDGED RACING. Sequential fail-over made one slow worker cost the user the
-   whole 12s TTFT deadline before the next model was even TRIED — with several
-   NVIDIA keys available that's free throughput left on the table. Instead: the
-   lead model fires immediately, and if its first token hasn't landed within
-   HEDGE_DELAY_MS the next model in the chain fires IN PARALLEL on a DIFFERENT
-   key. First token wins; every other attempt is aborted; a hard failure frees
-   the hedge slot instantly. Worst case is now ~one hedge delay, not a sum of
-   deadlines — and the occasional duplicate request is cheap. */
-const HEDGE_DELAY_MS = 3000;
-
+/* HEDGED RACING over a per-profile PLAN. Each slot has its own launch delay:
+   the lead fires at t=0 and every later slot enters the race only if nobody has
+   produced a first token yet (a fast lead cancels the pending timers before
+   they fire, so the extra requests usually never happen). First token wins;
+   losers are aborted; a hard failure pulls the next unlaunched slot forward
+   immediately. Per-slot delays are what let a same-quality hedge come in early
+   (2.5s) while the last-resort rescue stays far out (15s+) so a weak model can
+   never steal a board it shouldn't build. */
 function openHedgedStream(
-  chain: string[], apiKeys: string[], startKey: number,
+  plan: HedgeSlot[], apiKeys: string[], startKey: number,
   systemPrompt: string, userPrompt: string,
   opts?: { maxTokens?: number; temperature?: number },
 ): Promise<{ stream: ReadableStream<Uint8Array>; model: string }> {
   return new Promise((resolve, reject) => {
     const controllers: (AbortController | undefined)[] = [];
-    let launched = 0;
+    const timers: (ReturnType<typeof setTimeout> | undefined)[] = [];
+    let launchedCount = 0;
     let failed = 0;
     let settled = false;
     let lastError: Error = new Error('no models attempted');
-    let hedgeTimer: ReturnType<typeof setTimeout> | null = null;
 
     const launch = (i: number) => {
-      if (settled || i >= chain.length) return;
-      launched++;
+      if (settled || controllers[i]) return; // already raced this slot
+      if (timers[i] !== undefined) { clearTimeout(timers[i]); timers[i] = undefined; }
+      launchedCount++;
       const controller = new AbortController();
       controllers[i] = controller;
-      openModelStream(apiKeys[(startKey + i) % apiKeys.length], chain[i], systemPrompt, userPrompt, opts, controller)
+      openModelStream(apiKeys[(startKey + i) % apiKeys.length], plan[i].model, systemPrompt, userPrompt, opts, controller)
         .then((stream) => {
           if (settled) { controller.abort(); return; } // lost the race — cancel
           settled = true;
-          if (hedgeTimer) clearTimeout(hedgeTimer);
+          timers.forEach((t) => { if (t !== undefined) clearTimeout(t); });
           controllers.forEach((c, j) => { if (j !== i) c?.abort(); });
-          resolve({ stream, model: chain[i] });
+          resolve({ stream, model: plan[i].model });
         })
         .catch((err) => {
           lastError = err instanceof Error ? err : new Error(String(err));
-          if (!settled) console.warn(`Agent model ${chain[i]} failed:`, lastError.message);
+          if (!settled) console.warn(`Agent model ${plan[i].model} (slot ${i}) failed:`, lastError.message);
           failed++;
           if (settled) return;
-          if (launched < chain.length) launch(launched); // failure frees the slot: draft the next model NOW
-          else if (failed >= launched) reject(lastError); // everyone lost
+          // A failure frees a lane: pull the next unlaunched slot forward NOW.
+          const next = plan.findIndex((_, j) => !controllers[j]);
+          if (next !== -1) launch(next);
+          else if (failed >= launchedCount) reject(lastError); // everyone lost
         });
     };
 
-    const scheduleHedge = () => {
-      if (settled || launched >= chain.length) return;
-      hedgeTimer = setTimeout(() => { launch(launched); scheduleHedge(); }, HEDGE_DELAY_MS);
-    };
-
-    launch(0);
-    scheduleHedge();
+    plan.forEach((slot, i) => {
+      if (slot.delayMs <= 0) launch(i);
+      else timers[i] = setTimeout(() => launch(i), slot.delayMs);
+    });
   });
 }
 
@@ -600,7 +620,7 @@ export async function POST(req: NextRequest) {
         ? (requested as Profile)
         : pickProfile(prompt, mode);
 
-    const chain = CHAINS[profile];
+    const plan = PLANS[profile];
     /* Token budgets are BOTH a latency dial AND a completeness floor. The old
        caps (heavy 4500, workflow 7000) were low enough that a genuinely deep
        research board or a rich workflow ran straight into the ceiling and got
@@ -620,9 +640,9 @@ export async function POST(req: NextRequest) {
       profile === 'quick' ? 0.4 : isWorkflow ? 0.55 : profile === 'heavy' ? 0.45 : 0.5;
     const modelOpts = { maxTokens, temperature };
 
-    // Race the chain (hedged): first model to produce a token streams back.
+    // Race the plan (hedged): first model to produce a token streams back.
     try {
-      const { stream, model } = await openHedgedStream(chain, apiKeys, startKey, systemPrompt, prompt, modelOpts);
+      const { stream, model } = await openHedgedStream(plan, apiKeys, startKey, systemPrompt, prompt, modelOpts);
       return new NextResponse(stream, {
         headers: {
           'Content-Type': 'text/plain; charset=utf-8',
