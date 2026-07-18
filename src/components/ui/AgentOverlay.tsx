@@ -745,9 +745,43 @@ export default function AgentOverlay() {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      // If the task is about an image the user placed, LOOK at it first so any
-      // caption/description is grounded in what the picture actually shows.
+      /* --- Context pre-passes: ALL CONCURRENT, ALL HARD-CAPPED --------------
+         Vision, URL crawling, memory, search, weather, wiki, news, youtube… are
+         best-effort garnish — none of them is worth stalling the build for. They
+         used to run with NO deadline at all (and vision + crawling ran SERIALLY
+         before the rest), so a single hanging upstream held "Gathering context…"
+         hostage for minutes. Now every source runs in ONE parallel batch on a
+         shared abort signal with a hard deadline: whatever answered in time
+         ships with the prompt, the rest are cut loose mid-flight. The user's
+         Stop button aborts through the same wire. */
+      const CONTEXT_DEADLINE_MS = 8000;
+      const ctxController = new AbortController();
+      const onMainAbort = () => ctxController.abort();
+      controller.signal.addEventListener('abort', onMainAbort);
+      const ctxTimer = setTimeout(() => ctxController.abort(), CONTEXT_DEADLINE_MS);
+      const sig = ctxController.signal;
+
       let visionContext: string | undefined;
+      let webContext: string | undefined;
+      let memoriesContext: string | undefined;
+      let searchContext: string | undefined;
+      let weatherContext: string | undefined;
+      let dictContext: string | undefined;
+      let wikiContext: string | undefined;
+      let newsContext: string | undefined;
+      let youtubeContext: string | undefined;
+      let quotesContext: string | undefined;
+      let countryContext: string | undefined;
+      let triviaContext: string | undefined;
+
+      const pLower = promptText.toLowerCase();
+      const wantsYouTube = /\b(youtube|video|song|music|listen to|watch|play|track|album|artist|singer|band|clip|trailer|mv|music video|remix|cover|live performance)\b/i.test(pLower);
+      const pre: Promise<void>[] = [];
+      const ctxStart = Date.now();
+      addLog('[Agent] Gathering context…');
+
+      // VISION — if the task is about an image the user placed, LOOK at it so
+      // any caption/description is grounded in what the picture actually shows.
       if (isImageTask(promptText)) {
         const isImg = (o?: CanvasObjectData) =>
           !!o && (o.type === 'image' || (typeof o.content === 'string' && o.content.startsWith('data:image')));
@@ -761,71 +795,45 @@ export default function AgentOverlay() {
             );
           }
         }
-        if (target && typeof target.content === 'string' && target.content.startsWith('data:image')) {
-          addLog('[Agent] Looking at your image...');
-          try {
-            const small = await downscaleImage(target.content);
-            const vres = await fetch('/api/vision', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ image: small }),
-              signal: controller.signal,
-            });
-            if (vres.ok) {
-              const vjson = await vres.json();
-              if (vjson?.description) {
-                visionContext = `Image at (x:${Math.round(target.x)}, y:${Math.round(target.y)}, ${Math.round(target.width)}x${Math.round(target.height)}) shows: ${vjson.description}`;
+        const vt = target && typeof target.content === 'string' && target.content.startsWith('data:image') ? target : undefined;
+        if (vt) {
+          pre.push((async () => {
+            try {
+              const small = await downscaleImage(vt.content);
+              const vres = await fetch('/api/vision', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: small }),
+                signal: sig,
+              });
+              if (vres.ok) {
+                const vjson = await vres.json();
+                if (vjson?.description) {
+                  visionContext = `Image at (x:${Math.round(vt.x)}, y:${Math.round(vt.y)}, ${Math.round(vt.width)}x${Math.round(vt.height)}) shows: ${vjson.description}`;
+                }
               }
-            }
-          } catch { /* vision is best-effort — proceed without it */ }
+            } catch { /* vision is best-effort — proceed without it */ }
+          })());
         }
-        if (!runningRef.current) return;
       }
 
-      // If the user pasted URL(s), CRAWL them so the agent works from the real
-      // page — "read this", "summarize this docs page", "pull X from this link".
-      let webContext: string | undefined;
+      // URL CRAWL — if the user pasted URL(s), fetch them ALL in parallel so the
+      // agent works from the real pages ("read this", "summarize this docs page").
       const urlsInPrompt = Array.from(
         new Set((promptText.match(/https?:\/\/[^\s)]+/gi) || []).map((u) => u.replace(/[.,]+$/, '')))
       ).slice(0, 3);
-      if (urlsInPrompt.length) {
-        addLog('[Agent] Reading the web…');
-        const parts: string[] = [];
-        for (const u of urlsInPrompt) {
+      const crawlSlots: (string | null)[] = urlsInPrompt.map(() => null);
+      urlsInPrompt.forEach((u, idx) => {
+        pre.push((async () => {
           try {
-            const r = await fetch(`/api/fetch-url?url=${encodeURIComponent(u)}`, { signal: controller.signal });
+            const r = await fetch(`/api/fetch-url?url=${encodeURIComponent(u)}`, { signal: sig });
             if (r.ok) {
               const j = await r.json();
-              if (j?.text) parts.push(`URL: ${j.url || u}\nTITLE: ${j.title || ''}\n${j.text}`);
+              if (j?.text) crawlSlots[idx] = `URL: ${j.url || u}\nTITLE: ${j.title || ''}\n${j.text}`;
             }
           } catch { /* skip a page that won't load */ }
-        }
-        if (parts.length) webContext = parts.join('\n\n----------\n\n').slice(0, 24_000);
-        if (!runningRef.current) return;
-      }
-
-      /* --- Context pre-passes: ALL CONCURRENT ------------------------------
-         These used to run strictly one after another (memory → search → weather
-         → wiki → news → youtube → …). Any research-y prompt tripped several of
-         them, and the user paid the SUM of every round trip before the model
-         even started — seconds of dead time. They're independent, so fire them
-         together and await once. A single "Gathering context…" log avoids the
-         read-modify-write race that per-source logging would hit in parallel. */
-      let memoriesContext: string | undefined;
-      let searchContext: string | undefined;
-      let weatherContext: string | undefined;
-      let dictContext: string | undefined;
-      let wikiContext: string | undefined;
-      let newsContext: string | undefined;
-      let youtubeContext: string | undefined;
-      let quotesContext: string | undefined;
-      let countryContext: string | undefined;
-      let triviaContext: string | undefined;
-
-      const pLower = promptText.toLowerCase();
-      const sig = controller.signal;
-      const pre: Promise<void>[] = [];
-      addLog('[Agent] Gathering context…');
+        })());
+      });
 
       // Memory (always)
       pre.push((async () => {
@@ -834,20 +842,22 @@ export default function AgentOverlay() {
           if (memRes.ok) {
             const memJson = await memRes.json();
             if (memJson.success && memJson.memories?.length) {
-              memoriesContext = memJson.memories.map((m: any) => `- ${m.key}: ${m.value}`).join('\n');
+              memoriesContext = memJson.memories.map((m: { key: string; value: string }) => `- ${m.key}: ${m.value}`).join('\n');
             }
           }
         } catch { /* best effort */ }
       })());
 
-      if (/\b(search|find|google|look up|who is|what is|how to|best|top|compare|vs|versus|recommend|review|list of|examples of|alternatives|how much|price|cost|where can i|when did|why does|which is)\b/i.test(pLower)) {
+      // wantsYouTube also fires a plain web search (link redundancy for video
+      // asks) — IN the batch, not as a sequential tail after it.
+      if (wantsYouTube || /\b(search|find|google|look up|who is|what is|how to|best|top|compare|vs|versus|recommend|review|list of|examples of|alternatives|how much|price|cost|where can i|when did|why does|which is)\b/i.test(pLower)) {
         pre.push((async () => {
           try {
             const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: sig });
             if (sRes.ok) {
               const sJson = await sRes.json();
               if (sJson.success && sJson.results?.length) {
-                searchContext = sJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
+                searchContext = sJson.results.map((r: { url: string; title: string; snippet: string }) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
               }
             }
           } catch { /* best effort */ }
@@ -907,14 +917,13 @@ export default function AgentOverlay() {
             if (nRes.ok) {
               const nJson = await nRes.json();
               if (nJson.success && nJson.results?.length) {
-                newsContext = nJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
+                newsContext = nJson.results.map((r: { url: string; title: string; snippet: string }) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
               }
             }
           } catch { /* best effort */ }
         })());
       }
 
-      const wantsYouTube = /\b(youtube|video|song|music|listen to|watch|play|track|album|artist|singer|band|clip|trailer|mv|music video|remix|cover|live performance)\b/i.test(pLower);
       if (wantsYouTube) {
         pre.push((async () => {
           try {
@@ -979,20 +988,13 @@ export default function AgentOverlay() {
       }
 
       await Promise.all(pre);
-
-      // YouTube asks also want plain link redundancy — run a web search only if
-      // the search pass didn't already (checked AFTER the parallel batch settles).
-      if (wantsYouTube && !searchContext) {
-        try {
-          const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: sig });
-          if (sRes.ok) {
-            const sJson = await sRes.json();
-            if (sJson.success && sJson.results?.length) {
-              searchContext = sJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
-            }
-          }
-        } catch { /* best effort */ }
+      clearTimeout(ctxTimer);
+      controller.signal.removeEventListener('abort', onMainAbort);
+      {
+        const crawled = crawlSlots.filter((s): s is string => Boolean(s));
+        if (crawled.length) webContext = crawled.join('\n\n----------\n\n').slice(0, 24_000);
       }
+      addLog(`[Agent] Context ready in ${((Date.now() - ctxStart) / 1000).toFixed(1)}s — thinking…`);
       if (!runningRef.current) return;
 
       const res = await fetch('/api/agent/run', {

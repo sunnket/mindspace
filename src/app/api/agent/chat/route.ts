@@ -55,8 +55,9 @@ async function openModelStream(
   apiKey: string,
   model: string,
   messages: ChatMsg[],
+  external?: AbortController, // lets the hedged racer cancel a losing attempt
 ): Promise<ReadableStream<Uint8Array>> {
-  const controller = new AbortController();
+  const controller = external ?? new AbortController();
   const ttftTimer = setTimeout(() => controller.abort(), TTFT_DEADLINE_MS);
 
   const res = await fetch(NVIDIA_ENDPOINT, {
@@ -141,6 +142,57 @@ async function openModelStream(
   });
 }
 
+/* HEDGED RACING (same scheme as the canvas build route): the lead model fires
+   immediately; if its first token hasn't landed within HEDGE_DELAY_MS, the next
+   model fires IN PARALLEL on a different API key. First token wins, losers are
+   aborted, a hard failure drafts the next model instantly. Chat must feel
+   INSTANT, so the hedge is even more impatient here. */
+const HEDGE_DELAY_MS = 2500;
+
+function openHedgedStream(
+  apiKeys: string[], startKey: number, messages: ChatMsg[],
+): Promise<{ stream: ReadableStream<Uint8Array>; model: string }> {
+  return new Promise((resolve, reject) => {
+    const controllers: (AbortController | undefined)[] = [];
+    let launched = 0;
+    let failed = 0;
+    let settled = false;
+    let lastError: Error = new Error('no models attempted');
+    let hedgeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const launch = (i: number) => {
+      if (settled || i >= CHAIN.length) return;
+      launched++;
+      const controller = new AbortController();
+      controllers[i] = controller;
+      openModelStream(apiKeys[(startKey + i) % apiKeys.length], CHAIN[i], messages, controller)
+        .then((stream) => {
+          if (settled) { controller.abort(); return; } // lost the race — cancel
+          settled = true;
+          if (hedgeTimer) clearTimeout(hedgeTimer);
+          controllers.forEach((c, j) => { if (j !== i) c?.abort(); });
+          resolve({ stream, model: CHAIN[i] });
+        })
+        .catch((err) => {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          if (!settled) console.warn(`Agent chat model ${CHAIN[i]} failed:`, lastError.message);
+          failed++;
+          if (settled) return;
+          if (launched < CHAIN.length) launch(launched);
+          else if (failed >= launched) reject(lastError);
+        });
+    };
+
+    const scheduleHedge = () => {
+      if (settled || launched >= CHAIN.length) return;
+      hedgeTimer = setTimeout(() => { launch(launched); scheduleHedge(); }, HEDGE_DELAY_MS);
+    };
+
+    launch(0);
+    scheduleHedge();
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -181,11 +233,15 @@ export async function POST(req: NextRequest) {
       ? `### ATTACHED FILE(S) — full text of what the user dropped into the chat; read it end to end and answer from it:\n"""${filesContext.trim().slice(0, 120_000)}"""\n\n`
       : '';
 
+    /* FUNCTION-form replacements only: a string value gets its $-patterns
+       interpreted ($' splices in the rest of the template, $$ collapses to $),
+       and skill-set rules / canvas snapshots / file text can all carry $. This
+       corrupted or ballooned the prompt and stalled the chat. */
     const systemPrompt = SYSTEM_PROMPT
-      .replace('{today}', todayStr)
-      .replace('{skillsetSection}', skillsetSection)
-      .replace('{canvasSection}', canvasSection)
-      .replace('{filesSection}', filesSection);
+      .replace('{today}', () => todayStr)
+      .replace('{skillsetSection}', () => skillsetSection)
+      .replace('{canvasSection}', () => canvasSection)
+      .replace('{filesSection}', () => filesSection);
 
     // Keep the last ~24 turns; clamp each message so history can't blow the window.
     const history: ChatMsg[] = messages
@@ -195,29 +251,23 @@ export async function POST(req: NextRequest) {
 
     const full: ChatMsg[] = [{ role: 'system', content: systemPrompt }, ...history];
 
-    let lastError: Error | null = null;
-    for (let i = 0; i < CHAIN.length; i++) {
-      const model = CHAIN[i];
-      const apiKey = apiKeys[(startKey + i) % apiKeys.length];
-      try {
-        const stream = await openModelStream(apiKey, model, full);
-        return new NextResponse(stream, {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Cache-Control': 'no-cache, no-transform',
-            'X-Agent-Model': model,
-          },
-        });
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        console.warn(`Agent chat model ${model} failed:`, lastError.message);
-      }
+    // Race the chain (hedged): first model to produce a token streams back.
+    try {
+      const { stream, model } = await openHedgedStream(apiKeys, startKey, full);
+      return new NextResponse(stream, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          'X-Agent-Model': model,
+        },
+      });
+    } catch (err) {
+      const lastError = err instanceof Error ? err : new Error(String(err));
+      return NextResponse.json(
+        { success: false, error: `No model responded. Last error: ${lastError.message}` },
+        { status: 502 },
+      );
     }
-
-    return NextResponse.json(
-      { success: false, error: `No model responded. Last error: ${lastError?.message || 'unknown'}` },
-      { status: 502 },
-    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('Agent chat endpoint error:', message);

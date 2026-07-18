@@ -338,8 +338,9 @@ function compactSnapshot(objects: SnapshotObject[], agentX: number, agentY: numb
 async function openModelStream(
   apiKey: string, model: string, systemPrompt: string, userPrompt: string,
   opts?: { maxTokens?: number; temperature?: number },
+  external?: AbortController, // lets the hedged racer cancel a losing attempt
 ): Promise<ReadableStream<Uint8Array>> {
-  const controller = new AbortController();
+  const controller = external ?? new AbortController();
   const ttftTimer = setTimeout(() => controller.abort(), TTFT_DEADLINE_MS);
 
   const res = await fetch(NVIDIA_ENDPOINT, {
@@ -421,6 +422,62 @@ async function openModelStream(
       }
     },
     cancel() { controller.abort(); },
+  });
+}
+
+/* HEDGED RACING. Sequential fail-over made one slow worker cost the user the
+   whole 12s TTFT deadline before the next model was even TRIED — with several
+   NVIDIA keys available that's free throughput left on the table. Instead: the
+   lead model fires immediately, and if its first token hasn't landed within
+   HEDGE_DELAY_MS the next model in the chain fires IN PARALLEL on a DIFFERENT
+   key. First token wins; every other attempt is aborted; a hard failure frees
+   the hedge slot instantly. Worst case is now ~one hedge delay, not a sum of
+   deadlines — and the occasional duplicate request is cheap. */
+const HEDGE_DELAY_MS = 3000;
+
+function openHedgedStream(
+  chain: string[], apiKeys: string[], startKey: number,
+  systemPrompt: string, userPrompt: string,
+  opts?: { maxTokens?: number; temperature?: number },
+): Promise<{ stream: ReadableStream<Uint8Array>; model: string }> {
+  return new Promise((resolve, reject) => {
+    const controllers: (AbortController | undefined)[] = [];
+    let launched = 0;
+    let failed = 0;
+    let settled = false;
+    let lastError: Error = new Error('no models attempted');
+    let hedgeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const launch = (i: number) => {
+      if (settled || i >= chain.length) return;
+      launched++;
+      const controller = new AbortController();
+      controllers[i] = controller;
+      openModelStream(apiKeys[(startKey + i) % apiKeys.length], chain[i], systemPrompt, userPrompt, opts, controller)
+        .then((stream) => {
+          if (settled) { controller.abort(); return; } // lost the race — cancel
+          settled = true;
+          if (hedgeTimer) clearTimeout(hedgeTimer);
+          controllers.forEach((c, j) => { if (j !== i) c?.abort(); });
+          resolve({ stream, model: chain[i] });
+        })
+        .catch((err) => {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          if (!settled) console.warn(`Agent model ${chain[i]} failed:`, lastError.message);
+          failed++;
+          if (settled) return;
+          if (launched < chain.length) launch(launched); // failure frees the slot: draft the next model NOW
+          else if (failed >= launched) reject(lastError); // everyone lost
+        });
+    };
+
+    const scheduleHedge = () => {
+      if (settled || launched >= chain.length) return;
+      hedgeTimer = setTimeout(() => { launch(launched); scheduleHedge(); }, HEDGE_DELAY_MS);
+    };
+
+    launch(0);
+    scheduleHedge();
   });
 }
 
@@ -516,15 +573,23 @@ export async function POST(req: NextRequest) {
 
     const isWorkflow = mode === 'workflow';
     const basePrompt = isWorkflow ? WORKFLOW_SYSTEM_PROMPT : SYSTEM_PROMPT;
+    /* FUNCTION-form replacements ONLY. With a plain string value, String.replace
+       interprets $-patterns INSIDE the value: "$'" splices the entire rest of the
+       template into the prompt (ballooning it until the model stalls or the
+       request dies), "$&" re-inserts the placeholder, and LaTeX "$$" silently
+       collapses to "$". Skill-set rules, memories, file text and the canvas
+       snapshot JSON all flow through here and all can contain $ — this was the
+       "agent hangs when a skill set / certain content is present" bug. A
+       function replacement is passed through verbatim, no interpretation. */
     const systemPrompt = basePrompt
-      .replace(/{agentX}/g, String(x))
-      .replace(/{agentY}/g, String(y))
-      .replace(/{today}/g, todayStr)
-      .replace(/{skillsetSection}/g, skillsetSection)
-      .replace('{assignmentSection}', assignmentSection)
-      .replace('{memorySection}', memorySection)
-      .replace('{canvasObjects}', snapObjects.length ? JSON.stringify(snapObjects) : '(empty)')
-      .replace('{canvasConnections}', snapConns.length ? JSON.stringify(snapConns) : '(none)');
+      .replace(/{agentX}/g, () => String(x))
+      .replace(/{agentY}/g, () => String(y))
+      .replace(/{today}/g, () => todayStr)
+      .replace(/{skillsetSection}/g, () => skillsetSection)
+      .replace('{assignmentSection}', () => assignmentSection)
+      .replace('{memorySection}', () => memorySection)
+      .replace('{canvasObjects}', () => snapObjects.length ? JSON.stringify(snapObjects) : '(empty)')
+      .replace('{canvasConnections}', () => snapConns.length ? JSON.stringify(snapConns) : '(none)');
 
     /* Match the model AND the budget to what was actually asked for. A caller may
        pin a profile explicitly (a "think harder" / "just be quick" affordance);
@@ -555,31 +620,24 @@ export async function POST(req: NextRequest) {
       profile === 'quick' ? 0.4 : isWorkflow ? 0.55 : profile === 'heavy' ? 0.45 : 0.5;
     const modelOpts = { maxTokens, temperature };
 
-    // Try models in order, rotating keys; stream the first that produces tokens.
-    let lastError: Error | null = null;
-    for (let m = 0; m < chain.length; m++) {
-      const model = chain[m];
-      const apiKey = apiKeys[(startKey + m) % apiKeys.length];
-      try {
-        const stream = await openModelStream(apiKey, model, systemPrompt, prompt, modelOpts);
-        return new NextResponse(stream, {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Cache-Control': 'no-cache, no-transform',
-            'X-Agent-Model': model,
-            'X-Agent-Profile': profile,
-          },
-        });
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        console.warn(`Agent model ${model} (${profile}) failed:`, lastError.message);
-      }
+    // Race the chain (hedged): first model to produce a token streams back.
+    try {
+      const { stream, model } = await openHedgedStream(chain, apiKeys, startKey, systemPrompt, prompt, modelOpts);
+      return new NextResponse(stream, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          'X-Agent-Model': model,
+          'X-Agent-Profile': profile,
+        },
+      });
+    } catch (err) {
+      const lastError = err instanceof Error ? err : new Error(String(err));
+      return NextResponse.json({
+        success: false,
+        error: `No model responded. Last error: ${lastError.message}`,
+      }, { status: 502 });
     }
-
-    return NextResponse.json({
-      success: false,
-      error: `No model responded. Last error: ${lastError?.message || 'unknown'}`,
-    }, { status: 502 });
 
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
