@@ -219,6 +219,9 @@ export default function AgentOverlay() {
   const logEndRef = useRef<HTMLDivElement>(null);
   const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  /** The chat message id (if any) that kicked off the run in flight, so Stop can
+   *  resolve its "Building…" chip to error instead of leaving it spinning. */
+  const activeSourceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -227,18 +230,37 @@ export default function AgentOverlay() {
   const handleStop = () => {
     runningRef.current = false;
     abortRef.current?.abort();
+    // Resolve the chat chip of whatever was building so it doesn't spin forever.
+    if (activeSourceIdRef.current && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('agent-build-state', { detail: { sourceId: activeSourceIdRef.current, state: 'error' } }));
+      activeSourceIdRef.current = null;
+    }
     setAgentState({ agentRunning: false, agentStatus: 'idle', agentLogs: [] });
   };
 
   const runAgent = useCallback(async (
     promptText: string, keyIdx: number, customX?: number, customY?: number, refContext?: string,
-    filesContextArg?: string, briefArg?: string, modeArg?: string,
+    filesContextArg?: string, briefArg?: string, modeArg?: string, sourceId?: string,
   ) => {
-    if (!promptText.trim() || runningRef.current) return;
+    if (!promptText.trim()) return;
+
+    /* When a build was kicked off from the AI chat panel, report its real
+       progress back to that chat message so its "Building this on your canvas…"
+       chip resolves to done / error instead of spinning forever. A no-op for
+       inline /agent runs (no sourceId). */
+    const emitBuildState = (state: 'building' | 'done' | 'error') => {
+      if (!sourceId || typeof window === 'undefined') return;
+      window.dispatchEvent(new CustomEvent('agent-build-state', { detail: { sourceId, state } }));
+    };
+
+    // Another run is already in flight: don't queue a second, but resolve this
+    // build's chip so the chat doesn't wait on a run that never starts.
+    if (runningRef.current) { emitBuildState('error'); return; }
 
     const store = useCanvasStore.getState();
     const { camera } = store;
     runningRef.current = true;
+    activeSourceIdRef.current = sourceId ?? null;
 
     const startX = customX ?? (-camera.x + window.innerWidth / 2) / camera.zoom;
     const startY = customY ?? (-camera.y + window.innerHeight / 2) / camera.zoom;
@@ -706,6 +728,8 @@ export default function AgentOverlay() {
       addLog('[Success] Done.');
       setAgentState({ agentStatus: 'success', agentRunning: false });
       runningRef.current = false;
+      emitBuildState('done');
+      activeSourceIdRef.current = null;
       setTimeout(() => {
         if (useCanvasStore.getState().agentStatus === 'success') setAgentState({ agentStatus: 'idle', agentLogs: [] });
       }, 2200);
@@ -1039,10 +1063,16 @@ export default function AgentOverlay() {
 
       // Every link card fired off its own check the moment it landed (verifyLink).
       // Let those finish before we call the run done, so a dead card is gone from
-      // the board before the user is told the agent is finished.
+      // the board before the user is told the agent is finished — but NEVER let a
+      // slow validator hold the whole run hostage (that's a big part of the "it
+      // just sits there saying building" feeling). Cap the wait; any late failure
+      // still removes its own card when it resolves.
       if (linkChecks.length) {
         addLog('[Agent] Checking every link works…');
-        await Promise.all(linkChecks);
+        await Promise.race([
+          Promise.all(linkChecks),
+          new Promise<void>((resolve) => setTimeout(resolve, 6000)),
+        ]);
       }
 
       if (!runningRef.current) return;
@@ -1101,9 +1131,9 @@ export default function AgentOverlay() {
   // Inline "/agent <task>" launches arrive as run-agent window events
   useEffect(() => {
     const handleRunEvent = (e: Event) => {
-      const ce = e as CustomEvent<{ prompt: string; apiKeyIndex?: number; x?: number; y?: number; context?: string; filesContext?: string; brief?: string; mode?: string }>;
-      const { prompt: p, apiKeyIndex: ki, x, y, context, filesContext, brief, mode } = ce.detail;
-      runAgent(p, ki ?? 0, x, y, context, filesContext, brief, mode);
+      const ce = e as CustomEvent<{ prompt: string; apiKeyIndex?: number; x?: number; y?: number; context?: string; filesContext?: string; brief?: string; mode?: string; sourceId?: string }>;
+      const { prompt: p, apiKeyIndex: ki, x, y, context, filesContext, brief, mode, sourceId } = ce.detail;
+      runAgent(p, ki ?? 0, x, y, context, filesContext, brief, mode, sourceId);
     };
     window.addEventListener('run-agent', handleRunEvent);
     return () => window.removeEventListener('run-agent', handleRunEvent);

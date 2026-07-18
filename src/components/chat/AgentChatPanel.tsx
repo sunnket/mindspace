@@ -57,6 +57,7 @@ export default function AgentChatPanel() {
   const send = useAgentChatStore((s) => s.send);
   const stop = useAgentChatStore((s) => s.stop);
   const clear = useAgentChatStore((s) => s.clear);
+  const setBuildState = useAgentChatStore((s) => s.setBuildState);
 
   // Follow the active canvas / binder sub-space so each board has its own thread.
   const urlCanvasId = useCanvasStore((s) => s.urlCanvasId);
@@ -102,6 +103,17 @@ export default function AgentChatPanel() {
     window.addEventListener('agent-chat-add-block', onAddBlock as EventListener);
     return () => window.removeEventListener('agent-chat-add-block', onAddBlock as EventListener);
   }, [addBlockContext]);
+
+  // The canvas agent reports a build's real progress back here so the message's
+  // "Building…" chip flips to Built / error instead of spinning forever.
+  useEffect(() => {
+    const onBuildState = (e: Event) => {
+      const d = (e as CustomEvent<{ sourceId?: string; state?: 'building' | 'done' | 'error' }>).detail;
+      if (d?.sourceId && d.state) setBuildState(d.sourceId, d.state);
+    };
+    window.addEventListener('agent-build-state', onBuildState as EventListener);
+    return () => window.removeEventListener('agent-build-state', onBuildState as EventListener);
+  }, [setBuildState]);
 
   const autoGrow = () => {
     const ta = taRef.current;
@@ -264,11 +276,28 @@ export default function AgentChatPanel() {
                           {m.content
                             ? <div className="agent-md" style={{ fontSize: 13, lineHeight: 1.6 }}><RichText content={m.content} /></div>
                             : <span className="inline-flex gap-1 items-center text-[var(--text-tertiary)]"><Dot /><Dot d={0.15} /><Dot d={0.3} /></span>}
-                          {m.built && (
-                            <div className="flex items-center gap-1.5 text-[10.5px] font-semibold" style={{ marginTop: 8, color: 'var(--accent)' }}>
-                              <Spark size={12} /> Building this on your canvas…
-                            </div>
-                          )}
+                          {(m.buildState || m.built) && (() => {
+                            const st = m.buildState ?? 'done'; // a reloaded built msg has no live state
+                            if (st === 'building') {
+                              return (
+                                <div className="flex items-center gap-1.5 text-[10.5px] font-semibold" style={{ marginTop: 8, color: 'var(--accent)' }}>
+                                  <Spark size={12} /> Building this on your canvas…
+                                </div>
+                              );
+                            }
+                            if (st === 'error') {
+                              return (
+                                <div className="flex items-center gap-1.5 text-[10.5px] font-semibold" style={{ marginTop: 8, color: '#D46A5B' }}>
+                                  <span style={{ fontSize: 12 }}>⚠</span> Couldn&apos;t finish that build — ask me to try again
+                                </div>
+                              );
+                            }
+                            return (
+                              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold" style={{ marginTop: 8, color: 'var(--accent)' }}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg> Built on your canvas
+                              </div>
+                            );
+                          })()}
                           {!m.streaming && m.content && (
                             <div className="flex items-center gap-2 opacity-0 agent-msg-actions transition-opacity" style={{ marginTop: 8 }}>
                               <button onClick={() => addToCanvas(m.content)} title="Add this to the canvas" className="flex items-center gap-1 text-[10.5px] font-semibold text-[var(--text-tertiary)] hover:text-[var(--accent)] cursor-pointer">

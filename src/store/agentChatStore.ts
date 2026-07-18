@@ -114,6 +114,9 @@ interface AgentChatState {
   send: (text: string) => Promise<void>;
   stop: () => void;
   clear: () => Promise<void>;
+  /** Update the live build status of the message that kicked off a canvas build.
+   *  Driven by `agent-build-state` events the canvas agent dispatches. */
+  setBuildState: (messageId: string, state: 'building' | 'done' | 'error') => void;
 }
 
 let abortController: AbortController | null = null;
@@ -262,7 +265,7 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
 
       const { visible, build } = parseBuild(full);
       const finalContent = visible || (build ? 'On it — building that on your canvas now.' : '…');
-      updateAsst({ content: finalContent, streaming: false, built: !!build });
+      updateAsst({ content: finalContent, streaming: false, built: !!build, buildState: build ? 'building' : undefined });
 
       // Persist the finished assistant turn.
       const finalMsg: AgentChatMessage = { id: asstId, role: 'assistant', content: finalContent, createdAt: asstMsg.createdAt, built: !!build };
@@ -278,7 +281,9 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
         const x = (-cam.x + window.innerWidth / 2) / cam.zoom;
         const y = (-cam.y + window.innerHeight / 2) / cam.zoom;
         window.dispatchEvent(new CustomEvent('run-agent', {
-          detail: { prompt: build.instruction, x, y, mode: build.mode, filesContext: filesContext || undefined },
+          // sourceId lets the canvas agent report this build's real progress back
+          // to THIS chat message, so the "Building…" chip resolves to done/error.
+          detail: { prompt: build.instruction, x, y, mode: build.mode, filesContext: filesContext || undefined, sourceId: asstId },
         }));
       }
     } catch (err) {
@@ -300,4 +305,18 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
     set((s) => ({ messagesByCanvas: { ...s.messagesByCanvas, [canvasId]: [] } }));
     await clearThreadService(canvasId, userId);
   },
+
+  setBuildState: (messageId, state) => set((s) => {
+    // The message could live under any canvas thread (the user may have switched
+    // boards while the build ran), so scan them all and patch the one match.
+    const next: Record<string, AgentChatMessage[]> = { ...s.messagesByCanvas };
+    let changed = false;
+    for (const cid of Object.keys(next)) {
+      const list = next[cid];
+      if (!list.some((m) => m.id === messageId)) continue;
+      next[cid] = list.map((m) => (m.id === messageId ? { ...m, buildState: state, built: true } : m));
+      changed = true;
+    }
+    return changed ? { messagesByCanvas: next } : {};
+  }),
 }));

@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+/* A deep research board or a full workflow can legitimately take a couple of
+   minutes to GENERATE at the tier's token rate. At 120s the platform was killing
+   long generations mid-stream — the plan's JSON got chopped, actions after the
+   cut were lost, and the board "stopped after a heading and a few lines". Give
+   the big jobs room to actually LAND. */
+export const maxDuration = 300;
 
 const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
@@ -50,6 +55,12 @@ const HEAVY_RE =
 const QUICK_RE =
   /^(?:\s*(?:please|pls|hey)\s*)?(?:add|make|set|change|rename|resize|recolor|colour|color|move|delete|remove|bigger|smaller|bold|italic)\b/i;
 
+/** A genuinely DEEP ask — it must be allowed to run long and land complete, so
+    it gets the biggest token budget of all. These are the boards that were
+    silently getting truncated at the old caps. */
+const RESEARCH_RE =
+  /\b(research|deep dive|deep-dive|comprehensive|in[\s-]?depth|thorough(?:ly)?|everything about|tell me everything|full report|detailed report|write[\s-]?up|literature review|state of the art|whitepaper|white paper|dossier|exhaustive|complete guide|ultimate guide|study (?:guide|plan)|curriculum|syllabus)\b/i;
+
 function pickProfile(prompt: string, mode?: string): Profile {
   if (mode === 'workflow') return 'heavy';
   const p = (prompt || '').trim();
@@ -90,6 +101,7 @@ Today is {today}. The user invoked you at coordinates (x: {agentX}, y: {agentY})
 - ANTI-HALLUCINATION: NEVER make up facts, statistics, dates, quotes, or URLs. If you don't know something, say "I'm not sure about that — try asking me to search the web for it" in a text block. When asked about specific data (prices, rankings, stats), only provide numbers if you found them in WEB SEARCH, WIKIPEDIA, NEWS, or another attached source. Unsourced numbers are lies. Unsourced URLs are broken links.
 - ANTI-SPAM OUTPUT SCALING: Match your output SIZE to the user's prompt SIZE and complexity. A one-word or one-line ask like "add a heading" deserves 1-2 actions. A medium ask like "explain quantum computing" deserves 3-6 actions. A complex ask like "build me a project dashboard" deserves 10-20+ actions. NEVER pad output with unnecessary extras the user didn't ask for. Read the prompt — if they asked for ONE thing, give ONE thing. Over-delivery when not asked is spam, not intelligence.
 - FINISH THE JOB, END TO END: cover EVERY part of what the user asked for, fully, in this one pass. If they listed several things, address all of them. If they asked for depth ("research", "in detail", "comprehensive", "write about", "explain fully"), deliver real depth — never a thin outline, never a stub, never trailing off mid-thought. A half-done answer is a failure even if it looks pretty.
+- COMPLETION DISCIPLINE — always emit a COMPLETE, VALID JSON plan and always close it: the "actions" array MUST end with "]" and the object MUST end with "}". A plan that cuts off mid-action is worse than a shorter one, because the board is left half-built and the run looks stuck. So budget your ambition: choose the FEWEST high-value blocks that FULLY answer the ask (a tight 8–14 great actions beats 25 thin, half-finished ones), write each block's real content, and finish the whole plan. Never pad the plan so long that you risk not closing it. Front-load the most important blocks (title, frame, key sections) so even the earliest actions already stand on their own.
 - IMAGES & VISUALS — the rule is RELEVANCE, not abstinence (don't spam, don't starve). DO add real images (style.imageQuery, a vivid SPECIFIC phrase) when the subject is visual or benefits from being seen: a place, animal, plant, product, person, artwork, food, landmark, a space / nature / science topic, a mood or reference, or anything the user says "show me". A substantive board or REPORT on a visual subject (space, a country, an animal, a product, a historical event) SHOULD carry 2–4 relevant, specific images, plus a Map for any place and a diagram/chart where it fits — that visual richness is exactly what makes it feel real instead of a wall of text. What to AVOID is FILLER: never slap a generic stock photo on a trivial one-line answer, a plain checklist, a code snippet, or an abstract non-visual concept just to decorate. Rule of thumb: utility / one-liner → usually no image; a real board on a visual topic → yes, make it visual.
 - LINK SOURCING HIERARCHY: When placing links: 1) Use URLs from ### WEB SEARCH, ### YOUTUBE RESULTS, or ### NEWS — these are VERIFIED REAL and working. 2) Use canonical documentation URLs you are 100% certain exist (react.dev, nextjs.org, developer.mozilla.org, github.com/facebook/react, etc.). 3) If neither source is available, DO NOT GUESS. Instead create a text/card block with the information and suggest the user search for it. A working text block is infinitely better than a dead link card.
 - CONTEXT AWARENESS: Pay close attention to the user's exact words. Mirror the user's tone. If they ask you to crawl a website or link, use the WEB PAGE(S) context to write a comprehensive, defined output of exactly what they need.
@@ -522,17 +534,24 @@ export async function POST(req: NextRequest) {
         : pickProfile(prompt, mode);
 
     const chain = CHAINS[profile];
-    /* Token budgets are also a latency dial: at the tier's throughput every extra
-       1k tokens is real seconds. These cap the worst case without starving a
-       normal board (a rich research board measured ~2.9k output tokens). */
-    const modelOpts =
-      profile === 'quick'
-        ? { maxTokens: 1500, temperature: 0.4 }
-        : isWorkflow
-          ? { maxTokens: 7000, temperature: 0.55 }
-          : profile === 'heavy'
-            ? { maxTokens: 4500, temperature: 0.45 }
-            : { maxTokens: 5000, temperature: 0.5 };
+    /* Token budgets are BOTH a latency dial AND a completeness floor. The old
+       caps (heavy 4500, workflow 7000) were low enough that a genuinely deep
+       research board or a rich workflow ran straight into the ceiling and got
+       CHOPPED OFF mid-JSON — that is the "it stops after a heading and a few
+       lines / still says building" bug. A truncated plan is the single worst
+       outcome, so give real work real room (maxDuration is now 300s so a long
+       generation has time to finish instead of being killed). This only raises
+       the CEILING — the system prompt still tells the model to stay focused, so
+       a one-liner ask still returns a couple of actions in a second or two. */
+    const isResearch = RESEARCH_RE.test(prompt || '');
+    const maxTokens =
+      profile === 'quick' ? 2500
+        : isWorkflow ? 10_000
+          : profile === 'heavy' ? (isResearch ? 10_000 : 8000)
+            : isResearch ? 8000 : 6000; // balanced
+    const temperature =
+      profile === 'quick' ? 0.4 : isWorkflow ? 0.55 : profile === 'heavy' ? 0.45 : 0.5;
+    const modelOpts = { maxTokens, temperature };
 
     // Try models in order, rotating keys; stream the first that produces tokens.
     let lastError: Error | null = null;

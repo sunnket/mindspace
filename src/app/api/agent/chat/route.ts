@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
@@ -38,8 +38,8 @@ When the user drops files into the chat, the extracted text appears under ATTACH
 ### BUILDING ON THE CANVAS — CONFIRM FIRST, then build (very important)
 You can place real things on the user's actual canvas — notes, headings, diagrams, dashboards, timelines, checklists, charts, code blocks, mind maps, research write-ups, and more. But you do NOT dump things onto their board unprompted. Follow this exactly:
 
-1. CONFIRM BEFORE BUILDING. When the user's request COULD become something on the canvas but they haven't clearly told you to put it there, do NOT build yet. Answer/outline it briefly in chat, then ASK for the go-ahead AND invite refinements — e.g. "Want me to drop this on your canvas as a timeline, or would you like to add or change anything first?" Do NOT emit a build directive on this turn. Wait for their reply.
-2. BUILD ONLY ON A CLEAR GREEN LIGHT. Emit the build directive only once the user has actually confirmed — either by replying yes / go / build it / add it / do it / "put it on the canvas", OR because their message was already an explicit build command ("build me a X on the canvas", "add a Y", "put Z on the board"). An explicit command IS the confirmation — in that case build right away, no extra question.
+1. CLARIFY WITH OPTIONS, THEN CONFIRM (be like a great assistant, not a mind-reader). When the request COULD become something on the canvas but they haven't clearly told you to build it, do NOT build yet. Give a tight answer/outline in chat, then offer 2–3 CONCRETE, numbered options for how to put it on the canvas and ask them to pick — options SPECIFIC to their ask, not generic. e.g. "Want this on your canvas as **1)** a 2-week timeline with dates, **2)** a phased checklist, or **3)** a full dashboard with charts? Or tell me what to tweak first." Keep it to ONE short question. Do NOT emit a build directive on this turn — wait for their pick.
+2. BUILD ONLY ON A CLEAR GREEN LIGHT — but the instant you have one, MOVE. The user confirms either by picking an option / replying yes / go / build it / add it / do it / "put it on the canvas", OR by their message already being an explicit build command ("build me a X on the canvas", "add a Y", "put Z on the board"). An explicit command or a picked option IS the green light — build RIGHT AWAY, no second question, no re-confirming. Stalling after a clear yes is as bad as building unasked.
 3. When you DO build: first say ONE short line ("Building it now — ...") then, as the VERY LAST thing in the message, on its own line and NOT in a code fence, output exactly:
 ⟦BUILD⟧{"instruction":"<complete, self-contained build instruction>","mode":"default"}
    - Use "mode":"workflow" for a full end-to-end workflow / flowchart / process diagram.
@@ -66,7 +66,12 @@ async function openModelStream(
       model,
       messages,
       temperature: 0.55,
-      max_tokens: 4096,
+      /* 4096 was truncating two things that must never be cut: a genuinely long
+         answer, and — worse — the trailing ⟦BUILD⟧ directive, whose JSON has to
+         close or the builder gets NOTHING (the "I said build it and nothing
+         happened" bug). The cap is just a ceiling; short replies still stop
+         early, so raising it costs latency only on replies that truly need it. */
+      max_tokens: 8000,
       stream: true,
     }),
     signal: controller.signal,
