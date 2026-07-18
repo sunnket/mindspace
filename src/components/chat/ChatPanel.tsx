@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '@/store/authStore';
 import { useChatStore } from '@/store/chatStore';
 import { useCanvasStore } from '@/store/canvasStore';
+import { useAgentChatStore } from '@/store/agentChatStore';
 import { screenToCanvas } from '@/lib/utils';
 import { ingestFile } from '@/lib/fileIngest';
 import AuthModal from '@/components/ui/AuthModal';
@@ -684,6 +685,29 @@ function ChatShell({
   onBack?: () => void;
   children: React.ReactNode;
 }) {
+  // Sit on the LEFT so the DM chat and the AI agent chat can be open together.
+  // Slide/shrink out of the way when the agent panel (docked right) widens.
+  const agentOpen = useAgentChatStore((s) => s.panelOpen);
+  const agentWidth = useAgentChatStore((s) => s.width);
+  const agentMax = useAgentChatStore((s) => s.maximized);
+  const [vw, setVw] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1440);
+  useEffect(() => {
+    const onResize = () => setVw(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const aw = agentMax ? Math.min(880, vw - 40) : agentWidth;
+  const agentLeftEdge = agentOpen ? vw - aw - 16 : vw;
+  const GAP = 14, DEFAULT_LEFT = 22, DEFAULT_W = 340, MIN_W = 260;
+  let leftPx = DEFAULT_LEFT;
+  let widthPx = DEFAULT_W;
+  const maxRight = agentLeftEdge - GAP;
+  if (DEFAULT_LEFT + DEFAULT_W > maxRight) {
+    leftPx = Math.max(12, maxRight - DEFAULT_W);
+    if (leftPx + widthPx > maxRight) widthPx = Math.max(MIN_W, maxRight - leftPx);
+  }
+
   if (mode === 'embedded') {
     return (
       <div className="flex-1 min-h-0 flex flex-col clay-card rounded-[24px] overflow-hidden">
@@ -699,11 +723,12 @@ function ChatShell({
     <AnimatePresence>
       <motion.div
         id="chat-panel-container"
-        initial={{ opacity: 0, x: 24 }}
+        initial={{ opacity: 0, x: -24 }}
         animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: 24 }}
+        exit={{ opacity: 0, x: -24 }}
         transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-        className="fixed right-5 top-44 z-[150] clay-card w-80 h-[70vh] max-h-[560px] rounded-[24px] flex flex-col overflow-hidden pointer-events-auto"
+        className="fixed z-[150] clay-card rounded-[24px] flex flex-col overflow-hidden pointer-events-auto"
+        style={{ left: leftPx, width: widthPx, top: 92, height: '70vh', maxHeight: 560, transition: 'left 160ms ease, width 160ms ease' }}
       >
         <div className="flex items-center justify-between border-b border-[var(--border)] shrink-0" style={P_HEADER}>
           <div className="flex items-center gap-2.5 min-w-0">

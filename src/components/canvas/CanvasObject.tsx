@@ -661,9 +661,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           const rect = agentPanel.getBoundingClientRect();
           overAgentChatZone = moveE.clientX >= rect.left && moveE.clientX <= rect.right &&
                               moveE.clientY >= rect.top && moveE.clientY <= rect.bottom;
-          agentPanel.style.boxShadow = overAgentChatZone
-            ? '0 0 0 2px var(--accent), 0 24px 60px -12px rgba(0,0,0,0.35)'
-            : '0 24px 60px -12px rgba(0,0,0,0.35)';
+          agentPanel.style.boxShadow = overAgentChatZone ? '0 0 0 2px var(--accent)' : '';
         } else {
           overAgentChatZone = false;
         }
@@ -757,7 +755,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const chatPanel = document.getElementById('chat-panel-container');
         if (chatPanel) chatPanel.style.transform = 'scale(1)';
         const agentPanelEl = document.getElementById('agent-chat-panel');
-        if (agentPanelEl) agentPanelEl.style.boxShadow = '0 24px 60px -12px rgba(0,0,0,0.35)';
+        if (agentPanelEl) agentPanelEl.style.boxShadow = '';
 
         if (overMinimizeZone) {
           useCanvasStore.getState().minimizeObject(dragObj.id);

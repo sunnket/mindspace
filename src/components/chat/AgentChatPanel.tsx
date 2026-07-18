@@ -185,15 +185,10 @@ export default function AgentChatPanel() {
               const files = e.dataTransfer?.files;
               if (files && files.length) void addFiles(files);
             }}
-            className="fixed z-[130] flex flex-col pointer-events-auto"
+            className="fixed z-[160] flex flex-col pointer-events-auto clay-card"
             style={{
               top: 76, right: 16, bottom: 16, width: panelWidth,
-              background: 'var(--bg-glass, rgba(255,252,248,0.86))',
-              backdropFilter: 'blur(22px)',
-              WebkitBackdropFilter: 'blur(22px)',
-              border: '1px solid var(--border)',
               borderRadius: 20,
-              boxShadow: '0 24px 60px -12px rgba(0,0,0,0.35)',
               overflow: 'hidden',
             }}
           >
