@@ -5,7 +5,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAgentChatStore } from '@/store/agentChatStore';
 import { useCanvasStore } from '@/store/canvasStore';
 import RichText from '@/components/canvas/RichText';
+import type { AgentChatMessage } from '@/lib/agentChat/service';
 import type { CanvasObjectSnapshot } from '@/lib/chat/service';
+
+/* A stable empty array — returning a fresh `[]` from a zustand selector makes
+   useSyncExternalStore think the store changed every render (infinite loop /
+   "Maximum update depth exceeded"). Select the raw value, default OUTSIDE. */
+const EMPTY_MESSAGES: AgentChatMessage[] = [];
 
 /* Inline padding/margins throughout: the app's unlayered global reset kills
    Tailwind's spacing utilities, so those p- and m- classes do nothing here. */
@@ -36,7 +42,7 @@ export default function AgentChatPanel() {
   const streaming = useAgentChatStore((s) => s.streaming);
   const pending = useAgentChatStore((s) => s.pending);
   const canvasId = useAgentChatStore((s) => s.canvasId);
-  const messages = useAgentChatStore((s) => s.messagesByCanvas[s.canvasId] || []);
+  const messages = useAgentChatStore((s) => s.messagesByCanvas[s.canvasId]) ?? EMPTY_MESSAGES;
   const loading = useAgentChatStore((s) => s.loadingByCanvas[s.canvasId]);
 
   const open = useAgentChatStore((s) => s.open);
