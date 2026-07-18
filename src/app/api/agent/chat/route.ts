@@ -5,17 +5,16 @@ export const maxDuration = 300;
 
 const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
-/* Same serverless NIM models the canvas agent uses. Chat must feel INSTANT, so
-   the launch PLAN leads with the fast-but-smart mid model, hedges the SAME
-   model on a different API key first (a stalled worker is per-account — another
-   key hits another queue without downgrading quality), then brings in the
-   heavier models, with the always-warm 8B as a far-out rescue: a decent quick
-   answer at 14s beats a spinner at 25s. */
+/* Launch PLAN by MEASURED speed (probed 2026-07-19). Chat must feel INSTANT, so
+   it leads with nemotron-super-49b (~1s TTFT on 4/5 keys, fluent, smart — and
+   with no "detailed thinking on" directive it answers directly, no reasoning
+   trace), hedges the fastest 8B on a different key, then the frontier for depth,
+   then 8B again as a far-out rescue. mistral-medium (old lead) is OUT — it was
+   timing out 45-60s on this tier. */
 const PLAN: { model: string; delayMs: number }[] = [
-  { model: 'mistralai/mistral-medium-3.5-128b', delayMs: 0 },
-  { model: 'mistralai/mistral-medium-3.5-128b', delayMs: 2500 },
-  { model: 'meta/llama-3.1-70b-instruct', delayMs: 5000 },
-  { model: 'mistralai/mistral-large-3-675b-instruct-2512', delayMs: 8000 },
+  { model: 'nvidia/llama-3.3-nemotron-super-49b-v1', delayMs: 0 },
+  { model: 'meta/llama-3.1-8b-instruct', delayMs: 2500 },
+  { model: 'mistralai/mistral-large-3-675b-instruct-2512', delayMs: 6000 },
   { model: 'meta/llama-3.1-8b-instruct', delayMs: 14_000 },
 ];
 

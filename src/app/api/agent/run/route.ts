@@ -16,52 +16,56 @@ const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
    the bad day. Models that hang (llama-3.3-70b, qwen3.5-397b, glm-5.2,
    deepseek-v4-pro) are excluded; kimi-k2.6 was removed from the NVIDIA catalog
    (404s on every key) — do not re-add without probing first. */
+/* PICKED BY LIVE MEASUREMENT, not reputation (probed 2026-07-19 across all 5
+   keys — see the shootout). The whole "agent is slow on the canvas" saga was
+   ONE mistake: we led every task with mistral-medium, which is a cold/scarce
+   model on the NIM serverless free tier — 7-60s to first token and an outright
+   45-60s TIMEOUT on 3 of 5 keys. Meanwhile:
+     • nvidia/llama-3.3-nemotron-super-49b-v1 → TTFT ~1.1s on 4/5 keys, streams
+       VALID JSON, 49B reasoning-tuned. Fast AND smart. This is the new lead.
+     • meta/llama-3.1-8b-instruct → TTFT ~0.5s, 59 tok/s. Fastest; a touch less
+       precise but the client enforces layout, so it's a great hedge/rescue.
+     • mistral-large-3-675b (frontier) → variable but usable; kept as the depth
+       backstop for heavy builds.
+   BANNED here: mistral-medium (cold/timeouts), llama-3.1/3.3-70b (break the JSON
+   contract under load / time out), kimi-k2.6 (404, delisted). Re-probe before
+   re-adding ANY model — this tier's speed is weather. */
 const MODELS = {
   frontier: 'mistralai/mistral-large-3-675b-instruct-2512',
-  /* strong (llama-3.1-70b) is BANNED from build plans: live-verified 2026-07-19
-     winning a heavy race and streaming a PROSE ESSAY instead of the JSON action
-     plan — zero actions, 97 seconds (throttled ~10 tok/s), which the client
-     then surfaced as the prompt-echo bug. It also ignores schema under load.
-     Chat still uses it (prose is what chat wants). Do not re-add here. */
-  mid: 'mistralai/mistral-medium-3.5-128b',
+  smart: 'nvidia/llama-3.3-nemotron-super-49b-v1',
   fast: 'meta/llama-3.1-8b-instruct',
 } as const;
 
 type Profile = 'heavy' | 'balanced' | 'quick';
 
-/* The model is chosen for the JOB, not fixed for the app — and the launch plan
-   is chosen for the NIM tier's real behavior. mistral-medium-128b is the
-   fastest AND richest model here (measured 2026-07-18: richer board in ~53s vs
-   60-110s for the 675B frontier whose JSON also broke the parser; llama-70b
-   throttled to ~10 tok/s), so it leads everything. But a single worker of it
-   can stall for 20s+ under load (probed 2026-07-19), so the FIRST hedge is the
-   SAME model on a DIFFERENT API key — a different account hits a different
-   worker/queue, which rescues a stall without downgrading quality. Only after
-   that do the heavier models enter, and the always-warm 8B is a last-resort
-   rescue ONLY for non-heavy work (it can't hold the layout rules for a complex
-   board, but a decent simple answer beats a failure). */
+/* Per-profile launch PLANS, ordered by measured speed. The lead is always a
+   sub-second-TTFT model so the first block hits the canvas almost immediately;
+   later slots enter ONLY if the lead hasn't produced a token yet (a fast lead
+   cancels them before they fire). Slot delays keep a weaker/slower model from
+   stealing a board the lead is about to win. */
 interface HedgeSlot { model: string; delayMs: number }
 
 const PLANS: Record<Profile, HedgeSlot[]> = {
   // Long builds, workflows, dashboards, code, math, reorganising a whole board.
-  // No 8B here — quality-critical; the client retries the whole race instead.
+  // Lead with nemotron (smart + valid JSON + ~1s TTFT); frontier for depth if it
+  // stalls; retry nemotron on another key; 8B only as a last-resort rescue.
   heavy: [
-    { model: MODELS.mid, delayMs: 0 },
-    { model: MODELS.mid, delayMs: 2500 },      // same model, different key/worker
-    { model: MODELS.mid, delayMs: 5000 },      // third key — beat the congestion
-    { model: MODELS.frontier, delayMs: 8000 },
+    { model: MODELS.smart, delayMs: 0 },
+    { model: MODELS.frontier, delayMs: 3500 },  // depth backstop, different key
+    { model: MODELS.smart, delayMs: 7000 },     // retry nemotron on another key
+    { model: MODELS.fast, delayMs: 14_000 },    // rescue: warm 8B beats a failure
   ],
   // The everyday ask: explain this, add a few notes, pull some links.
   balanced: [
-    { model: MODELS.mid, delayMs: 0 },
-    { model: MODELS.mid, delayMs: 2500 },
+    { model: MODELS.smart, delayMs: 0 },
+    { model: MODELS.fast, delayMs: 2000 },      // fastest model, different key
     { model: MODELS.frontier, delayMs: 6000 },
-    { model: MODELS.fast, delayMs: 15_000 },   // rescue: warm 8B beats a failure
+    { model: MODELS.fast, delayMs: 14_000 },
   ],
-  // "add a heading", "make this bigger" — latency IS the feature; 8B is fine.
+  // "add a heading", "make this bigger" — latency IS the feature; 8B leads.
   quick: [
-    { model: MODELS.mid, delayMs: 0 },
-    { model: MODELS.fast, delayMs: 2000 },
+    { model: MODELS.fast, delayMs: 0 },         // 8B: ~0.5s TTFT, ample for an edit
+    { model: MODELS.smart, delayMs: 1800 },
   ],
 };
 

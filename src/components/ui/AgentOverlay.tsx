@@ -694,10 +694,20 @@ export default function AgentOverlay() {
       }, 2200);
     };
 
-    /* Honest failure: red pill with a real message, build chip → error, nothing
-       fake on the canvas. Auto-clears so it doesn't linger. */
+    /* Honest failure: red pill with a real message, build chip → error, and — as
+       the user asked — a single CLEAR status note on the canvas at the agent's
+       spot (NOT the prompt-echo, which parroted their words back as content).
+       This one is unmistakably a system message and it deletes nothing. */
     const failRun = (msg: string) => {
       addLog(`[Failure] ${msg}`);
+      try {
+        live().addObject({
+          type: 'sticky', x: Math.round(startX), y: Math.round(startY),
+          width: 320, height: 150,
+          content: `⚠️ ${msg}`,
+          style: { color: '#FEE2E2', textColor: '#7F1D1D' },
+        });
+      } catch { /* even the note is best-effort */ }
       setAgentState({ agentStatus: 'failed', agentRunning: false });
       runningRef.current = false;
       emitBuildState('error');
@@ -1046,12 +1056,12 @@ export default function AgentOverlay() {
 
       let planOk = await streamPlanRound(0);
       if (!planOk && runningRef.current) {
-        addLog('[Agent] The models are congested — retrying on fresh workers…');
-        planOk = await streamPlanRound(1);
+        addLog('[Agent] Models busy — retrying on a different key/model…');
+        planOk = await streamPlanRound(2); // rotate two keys forward, not just one
       }
       if (!runningRef.current) return;
       if (!planOk) {
-        failRun('The AI models are congested right now — nothing was built. Try again in a moment.');
+        failRun('AI models are busy or rate-limited right now — nothing was built. Give it a few seconds and try again.');
         return;
       }
 
