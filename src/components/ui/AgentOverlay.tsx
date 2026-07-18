@@ -114,8 +114,22 @@ function makeActionScanner(onAction: (a: Action) => void) {
 
     if (!started) {
       const key = buf.indexOf('"actions"');
-      if (key === -1) return;
-      const br = buf.indexOf('[', key);
+      let br = key !== -1 ? buf.indexOf('[', key) : -1;
+      // ROBUSTNESS: some models ignore the "return {\"actions\":[...]}" rule and
+      // emit a BARE array — often behind a "### Actions" header or a ```json
+      // fence. Left unhandled, the scanner found no "actions" key, extracted
+      // nothing, and the client fell back to echoing the prompt as a heading +
+      // sticky (the "why did it just repeat my question" bug). So when there's no
+      // wrapper, lock onto the first '[' that begins an array of objects.
+      if (br === -1 && key === -1) {
+        let p = buf.indexOf('[');
+        while (p !== -1) {
+          const m = buf.slice(p + 1).match(/^\s*(\S)/);
+          if (!m) { p = -1; break; }          // only whitespace so far — wait for more
+          if (m[1] === '{') { br = p; break; } // array of objects — start here
+          p = buf.indexOf('[', p + 1);         // a non-object array — keep scanning
+        }
+      }
       if (br === -1) return;
       i = br + 1;
       started = true;
@@ -766,21 +780,14 @@ export default function AgentOverlay() {
         if (!runningRef.current) return;
       }
 
-      // Memory pass: fetch facts about the user
+      /* --- Context pre-passes: ALL CONCURRENT ------------------------------
+         These used to run strictly one after another (memory → search → weather
+         → wiki → news → youtube → …). Any research-y prompt tripped several of
+         them, and the user paid the SUM of every round trip before the model
+         even started — seconds of dead time. They're independent, so fire them
+         together and await once. A single "Gathering context…" log avoids the
+         read-modify-write race that per-source logging would hit in parallel. */
       let memoriesContext: string | undefined;
-      addLog('[Agent] Checking memory...');
-      try {
-        const memRes = await fetch('/api/agent/memory?action=get', { signal: controller.signal });
-        if (memRes.ok) {
-          const memJson = await memRes.json();
-          if (memJson.success && memJson.memories && memJson.memories.length > 0) {
-            memoriesContext = memJson.memories.map((m: any) => `- ${m.key}: ${m.value}`).join('\n');
-          }
-        }
-      } catch { /* best effort */ }
-      if (!runningRef.current) return;
-
-      // Smart pre-passes based on prompt intent
       let searchContext: string | undefined;
       let weatherContext: string | undefined;
       let dictContext: string | undefined;
@@ -792,125 +799,27 @@ export default function AgentOverlay() {
       let triviaContext: string | undefined;
 
       const pLower = promptText.toLowerCase();
+      const sig = controller.signal;
+      const pre: Promise<void>[] = [];
+      addLog('[Agent] Gathering context…');
 
-      // Expanded web search triggers — catches way more natural language queries
+      // Memory (always)
+      pre.push((async () => {
+        try {
+          const memRes = await fetch('/api/agent/memory?action=get', { signal: sig });
+          if (memRes.ok) {
+            const memJson = await memRes.json();
+            if (memJson.success && memJson.memories?.length) {
+              memoriesContext = memJson.memories.map((m: any) => `- ${m.key}: ${m.value}`).join('\n');
+            }
+          }
+        } catch { /* best effort */ }
+      })());
+
       if (/\b(search|find|google|look up|who is|what is|how to|best|top|compare|vs|versus|recommend|review|list of|examples of|alternatives|how much|price|cost|where can i|when did|why does|which is)\b/i.test(pLower)) {
-        addLog('[Agent] Searching the web...');
-        try {
-          const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: controller.signal });
-          if (sRes.ok) {
-            const sJson = await sRes.json();
-            if (sJson.success && sJson.results?.length) {
-              searchContext = sJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
-            }
-          }
-        } catch { /* best effort */ }
-      }
-      if (!runningRef.current) return;
-
-      if (/\b(weather|temperature|forecast|climate|rain|snow|humidity|wind)\b/i.test(pLower)) {
-        addLog('[Agent] Checking weather...');
-        try {
-          const match = promptText.match(/(?:in|at|for) ([a-zA-Z\s,]+)/i);
-          const q = match ? match[1].trim() : promptText;
-          const wRes = await fetch(`/api/weather?q=${encodeURIComponent(q)}`, { signal: controller.signal });
-          if (wRes.ok) {
-            const wJson = await wRes.json();
-            if (!wJson.error) {
-              weatherContext = `Location: ${wJson.location?.name}, ${wJson.location?.country}\nTemp: ${wJson.current?.temperature}${wJson.units?.temperature}, ${wJson.current?.condition}`;
-            }
-          }
-        } catch { /* best effort */ }
-      }
-      if (!runningRef.current) return;
-
-      if (/\b(meaning|define|definition|synonym|dictionary|antonym|word meaning)\b/i.test(pLower)) {
-        addLog('[Agent] Looking up definition...');
-        try {
-          const match = promptText.match(/(?:define|meaning of|definition of|what does .* mean) ([a-zA-Z]+)/i);
-          const w = match ? match[1].trim() : promptText.split(' ').pop() || '';
-          const dRes = await fetch(`/api/dictionary?word=${encodeURIComponent(w)}`, { signal: controller.signal });
-          if (dRes.ok) {
-            const dJson = await dRes.json();
-            if (dJson.success && dJson.results?.length) {
-              dictContext = JSON.stringify(dJson.results, null, 2);
-            }
-          }
-        } catch { /* best effort */ }
-      }
-      if (!runningRef.current) return;
-
-      // Expanded Wikipedia triggers
-      if (/\b(wiki|wikipedia|who is|who was|history of|biography|about|origin of|founded|inventor|discovery|explain .* concept)\b/i.test(pLower)) {
-        addLog('[Agent] Querying Wikipedia...');
-        try {
-          const match = promptText.match(/(?:who is|who was|what is|history of|biography of|about|wikipedia|origin of|explain) ([a-zA-Z0-9\s]+)/i);
-          const q = match ? match[1].trim() : promptText;
-          const wikiRes = await fetch(`/api/wikipedia?q=${encodeURIComponent(q)}`, { signal: controller.signal });
-          if (wikiRes.ok) {
-            const wikiJson = await wikiRes.json();
-            if (wikiJson.success) {
-              wikiContext = `TITLE: ${wikiJson.title}\nSUMMARY: ${wikiJson.summary}\nURL: ${wikiJson.url}`;
-            }
-          }
-        } catch { /* best effort */ }
-      }
-      if (!runningRef.current) return;
-
-      // Expanded news triggers
-      if (/\b(news|latest|breaking|headlines|update|recent|today|happening|current events|trending)\b/i.test(pLower)) {
-        addLog('[Agent] Fetching latest news...');
-        try {
-          const match = promptText.match(/(?:news about|latest on|headlines for|update on|trending) ([a-zA-Z0-9\s]+)/i);
-          const q = match ? match[1].trim() : undefined;
-          const nRes = await fetch(`/api/news${q ? `?q=${encodeURIComponent(q)}` : ''}`, { signal: controller.signal });
-          if (nRes.ok) {
-            const nJson = await nRes.json();
-            if (nJson.success && nJson.results?.length) {
-              newsContext = nJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
-            }
-          }
-        } catch { /* best effort */ }
-      }
-      if (!runningRef.current) return;
-
-      // Expanded YouTube triggers — also fire web search alongside for link redundancy
-      if (/\b(youtube|video|song|music|listen to|watch|play|track|album|artist|singer|band|clip|trailer|mv|music video|remix|cover|live performance)\b/i.test(pLower)) {
-        addLog('[Agent] Searching YouTube...');
-        try {
-          /* Hand the endpoint the prompt EXACTLY as the user wrote it, flagged as
-             an instruction rather than a query — it distills the search terms
-             itself.
-
-             What used to happen here was a regex that stripped a list of stop
-             words out of the prompt, which turned "bring me good youtube music
-             links" into "bring good links". YouTube was then asked for that, and
-             obligingly returned four videos about a bookmarking app — the exact
-             board the user sent us a screenshot of. Words like "bring me",
-             "youtube" and "links" describe the errand, not the music; deciding
-             which words are which is a judgement call, so a model makes it. */
-          const yRes = await fetch(
-            `/api/youtube-search?q=${encodeURIComponent(promptText)}&intent=1&limit=5`,
-            { signal: controller.signal }
-          );
-          if (yRes.ok) {
-            const yJson = await yRes.json();
-            if (yJson.success && yJson.results?.length) {
-              if (yJson.query) addLog(`[Agent] Searching YouTube for "${yJson.query}"…`);
-              // Hand over the title and channel too — with them the model writes a
-              // Link Card that says what the video IS, instead of a naked URL.
-              youtubeContext = yJson.results
-                .map((r: { url: string; title: string; author: string }, i: number) =>
-                  `Result ${i + 1}: ${r.url}\n  TITLE: ${r.title}\n  CHANNEL: ${r.author}`
-                )
-                .join('\n');
-            }
-          }
-        } catch { /* best effort */ }
-        // Also run a web search for links if we haven't already
-        if (!searchContext) {
+        pre.push((async () => {
           try {
-            const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: controller.signal });
+            const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: sig });
             if (sRes.ok) {
               const sJson = await sRes.json();
               if (sJson.success && sJson.results?.length) {
@@ -918,51 +827,144 @@ export default function AgentOverlay() {
               }
             }
           } catch { /* best effort */ }
-        }
+        })());
       }
-      if (!runningRef.current) return;
 
-      // Quotes API
+      if (/\b(weather|temperature|forecast|climate|rain|snow|humidity|wind)\b/i.test(pLower)) {
+        pre.push((async () => {
+          try {
+            const match = promptText.match(/(?:in|at|for) ([a-zA-Z\s,]+)/i);
+            const q = match ? match[1].trim() : promptText;
+            const wRes = await fetch(`/api/weather?q=${encodeURIComponent(q)}`, { signal: sig });
+            if (wRes.ok) {
+              const wJson = await wRes.json();
+              if (!wJson.error) {
+                weatherContext = `Location: ${wJson.location?.name}, ${wJson.location?.country}\nTemp: ${wJson.current?.temperature}${wJson.units?.temperature}, ${wJson.current?.condition}`;
+              }
+            }
+          } catch { /* best effort */ }
+        })());
+      }
+
+      if (/\b(meaning|define|definition|synonym|dictionary|antonym|word meaning)\b/i.test(pLower)) {
+        pre.push((async () => {
+          try {
+            const match = promptText.match(/(?:define|meaning of|definition of|what does .* mean) ([a-zA-Z]+)/i);
+            const w = match ? match[1].trim() : promptText.split(' ').pop() || '';
+            const dRes = await fetch(`/api/dictionary?word=${encodeURIComponent(w)}`, { signal: sig });
+            if (dRes.ok) {
+              const dJson = await dRes.json();
+              if (dJson.success && dJson.results?.length) dictContext = JSON.stringify(dJson.results, null, 2);
+            }
+          } catch { /* best effort */ }
+        })());
+      }
+
+      if (/\b(wiki|wikipedia|who is|who was|history of|biography|about|origin of|founded|inventor|discovery|explain .* concept)\b/i.test(pLower)) {
+        pre.push((async () => {
+          try {
+            const match = promptText.match(/(?:who is|who was|what is|history of|biography of|about|wikipedia|origin of|explain) ([a-zA-Z0-9\s]+)/i);
+            const q = match ? match[1].trim() : promptText;
+            const wikiRes = await fetch(`/api/wikipedia?q=${encodeURIComponent(q)}`, { signal: sig });
+            if (wikiRes.ok) {
+              const wikiJson = await wikiRes.json();
+              if (wikiJson.success) wikiContext = `TITLE: ${wikiJson.title}\nSUMMARY: ${wikiJson.summary}\nURL: ${wikiJson.url}`;
+            }
+          } catch { /* best effort */ }
+        })());
+      }
+
+      if (/\b(news|latest|breaking|headlines|update|recent|today|happening|current events|trending)\b/i.test(pLower)) {
+        pre.push((async () => {
+          try {
+            const match = promptText.match(/(?:news about|latest on|headlines for|update on|trending) ([a-zA-Z0-9\s]+)/i);
+            const q = match ? match[1].trim() : undefined;
+            const nRes = await fetch(`/api/news${q ? `?q=${encodeURIComponent(q)}` : ''}`, { signal: sig });
+            if (nRes.ok) {
+              const nJson = await nRes.json();
+              if (nJson.success && nJson.results?.length) {
+                newsContext = nJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
+              }
+            }
+          } catch { /* best effort */ }
+        })());
+      }
+
+      const wantsYouTube = /\b(youtube|video|song|music|listen to|watch|play|track|album|artist|singer|band|clip|trailer|mv|music video|remix|cover|live performance)\b/i.test(pLower);
+      if (wantsYouTube) {
+        pre.push((async () => {
+          try {
+            // Hand the endpoint the prompt verbatim (intent=1) so it distills the
+            // real search terms itself instead of a lossy stop-word strip.
+            const yRes = await fetch(`/api/youtube-search?q=${encodeURIComponent(promptText)}&intent=1&limit=5`, { signal: sig });
+            if (yRes.ok) {
+              const yJson = await yRes.json();
+              if (yJson.success && yJson.results?.length) {
+                youtubeContext = yJson.results
+                  .map((r: { url: string; title: string; author: string }, i: number) =>
+                    `Result ${i + 1}: ${r.url}\n  TITLE: ${r.title}\n  CHANNEL: ${r.author}`)
+                  .join('\n');
+              }
+            }
+          } catch { /* best effort */ }
+        })());
+      }
+
       if (/\b(quote|quotes|inspire|inspiration|motivation|motivational|words of wisdom|famous saying|wise words)\b/i.test(pLower)) {
-        addLog('[Agent] Finding quotes...');
-        try {
-          const qRes = await fetch(`/api/quotes-search?limit=5`, { signal: controller.signal });
-          if (qRes.ok) {
-            const qJson = await qRes.json();
-            if (qJson.success && qJson.results?.length) {
-              quotesContext = qJson.results.map((q: { text: string; author: string }) => `"${q.text}" — ${q.author}`).join('\n\n');
+        pre.push((async () => {
+          try {
+            const qRes = await fetch(`/api/quotes-search?limit=5`, { signal: sig });
+            if (qRes.ok) {
+              const qJson = await qRes.json();
+              if (qJson.success && qJson.results?.length) {
+                quotesContext = qJson.results.map((q: { text: string; author: string }) => `"${q.text}" — ${q.author}`).join('\n\n');
+              }
             }
-          }
-        } catch { /* best effort */ }
+          } catch { /* best effort */ }
+        })());
       }
-      if (!runningRef.current) return;
 
-      // Country info API
       if (/\b(country|capital of|population of|flag of|currency of|language of|languages in|about .* country)\b/i.test(pLower)) {
-        addLog('[Agent] Looking up country info...');
-        try {
-          const match = promptText.match(/(?:about|country|capital of|population of|flag of|currency of|language of|languages in) ([a-zA-Z\s]+)/i);
-          const q = match ? match[1].trim() : promptText;
-          const cRes = await fetch(`/api/country-info?q=${encodeURIComponent(q)}`, { signal: controller.signal });
-          if (cRes.ok) {
-            const cJson = await cRes.json();
-            if (cJson.success && cJson.results?.length) {
-              countryContext = cJson.results.map((c: Record<string, string>) => `${c.name} (${c.official})\nCapital: ${c.capital}\nPopulation: ${c.population}\nRegion: ${c.region}, ${c.subregion}\nLanguages: ${c.languages}\nCurrencies: ${c.currencies}\nArea: ${c.area}\nTimezones: ${c.timezones}`).join('\n\n');
+        pre.push((async () => {
+          try {
+            const match = promptText.match(/(?:about|country|capital of|population of|flag of|currency of|language of|languages in) ([a-zA-Z\s]+)/i);
+            const q = match ? match[1].trim() : promptText;
+            const cRes = await fetch(`/api/country-info?q=${encodeURIComponent(q)}`, { signal: sig });
+            if (cRes.ok) {
+              const cJson = await cRes.json();
+              if (cJson.success && cJson.results?.length) {
+                countryContext = cJson.results.map((c: Record<string, string>) => `${c.name} (${c.official})\nCapital: ${c.capital}\nPopulation: ${c.population}\nRegion: ${c.region}, ${c.subregion}\nLanguages: ${c.languages}\nCurrencies: ${c.currencies}\nArea: ${c.area}\nTimezones: ${c.timezones}`).join('\n\n');
+              }
             }
-          }
-        } catch { /* best effort */ }
+          } catch { /* best effort */ }
+        })());
       }
-      if (!runningRef.current) return;
 
-      // Trivia API
       if (/\b(trivia|quiz|fun fact|random fact|did you know|brain teaser)\b/i.test(pLower)) {
-        addLog('[Agent] Getting trivia...');
+        pre.push((async () => {
+          try {
+            const tRes = await fetch(`/api/trivia?amount=5`, { signal: sig });
+            if (tRes.ok) {
+              const tJson = await tRes.json();
+              if (tJson.success && tJson.results?.length) {
+                triviaContext = tJson.results.map((t: { question: string; correct_answer: string; category: string }) => `Q: ${t.question}\nA: ${t.correct_answer}\nCategory: ${t.category}`).join('\n\n');
+              }
+            }
+          } catch { /* best effort */ }
+        })());
+      }
+
+      await Promise.all(pre);
+
+      // YouTube asks also want plain link redundancy — run a web search only if
+      // the search pass didn't already (checked AFTER the parallel batch settles).
+      if (wantsYouTube && !searchContext) {
         try {
-          const tRes = await fetch(`/api/trivia?amount=5`, { signal: controller.signal });
-          if (tRes.ok) {
-            const tJson = await tRes.json();
-            if (tJson.success && tJson.results?.length) {
-              triviaContext = tJson.results.map((t: { question: string; correct_answer: string; category: string }) => `Q: ${t.question}\nA: ${t.correct_answer}\nCategory: ${t.category}`).join('\n\n');
+          const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: sig });
+          if (sRes.ok) {
+            const sJson = await sRes.json();
+            if (sJson.success && sJson.results?.length) {
+              searchContext = sJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
             }
           }
         } catch { /* best effort */ }

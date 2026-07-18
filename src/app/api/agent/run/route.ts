@@ -25,13 +25,21 @@ type Profile = 'heavy' | 'balanced' | 'quick';
    an 8B model — which cannot hold this system prompt's layout rules in its head.
    Now each profile has its OWN chain, and 8B is only ever reachable for the
    trivial one-liners it's actually good at. */
+/* SPEED IS A FEATURE. Measured on the live NIM serverless tier (2026-07-18):
+   the 675B frontier took 60–110s per board and formatted its JSON inconsistently
+   (bare fenced arrays that broke the parser); llama-70b was throttled to ~10
+   tok/s (110s for a research board); but mistral-medium-128b built a RICHER
+   board in ~53s and answered a trivial edit in ~7s. So EVERY chain now LEADS
+   with mistral-medium-128b — it's the fastest AND the richest here, and leading
+   every profile with the one model keeps it warm (fewer cold-start fail-overs).
+   The heavier models are only fall-backs for when it stalls. */
 const CHAINS: Record<Profile, string[]> = {
   // Long builds, workflows, dashboards, code, math, reorganising a whole board.
-  heavy: [MODELS.frontier, MODELS.reasoner, MODELS.strong, MODELS.mid],
+  heavy: [MODELS.mid, MODELS.strong, MODELS.frontier],
   // The everyday ask: explain this, add a few notes, pull some links.
-  balanced: [MODELS.frontier, MODELS.strong, MODELS.reasoner, MODELS.mid],
+  balanced: [MODELS.mid, MODELS.strong],
   // "add a heading", "make this bigger", "delete that" — latency is the feature.
-  quick: [MODELS.mid, MODELS.strong, MODELS.fast],
+  quick: [MODELS.mid, MODELS.fast],
 };
 
 /** Signals that the task needs real reasoning, not a quick hand. */
@@ -82,7 +90,7 @@ Today is {today}. The user invoked you at coordinates (x: {agentX}, y: {agentY})
 - ANTI-HALLUCINATION: NEVER make up facts, statistics, dates, quotes, or URLs. If you don't know something, say "I'm not sure about that — try asking me to search the web for it" in a text block. When asked about specific data (prices, rankings, stats), only provide numbers if you found them in WEB SEARCH, WIKIPEDIA, NEWS, or another attached source. Unsourced numbers are lies. Unsourced URLs are broken links.
 - ANTI-SPAM OUTPUT SCALING: Match your output SIZE to the user's prompt SIZE and complexity. A one-word or one-line ask like "add a heading" deserves 1-2 actions. A medium ask like "explain quantum computing" deserves 3-6 actions. A complex ask like "build me a project dashboard" deserves 10-20+ actions. NEVER pad output with unnecessary extras the user didn't ask for. Read the prompt — if they asked for ONE thing, give ONE thing. Over-delivery when not asked is spam, not intelligence.
 - FINISH THE JOB, END TO END: cover EVERY part of what the user asked for, fully, in this one pass. If they listed several things, address all of them. If they asked for depth ("research", "in detail", "comprehensive", "write about", "explain fully"), deliver real depth — never a thin outline, never a stub, never trailing off mid-thought. A half-done answer is a failure even if it looks pretty.
-- IMAGE DISCIPLINE — READ THIS TWICE (the #1 complaint about you is that you drop images into everything). Images are NOT decoration and NOT a default. Add an "image" object ONLY when: (a) the user EXPLICITLY asks for a picture / photo / logo / illustration / drawing / "show me what X looks like", OR (b) the answer is literally ABOUT one specific real visual subject (a named place, product, person, animal, artwork) that a single photo genuinely clarifies. NEVER attach images to research, explanations, plans, notes, summaries, code, lists, definitions, comparisons, or Q&A. When unsure: NO image. Most good answers contain zero images. A clean, well-written board beats one sprinkled with generic stock photos every single time.
+- IMAGES & VISUALS — the rule is RELEVANCE, not abstinence (don't spam, don't starve). DO add real images (style.imageQuery, a vivid SPECIFIC phrase) when the subject is visual or benefits from being seen: a place, animal, plant, product, person, artwork, food, landmark, a space / nature / science topic, a mood or reference, or anything the user says "show me". A substantive board or REPORT on a visual subject (space, a country, an animal, a product, a historical event) SHOULD carry 2–4 relevant, specific images, plus a Map for any place and a diagram/chart where it fits — that visual richness is exactly what makes it feel real instead of a wall of text. What to AVOID is FILLER: never slap a generic stock photo on a trivial one-line answer, a plain checklist, a code snippet, or an abstract non-visual concept just to decorate. Rule of thumb: utility / one-liner → usually no image; a real board on a visual topic → yes, make it visual.
 - LINK SOURCING HIERARCHY: When placing links: 1) Use URLs from ### WEB SEARCH, ### YOUTUBE RESULTS, or ### NEWS — these are VERIFIED REAL and working. 2) Use canonical documentation URLs you are 100% certain exist (react.dev, nextjs.org, developer.mozilla.org, github.com/facebook/react, etc.). 3) If neither source is available, DO NOT GUESS. Instead create a text/card block with the information and suggest the user search for it. A working text block is infinitely better than a dead link card.
 - CONTEXT AWARENESS: Pay close attention to the user's exact words. Mirror the user's tone. If they ask you to crawl a website or link, use the WEB PAGE(S) context to write a comprehensive, defined output of exactly what they need.
 - TEXT CONTRAST — the canvas auto-picks a readable ink for every block, so PREFER to leave style.textColor UNSET (that guarantees visibility). If you do set it, contrast it against the block's OWN surface: free text/headings vs the canvas paper, sticky text vs the sticky's pastel color. NEVER set a light/white textColor on a sticky note — stickies are always light, so their ink must be dark (#2D2A26). Text-over-text and invisible ink are the two worst mistakes here.
@@ -107,8 +115,8 @@ Connections:
 ### CRAFT — this is what makes you exceptional
 - Write REAL, substantive, expert content: actual task names, real insights, real copy, real numbers, real code. Never "Item 1", never lorem ipsum, never a placeholder.
 - WIELD THE FULL ARSENAL — you have a huge toolbox, so use the RIGHT tool for each job: headings & text (Notion-markdown), sticky notes, shapes, frames, and the rich widgets — To-Do checklist, Focus Timer, Countdown to a deadline, Timeline (a real gantt roadmap — reach for it for ANY plan, schedule, sprint or set of phases with dates), Poll, Decision spinner, Live Metric (with a sparkline), Progress goal, Quick Data table, Chart (a real bar / horizontal-bar / line / donut / number chart built from data you supply), Code block (real runnable code), Quote, Link Card (real URL → live thumbnail), Mermaid diagram (flowcharts, sequence, gantt, mindmap, pie), Map (a live map of any real place), and — only when the IMAGE DISCIPLINE rule above allows it — an image. Pick the FEWEST tools that fully answer the ask; a focused answer beats a busy one.
-- ANTICIPATE (sparingly): after FULLY completing the literal ask, you MAY add at most ONE genuinely useful extra IF it clearly serves the request — a deadline countdown for a plan, a checklist for steps, a chart for a set of numbers. Skip the extra entirely for simple asks and for research / writing / explanation tasks. The bonus is NEVER an image unless the user asked for one.
-- RESEARCH & LONG-FORM WRITING: when the user asks you to research, write, explain in depth, draft an essay / report / article / brief / summary, or "tell me everything about X", your job is a genuinely comprehensive WRITTEN piece — this is the one case where a lot of text is exactly right. Produce: a title heading, then several sections, each a "## " subheading followed by real, substantive paragraphs and bullet points with actual insight (not filler). Use multiple text/card blocks (one per section) stacked in a column and wrapped in a single frame, OR a few tall text blocks — and budget their heights generously so nothing overlaps. Ground every fact in the provided WEB / WIKI / FILE material; where it's general knowledge, say so; never invent citations, numbers, or quotes. Do NOT decorate research with images, charts, or widgets unless one specifically clarifies the content. Depth, structure and accuracy are the whole job here.
+- ANTICIPATE (sensibly): after FULLY completing the literal ask, add the extra(s) that genuinely make it better — a deadline countdown for a plan, a checklist for steps, a chart for numbers, a relevant image or map for a visual/place topic. Keep it proportional: a trivial one-liner needs no extras; a rich topic deserves the visuals and widgets that bring it to life (see the RESEARCH and IMAGES rules). Don't pad with things that don't serve the request.
+- RESEARCH / REPORTS / "tell me everything about X" — make it RICH, DEEP and VISUAL: a full board, never a lone paragraph. Produce (1) a bold TITLE heading; (2) SEVERAL sections, each a "## " subheading with substantive paragraphs AND bullet points of real insight — cover the topic end to end, every part the user named; and (3) VISUALS that fit the topic — 2–4 SPECIFIC real images (imageQuery) when the subject is visual, a Map for any place, a Chart for any real numbers/comparisons, a Mermaid diagram for any process or structure. Wrap it all in one titled frame, laid out in clean columns with generous spacing (budget real heights so nothing overlaps). Ground facts in the provided WEB / WIKI / FILE material (or flag general knowledge); never invent numbers, quotes or citations. Keep it FOCUSED, not sprawling: the best 3–5 sections and 2–3 strong images (plus at most one map/chart/diagram) — a tight, rich board also renders faster, and speed matters. A great research board reads like a beautiful encyclopedia spread — words AND visuals together, substantial and complete.
 - DASHBOARDS: when the user wants a dashboard, report, analytics, KPIs or "visualize my data", build a titled frame containing a Number chart for the headline figure, plus bar / line / donut Charts and Live Metrics laid out in a clean grid — fill them with real, plausible data.
 - VISUALIZE NUMBERS WHEN IT ACTUALLY HELPS: if the user asks for a dashboard, analytics, KPIs, "a chart", or to "visualize" data — OR the answer's whole point is a set of comparable data points — build a real Chart with the REAL numbers. Use "bar"/"hbar" for comparing categories, "line" for a trend over time, "donut" for parts of a whole (≤6 slices), and "number" for one headline KPI. Give each chart a clear title and 3–8 real data points. But when numbers are incidental to a written answer, keep them inline in the prose — do NOT force a chart onto an explanation or research piece just because a number appeared.
 - HONOR NAMED WIDGETS: if the user's prompt names a specific widget, use exactly that one — never substitute something close. "donut"/"pie chart" → Chart chartType:"donut". "bar chart"/"bar graph" → chartType:"bar". "horizontal bar" → chartType:"hbar". "line chart"/"trend line" → chartType:"line". "KPI"/"live metric"/"stat card"/"sparkline" → the Live Metric widget. "dashboard"/"analytics board"/"overview report" → a titled frame with a Number chart for the headline figure + 2–3 of (bar/line/donut Chart, Live Metric, Progress) in a clean grid, ALL with real data and "chartReady":true. "progress"/"goal tracker" → Progress. "table"/"data table" → Quick Data. "timeline"/"gantt"/"roadmap"/"schedule"/"project plan"/"sprint plan"/"itinerary" → the Timeline widget with real dates. Treat these names as an explicit, literal instruction, not a suggestion.
@@ -514,14 +522,17 @@ export async function POST(req: NextRequest) {
         : pickProfile(prompt, mode);
 
     const chain = CHAINS[profile];
+    /* Token budgets are also a latency dial: at the tier's throughput every extra
+       1k tokens is real seconds. These cap the worst case without starving a
+       normal board (a rich research board measured ~2.9k output tokens). */
     const modelOpts =
       profile === 'quick'
-        ? { maxTokens: 2048, temperature: 0.4 }
+        ? { maxTokens: 1500, temperature: 0.4 }
         : isWorkflow
-          ? { maxTokens: 10240, temperature: 0.55 }
+          ? { maxTokens: 7000, temperature: 0.55 }
           : profile === 'heavy'
-            ? { maxTokens: 10240, temperature: 0.45 }
-            : { maxTokens: 8192, temperature: 0.5 };
+            ? { maxTokens: 4500, temperature: 0.45 }
+            : { maxTokens: 5000, temperature: 0.5 };
 
     // Try models in order, rotating keys; stream the first that produces tokens.
     let lastError: Error | null = null;
