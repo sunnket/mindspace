@@ -280,10 +280,18 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
         const cam = useCanvasStore.getState().camera;
         const x = (-cam.x + window.innerWidth / 2) / cam.zoom;
         const y = (-cam.y + window.innerHeight / 2) / cam.zoom;
+        // Ground the builder in the ACTUAL answer we just wrote. The builder never
+        // sees this chat, so a thin or referential instruction ("put the report
+        // above on the canvas") otherwise leaves it to invent a topic from the
+        // canvas snapshot — which is exactly how a media report turned into a
+        // "your canvas has 2 objects" meta-report. Hand over the real content as
+        // source material; the instruction just says how to lay it out.
+        const clean = (visible || '').replace(/\s+/g, ' ').trim();
+        const grounding = clean.length > 120 ? visible.slice(0, 14000) : undefined;
         window.dispatchEvent(new CustomEvent('run-agent', {
           // sourceId lets the canvas agent report this build's real progress back
           // to THIS chat message, so the "Building…" chip resolves to done/error.
-          detail: { prompt: build.instruction, x, y, mode: build.mode, filesContext: filesContext || undefined, sourceId: asstId },
+          detail: { prompt: build.instruction, x, y, mode: build.mode, context: grounding, filesContext: filesContext || undefined, sourceId: asstId },
         }));
       }
     } catch (err) {
