@@ -19,6 +19,8 @@ import CodeSandboxBlock from './CodeSandboxBlock';
 import RepoExplorerBlock from './RepoExplorerBlock';
 import QuoteBlock from './QuoteBlock';
 import CalloutBlock from './CalloutBlock';
+import EmbedBlock from './EmbedBlock';
+import GitHubBlock from './GitHubBlock';
 import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
@@ -2498,6 +2500,20 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <LinkPreviewBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isEmbed) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <EmbedBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isGithub) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <GitHubBlock obj={obj} />
             </div>
           );
         }

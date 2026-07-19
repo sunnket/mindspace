@@ -7,6 +7,7 @@ import { useChatStore, useChatUnreadTotal } from '@/store/chatStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import WorkflowMenu from './WorkflowMenu';
+import PluginsPanel from './PluginsPanel';
 import CanvasBackgroundPanel from './CanvasBackgroundPanel';
 import ShapePreview from '@/components/canvas/ShapePreview';
 import { RELAX_EFFECTS, RELAX_EFFECT_LIST } from '@/lib/relaxEffects';
@@ -154,6 +155,7 @@ export default function FloatingToolbar() {
   const [showWorkflowMenu, setShowWorkflowMenu] = useState(false);
   const [showBgOptions, setShowBgOptions] = useState(false);
   const [showRelaxOptions, setShowRelaxOptions] = useState(false);
+  const [showPlugins, setShowPlugins] = useState(false);
 
   const relaxEffect = useCanvasStore((s) => s.relaxEffect);
   const setRelaxEffect = useCanvasStore((s) => s.setRelaxEffect);
@@ -181,6 +183,7 @@ export default function FloatingToolbar() {
     setShowBgOptions(false);
     setShowRelaxOptions(false);
     setShowWorkflowMenu(false);
+    setShowPlugins(false);
   }, []);
 
   /* A mode can also be entered from the keyboard (D, S, R, V…) or by the canvas
@@ -350,6 +353,15 @@ export default function FloatingToolbar() {
         )}
       </AnimatePresence>
 
+      {/* Plugins panel */}
+      <AnimatePresence>
+        {showPlugins && (
+          <div className="absolute bottom-16 right-0 z-[100]">
+            <PluginsPanel onClose={() => setShowPlugins(false)} />
+          </div>
+        )}
+      </AnimatePresence>
+
       <motion.div
         className="glass-panel flex items-center gap-1 px-2 py-1.5"
         initial={{ y: 20, opacity: 0 }}
@@ -478,6 +490,36 @@ export default function FloatingToolbar() {
               <circle cx="12" cy="12" r="9" />
               <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
             </svg>
+          </span>
+        </motion.button>
+
+        {/* Plugins — connect the canvas to other tools (embeds, GitHub, …) */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => {
+            const wasOpen = showPlugins;
+            closeAllPanels();
+            setCommentMode(false);
+            setThreadsSidebarOpen(false);
+            if (!wasOpen) setShowPlugins(true);
+          }}
+          className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
+            showPlugins
+              ? 'text-[var(--accent)]'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+          }`}
+          title="Plugins — embeds, GitHub & more"
+        >
+          {showPlugins && (
+            <motion.span
+              layoutId="toolbar-active"
+              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+              className="absolute inset-0 rounded-lg clay-inset"
+            />
+          )}
+          <span className="relative flex items-center justify-center" style={{ fontSize: 16, lineHeight: 1 }}>
+            🔌
           </span>
         </motion.button>
 
