@@ -790,3 +790,35 @@ html, body {
   height: 14px;
 }
 .rich-text .toggle-chevron:hover { color: var(--accent); }
+
+/* ||spoiler|| — a redaction bar that clears when clicked. */
+.rich-text .spoiler {
+  background: var(--text-primary);
+  color: transparent;
+  border-radius: 4px;
+  padding: 0 3px;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.rich-text .spoiler.revealed {
+  background: var(--accent-subtle);
+  color: inherit;
+  user-select: text;
+}
+
+/* ```fenced``` code block — formatted, non-editable monospace. */
+.rich-text .rich-code-block {
+  display: block;
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 6px 0;
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 0.86em;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+}
+[data-canvas-theme="dark"] .rich-text .rich-code-block { background: rgba(255, 255, 255, 0.07); }

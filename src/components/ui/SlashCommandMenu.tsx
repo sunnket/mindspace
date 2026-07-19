@@ -111,6 +111,38 @@ const ITEMS: SlashItem[] = [
     }
   },
   {
+    id: 'codesnippet',
+    label: 'Code Snippet',
+    sublabel: 'Formatted monospace text — lighter than a Code Sandbox',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><polyline points="9 9 7 12 9 15" /><polyline points="15 9 17 12 15 15" /></svg>),
+    keywords: ['code', 'snippet', 'monospace', 'fenced', 'pre', 'syntax'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'text',
+        width: 460,
+        height: 96,
+        content: '```\nconst greeting = "hello";\nconsole.log(greeting);\n```',
+      });
+      setEditingId(null);
+    }
+  },
+  {
+    id: 'spoiler',
+    label: 'Spoiler',
+    sublabel: 'Hidden text behind a bar — click to reveal',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9.9 4.24A9 9 0 0 1 12 4c7 0 10 8 10 8a13 13 0 0 1-1.67 2.68" /><path d="M6.6 6.6A13 13 0 0 0 2 12s3 8 10 8a9 9 0 0 0 5.4-1.6" /><line x1="2" y1="2" x2="22" y2="22" /></svg>),
+    keywords: ['spoiler', 'hidden', 'blur', 'redact', 'reveal', 'secret', 'hide'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'text',
+        width: 420,
+        height: 44,
+        content: '||hidden — click to reveal||',
+      });
+      setEditingId(null);
+    }
+  },
+  {
     id: 'timer',
     label: 'Focus Timer',
     sublabel: 'Stopwatch for deep work',
@@ -440,7 +472,9 @@ export default function SlashCommandMenu() {
           top: `${slashMenu.y}px`,
           backdropFilter: 'blur(12px)'
         }}
-        onMouseDown={(e) => e.stopPropagation()} // Prevent deselections
+        // preventDefault keeps focus on the editing block so it doesn't blur
+        // (which would end editing and unmount this menu before the click lands).
+        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
       >
         <div className="text-[10px] text-white/40 px-2 py-1 font-bold uppercase tracking-wider border-b border-white/5 mb-1 select-none">
           Add canvas extension

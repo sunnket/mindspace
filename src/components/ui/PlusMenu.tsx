@@ -157,6 +157,37 @@ export default function PlusMenu() {
       },
     },
     {
+      icon: (<MenuIcon><rect x="3" y="4" width="18" height="16" rx="2" /><polyline points="9 9 7 12 9 15" /><polyline points="15 9 17 12 15 15" /></MenuIcon>),
+      label: 'Code Snippet',
+      action: () => {
+        // Formatted, non-editable monospace — lighter than the runnable Code Block.
+        // Also works by typing ``` on its own line inside any text block.
+        spawnEditable({
+          type: 'text',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 460,
+          height: 96,
+          content: '```\nconst greeting = "hello";\nconsole.log(greeting);\n```',
+        });
+      },
+    },
+    {
+      icon: (<MenuIcon><path d="M9.9 4.24A9 9 0 0 1 12 4c7 0 10 8 10 8a13 13 0 0 1-1.67 2.68" /><path d="M6.6 6.6A13 13 0 0 0 2 12s3 8 10 8a9 9 0 0 0 5.4-1.6" /><line x1="2" y1="2" x2="22" y2="22" /></MenuIcon>),
+      label: 'Spoiler',
+      action: () => {
+        // Hidden text behind a bar; click reveals it. Also: type ||like this||.
+        spawnEditable({
+          type: 'text',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 420,
+          height: 44,
+          content: '||hidden — click to reveal||',
+        });
+      },
+    },
+    {
       icon: (<MenuIcon><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="6" y1="17" x2="12" y2="17" /></MenuIcon>),
       label: 'Timeline',
       action: () => {

@@ -136,7 +136,10 @@ export default function AtMentionMenu() {
         transition={{ duration: 0.12 }}
         className="fixed z-[9999] bg-[#18181b]/95 border border-white/10 rounded-xl shadow-2xl p-1.5 min-w-[240px] max-w-[320px] pointer-events-auto"
         style={{ left: `${atMenu.x}px`, top: `${atMenu.y}px`, backdropFilter: 'blur(12px)' }}
-        onMouseDown={(e) => e.stopPropagation()}
+        // preventDefault keeps the editing block focused so clicking a result
+        // doesn't blur it (which would end editing and drop the insert-mention
+        // listener before the click fires).
+        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
       >
         <div className="text-[10px] text-white/40 px-2 py-1 font-bold uppercase tracking-wider border-b border-white/5 mb-1 select-none">
           Link to a block

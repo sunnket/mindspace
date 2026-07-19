@@ -29,7 +29,7 @@ const MATH_HINT = /\\[a-zA-Z]+|[\^_{}=]|\\[^a-zA-Z]/;
 // Cheap gate: does the string contain ANY markdown/math worth parsing? Only real
 // structures trigger it — a lone "*" or "_" in prose (2*3, snake_case) does NOT,
 // so ordinary notes are never re-flowed.
-const RICH_GATE = /(^|\n)[ \t]*(#{1,3}\s|[-*•]\s|\d+\.\s|\[[ xX]?\]\s|>\s|>>\s|▸\s|▾\s|---\s*$)|\*\*|~~|==|`|\$|\\\(|\\\[|@\[/;
+const RICH_GATE = /(^|\n)[ \t]*(#{1,3}\s|[-*•]\s|\d+\.\s|\[[ xX]?\]\s|>\s|>>\s|▸\s|▾\s|```|---\s*$)|\*\*|~~|==|\|\||`|\$|\\\(|\\\[|@\[/;
 
 // A toggle header line: "▸ text", "▾ text", or the ASCII alias ">> text".
 const TOGGLE_RE = /^([ \t]*)(?:▸|▾|>>)\s+(.*)$/;
@@ -161,6 +161,26 @@ function renderInline(src: string, keyBase: string): React.ReactNode[] {
         i = end + 2; continue;
       }
     }
+    // ||spoiler|| — hidden behind a bar until clicked (guarded so "a || b"
+    // logic in a code note never turns into a spoiler)
+    if (two === '||') {
+      const end = src.indexOf('||', i + 2);
+      if (end !== -1 && end > i + 2 && src[i + 2] !== ' ' && src[end - 1] !== ' ') {
+        flush();
+        out.push(
+          <span
+            key={`${keyBase}-sp${k++}`}
+            className="spoiler"
+            title="Click to reveal"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); e.currentTarget.classList.toggle('revealed'); }}
+          >
+            {renderInline(src.slice(i + 2, end), `${keyBase}-sp${k}`)}
+          </span>
+        );
+        i = end + 2; continue;
+      }
+    }
     // *italic* (single asterisk; underscores are left alone to avoid mangling
     // identifiers like snake_case)
     if (src[i] === '*') {
@@ -252,6 +272,26 @@ function renderBlocks(content: string, ctx: RenderCtx): React.ReactNode {
   while (i < lines.length) {
     const line = lines[i];
     const key = `l${i}`;
+
+    // ```fenced``` code block — gather raw lines until the closing fence. If the
+    // fence never closes we fall through and render the line as ordinary text,
+    // so a half-typed block never swallows the rest of the note.
+    if (/^```(\w*)\s*$/.test(line)) {
+      const codeLines: string[] = [];
+      let j = i + 1;
+      let closed = false;
+      while (j < lines.length) {
+        if (/^```\s*$/.test(lines[j])) { closed = true; break; }
+        codeLines.push(lines[j]);
+        j++;
+      }
+      if (closed) {
+        nodes.push(<pre key={key} className="rich-code-block">{codeLines.join('\n')}</pre>);
+        i = j + 1;
+        continue;
+      }
+    }
+
     const tm = line.match(TOGGLE_RE);
 
     if (tm) {
