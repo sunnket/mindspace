@@ -31,6 +31,7 @@ import SpatialSearch from '@/components/ui/SpatialSearch';
 import CommandPalette from '@/components/ui/CommandPalette';
 import PlusMenu from '@/components/ui/PlusMenu';
 import SlashCommandMenu from '@/components/ui/SlashCommandMenu';
+import AtMentionMenu from '@/components/ui/AtMentionMenu';
 import AgentOverlay from '@/components/ui/AgentOverlay';
 import SkillSetPanel from '@/components/ui/SkillSetPanel';
 import { isSkillsetActive, activeRuleCount } from '@/lib/skillset';
@@ -1253,6 +1254,7 @@ export default function InfiniteCanvas() {
       <CommandPalette />
       <PlusMenu />
       <SlashCommandMenu />
+      <AtMentionMenu />
       <AgentOverlay />
       <SkillSetPanel />
       <SelectionPanel />

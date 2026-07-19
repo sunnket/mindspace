@@ -247,7 +247,11 @@ interface CanvasStore {
   // Slash menu
   slashMenu: { objectId: string; query: string; x: number; y: number } | null;
   setSlashMenu: (menu: { objectId: string; query: string; x: number; y: number } | null) => void;
-  
+
+  // @-mention menu — picks another block/heading to link to as an inline chip.
+  atMenu: { objectId: string; query: string; x: number; y: number } | null;
+  setAtMenu: (menu: { objectId: string; query: string; x: number; y: number } | null) => void;
+
   // Stress Reliefer. Null until the user actually picks an effect — entering
   // relax mode alone must not arm the canvas or swap the cursor.
   relaxEffect: RelaxEffectId | null;
@@ -1179,7 +1183,11 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Slash menu
   slashMenu: null,
   setSlashMenu: (menu) => set({ slashMenu: menu }),
-  
+
+  // @-mention menu
+  atMenu: null,
+  setAtMenu: (menu) => set({ atMenu: menu }),
+
   // Stress Reliefer
   relaxEffect: null,
   setRelaxEffect: (relaxEffect) => set({ relaxEffect }),

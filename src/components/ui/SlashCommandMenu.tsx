@@ -62,6 +62,55 @@ const ITEMS: SlashItem[] = [
     }
   },
   {
+    id: 'callout',
+    label: 'Callout',
+    sublabel: 'Note / Warning / Idea box — flag what matters',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><line x1="12" y1="11" x2="12" y2="16" /><line x1="12" y1="8" x2="12" y2="8.01" /></svg>),
+    keywords: ['callout', 'note', 'warning', 'idea', 'question', 'success', 'alert', 'info', 'tip'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'card',
+        width: 340,
+        height: 132,
+        content: '',
+        style: { isCallout: true, calloutKind: 'note' },
+      });
+      setEditingId(null);
+    }
+  },
+  {
+    id: 'toggle',
+    label: 'Toggle List',
+    sublabel: 'Collapsible section — hide detail behind a heading',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /><line x1="14" y1="7" x2="20" y2="7" /><line x1="14" y1="17" x2="20" y2="17" /></svg>),
+    keywords: ['toggle', 'collapse', 'expand', 'fold', 'accordion', 'details', 'section'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'text',
+        width: 460,
+        height: 60,
+        content: '▸ Toggle heading\n  Hidden details — click the arrow to collapse',
+      });
+      setEditingId(null);
+    }
+  },
+  {
+    id: 'divider',
+    label: 'Divider',
+    sublabel: 'A horizontal rule to section your notes',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12" /></svg>),
+    keywords: ['divider', 'rule', 'line', 'separator', 'hr', 'section', 'break'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'text',
+        width: 460,
+        height: 24,
+        content: '---',
+      });
+      setEditingId(null);
+    }
+  },
+  {
     id: 'timer',
     label: 'Focus Timer',
     sublabel: 'Stopwatch for deep work',

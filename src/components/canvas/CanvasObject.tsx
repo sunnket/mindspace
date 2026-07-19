@@ -18,6 +18,7 @@ import RichText from './RichText';
 import CodeSandboxBlock from './CodeSandboxBlock';
 import RepoExplorerBlock from './RepoExplorerBlock';
 import QuoteBlock from './QuoteBlock';
+import CalloutBlock from './CalloutBlock';
 import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
@@ -514,6 +515,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const addToTrash = useCanvasStore((s) => s.addToTrash);
   const connections = useCanvasStore((s) => s.connections);
   const setSlashMenu = useCanvasStore((s) => s.setSlashMenu);
+  const setAtMenu = useCanvasStore((s) => s.setAtMenu);
 
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -1125,7 +1127,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       const isFunctionalBlock =
         obj.type === 'card' &&
         Object.entries(obj.style || {}).some(([k, v]) => /^is[A-Z]/.test(k) && Boolean(v)) &&
-        !obj.style?.isQuote;
+        !obj.style?.isQuote && !obj.style?.isCallout;
 
       /* An EMPTY block goes straight into edit on the first click.
          It used to take two — click to select, click again to type — and a blank
@@ -1349,7 +1351,32 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             setSlashMenu(null);
           }
         }
-        
+
+        // @-mention detection: "@" preceded by start/space, then a bare word
+        // (no spaces) at the caret. Opens the block picker; a space cancels it,
+        // so "meet @ 5pm" never triggers. Only opens when there's actually
+        // another block to link to, so it never captures Enter for nothing.
+        const atMatch = text.match(/(?:^|\s)@([\w-]*)$/);
+        const hasLinkTarget = atMatch
+          ? useCanvasStore.getState().objects.some(
+              (o) => o.id !== obj.id && o.type !== 'arrow' && o.type !== 'drawing'
+            )
+          : false;
+        if (atMatch && hasLinkTarget) {
+          const rect = contentRef.current.getBoundingClientRect();
+          setAtMenu({
+            objectId: obj.id,
+            query: atMatch[1] || '',
+            x: rect.left,
+            y: rect.bottom + window.scrollY + 6,
+          });
+        } else {
+          const cur = useCanvasStore.getState().atMenu;
+          if (cur && cur.objectId === obj.id) {
+            setAtMenu(null);
+          }
+        }
+
         // Auto-adjust height during typing!
         if (obj.type === 'text' || obj.type === 'heading' || obj.type === 'workflow-node') {
           const padding = obj.type === 'workflow-node' ? 30 : 10;
@@ -1400,6 +1427,30 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       sel?.addRange(range);
     };
     window.addEventListener('seed-agent-prompt', handleSeedAgent);
+
+    // The @-mention menu picks a target block; we swap the trailing "@query" the
+    // user typed for a chip token "@[Label](ref:id)" and keep them typing.
+    const handleInsertMention = (e: Event) => {
+      const detail = (e as CustomEvent<{ objectId: string; targetId: string; label: string }>).detail;
+      if (detail?.objectId !== obj.id || !contentRef.current) return;
+      const el = contentRef.current;
+      const safeLabel = (detail.label || 'link').replace(/[\[\]()\n]/g, '').trim().slice(0, 60) || 'link';
+      const token = `@[${safeLabel}](ref:${detail.targetId}) `;
+      const cur = el.innerText;
+      const replaced = cur.replace(/(^|\s)@[\w-]*$/, (_m, pre) => `${pre}${token}`);
+      // If the trailing "@query" was somehow already gone, append rather than lose the link.
+      el.innerText = replaced === cur ? (cur + (cur && !/\s$/.test(cur) ? ' ' : '') + token) : replaced;
+      latestContent.current = el.innerText;
+      el.focus();
+      const range = document.createRange();
+      const sel = window.getSelection();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      setAtMenu(null);
+    };
+    window.addEventListener('insert-mention', handleInsertMention);
 
     const handleNativeKeyDown = (e: KeyboardEvent) => {
       // Intercept Enter for inline /agent (or /ai) commands. The command may sit
@@ -1453,6 +1504,23 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               return tail.toString().trim() === '';
             })();
             const curLine = full.slice(full.lastIndexOf('\n') + 1);
+
+            // Toggle header (▸ / >> ): Enter drops the caret into an indented
+            // body line, so its collapsible detail is trivial to start typing.
+            const tgl = curLine.match(/^([ \t]*)(?:▸|▾|>>)\s+(.*)$/);
+            if (caretAtEnd && tgl) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (tgl[2].trim() === '') {
+                // Empty toggle header → drop the marker and leave.
+                for (let d = 0; d < curLine.length; d++) document.execCommand('delete', false);
+              } else {
+                document.execCommand('insertText', false, '\n' + tgl[1] + '  ');
+              }
+              latestContent.current = el.innerText;
+              return;
+            }
+
             const lm = curLine.match(/^(\s*)([-*•]|\d+\.|\[[ xX]?\]|>)\s(.*)$/);
             if (caretAtEnd && lm) {
               e.preventDefault();
@@ -1469,6 +1537,19 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                 else next = `${marker} `;
                 document.execCommand('insertText', false, '\n' + indent + next);
               }
+              latestContent.current = el.innerText;
+              return;
+            }
+
+            // Plain but indented line (e.g. a toggle's body paragraph): keep the
+            // indentation on Enter so the text stays inside its toggle instead of
+            // dedenting out. An empty indented line falls through to a normal
+            // newline — the natural "press Enter again to exit" gesture.
+            const indentCont = curLine.match(/^([ \t]{2,})\S/);
+            if (caretAtEnd && indentCont) {
+              e.preventDefault();
+              e.stopPropagation();
+              document.execCommand('insertText', false, '\n' + indentCont[1]);
               latestContent.current = el.innerText;
               return;
             }
@@ -1491,17 +1572,37 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         }
       }
 
+      // @-mention menu navigation (mirrors the slash menu). Handled first so its
+      // Enter/arrows drive the picker instead of the block.
+      const atMenuNow = useCanvasStore.getState().atMenu;
+      if (atMenuNow && atMenuNow.objectId === obj.id) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          let ev = 'at-menu-down';
+          if (e.key === 'ArrowUp') ev = 'at-menu-up';
+          if (e.key === 'Enter') ev = 'at-menu-select';
+          window.dispatchEvent(new CustomEvent(ev));
+          return;
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          setAtMenu(null);
+          return;
+        }
+      }
+
       const currentMenu = useCanvasStore.getState().slashMenu;
       if (!currentMenu || currentMenu.objectId !== obj.id) return;
 
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
-        
+
         let eventName = 'slash-menu-down';
         if (e.key === 'ArrowUp') eventName = 'slash-menu-up';
         if (e.key === 'Enter') eventName = 'slash-menu-select';
-        
+
         window.dispatchEvent(new CustomEvent(eventName));
       } else if (e.key === 'Escape') {
         e.preventDefault();
@@ -1529,6 +1630,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     return () => {
       clearTimeout(timeoutId);
       window.removeEventListener('seed-agent-prompt', handleSeedAgent);
+      window.removeEventListener('insert-mention', handleInsertMention);
       if (ref) {
         ref.removeEventListener('input', handleNativeInput);
         ref.removeEventListener('keydown', handleNativeKeyDown);
@@ -1555,8 +1657,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       if (currentMenu && currentMenu.objectId === obj.id) {
         setSlashMenu(null);
       }
+      // …and the @-mention menu.
+      const currentAt = useCanvasStore.getState().atMenu;
+      if (currentAt && currentAt.objectId === obj.id) {
+        setAtMenu(null);
+      }
     };
-  }, [isEditing, obj.id, obj.type, removeObject, editingId, setEditingId, obj.height, updateObject, setSlashMenu, saveContent, syncWidth]);
+  }, [isEditing, obj.id, obj.type, removeObject, editingId, setEditingId, obj.height, updateObject, setSlashMenu, setAtMenu, saveContent, syncWidth]);
 
   const handleBlur = useCallback(() => {
     if (editingId === obj.id) {
@@ -2096,7 +2203,11 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               ...(autoWidth ? { width: 'max-content', maxWidth: wrapWidth } : null),
             }}
           >
-            <RichText content={obj.content || ''} />
+            <RichText
+              content={obj.content || ''}
+              persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
+              onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
+            />
           </div>
         );
 
@@ -2199,7 +2310,11 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   color: stickyInk,
                 }}
               >
-                <RichText content={obj.content || ''} />
+                <RichText
+                  content={obj.content || ''}
+                  persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
+                  onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
+                />
               </div>
             )}
           </div>
@@ -2389,10 +2504,22 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         if (obj.style?.isQuote) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
-              <QuoteBlock 
-                obj={obj} 
-                isEditing={isEditing} 
-                onBlur={handleBlur} 
+              <QuoteBlock
+                obj={obj}
+                isEditing={isEditing}
+                onBlur={handleBlur}
+                innerRef={contentRef}
+              />
+            </div>
+          );
+        }
+        if (obj.style?.isCallout) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <CalloutBlock
+                obj={obj}
+                isEditing={isEditing}
+                onBlur={handleBlur}
                 innerRef={contentRef}
               />
             </div>
@@ -2425,7 +2552,11 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   wordBreak: 'break-word',
                 }}
               >
-                <RichText content={obj.content || ''} />
+                <RichText
+                  content={obj.content || ''}
+                  persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
+                  onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
+                />
               </div>
             )}
           </div>

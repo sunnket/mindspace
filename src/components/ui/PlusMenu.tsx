@@ -109,6 +109,54 @@ export default function PlusMenu() {
       },
     },
     {
+      icon: (<MenuIcon><circle cx="12" cy="12" r="9" /><line x1="12" y1="11" x2="12" y2="16" /><line x1="12" y1="8" x2="12" y2="8.01" /></MenuIcon>),
+      label: 'Callout',
+      action: () => {
+        // A "pay attention here" box — tap its icon to switch Note / Warning /
+        // Idea / Question / Success. Its body is ordinary rich text.
+        spawnEditable({
+          type: 'card',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 340,
+          height: 132,
+          content: '',
+          style: { isCallout: true, calloutKind: 'note' },
+        });
+      },
+    },
+    {
+      icon: (<MenuIcon><polyline points="9 18 15 12 9 6" /><line x1="14" y1="7" x2="20" y2="7" /><line x1="14" y1="17" x2="20" y2="17" /></MenuIcon>),
+      label: 'Toggle List',
+      action: () => {
+        // A collapsible section: its indented body hides behind the chevron.
+        spawnEditable({
+          type: 'text',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 460,
+          height: 60,
+          content: '▸ Toggle heading\n  Hidden details — click the arrow to collapse',
+        });
+      },
+    },
+    {
+      icon: (<MenuIcon><line x1="4" y1="12" x2="20" y2="12" /><circle cx="4.5" cy="12" r="0.6" fill="currentColor" /><circle cx="19.5" cy="12" r="0.6" fill="currentColor" /></MenuIcon>),
+      label: 'Divider',
+      action: () => {
+        // A horizontal rule to section a wall of thought. Standalone here; you can
+        // also just type "---" on its own line inside any text block.
+        addObject({
+          type: 'text',
+          x: canvasPos.x,
+          y: canvasPos.y,
+          width: 460,
+          height: 24,
+          content: '---',
+        });
+      },
+    },
+    {
       icon: (<MenuIcon><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="6" y1="17" x2="12" y2="17" /></MenuIcon>),
       label: 'Timeline',
       action: () => {
