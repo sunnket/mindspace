@@ -518,6 +518,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const connections = useCanvasStore((s) => s.connections);
   const setSlashMenu = useCanvasStore((s) => s.setSlashMenu);
   const setAtMenu = useCanvasStore((s) => s.setAtMenu);
+  const readOnly = useCanvasStore((s) => s.readOnly);
 
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -576,6 +577,9 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      // Public share viewer: look, don't touch. Let native events through (so
+      // links/embeds/scroll still work) but never start a drag or select.
+      if (readOnly) return;
       if (mode === 'draw' || isEditing) return;
 
       // Clicks on embedded controls (poll options, settings inputs, checkpoint
@@ -861,7 +865,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp, END_DRAG);
     },
-    [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex, addObject]
+    [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex, addObject, readOnly]
   );
 
   const handleResizeStart = useCallback(
@@ -1073,6 +1077,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (readOnly) return;
 
       if (obj.type === 'heading') {
         // Navigate into nested canvas
@@ -1095,12 +1100,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         setEditingId(obj.id);
       }
     },
-    [obj, setFocusedId, pushCanvas, setEditingId]
+    [obj, setFocusedId, pushCanvas, setEditingId, readOnly]
   );
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (readOnly) return;
       if (mode === 'draw' || isEditing) return;
 
       if (mode === 'connector') {
@@ -1146,7 +1152,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         setEditingId(obj.id);
       }
     },
-    [mode, isEditing, isSelected, obj, setEditingId, updateObject, toggleConnectorSelection]
+    [mode, isEditing, isSelected, obj, setEditingId, updateObject, toggleConnectorSelection, readOnly]
   );
 
   // Handle unified content saving. Compares against the LIVE stored content
@@ -4015,7 +4021,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           )}
 
           {/* Heart Button */}
-          {!obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && obj.type !== 'mirror' && (
+          {!readOnly && !obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && obj.type !== 'mirror' && (
             <motion.button
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
@@ -4037,7 +4043,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           )}
 
           {/* Comment Button */}
-          {!obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && obj.type !== 'mirror' && (
+          {!readOnly && !obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && obj.type !== 'mirror' && (
             <motion.button
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}

@@ -252,6 +252,10 @@ interface CanvasStore {
   atMenu: { objectId: string; query: string; x: number; y: number } | null;
   setAtMenu: (menu: { objectId: string; query: string; x: number; y: number } | null) => void;
 
+  // Read-only mode — the public share viewer renders the board but blocks every edit.
+  readOnly: boolean;
+  setReadOnly: (v: boolean) => void;
+
   // Stress Reliefer. Null until the user actually picks an effect — entering
   // relax mode alone must not arm the canvas or swap the cursor.
   relaxEffect: RelaxEffectId | null;
@@ -1187,6 +1191,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // @-mention menu
   atMenu: null,
   setAtMenu: (menu) => set({ atMenu: menu }),
+
+  // Read-only mode (public share viewer)
+  readOnly: false,
+  setReadOnly: (v) => set({ readOnly: v }),
 
   // Stress Reliefer
   relaxEffect: null,

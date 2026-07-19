@@ -43,6 +43,7 @@ import TrashPile from '@/components/ui/TrashPile';
 import VoiceOrb from './VoiceOrb';
 import AuthButton from '@/components/ui/AuthButton';
 import ShortcutsOverlay from './ShortcutsOverlay';
+import ShareModal from '@/components/ui/ShareModal';
 import MinimizeDock from './MinimizeDock';
 import WarpPortal from './WarpPortal';
 import ScenesPanel from './ScenesPanel';
@@ -147,6 +148,7 @@ export default function InfiniteCanvas() {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [activeArrowId, setActiveArrowId] = useState<string | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showShare, setShowShare] = useState(false);
 
   // Leave any live collaboration session when the canvas unmounts.
   useEffect(() => {
@@ -1198,6 +1200,22 @@ export default function InfiniteCanvas() {
             </button>
           )}
 
+          {/* Share & export this board */}
+          {!isEditingTitle && (
+            <button
+              onClick={() => setShowShare(true)}
+              title="Share a view-only link or export as image / PDF"
+              className="flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] bg-[var(--bg-glass)] shadow-sm backdrop-blur-md text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent-light)] transition-all"
+              style={{ padding: '4px 11px' }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg>
+              <span className="text-[11px] font-semibold tracking-wide">Share</span>
+            </button>
+          )}
+
           {/* Skill Set — hover the heading to reveal it; stays pinned while a
               skill set is active so the user always knows one is applied. */}
           {!isEditingTitle && (() => {
@@ -1273,6 +1291,9 @@ export default function InfiniteCanvas() {
 
       {/* Keyboard shortcuts help (press ?) */}
       <ShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
+
+      {/* Share & export */}
+      {showShare && <ShareModal onClose={() => setShowShare(false)} />}
 
       {/* Minimize shelf: drag any object into the top-left corner to dock it */}
       <MinimizeDock />
