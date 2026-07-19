@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { CanvasObjectData } from '@/lib/db';
 import { useCanvasStore } from '@/store/canvasStore';
+import { getPluginCred } from '@/lib/plugins';
 
 /**
  * A GitHub card driven entirely by GitHub's PUBLIC REST API — no OAuth, no
@@ -58,8 +59,14 @@ async function hydrate(id: string, url: string, updateObject: (id: string, u: Pa
   if (!parsed) { fail("That isn't a GitHub URL"); inFlight.delete(id); return; }
 
   try {
-    const res = await fetch(parsed.api, { headers: { Accept: 'application/vnd.github+json' } });
-    if (res.status === 403) { fail('GitHub rate limit reached — try again in a bit'); return; }
+    // A user-supplied token (Plugins → GitHub) lifts the 60/hr anonymous limit
+    // to 5,000/hr and unlocks private repos. Everything works without one too.
+    const token = getPluginCred('github');
+    const headers: Record<string, string> = { Accept: 'application/vnd.github+json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(parsed.api, { headers });
+    if (res.status === 401) { fail('GitHub rejected the token — check it in Plugins'); return; }
+    if (res.status === 403) { fail('GitHub rate limit reached — add a token in Plugins to raise it'); return; }
     if (res.status === 404) { fail('Not found (is it a public repo?)'); return; }
     if (!res.ok) { fail(`GitHub error (${res.status})`); return; }
     const d = await res.json();

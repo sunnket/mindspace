@@ -356,9 +356,16 @@ export default function FloatingToolbar() {
       {/* Plugins panel */}
       <AnimatePresence>
         {showPlugins && (
-          <div className="absolute bottom-16 right-0 z-[100]">
+          <motion.div
+            key="plugins-panel"
+            className="absolute bottom-16 right-0 z-[100]"
+            initial={{ opacity: 0, y: 15, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 15, scale: 0.95 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+          >
             <PluginsPanel onClose={() => setShowPlugins(false)} />
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -518,8 +525,15 @@ export default function FloatingToolbar() {
               className="absolute inset-0 rounded-lg clay-inset"
             />
           )}
-          <span className="relative flex items-center justify-center" style={{ fontSize: 16, lineHeight: 1 }}>
-            🔌
+          <span className="relative flex items-center justify-center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m19 5 2.5-2.5" />
+              <path d="m2.5 21.5 2.5-2.5" />
+              <path d="M6.8 20.4a2.4 2.4 0 0 0 3.4 0l2.3-2.3-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z" />
+              <path d="m7.5 13.5 2-2" />
+              <path d="m10.5 16.5 2-2" />
+              <path d="M12 6l6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z" />
+            </svg>
           </span>
         </motion.button>
 

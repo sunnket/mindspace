@@ -1,36 +1,65 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CanvasObjectData } from '@/lib/db';
 import { useCanvasStore } from '@/store/canvasStore';
 import { resolveEmbed, embedCardSize, EMBED_PROVIDERS } from '@/lib/embeds';
+import { linkPreviewStyle } from '@/lib/linkPreview';
 
 /**
  * A live embed — paste a link, get the real thing on the canvas (YouTube player,
  * Figma file, Spotify, CodePen, Google Doc…). No API key, no OAuth: the URL is
- * transformed to an iframe src entirely client-side (see lib/embeds). The block
- * stores the raw URL in `content` and re-resolves at render, so improving the
- * registry upgrades every existing embed for free.
+ * transformed to an iframe src entirely client-side (see lib/embeds).
+ *
+ * Known providers allow framing, so they embed straight away. A GENERIC website
+ * might send X-Frame-Options/CSP that forbid framing (which just renders a blank
+ * or a browser error), so those are pre-checked via /api/browser and, when they
+ * refuse, shown a graceful card instead of a dead frame.
  */
 export default function EmbedBlock({ obj }: { obj: CanvasObjectData }) {
   const updateObject = useCanvasStore((s) => s.updateObject);
   const url = (obj.content || '').trim();
   const [draft, setDraft] = useState('');
+  const resolved = url ? resolveEmbed(url) : null;
+  const isGeneric = resolved?.provider === 'website';
+
+  // For generic sites only: 'checking' | 'ok' | 'blocked'
+  const [frame, setFrame] = useState<{ status: 'checking' | 'ok' | 'blocked'; reason: string }>({ status: 'checking', reason: '' });
+
+  useEffect(() => {
+    if (!isGeneric || !resolved) { return; }
+    let cancelled = false;
+    setFrame({ status: 'checking', reason: '' });
+    fetch(`/api/browser?action=check&url=${encodeURIComponent(resolved.embedUrl)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        if (d && d.embeddable === false) setFrame({ status: 'blocked', reason: d.reason || 'This site blocks embedding.' });
+        else setFrame({ status: 'ok', reason: '' });
+      })
+      .catch(() => { if (!cancelled) setFrame({ status: 'ok', reason: '' }); });
+    return () => { cancelled = true; };
+  }, [isGeneric, resolved?.embedUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = (value: string) => {
     const v = (value || '').trim();
     if (!v) return;
-    const resolved = resolveEmbed(v);
-    if (!resolved) return;
-    const size = embedCardSize(resolved.aspect);
-    // Keep the user's width if they've already sized the block; only grow height
-    // to the provider's aspect on first resolve.
+    const r = resolveEmbed(v);
+    if (!r) return;
+    const size = embedCardSize(r.aspect);
     const width = obj.style?.isResized ? obj.width : size.width;
-    const height = obj.style?.isResized ? obj.height : (resolved.aspect ? Math.round(width / resolved.aspect) + 44 : size.height);
+    const height = obj.style?.isResized ? obj.height : (r.aspect ? Math.round(width / r.aspect) + 44 : size.height);
     updateObject(obj.id, { content: v, width, height });
   };
 
   const clear = () => updateObject(obj.id, { content: '' });
+
+  const asLinkPreview = () => {
+    // Fall back to the rich link-preview card, which handles un-embeddable sites.
+    const cur = { ...(obj.style || {}) };
+    delete (cur as Record<string, unknown>).isEmbed;
+    updateObject(obj.id, { content: '', style: { ...cur, ...linkPreviewStyle(url) } });
+  };
 
   /* --- Awaiting a URL --- */
   if (!url) {
@@ -79,8 +108,6 @@ export default function EmbedBlock({ obj }: { obj: CanvasObjectData }) {
     );
   }
 
-  const resolved = resolveEmbed(url);
-
   if (!resolved) {
     return (
       <div className="w-full h-full rounded-2xl flex flex-col justify-center items-center gap-2 bg-[var(--bg-card)] border border-red-500/40 shadow-[var(--shadow-md)]" style={{ padding: 16 }}>
@@ -90,40 +117,54 @@ export default function EmbedBlock({ obj }: { obj: CanvasObjectData }) {
     );
   }
 
-  return (
-    <div className="w-full h-full rounded-2xl flex flex-col overflow-hidden pointer-events-auto bg-[var(--bg-card)] border border-[var(--border-strong)] shadow-[var(--shadow-md)]">
-      {/* Header — also the drag grip is the block border/selection; this bar just
-          labels the provider and gives Open/Change actions. */}
-      <div className="flex items-center justify-between gap-2 select-none shrink-0" style={{ padding: '5px 10px' }}>
-        <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--accent)] truncate">{resolved.label}</span>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onMouseDown={(e) => e.stopPropagation()}
-            className="text-[10px] font-bold text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
-          >
-            Open ↗
-          </a>
-          <button
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={clear}
-            className="text-[10px] font-bold text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
-          >
-            Change
-          </button>
+  const header = (
+    <div className="flex items-center justify-between gap-2 select-none shrink-0" style={{ padding: '5px 10px' }}>
+      <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--accent)] truncate">{resolved.label}</span>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <a href={url} target="_blank" rel="noopener noreferrer" onMouseDown={(e) => e.stopPropagation()} className="text-[10px] font-bold text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer">Open ↗</a>
+        <button onMouseDown={(e) => e.stopPropagation()} onClick={clear} className="text-[10px] font-bold text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors cursor-pointer">Change</button>
+      </div>
+    </div>
+  );
+
+  /* --- Generic site that refuses to be framed --- */
+  if (isGeneric && frame.status === 'blocked') {
+    return (
+      <div className="w-full h-full rounded-2xl flex flex-col overflow-hidden pointer-events-auto bg-[var(--bg-card)] border border-[var(--border-strong)] shadow-[var(--shadow-md)]">
+        {header}
+        <div className="flex-1 flex flex-col items-center justify-center text-center gap-2" style={{ padding: 16 }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--text-tertiary)]">
+            <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <span className="text-xs font-semibold text-[var(--text-primary)]">This site won&rsquo;t load in a frame</span>
+          <span className="text-[10px] text-[var(--text-secondary)] leading-snug max-w-[240px]">{frame.reason}</span>
+          <div className="flex items-center gap-2" style={{ marginTop: 4 }}>
+            <a href={url} target="_blank" rel="noopener noreferrer" onMouseDown={(e) => e.stopPropagation()} className="rounded-full bg-[var(--accent)] text-white text-[10px] font-bold tracking-wider uppercase cursor-pointer" style={{ padding: '6px 12px' }}>Open in new tab ↗</a>
+            <button onMouseDown={(e) => e.stopPropagation()} onClick={asLinkPreview} className="rounded-full bg-white/60 dark:bg-white/5 border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] text-[10px] font-bold tracking-wider uppercase cursor-pointer" style={{ padding: '6px 12px' }}>Add as link card</button>
+          </div>
         </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full rounded-2xl flex flex-col overflow-hidden pointer-events-auto bg-[var(--bg-card)] border border-[var(--border-strong)] shadow-[var(--shadow-md)]">
+      {header}
       <div className="flex-1 w-full bg-black/5 relative">
-        <iframe
-          src={resolved.embedUrl}
-          title={resolved.label}
-          className="w-full h-full border-none"
-          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-          allowFullScreen
-          referrerPolicy="no-referrer-when-downgrade"
-        />
+        {isGeneric && frame.status === 'checking' ? (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-[10px] text-[var(--text-tertiary)] tracking-wide animate-pulse">Checking…</span>
+          </div>
+        ) : (
+          <iframe
+            src={resolved.embedUrl}
+            title={resolved.label}
+            className="w-full h-full border-none"
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+            allowFullScreen
+            referrerPolicy="no-referrer-when-downgrade"
+          />
+        )}
       </div>
     </div>
   );
