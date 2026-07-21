@@ -46,42 +46,68 @@ function rnd(i: number, salt: number): number {
 type CSSVars = React.CSSProperties & Record<`--${string}`, string | number>;
 
 /**
- * Playback wiring shared by every family. Loop effects run continuously; the
- * rest reveal when scrolled into view (which also fires the moment they mount
- * on-screen, and re-fires when a present-mode scene brings them back) and can
- * be replayed on click. `runId` remounts the inner tree to restart cleanly.
+ * Playback wiring shared by every family.
+ *
+ * The moment the effect becomes `enabled` it plays immediately — this is the fix
+ * for text vanishing after you pick an effect: the earlier version set up its
+ * observer on mount (before the animated node existed) and never re-ran, so a
+ * reveal's units stayed at opacity:0 until an unrelated re-render. Now enabling
+ * re-runs the effect, attaches to the live node, and starts playback at once.
+ *
+ * Repeat behaviour:
+ *   • cssLoop    — CSS-native infinite ambient effects, nothing to schedule.
+ *   • replayLoop — one-shot effects asked to loop: re-fired on a timer so they
+ *                  keep replaying (with a breath between runs).
+ *   • otherwise  — plays on enable and re-plays whenever the block re-enters view
+ *                  (present-mode scenes, panning around the canvas).
+ * `runId` remounts the inner tree to restart the animation cleanly.
  */
-function usePlayback(trigger: AnimTrigger, loop: boolean) {
+function usePlayback(
+  enabled: boolean,
+  trigger: AnimTrigger,
+  cssLoop: boolean,
+  replayLoop: boolean,
+  cycleMs: number
+) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [runId, setRunId] = useState(0);
-  const [playing, setPlaying] = useState(loop);
+  const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
-    if (loop) {
-      setPlaying(true);
+    if (!enabled) {
+      setPlaying(false);
       return;
     }
+    // Play right away so text is never left hidden after being enabled.
+    setRunId((n) => n + 1);
+    setPlaying(true);
+
     const el = rootRef.current;
-    if (!el) return;
-    let inView = false;
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting && !inView) {
-            inView = true;
-            setRunId((n) => n + 1);
-            setPlaying(true);
-          } else if (!e.isIntersecting && inView) {
-            inView = false;
-            setPlaying(false);
+    let io: IntersectionObserver | undefined;
+    if (el && !cssLoop) {
+      let inView = true;
+      io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting) {
+              if (!inView) { inView = true; setRunId((n) => n + 1); setPlaying(true); }
+            } else {
+              inView = false;
+            }
           }
-        }
-      },
-      { threshold: 0.12 }
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [loop]);
+        },
+        { threshold: 0.12 }
+      );
+      io.observe(el);
+    }
+
+    let timer = 0;
+    if (replayLoop && cycleMs > 0) {
+      timer = window.setInterval(() => { setRunId((n) => n + 1); setPlaying(true); }, cycleMs);
+    }
+
+    return () => { io?.disconnect(); if (timer) clearInterval(timer); };
+  }, [enabled, trigger, cssLoop, replayLoop, cycleMs]);
 
   const replay = useCallback(() => {
     setRunId((n) => n + 1);
@@ -89,6 +115,15 @@ function usePlayback(trigger: AnimTrigger, loop: boolean) {
   }, []);
 
   return { rootRef, runId, playing, replay };
+}
+
+/** Rough count of animated units, to time the replay loop for kinetic effects. */
+function estimateUnits(content: string, unit: 'char' | 'word' | 'line'): number {
+  const t = content.replace(/\s+$/g, '');
+  if (!t) return 1;
+  if (unit === 'line') return Math.min(t.split('\n').length, 60);
+  if (unit === 'word') return Math.min(t.split(/\s+/).length, WORD_CAP);
+  return Math.min(t.length, CHAR_CAP);
 }
 
 /* --------------------------- kinetic tokeniser --------------------------- */
@@ -296,6 +331,7 @@ function ScrambleText({
   stagger,
   loop,
   matrix,
+  idClass,
 }: {
   content: string;
   playing: boolean;
@@ -304,6 +340,7 @@ function ScrambleText({
   stagger: number;
   loop: boolean;
   matrix: boolean;
+  idClass: string;
 }) {
   const text = content.replace(/\s+$/g, '');
   const chars = useMemo(() => Array.from(text), [text]);
@@ -347,7 +384,7 @@ function ScrambleText({
   }, [chars, playing, speed, stagger, loop, matrix, pool, runId]);
 
   return (
-    <span key={runId} className={`ct-scramble${matrix ? ' ct-matrix' : ''}`} style={{ position: 'relative', display: 'inline-block' }}>
+    <span key={runId} className={`ct-scramble ct-scr-${idClass}${matrix ? ' ct-matrix' : ''}`} style={{ position: 'relative', display: 'inline-block' }}>
       <span aria-hidden style={{ visibility: 'hidden', whiteSpace: 'pre-wrap' }}>{text || ' '}</span>
       <span style={{ position: 'absolute', inset: 0, whiteSpace: 'pre-wrap' }} aria-label={text}>
         {chars.map((real, i) => {
@@ -378,29 +415,50 @@ export default function AnimatedText({
 }) {
   const reduce = usePrefersReducedMotion();
   const resolved = resolveAnim(anim);
+  const preset = resolved?.preset;
+  const cfg = resolved?.cfg;
+
+  // How this effect repeats: CSS-native ambient loops vs one-shots re-fired on a
+  // timer vs JS specials that manage their own repeat.
+  const enabled = !!resolved && !reduce;
+  const isSpecial = !!preset?.special;
+  const cssLoop = !!preset?.loop;
+  const looping = cfg?.trigger === 'loop';
+  const replayLoop = !!cfg && looping && !cssLoop && !isSpecial;
+  const specialLoop = isSpecial && looping;
+
+  const cycleMs = useMemo(() => {
+    if (!replayLoop || !preset || !cfg) return 0;
+    const units = estimateUnits(content, preset.unit ?? 'word');
+    const play = ((preset.dur ?? 620) + units * cfg.stagger) / cfg.speed;
+    return Math.round(play + 1100); // + a breath before it replays
+  }, [replayLoop, preset, cfg, content]);
+
+  const { rootRef, runId, playing, replay } = usePlayback(
+    enabled,
+    cfg?.trigger ?? 'appear',
+    cssLoop,
+    replayLoop,
+    cycleMs
+  );
 
   // Nothing to play, or the viewer opted out of motion → the plain, fully
   // markdown-capable render. This is also the SSR / no-JS path.
-  const preset = resolved?.preset;
-  const isLoop = !!preset?.loop || resolved?.cfg.trigger === 'loop';
-  const { rootRef, runId, playing, replay } = usePlayback(resolved?.cfg.trigger ?? 'appear', isLoop);
+  if (!enabled || !preset || !cfg) return <>{children}</>;
 
-  if (!resolved || reduce) return <>{children}</>;
-
-  const { cfg } = resolved;
   const clickable = cfg.trigger === 'click';
 
   let inner: React.ReactNode;
-  if (preset!.special === 'typewriter') {
+  if (preset.special === 'typewriter') {
     inner = (
-      <TypewriterText content={content} playing={playing} runId={runId} speed={cfg.speed} perChar={preset!.dur ?? 55} loop={isLoop} />
+      <TypewriterText content={content} playing={playing} runId={runId} speed={cfg.speed} perChar={preset.dur ?? 55} loop={specialLoop} />
     );
-  } else if (preset!.special === 'scramble') {
+  } else if (preset.special === 'scramble') {
     inner = (
-      <ScrambleText content={content} playing={playing} runId={runId} speed={cfg.speed} stagger={cfg.stagger} loop={isLoop} matrix={preset!.id === 'matrix'} />
+      <ScrambleText content={content} playing={playing} runId={runId} speed={cfg.speed} stagger={cfg.stagger} loop={specialLoop} matrix={preset.id === 'matrix'} idClass={preset.id} />
     );
-  } else if (preset!.kind === 'kinetic') {
-    const tokens = buildKinetic(content, (preset!.unit ?? 'word'));
+  } else if (preset.kind === 'kinetic') {
+    const tokens = buildKinetic(content, (preset.unit ?? 'word'));
     if (tokens === null) {
       inner = (
         <span key={runId} className={`ct-surface ct-fade-simple${playing ? ' ct-play' : ''}`} style={{ display: 'block' }}>
@@ -408,10 +466,10 @@ export default function AnimatedText({
         </span>
       );
     } else {
-      inner = <CssKinetic preset={preset!} playing={playing} runId={runId} speed={cfg.speed} stagger={cfg.stagger} tokens={tokens} />;
+      inner = <CssKinetic preset={preset} playing={playing} runId={runId} speed={cfg.speed} stagger={cfg.stagger} tokens={tokens} />;
     }
   } else {
-    inner = <SurfaceText preset={preset!} playing={playing} runId={runId}>{children}</SurfaceText>;
+    inner = <SurfaceText preset={preset} playing={playing} runId={runId}>{children}</SurfaceText>;
   }
 
   return (

@@ -137,6 +137,39 @@ export const TEXT_ANIM_PRESETS: AnimPreset[] = [
   { id: 'wobble',       name: 'Wobble',         category: 'Playful', kind: 'surface', loop: true, dur: 1800, triggers: ['loop'], hint: 'A tipsy side-to-side wobble', tag: 'Aa' },
   { id: 'bounce-loop',  name: 'Bounce',         category: 'Playful', kind: 'kinetic', unit: 'char', loop: true, stagger: 60, dur: 1200, triggers: ['loop'], hint: 'Letters bounce in a Mexican wave' },
   { id: 'pulse-scale',  name: 'Pulse',          category: 'Playful', kind: 'surface', loop: true, dur: 1400, triggers: ['loop'], hint: 'A steady scale pulse', tag: 'Aa' },
+
+  /* --------------------- Signature (expansion pack) --------------------- */
+  { id: 'domino',       name: 'Domino',         category: 'Signature', kind: 'kinetic', unit: 'char', stagger: 34, dur: 620, hint: '3D domino flip cascade' },
+  { id: 'vortex',       name: 'Vortex',         category: 'Signature', kind: 'kinetic', unit: 'char', stagger: 24, dur: 740, hint: 'Letters spiral in from a vortex' },
+  { id: 'warp',         name: 'Warp',           category: 'Signature', kind: 'kinetic', unit: 'word', stagger: 46, dur: 640, hint: 'Words warp in from deep space' },
+  { id: 'shockwave',    name: 'Shockwave',      category: 'Signature', kind: 'kinetic', unit: 'char', stagger: 26, dur: 640, hint: 'A shockwave pops each letter' },
+  { id: 'burn-in',      name: 'Burn In',        category: 'Signature', kind: 'kinetic', unit: 'char', stagger: 30, dur: 760, hint: 'Letters ignite, then cool to normal' },
+  { id: 'freeze',       name: 'Freeze',         category: 'Signature', kind: 'kinetic', unit: 'char', stagger: 30, dur: 700, hint: 'Letters frost in from a chilly blur' },
+  { id: 'comet',        name: 'Comet',          category: 'Signature', kind: 'kinetic', unit: 'char', stagger: 30, dur: 660, hint: 'Letters streak in like comets' },
+  { id: 'elastic-band', name: 'Elastic Band',   category: 'Signature', kind: 'kinetic', unit: 'word', stagger: 46, dur: 760, hint: 'Words snap in on an elastic band' },
+  { id: 'squeeze',      name: 'Squeeze',        category: 'Signature', kind: 'kinetic', unit: 'char', stagger: 26, dur: 620, hint: 'Letters squeeze up into place' },
+  { id: 'flicker-in',   name: 'Flicker On',     category: 'Signature', kind: 'kinetic', unit: 'char', stagger: 42, dur: 760, hint: 'Letters flicker on like old bulbs' },
+  { id: 'neon-sign',    name: 'Neon Sign',      category: 'Signature', kind: 'surface', loop: true, dur: 2800, triggers: ['loop'], hint: 'A buzzing outlined neon sign', tag: 'Aa' },
+  { id: 'rgb-split',    name: 'RGB Split',      category: 'Signature', kind: 'surface', loop: true, dur: 2200, triggers: ['loop'], hint: 'Hard RGB chromatic aberration', tag: 'Aa' },
+  { id: 'laser',        name: 'Laser Scan',     category: 'Signature', kind: 'surface', loop: true, dur: 2600, triggers: ['loop'], hint: 'A laser line scans across', tag: 'Aa' },
+  { id: 'cipher',       name: 'Cipher',         category: 'Signature', kind: 'kinetic', unit: 'char', special: 'scramble', stagger: 34, dur: 640, triggers: ['appear', 'loop', 'click'], hint: 'Violet cipher decode' },
+
+  /* --------------------- Ambient (expansion pack) ---------------------- */
+  { id: 'aurora',       name: 'Aurora',         category: 'Ambient', kind: 'surface', loop: true, dur: 5000, triggers: ['loop'], hint: 'Soft aurora colours drift through', tag: 'Aa' },
+  { id: 'liquid',       name: 'Liquid',         category: 'Ambient', kind: 'surface', loop: true, dur: 4200, triggers: ['loop'], hint: 'Liquid colour morph', tag: 'Aa' },
+  { id: 'iridescent',   name: 'Iridescent',     category: 'Ambient', kind: 'surface', loop: true, dur: 4200, triggers: ['loop'], hint: 'Pearlescent iridescent sheen', tag: 'Aa' },
+  { id: 'electric',     name: 'Electric',       category: 'Ambient', kind: 'surface', loop: true, dur: 2200, triggers: ['loop'], hint: 'Crackling electric-blue glow', tag: 'Aa' },
+  { id: 'ice',          name: 'Ice',            category: 'Ambient', kind: 'surface', loop: true, dur: 3400, triggers: ['loop'], hint: 'Frosted icy shimmer', tag: 'Aa' },
+  { id: 'magma',        name: 'Magma',          category: 'Ambient', kind: 'surface', loop: true, dur: 3200, triggers: ['loop'], hint: 'Molten magma flow', tag: 'Aa' },
+  { id: 'ocean',        name: 'Ocean',          category: 'Ambient', kind: 'surface', loop: true, dur: 4600, triggers: ['loop'], hint: 'Cool ocean gradient waves', tag: 'Aa' },
+  { id: 'sunset',       name: 'Sunset',         category: 'Ambient', kind: 'surface', loop: true, dur: 4600, triggers: ['loop'], hint: 'Warm sunset gradient flow', tag: 'Aa' },
+  { id: 'toxic',        name: 'Toxic',          category: 'Ambient', kind: 'surface', loop: true, dur: 2400, triggers: ['loop'], hint: 'Radioactive toxic-green pulse', tag: 'Aa' },
+  { id: 'gold-foil',    name: 'Gold Foil',      category: 'Ambient', kind: 'surface', loop: true, dur: 2400, triggers: ['loop'], hint: 'Pressed gold-foil sheen', tag: 'Aa' },
+  { id: 'bevel',        name: 'Bevel',          category: 'Ambient', kind: 'surface', loop: true, dur: 3200, triggers: ['loop'], hint: 'A 3D bevel with rotating light', tag: 'Aa' },
+  { id: 'glow-cycle',   name: 'Halo Cycle',     category: 'Ambient', kind: 'surface', loop: true, dur: 5000, triggers: ['loop'], hint: 'A halo that cycles through hues', tag: 'Aa' },
+  { id: 'shadow-drift', name: 'Shadow Drift',   category: 'Ambient', kind: 'surface', loop: true, dur: 3400, triggers: ['loop'], hint: 'A long shadow that drifts around', tag: 'Aa' },
+  { id: 'pendulum',     name: 'Pendulum',       category: 'Ambient', kind: 'kinetic', unit: 'char', loop: true, stagger: 55, dur: 2000, triggers: ['loop'], hint: 'Letters swing like pendulums' },
+  { id: 'rainbow-letters', name: 'Rainbow Letters', category: 'Ambient', kind: 'kinetic', unit: 'char', loop: true, stagger: 60, dur: 3000, triggers: ['loop'], hint: 'Each letter cycles the rainbow' },
 ];
 
 const BY_ID = new Map(TEXT_ANIM_PRESETS.map((p) => [p.id, p]));
@@ -156,7 +189,9 @@ export function resolveAnim(raw: unknown): { preset: AnimPreset; cfg: Required<O
   const preset = getAnimPreset(c.preset);
   if (!preset) return null;
   const allowed = preset.triggers ?? ['appear', 'loop', 'click'];
-  let trigger = c.trigger ?? (preset.loop ? 'loop' : 'appear');
+  // Default to looping so effects keep replaying — a reveal that fires once and
+  // freezes reads as broken. 'appear' (once per view) stays a deliberate choice.
+  let trigger = c.trigger ?? (allowed.includes('loop') ? 'loop' : allowed[0]);
   if (!allowed.includes(trigger)) trigger = allowed[0];
   const speed = clamp(c.speed ?? 1, 0.25, 3);
   const stagger = c.stagger ?? preset.stagger ?? 40;

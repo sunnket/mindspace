@@ -226,6 +226,105 @@
 .ct-bounce-loop { --kf: ctBounceLoop; --ct-ease: cubic-bezier(.3,.1,.3,1); }
 .ct-wave        { --kf: ctBounceLoop; --ct-ease: ease-in-out; }
 
+/* =================== SIGNATURE (expansion pack) =================== */
+@keyframes ctDomino    { from { opacity:0; transform: perspective(500px) rotateY(-100deg); } to { opacity:1; transform: perspective(500px) rotateY(0); } }
+@keyframes ctVortex    { from { opacity:0; transform: rotate(calc(var(--rr,0) * 200deg)) scale(0) translateY(.8em); } to { opacity:1; transform: none; } }
+@keyframes ctWarp      { from { opacity:0; transform: perspective(440px) translateZ(-220px) rotateX(35deg); } to { opacity:1; transform: perspective(440px) translateZ(0) rotateX(0); } }
+@keyframes ctShockwave { 0% { opacity:0; transform: scale(2.4); filter: blur(4px); } 55% { opacity:1; transform: scale(.9); filter: blur(0); } 100% { transform: scale(1); } }
+@keyframes ctBurnIn    { 0% { opacity:0; text-shadow: 0 0 14px rgba(255,174,0,.9), 0 0 26px rgba(255,80,0,.7); filter: brightness(2.2); } 55% { opacity:1; } 100% { text-shadow: none; filter: brightness(1); } }
+@keyframes ctFreeze    { from { opacity:0; filter: blur(6px) brightness(1.5); text-shadow: 0 0 10px rgba(150,220,255,.85); } to { opacity:1; filter: blur(0) brightness(1); text-shadow: none; } }
+@keyframes ctComet     { from { opacity:0; transform: translateX(-1.4em); text-shadow: .6em 0 .35em rgba(var(--accent-rgb),.65); } to { opacity:1; transform: none; text-shadow: none; } }
+@keyframes ctElasticBand { 0% { opacity:0; transform: scaleX(0); } 60% { opacity:1; transform: scaleX(1.22); } 80% { transform: scaleX(.94); } 100% { transform: scaleX(1); } }
+@keyframes ctSqueeze   { 0% { opacity:0; transform: scaleY(0); } 60% { opacity:1; transform: scaleY(1.18); } 100% { transform: scaleY(1); } }
+@keyframes ctFlickerIn { 0%,9% { opacity:0; } 10% { opacity:1; } 12%,15% { opacity:0; } 16% { opacity:1; } 19% { opacity:.25; } 22% { opacity:1; } 27% { opacity:.5; } 30%,100% { opacity:1; } }
+@keyframes ctNeonSign  { 0%,42%,48%,61%,65%,100% { opacity:1; text-shadow: 0 0 4px var(--accent-light), 0 0 12px rgba(var(--accent-rgb),.8), 0 0 24px rgba(var(--accent-rgb),.5); } 45% { opacity:.4; text-shadow: none; } 63% { opacity:.6; text-shadow: 0 0 6px rgba(var(--accent-rgb),.4); } }
+@keyframes ctRgbSplit  { 0%,100% { text-shadow: -3px 0 rgba(255,0,90,.6), 3px 0 rgba(0,200,255,.6); } 50% { text-shadow: 3px 0 rgba(255,0,90,.6), -3px 0 rgba(0,200,255,.6); } }
+@keyframes ctLaser     { 0% { background-position: -60% center; } 100% { background-position: 160% center; } }
+
+.ct-domino       { --kf: ctDomino; }
+.ct-domino .ct-u { transform-origin: left center; }
+.ct-vortex       { --kf: ctVortex; --ct-ease: cubic-bezier(.2,.8,.2,1); }
+.ct-warp         { --kf: ctWarp; }
+.ct-shockwave    { --kf: ctShockwave; --ct-ease: cubic-bezier(.2,1.2,.3,1); }
+.ct-burn-in      { --kf: ctBurnIn; }
+.ct-freeze       { --kf: ctFreeze; }
+.ct-comet        { --kf: ctComet; --ct-ease: cubic-bezier(.2,.85,.25,1); }
+.ct-elastic-band       { --kf: ctElasticBand; }
+.ct-elastic-band .ct-u { transform-origin: left center; }
+.ct-squeeze       { --kf: ctSqueeze; }
+.ct-squeeze .ct-u { transform-origin: center bottom; }
+.ct-flicker-in   { --kf: ctFlickerIn; --ct-ease: steps(1,end); }
+.ct-neon-sign    { --kf: ctNeonSign; color: var(--accent-light); -webkit-text-stroke: .5px rgba(var(--accent-rgb),.5); }
+.ct-rgb-split    { --kf: ctRgbSplit; }
+.ct-laser {
+  background: linear-gradient(100deg, currentColor 0%, currentColor 44%, #7dffea 50%, currentColor 56%, currentColor 100%);
+  background-size: 300% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: inherit; --kf: ctLaser; --ct-ease: linear;
+}
+/* cipher — violet decode variant of the scramble special */
+.ct-scr-cipher .ct-churn { color: #a06bff; text-shadow: 0 0 8px rgba(160,107,255,.5); }
+.ct-scr-cipher .ct-locked { color: inherit; }
+
+/* =================== AMBIENT (expansion pack) =================== */
+@keyframes ctAurora    { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+@keyframes ctLiquid    { 0% { background-position: 0% 50%; filter: hue-rotate(0deg); } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; filter: hue-rotate(50deg); } }
+@keyframes ctIrid      { to { background-position: 260% center; } }
+@keyframes ctFlowX     { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+@keyframes ctFoil      { 0% { background-position: -120% center; } 100% { background-position: 220% center; } }
+@keyframes ctElectric  { 0%,100% { text-shadow: 0 0 4px #5cd0ff, 0 0 10px rgba(60,140,255,.6); } 40% { text-shadow: 0 0 7px #7ee0ff, 0 0 16px rgba(60,140,255,.85), 0 0 26px rgba(80,120,255,.5); } 42% { text-shadow: none; } 44% { text-shadow: 0 0 7px #7ee0ff, 0 0 16px rgba(60,140,255,.85); } 70% { text-shadow: 0 0 5px #5cd0ff; } }
+@keyframes ctIce       { 0%,100% { text-shadow: 0 0 6px rgba(160,225,255,.7); } 50% { text-shadow: 0 0 10px rgba(200,240,255,.95), 0 0 20px rgba(140,210,255,.5); } }
+@keyframes ctToxic     { 0%,100% { text-shadow: 0 0 5px rgba(120,255,60,.6); } 50% { text-shadow: 0 0 10px rgba(160,255,80,.95), 0 0 22px rgba(90,220,40,.6); filter: brightness(1.15); } }
+@keyframes ctBevel     { 0%,100% { text-shadow: 1px 1px 0 rgba(255,255,255,.5), -1px -1px 0 rgba(0,0,0,.35); } 50% { text-shadow: -1px -1px 0 rgba(255,255,255,.5), 1px 1px 0 rgba(0,0,0,.35); } }
+@keyframes ctHueCycle  { to { filter: hue-rotate(360deg); } }
+@keyframes ctShadowDrift { 0%,100% { text-shadow: -.18em .1em 0 rgba(var(--accent-rgb),.35); } 50% { text-shadow: .18em .1em 0 rgba(var(--accent-rgb),.35); } }
+@keyframes ctPendulum  { 0%,100% { transform: rotate(-9deg); } 50% { transform: rotate(9deg); } }
+
+.ct-aurora {
+  background: linear-gradient(100deg, #7ef9ff, #a78bfa, #6ee7b7, #f0abfc, #7ef9ff);
+  background-size: 300% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctAurora; --ct-ease: ease-in-out;
+}
+.ct-liquid {
+  background: linear-gradient(100deg, #ff6ec4, #7873f5, #4ade80, #ff6ec4);
+  background-size: 300% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctLiquid; --ct-ease: ease-in-out;
+}
+.ct-iridescent {
+  background: linear-gradient(100deg, #e0c3fc, #8ec5fc, #c1fbc9, #ffd6f6, #e0c3fc);
+  background-size: 240% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctIrid; --ct-ease: linear;
+}
+.ct-magma {
+  background: linear-gradient(100deg, #4a0000, #ff2d00, #ff8c00, #ffd000, #ff2d00, #4a0000);
+  background-size: 220% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctFlowX; --ct-ease: linear;
+}
+.ct-ocean {
+  background: linear-gradient(100deg, #0ea5e9, #22d3ee, #67e8f9, #38bdf8, #0ea5e9);
+  background-size: 220% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctFlowX; --ct-ease: linear;
+}
+.ct-sunset {
+  background: linear-gradient(100deg, #ff8a5b, #ff5f9e, #c56cf0, #ffcc70, #ff8a5b);
+  background-size: 220% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctFlowX; --ct-ease: linear;
+}
+.ct-gold-foil {
+  background: linear-gradient(100deg, #8a6d1f 0%, #d4af37 30%, #fff6cf 46%, #ffffff 50%, #fff6cf 54%, #d4af37 70%, #8a6d1f 100%);
+  background-size: 300% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctFoil; --ct-ease: cubic-bezier(.5,0,.2,1);
+}
+.ct-electric     { --kf: ctElectric; color: #bfe9ff; }
+.ct-ice          { --kf: ctIce; color: #cdeeff; }
+.ct-toxic        { --kf: ctToxic; color: #b6ff5c; }
+.ct-bevel        { --kf: ctBevel; }
+.ct-glow-cycle   { --kf: ctHueCycle; text-shadow: 0 0 10px rgba(var(--accent-rgb),.7), 0 0 20px rgba(var(--accent-rgb),.4); --ct-ease: linear; }
+.ct-shadow-drift { --kf: ctShadowDrift; }
+.ct-pendulum       { --kf: ctPendulum; }
+.ct-pendulum .ct-u { transform-origin: top center; }
+.ct-rainbow-letters       { --kf: ctHueCycle; --ct-ease: linear; }
+.ct-rainbow-letters .ct-u { color: #ff5d5d; }
+
 /* =========================== REDUCED MOTION ========================== */
 /* The engine already returns the plain render for reduced-motion viewers; this is
    a CSS backstop so nothing animates or hides even if a node slips through. */
@@ -236,7 +335,8 @@
     transform: none !important;
     filter: none !important;
   }
-  .ct-gradient-sweep, .ct-rainbow, .ct-shimmer, .ct-fire, .ct-sweep-light, .ct-hologram {
+  .ct-gradient-sweep, .ct-rainbow, .ct-shimmer, .ct-fire, .ct-sweep-light, .ct-hologram,
+  .ct-laser, .ct-aurora, .ct-liquid, .ct-iridescent, .ct-magma, .ct-ocean, .ct-sunset, .ct-gold-foil {
     background: none !important;
     -webkit-text-fill-color: currentColor !important;
     color: inherit !important;

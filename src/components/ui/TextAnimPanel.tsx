@@ -29,7 +29,8 @@ const TRIGGER_LABEL: Record<AnimTrigger, string> = {
   click: 'On click',
 };
 
-/** A tile that keeps its effect visibly alive: loops self-loop; one-shots replay. */
+/** A tile playing its effect live. The engine loops by default (see resolveAnim),
+ *  so no manual re-trigger is needed — reveals replay, ambients run forever. */
 function PreviewTile({
   preset,
   active,
@@ -39,13 +40,6 @@ function PreviewTile({
   active: boolean;
   onPick: () => void;
 }) {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (preset.loop) return; // ambient effects animate forever on their own
-    const id = window.setInterval(() => setTick((n) => n + 1), 2600);
-    return () => clearInterval(id);
-  }, [preset.loop]);
-
   const sample = preset.sample ?? (preset.kind === 'kinetic' && preset.unit === 'word' ? 'Make it move' : 'Canvas');
 
   return (
@@ -68,7 +62,7 @@ function PreviewTile({
         className="flex items-center justify-center overflow-hidden"
         style={{ height: 34, fontSize: 19, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.1 }}
       >
-        <AnimatedText key={tick} content={sample} anim={{ preset: preset.id }}>
+        <AnimatedText content={sample} anim={{ preset: preset.id }}>
           {sample}
         </AnimatedText>
       </div>
