@@ -3,6 +3,8 @@
 import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
+import TextAnimPanel, { LetterSparkIcon } from './TextAnimPanel';
+import type { TextAnimConfig } from '@/lib/textAnim';
 
 /**
  * Contextual properties panel — a compact horizontal strip that appears just
@@ -133,6 +135,7 @@ export default function SelectionPanel() {
   const [fontQuery, setFontQuery] = useState('');
   const [linked, setLinked] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [animOpen, setAnimOpen] = useState(false);
 
   // Show for a selected object, OR for the arrow/text tool before anything is drawn
   const arrowDefault = !obj && mode === 'arrow';
@@ -326,6 +329,27 @@ export default function SelectionPanel() {
               {['#C97B4B', '#45B761', '#4A90D9', '#9B59B6', '#E93D82', '#2D2A26'].map((c) => (
                 <Swatch key={c} color={c} active={(S.frameColor as string) === c} onClick={() => patch({ frameColor: c })} />
               ))}
+              <VDivider />
+            </>
+          )}
+
+          {/* Text animation — opens the effect gallery for this block */}
+          {obj && isTextLike && (
+            <>
+              <button
+                onClick={() => setAnimOpen((v) => !v)}
+                title="Text animation"
+                aria-pressed={animOpen || !!(S.textAnim as TextAnimConfig | undefined)?.preset}
+                className={`h-7 rounded-lg flex items-center justify-center gap-1 text-[11px] font-bold transition-all duration-150 cursor-pointer active:scale-95 shrink-0 ${
+                  animOpen || (S.textAnim as TextAnimConfig | undefined)?.preset
+                    ? 'clay-inset text-[var(--accent)]'
+                    : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+                style={{ padding: '0 8px' }}
+              >
+                <LetterSparkIcon size={13} />
+                <span className="text-[10px]">Animate</span>
+              </button>
               <VDivider />
             </>
           )}
@@ -572,6 +596,17 @@ export default function SelectionPanel() {
                 )}
               </div>
             </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Text animation gallery popover */}
+        <AnimatePresence>
+          {obj && isTextLike && animOpen && (
+            <TextAnimPanel
+              value={S.textAnim as TextAnimConfig | undefined}
+              onChange={(cfg) => patch({ textAnim: cfg })}
+              onClose={() => setAnimOpen(false)}
+            />
           )}
         </AnimatePresence>
       </motion.div>

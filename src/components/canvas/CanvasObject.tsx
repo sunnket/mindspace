@@ -15,6 +15,7 @@ import FileBlock from './FileBlock';
 import MapBlock from './MapBlock';
 import WeatherBlock from './WeatherBlock';
 import RichText from './RichText';
+import AnimatedText from './AnimatedText';
 import CodeSandboxBlock from './CodeSandboxBlock';
 import RepoExplorerBlock from './RepoExplorerBlock';
 import QuoteBlock from './QuoteBlock';
@@ -2211,11 +2212,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               ...(autoWidth ? { width: 'max-content', maxWidth: wrapWidth } : null),
             }}
           >
-            <RichText
-              content={obj.content || ''}
-              persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
-              onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
-            />
+            <AnimatedText content={obj.content || ''} anim={obj.style?.textAnim}>
+              <RichText
+                content={obj.content || ''}
+                persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
+                onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
+              />
+            </AnimatedText>
           </div>
         );
 
@@ -2255,7 +2258,9 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   wordBreak: 'break-word',
                 }}
               >
-                <RichText content={obj.content || ''} />
+                <AnimatedText content={obj.content || ''} anim={obj.style?.textAnim}>
+                  <RichText content={obj.content || ''} />
+                </AnimatedText>
               </div>
             )}
             <div
@@ -2318,11 +2323,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   color: stickyInk,
                 }}
               >
-                <RichText
-                  content={obj.content || ''}
-                  persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
-                  onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
-                />
+                <AnimatedText content={obj.content || ''} anim={obj.style?.textAnim}>
+                  <RichText
+                    content={obj.content || ''}
+                    persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
+                    onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
+                  />
+                </AnimatedText>
               </div>
             )}
           </div>
@@ -2574,11 +2581,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   wordBreak: 'break-word',
                 }}
               >
-                <RichText
-                  content={obj.content || ''}
-                  persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
-                  onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
-                />
+                <AnimatedText content={obj.content || ''} anim={obj.style?.textAnim}>
+                  <RichText
+                    content={obj.content || ''}
+                    persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
+                    onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
+                  />
+                </AnimatedText>
               </div>
             )}
           </div>
