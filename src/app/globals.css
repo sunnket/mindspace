@@ -137,16 +137,11 @@ html, body {
   .clay-skeleton { animation: none; }
 }
 
-/* Fathom semantic-zoom cross-fade: soft-in when a tier representation mounts */
+/* Semantic-zoom cross-fade: soft-in when a gist takes over from real text.
+   Used by .semantic-gist further down — see lib/semanticZoom.ts. */
 @keyframes semanticFade {
   from { opacity: 0; }
   to { opacity: 1; }
-}
-.semantic-fade {
-  animation: semanticFade 0.15s ease both;
-}
-@media (prefers-reduced-motion: reduce) {
-  .semantic-fade { animation: none; }
 }
 
 /* ============================================
@@ -588,6 +583,47 @@ html, body {
 .canvas-object:hover .resize-handle,
 .canvas-object.selected .resize-handle {
   opacity: 1;
+}
+
+/* ---- Semantic zoom -------------------------------------------------------
+   Zoomed far enough out, a text block prints what it is ABOUT instead of what
+   it says (lib/semanticZoom.ts). The real text is faded, never unmounted: the
+   blocks that grow to fit their text measure this very node, so removing it
+   would have every block on screen resize itself to its own summary. Only the
+   words yield — a sticky keeps its paper, a card keeps its shell, and the
+   canvas stays the same map at every scale.
+
+   `[data-semantic]` is only ever set on prose blocks, so the fade can never
+   reach a shape label or a functional block's readout. */
+.canvas-object .text-block-display {
+  transition: opacity 0.16s ease;
+}
+
+.canvas-object[data-semantic='on'] .text-block-display {
+  opacity: 0;
+}
+
+.semantic-gist {
+  animation: semanticFade 0.18s ease both;
+}
+
+/* A PNG/PDF export rasterizes this very DOM at 1:1, so it must never inherit
+   the camera's summaries — see captureBoard() in lib/exportBoard.ts. */
+.canvas-world.exporting .semantic-gist {
+  display: none;
+}
+
+/* `transition: none` is load-bearing, not tidiness: html-to-image reads
+   computed style, and a 0.16s fade would still be reading ~0 at capture time.
+   Killing the transition makes the restore land on the very next recalc. */
+.canvas-world.exporting .canvas-object[data-semantic='on'] .text-block-display {
+  opacity: 1;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-object .text-block-display { transition: none; }
+  .semantic-gist { animation: none; }
 }
 
 /* Image block */

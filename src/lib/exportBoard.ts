@@ -49,22 +49,33 @@ async function captureBoard(scale = 2): Promise<{ dataUrl: string; width: number
   const MAX_PX = 12000;
   const px = Math.min(scale, MAX_PX / bounds.width, MAX_PX / bounds.height);
 
-  const dataUrl = await toPng(world, {
-    width: bounds.width,
-    height: bounds.height,
-    pixelRatio: Math.max(1, px),
-    backgroundColor: paperColor(),
-    cacheBust: true,
-    // Neutralize the camera; place the board's top-left at the origin.
-    style: {
-      transform: `translate(${-bounds.minX}px, ${-bounds.minY}px)`,
-      transformOrigin: '0 0',
-    },
-    // Skip iframes — they can't be captured and would throw.
-    filter: (node) => !(node instanceof HTMLIFrameElement),
-  });
+  /* Semantic zoom is a VIEWING aid, and an export is the board as written.
+     The two collide here: we neutralize the camera for the capture, but the
+     React tree still reflects the camera the user actually left it at — so
+     exporting from a zoomed-out view would raster every text block as its
+     one-line gist, blown up to full size, with the real prose faded to
+     nothing underneath. `exporting` suspends it for the duration. */
+  world.classList.add('exporting');
+  try {
+    const dataUrl = await toPng(world, {
+      width: bounds.width,
+      height: bounds.height,
+      pixelRatio: Math.max(1, px),
+      backgroundColor: paperColor(),
+      cacheBust: true,
+      // Neutralize the camera; place the board's top-left at the origin.
+      style: {
+        transform: `translate(${-bounds.minX}px, ${-bounds.minY}px)`,
+        transformOrigin: '0 0',
+      },
+      // Skip iframes — they can't be captured and would throw.
+      filter: (node) => !(node instanceof HTMLIFrameElement),
+    });
 
-  return { dataUrl, width: bounds.width, height: bounds.height };
+    return { dataUrl, width: bounds.width, height: bounds.height };
+  } finally {
+    world.classList.remove('exporting');
+  }
 }
 
 function download(dataUrl: string, filename: string) {

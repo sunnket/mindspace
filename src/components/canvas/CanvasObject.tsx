@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useCallback, useState, useEffect } from 'react';
+import React, { useRef, useCallback, useState, useEffect, useMemo } from 'react';
 import { useCollabStore } from '@/store/collabStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
@@ -29,6 +29,8 @@ import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerB
 import WhiteboardBlock from './WhiteboardBlock';
 import BinderBlock from './BinderBlock';
 import MirrorBlock from './MirrorBlock';
+import SemanticGist from './SemanticGist';
+import { semanticView } from '@/lib/semanticZoom';
 import { createPortal } from 'react-dom';
 import { ImageShape, imageShapeStyle, nextImageShape, IMAGE_SHAPE_LABEL } from '@/lib/imageShapes';
 import { getFrameKind, frameColorOf, frameKindMeta, objectsInFrame, type FrameKind } from '@/lib/frames';
@@ -1300,6 +1302,40 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
   }, [growsToFit, isEditing, isResizing, obj.id, obj.content, obj.width, obj.height, obj.style?.fontSize, obj.style?.fontFamily, obj.style?.isCheckpoint, updateObject, syncWidth]);
 
   useEffect(() => () => forgetMeasuredHeight(obj.id), [obj.id]);
+
+  /* ---- Semantic zoom ----------------------------------------------------
+     Far enough out, this block stops printing its text and prints what it is
+     ABOUT instead (lib/semanticZoom.ts owns that decision).
+
+     The exclusions here are all the same exclusion: a block you are HOLDING is
+     not a block you are surveying. Editing it, having it selected, dragging or
+     resizing it, or wiring it up in connector mode all mean the real words are
+     the point — you can be typing at 30% zoom, and the letters must not turn
+     into a summary under the caret. Everything else on the board still
+     collapses around it. */
+  const isBusy = isEditing || isSelected || isDragging || isResizing || mode === 'connector';
+  const semantic = useMemo(
+    () => (isBusy ? null : semanticView(obj, camera.zoom)),
+    [isBusy, obj, camera.zoom]
+  );
+
+  /* Whatever ink the block's own text is drawn in — the gist has to inherit
+     it, or a summary goes invisible on exactly the notes whose colour was
+     chosen deliberately. A sticky contrasts against its own pastel paper, not
+     against the canvas. */
+  const semanticInk = useMemo(() => {
+    if (!semantic) return '';
+    if (obj.type === 'sticky') {
+      const bg = (obj.style?.color as string) || '#FEF3C7';
+      return /^#/.test(bg)
+        ? ensureReadableInk(obj.style?.textColor as string | undefined, bg)
+        : readableInk('#FEF3C7');
+    }
+    if (obj.type === 'card') {
+      return (obj.style?.textColor as string | undefined) || 'var(--text-primary)';
+    }
+    return ensureReadableInk(obj.style?.textColor as string | undefined, paperColor(canvasBackground));
+  }, [semantic, obj.type, obj.style?.color, obj.style?.textColor, canvasBackground]);
 
   useEffect(() => {
     if (isEditing && contentRef.current) {
@@ -3913,6 +3949,8 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
     <motion.div
       ref={containerRef}
       data-object-id={obj.id}
+      /* Drives the fade of the real text beneath the gist (globals.css). */
+      data-semantic={semantic ? 'on' : undefined}
       className={`canvas-object absolute group ${(isEditing || editingCommentId === obj.id) ? '' : 'select-none'} ${obj.type === 'arrow' ? '' : (isDragging ? 'dragging' : '')} ${obj.type === 'arrow' ? '' : (isSelected ? 'selected' : '')} ${connectorSelectedIds.includes(obj.id) ? 'connector-selected' : ''}`}
       style={{
         left: obj.x,
@@ -3981,6 +4019,17 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       }}
     >
       {renderContent()}
+
+      {/* What this block is about, once its words are too small to read. */}
+      {semantic && (
+        <SemanticGist
+          view={semantic}
+          zoom={camera.zoom}
+          ink={semanticInk}
+          align={(obj.style?.textAlign as 'left' | 'center' | 'right' | undefined) || 'left'}
+          fontFamily={obj.style?.fontFamily as string | undefined}
+        />
+      )}
 
       {/* Collaborator attribution dot — only shows during a joined session */}
       {showAuthorDot && (
