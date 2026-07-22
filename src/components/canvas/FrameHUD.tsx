@@ -44,7 +44,9 @@ export default function FrameHUD() {
      vanished before they were ever seen. The tab sits above the frame and the
      HUD below it, so nothing overlaps. */
   if (!frame || isTouring) return null;
-  return <FrameHUDBody frame={frame} />;
+  // Keyed on the frame: selecting a different frame must start clean, or the
+  // blocks spared on the last delete frame would silently carry over to this one.
+  return <FrameHUDBody key={frame.id} frame={frame} />;
 }
 
 function FrameHUDBody({ frame }: { frame: CanvasObjectData }) {
@@ -59,6 +61,16 @@ function FrameHUDBody({ frame }: { frame: CanvasObjectData }) {
 
   const contained = useMemo(() => objectsInFrame(objects, frame), [objects, frame]);
   const containedStrokes = useMemo(() => strokesInFrame(strokes, frame), [strokes, frame]);
+
+  /* Blocks the user tapped to rescue from a delete frame. Session-only and
+     local to this HUD — it's a choice about one pending delete, not something
+     the document should remember. */
+  const [spared, setSpared] = useState<string[]>([]);
+  const toggleSpared = (id: string) =>
+    setSpared((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  // A block that has since been dragged or resized out of the frame is no
+  // longer anyone's business, so the live set is always re-derived.
+  const sparedHere = spared.filter((id) => contained.some((o) => o.id === id));
 
   /* Anchor below the frame, flipping above when there's no room, and always
      clamped inside the viewport so a frame dragged off-screen keeps its HUD. */
@@ -86,9 +98,16 @@ function FrameHUDBody({ frame }: { frame: CanvasObjectData }) {
   return (
     <>
       {/* A delete frame shows its blast radius the whole time it's selected —
-          you should never have to guess what "delete everything inside" means. */}
+          you should never have to guess what "delete everything inside" means —
+          and every tile in it is a tap target for rescuing that one block. */}
       {kind === 'delete' && (
-        <DoomedOverlay objects={contained} camera={camera} color={meta.color} />
+        <DoomedOverlay
+          objects={contained}
+          camera={camera}
+          color={meta.color}
+          spared={sparedHere}
+          onToggle={toggleSpared}
+        />
       )}
 
       <motion.div
@@ -130,7 +149,14 @@ function FrameHUDBody({ frame }: { frame: CanvasObjectData }) {
         <p className="text-[10px] leading-snug text-[var(--text-tertiary)]">{meta.blurb}</p>
 
         {kind === 'delete' && (
-          <DeleteZone frame={frame} objectCount={contained.length} strokeCount={containedStrokes.length} color={meta.color} />
+          <DeleteZone
+            frame={frame}
+            objectCount={contained.length}
+            strokeCount={containedStrokes.length}
+            spared={sparedHere}
+            onClearSpared={() => setSpared([])}
+            color={meta.color}
+          />
         )}
         {kind === 'scene' && <SceneZone frame={frame} color={meta.color} />}
         {kind === 'agent' && <AgentZone frame={frame} contained={contained} color={meta.color} />}
@@ -143,23 +169,68 @@ function FrameHUDBody({ frame }: { frame: CanvasObjectData }) {
  *  Delete frame
  * ------------------------------------------------------------------ */
 
+const KEEP_COLOR = '#2F9E6E';
+
+/**
+ * The blast radius of a delete frame, drawn over the blocks it has caught — and
+ * the way you take one back out.
+ *
+ * Every caught block gets a tile, and the tile is the tap target: click it and
+ * that block flips to "kept" and survives the sweep. Doing it here rather than
+ * on the canvas objects themselves means the hit area is exactly the highlight
+ * the user is already looking at, no matter what kind of block is underneath
+ * (an embed, a repo explorer and a poll all swallow their own clicks), and a
+ * tap can't be mistaken for selecting or dragging that block.
+ *
+ * The layer itself stays click-through; only the tiles are live.
+ */
 function DoomedOverlay({
-  objects, camera, color,
-}: { objects: CanvasObjectData[]; camera: { x: number; y: number; zoom: number }; color: string }) {
+  objects, camera, color, spared, onToggle,
+}: {
+  objects: CanvasObjectData[];
+  camera: { x: number; y: number; zoom: number };
+  color: string;
+  spared: string[];
+  onToggle: (id: string) => void;
+}) {
   return (
     <div className="fixed inset-0 z-[118] pointer-events-none">
       {objects.map((o) => {
         const r = rectToScreen({ x: o.x, y: o.y, width: o.width, height: o.height }, camera);
+        const keep = spared.includes(o.id);
+        const c = keep ? KEEP_COLOR : color;
         return (
-          <div
+          <button
             key={o.id}
-            className="absolute rounded-lg"
+            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onClick={(e) => { e.stopPropagation(); onToggle(o.id); }}
+            title={keep ? 'Kept — click to delete this after all' : 'Click to keep this one'}
+            aria-pressed={keep}
+            className="absolute rounded-lg pointer-events-auto cursor-pointer transition-colors duration-150"
             style={{
               left: r.x, top: r.y, width: r.width, height: r.height,
-              border: `2px solid ${color}`,
-              background: `${color}1F`,
+              border: `2px ${keep ? 'dashed' : 'solid'} ${c}`,
+              background: keep ? `${c}12` : `${c}1F`,
             }}
-          />
+          >
+            {/* Badge only when there's room for it — a tiny block shouldn't be
+                covered by its own label. */}
+            {r.width > 54 && r.height > 30 && (
+              <span
+                className="absolute flex items-center gap-1 rounded-full text-[9px] font-extrabold text-white whitespace-nowrap"
+                style={{ top: 4, right: 4, background: c, padding: '2px 6px' }}
+              >
+                {keep ? (
+                  <>
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+                    KEEP
+                  </>
+                ) : (
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                )}
+              </span>
+            )}
+          </button>
         );
       })}
     </div>
@@ -167,20 +238,29 @@ function DoomedOverlay({
 }
 
 function DeleteZone({
-  frame, objectCount, strokeCount, color,
-}: { frame: CanvasObjectData; objectCount: number; strokeCount: number; color: string }) {
+  frame, objectCount, strokeCount, spared, onClearSpared, color,
+}: {
+  frame: CanvasObjectData;
+  objectCount: number;
+  strokeCount: number;
+  spared: string[];
+  onClearSpared: () => void;
+  color: string;
+}) {
   const deleteRegion = useCanvasStore((s) => s.deleteRegion);
   const setSelectedId = useCanvasStore((s) => s.setSelectedId);
   const [keepFrame, setKeepFrame] = useState(false);
   const [swept, setSwept] = useState<number | null>(null);
 
-  const total = objectCount + strokeCount;
+  const keptCount = spared.length;
+  const doomedObjects = objectCount - keptCount;
+  const total = doomedObjects + strokeCount;
 
   /* Arming records WHICH capture was confirmed, not just "armed: true".
-     Resizing the frame changes what's caught, so the old confirmation is stale
-     and must not carry over onto a different set of blocks — comparing the
-     signature invalidates it without an effect. */
-  const capture = `${objectCount}:${strokeCount}`;
+     Resizing the frame — or sparing another block — changes what's caught, so
+     the old confirmation is stale and must not carry over onto a different set
+     of blocks. Comparing the signature invalidates it without an effect. */
+  const capture = `${objectCount}:${strokeCount}:${[...spared].sort().join(',')}`;
   const [armedFor, setArmedFor] = useState<string | null>(null);
   const armed = armedFor === capture;
 
@@ -194,7 +274,7 @@ function DeleteZone({
   const run = () => {
     if (total === 0) return;
     if (!armed) { setArmedFor(capture); return; }
-    const n = deleteRegion(frame.id, { keepFrame });
+    const n = deleteRegion(frame.id, { keepFrame, spare: spared });
     setSwept(n);
     setArmedFor(null);
     if (!keepFrame) setSelectedId(null);
@@ -219,6 +299,29 @@ function DeleteZone({
         <span className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">captured</span>
       </div>
 
+      {keptCount > 0 ? (
+        <div
+          className="rounded-xl flex items-center justify-between"
+          style={{ padding: '7px 10px', background: `${KEEP_COLOR}1A`, border: `1px solid ${KEEP_COLOR}55` }}
+        >
+          <span className="text-[10.5px] font-bold" style={{ color: KEEP_COLOR }}>
+            {keptCount} kept · {doomedObjects} will go
+          </span>
+          <button
+            onClick={onClearSpared}
+            className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+          >
+            Reset
+          </button>
+        </div>
+      ) : (
+        objectCount > 0 && (
+          <p className="text-[9.5px] leading-snug text-[var(--text-tertiary)] text-center">
+            Click any highlighted block to keep it.
+          </p>
+        )
+      )}
+
       <label className="flex items-center gap-2 cursor-pointer select-none" style={{ paddingLeft: 2 }}>
         <input
           type="checkbox"
@@ -240,11 +343,15 @@ function DeleteZone({
           boxShadow: armed ? `0 0 0 3px ${color}44` : `0 8px 18px -8px ${color}`,
         }}
       >
-        {total === 0
+        {objectCount + strokeCount === 0
           ? 'Nothing inside this frame yet'
-          : armed
-            ? `Click again to delete ${total} item${total === 1 ? '' : 's'}`
-            : `Delete everything inside (${total})`}
+          : total === 0
+            ? 'Everything here is kept'
+            : armed
+              ? `Click again to delete ${total} item${total === 1 ? '' : 's'}`
+              : keptCount > 0
+                ? `Delete the other ${total}`
+                : `Delete everything inside (${total})`}
       </button>
 
       <p className="text-[9px] leading-snug text-[var(--text-tertiary)] text-center">

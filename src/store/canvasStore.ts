@@ -133,8 +133,9 @@ interface CanvasStore {
   updateObject: (id: string, updates: Partial<CanvasObjectData>) => void;
   removeObject: (id: string) => void;
   duplicateObject: (id: string) => CanvasObjectData | null;
-  /** Sweep everything a delete-frame captures. One undo entry puts it all back. */
-  deleteRegion: (frameId: string, opts?: { keepFrame?: boolean }) => number;
+  /** Sweep everything a delete-frame captures, minus anything the user tapped
+   *  to spare. One undo entry puts it all back. */
+  deleteRegion: (frameId: string, opts?: { keepFrame?: boolean; spare?: string[] }) => number;
   /** Which kind of frame the frame tool will place next. */
   frameDraftKind: FrameKind;
   setFrameDraftKind: (kind: FrameKind) => void;
@@ -798,10 +799,19 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     const frame = state.objects.find((o) => o.id === frameId && o.type === 'frame');
     if (!frame) return 0;
 
-    const doomedObjects = objectsInFrame(state.objects, frame);
+    /* Anything the user tapped to keep is lifted out before the sweep, so a
+       delete frame doesn't have to be positioned perfectly — you can throw it
+       over a whole cluster and then rescue the two things worth keeping. */
+    const spare = new Set(opts?.spare || []);
+    const doomedObjects = objectsInFrame(state.objects, frame).filter((o) => !spare.has(o.id));
     const doomedStrokes = strokesInFrame(state.strokes, frame);
+
+    /* Counted BEFORE the frame joins the pile: the frame is the tool, not
+       content, so reporting "swept 8" for 7 blocks and the eraser you drew
+       around them would just look like an off-by-one. */
+    const sweptCount = doomedObjects.length + doomedStrokes.length;
+    if (sweptCount === 0) return 0;
     if (!opts?.keepFrame) doomedObjects.push(frame);
-    if (doomedObjects.length === 0 && doomedStrokes.length === 0) return 0;
 
     const objIds = new Set(doomedObjects.map((o) => o.id));
     const strokeIds = new Set(doomedStrokes.map((s) => s.id));
@@ -834,7 +844,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       doomedStrokes.forEach((s) => deleteStroke(s.id).catch(() => {}));
     });
 
-    return doomedObjects.length + doomedStrokes.length;
+    return sweptCount;
   },
 
   frameDraftKind: 'normal',
