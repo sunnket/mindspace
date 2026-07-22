@@ -24,6 +24,7 @@ import {
 } from '@/lib/db';
 import CanvasObject from './CanvasObject';
 import RelaxEffectsLayer from './RelaxEffectsLayer';
+import FlowModeLayer from './FlowModeLayer';
 import DrawingLayer from './DrawingLayer';
 import ConnectionsLayer from './ConnectionsLayer';
 import FloatingToolbar from '@/components/ui/FloatingToolbar';
@@ -1267,6 +1268,9 @@ export default function InfiniteCanvas() {
         )}
       </div>
       
+      {/* Flow Mode: cinematic focus-writing overlay (spotlight, weather, progress) */}
+      <FlowModeLayer />
+
       <FloatingToolbar />
       <SpatialSearch />
       <CommandPalette />

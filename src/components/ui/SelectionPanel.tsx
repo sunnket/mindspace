@@ -219,7 +219,7 @@ export default function SelectionPanel() {
           if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') e.preventDefault();
         }}
         onClick={(e) => e.stopPropagation()}
-        className="fixed bottom-[80px] left-1/2 -translate-x-1/2 z-[140] pointer-events-auto"
+        className="fixed bottom-[80px] left-1/2 -translate-x-1/2 z-[140] pointer-events-auto flow-hideable"
         style={{ fontFamily: "'Outfit', sans-serif" }}
       >
         {/* --- Compact collapsed strip --- */}

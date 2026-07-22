@@ -8,6 +8,8 @@ import { useVoiceStore } from '@/store/voiceStore';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import WorkflowMenu from './WorkflowMenu';
 import PluginsPanel from './PluginsPanel';
+import FlowModePanel, { FlowIcon } from './FlowModePanel';
+import { useFlowStore } from '@/store/flowStore';
 import CanvasBackgroundPanel from './CanvasBackgroundPanel';
 import ShapePreview from '@/components/canvas/ShapePreview';
 import { RELAX_EFFECTS, RELAX_EFFECT_LIST } from '@/lib/relaxEffects';
@@ -156,6 +158,8 @@ export default function FloatingToolbar() {
   const [showBgOptions, setShowBgOptions] = useState(false);
   const [showRelaxOptions, setShowRelaxOptions] = useState(false);
   const [showPlugins, setShowPlugins] = useState(false);
+  const [showFlow, setShowFlow] = useState(false);
+  const flowEnabled = useFlowStore((s) => s.enabled);
 
   const relaxEffect = useCanvasStore((s) => s.relaxEffect);
   const setRelaxEffect = useCanvasStore((s) => s.setRelaxEffect);
@@ -184,6 +188,7 @@ export default function FloatingToolbar() {
     setShowRelaxOptions(false);
     setShowWorkflowMenu(false);
     setShowPlugins(false);
+    setShowFlow(false);
   }, []);
 
   /* A mode can also be entered from the keyboard (D, S, R, V…) or by the canvas
@@ -369,6 +374,22 @@ export default function FloatingToolbar() {
         )}
       </AnimatePresence>
 
+      {/* Flow Mode panel */}
+      <AnimatePresence>
+        {showFlow && (
+          <motion.div
+            key="flow-panel"
+            className="absolute bottom-16 right-0 z-[100]"
+            initial={{ opacity: 0, y: 15, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 15, scale: 0.95 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <FlowModePanel onClose={() => setShowFlow(false)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <motion.div
         className="glass-panel flex items-center gap-1 px-2 py-1.5"
         initial={{ y: 20, opacity: 0 }}
@@ -534,6 +555,39 @@ export default function FloatingToolbar() {
               <path d="m10.5 16.5 2-2" />
               <path d="M12 6l6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z" />
             </svg>
+          </span>
+        </motion.button>
+
+        {/* Flow Mode — cinematic focus writing (spotlight, semantic weather, progress) */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => {
+            const wasOpen = showFlow;
+            closeAllPanels();
+            setCommentMode(false);
+            setThreadsSidebarOpen(false);
+            if (!wasOpen) setShowFlow(true);
+          }}
+          className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
+            showFlow || flowEnabled
+              ? 'text-[var(--accent)]'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+          }`}
+          title="Flow Mode — cinematic focus writing"
+        >
+          {showFlow && (
+            <motion.span
+              layoutId="toolbar-active"
+              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+              className="absolute inset-0 rounded-lg clay-inset"
+            />
+          )}
+          {flowEnabled && !showFlow && (
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--accent)] shadow-[0_0_6px_var(--accent)]" />
+          )}
+          <span className="relative flex items-center justify-center">
+            <FlowIcon size={18} />
           </span>
         </motion.button>
 

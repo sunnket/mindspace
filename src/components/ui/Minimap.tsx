@@ -53,7 +53,7 @@ export default function Minimap() {
   };
 
   return (
-    <div className="fixed bottom-8 right-12 z-[140] pointer-events-none minimap-container">
+    <div className="fixed bottom-8 right-12 z-[140] pointer-events-none minimap-container flow-hideable">
       <motion.div
         className="glass-panel p-2 flex flex-col gap-2 pointer-events-auto shadow-sm cursor-pointer relative"
         initial={{ opacity: 0, y: 10 }}

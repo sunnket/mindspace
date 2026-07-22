@@ -1,0 +1,136 @@
+/* ============================================================================
+   FLOW MODE — the cinematic "live the moment" writing layer.
+   Paired with src/store/flowStore.ts + src/components/canvas/FlowModeLayer.tsx.
+   Everything here is pointer-events:none and animates transform/opacity only.
+   ============================================================================ */
+
+.flow-root {
+  position: fixed;
+  inset: 0;
+  z-index: 70;               /* above canvas content, below toolbars/panels */
+  overflow: hidden;
+  pointer-events: none;
+  /* mood palette — overridden per [data-mood] below */
+  --flow-dim: rgba(14, 10, 6, 0.9);
+  --flow-edge: rgba(10, 7, 4, 0.72);
+  --flow-accent: 255, 196, 120;
+}
+.flow-root[data-mood="warm"]   { --flow-dim: rgba(26, 14, 6, 0.9);  --flow-edge: rgba(20, 10, 4, 0.76);  --flow-accent: 255, 180, 110; }
+.flow-root[data-mood="cold"]   { --flow-dim: rgba(8, 12, 22, 0.9);  --flow-edge: rgba(6, 9, 18, 0.76);   --flow-accent: 150, 190, 255; }
+.flow-root[data-mood="rain"]   { --flow-dim: rgba(9, 14, 24, 0.9);  --flow-edge: rgba(6, 10, 18, 0.78);  --flow-accent: 150, 200, 240; }
+.flow-root[data-mood="night"]  { --flow-dim: rgba(6, 7, 20, 0.92);  --flow-edge: rgba(4, 5, 14, 0.82);   --flow-accent: 165, 175, 255; }
+.flow-root[data-mood="fire"]   { --flow-dim: rgba(24, 10, 4, 0.9);  --flow-edge: rgba(18, 7, 3, 0.78);   --flow-accent: 255, 150, 70;  }
+.flow-root[data-mood="ocean"]  { --flow-dim: rgba(4, 16, 22, 0.9);  --flow-edge: rgba(3, 12, 18, 0.78);  --flow-accent: 120, 220, 230; }
+.flow-root[data-mood="forest"] { --flow-dim: rgba(8, 18, 10, 0.9);  --flow-edge: rgba(5, 13, 7, 0.78);   --flow-accent: 150, 230, 150; }
+
+/* Cinematic edge vignette — a soft dark frame that's always present in flow. */
+.flow-edge {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 130% 120% at 50% 42%, transparent 52%, var(--flow-edge) 100%);
+  transition: opacity 700ms ease, background 900ms ease;
+}
+
+/* The moving spotlight — a huge disc with a clear hole, slid over the caret by
+   transform (GPU) so it tracks the writing without ever touching layout. */
+.flow-spotlight {
+  position: absolute; top: 0; left: 0;
+  width: 3000px; height: 3000px;
+  transform-origin: center center;
+  will-change: transform, opacity;
+  opacity: 0;
+  background: radial-gradient(circle at center,
+    rgba(var(--flow-accent), 0.07) 0px,
+    rgba(0, 0, 0, 0) 120px,
+    rgba(0, 0, 0, 0) 156px,
+    var(--flow-dim) 520px);
+  transition: opacity 520ms ease;
+}
+
+/* ---------------------------- semantic weather --------------------------- */
+.flow-ambient { position: absolute; inset: 0; overflow: hidden; }
+.flow-ambient .p { position: absolute; will-change: transform, opacity; }
+
+/* rain — thin cool streaks */
+.flow-rain .p {
+  top: -12%; width: 1.4px; height: 78px; border-radius: 2px;
+  background: linear-gradient(to bottom, rgba(180, 214, 255, 0), rgba(200, 228, 255, 0.5));
+  animation: flowRain linear infinite;
+}
+@keyframes flowRain { from { transform: translate3d(0, -10vh, 0); } to { transform: translate3d(-40px, 112vh, 0); } }
+
+/* night — twinkling stars */
+.flow-star .p {
+  width: 3px; height: 3px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 6px rgba(200, 210, 255, 0.9);
+  animation: flowTwinkle ease-in-out infinite;
+}
+@keyframes flowTwinkle { 0%, 100% { opacity: 0.15; transform: scale(0.7); } 50% { opacity: 0.95; transform: scale(1.1); } }
+
+/* fire — rising embers */
+.flow-ember-fx .p {
+  bottom: -6%; width: 4px; height: 4px; border-radius: 50%;
+  background: radial-gradient(circle, #ffd27a, #ff7a1a 60%, transparent 72%);
+  animation: flowRise ease-in infinite;
+}
+@keyframes flowRise {
+  from { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  12% { opacity: 0.9; }
+  to { transform: translate3d(28px, -108vh, 0) scale(0.3); opacity: 0; }
+}
+
+/* drifting motes — warm / forest / ocean / calm / cold */
+.flow-mote .p {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--flow-accent), 0.9), transparent 70%);
+  animation: flowDrift ease-in-out infinite alternate;
+}
+@keyframes flowDrift {
+  from { transform: translate3d(0, 0, 0); opacity: 0.25; }
+  50% { opacity: 0.7; }
+  to { transform: translate3d(40px, -30px, 0); opacity: 0.35; }
+}
+
+/* ------------------------------ chrome fade ------------------------------ */
+.floating-toolbar, .flow-hideable { transition: opacity 500ms ease; }
+body.flow-typing .floating-toolbar,
+body.flow-typing .flow-hideable {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* ---------------------------- living progress ---------------------------- */
+.flow-progress {
+  position: fixed;
+  left: 18px; top: 50%; transform: translateY(-50%);
+  z-index: 72;
+  pointer-events: none;
+  display: flex; align-items: flex-end; gap: 10px;
+  padding: 10px 13px 10px 10px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-card) 82%, transparent);
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  border: 1px solid rgba(var(--flow-accent), 0.22);
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.5);
+  color: var(--text-primary);
+  font-family: 'Outfit', sans-serif;
+  opacity: 0.96;
+  transition: opacity 500ms ease, transform 500ms ease;
+}
+.flow-progress .sprite { position: relative; width: 34px; height: 52px; flex-shrink: 0; }
+.flow-progress .ember {
+  position: absolute; left: 50%; top: 2px; width: 9px; height: 9px; margin-left: -4.5px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff6df, rgb(var(--flow-accent)) 55%, transparent 72%);
+  will-change: transform, opacity; opacity: 0.5;
+}
+.flow-progress .stat-words { font-size: 18px; font-weight: 800; line-height: 1; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.flow-progress .stat-label { font-size: 9px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-tertiary); margin-top: 3px; }
+.flow-progress .stat-wpm { font-size: 10px; font-weight: 700; color: rgb(var(--flow-accent)); margin-top: 5px; font-variant-numeric: tabular-nums; }
+
+/* --------------------------- reduced motion ------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .flow-ambient .p { animation: none !important; opacity: 0.35 !important; }
+  .flow-spotlight { transition: none; }
+  .flow-progress .ember { animation: none !important; }
+}
