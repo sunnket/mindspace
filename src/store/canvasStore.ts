@@ -293,6 +293,10 @@ interface CanvasStore {
   // Plus menu
   plusMenuPos: { x: number; y: number; isToolbar?: boolean } | null;
   setPlusMenuPos: (pos: { x: number; y: number; isToolbar?: boolean } | null) => void;
+
+  // Canvas Resident — the pixel cat that lives on the board
+  residentEnabled: boolean;
+  setResidentEnabled: (v: boolean) => void;
   
   // Slash menu
   slashMenu: { objectId: string; query: string; x: number; y: number } | null;
@@ -1482,6 +1486,15 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Plus menu
   plusMenuPos: null,
   setPlusMenuPos: (pos) => set({ plusMenuPos: pos }),
+
+  // Canvas Resident — on by default; the choice is remembered
+  residentEnabled: typeof window !== 'undefined'
+    ? localStorage.getItem('mindspace-resident-enabled') !== 'false'
+    : true,
+  setResidentEnabled: (v) => {
+    try { localStorage.setItem('mindspace-resident-enabled', String(v)); } catch { /* private mode */ }
+    set({ residentEnabled: v });
+  },
   
   // Slash menu
   slashMenu: null,

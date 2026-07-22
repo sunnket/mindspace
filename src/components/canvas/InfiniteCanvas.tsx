@@ -24,6 +24,7 @@ import {
 } from '@/lib/db';
 import CanvasObject from './CanvasObject';
 import RelaxEffectsLayer from './RelaxEffectsLayer';
+import CanvasResident from './CanvasResident';
 import FlowModeLayer from './FlowModeLayer';
 import DrawingLayer from './DrawingLayer';
 import ConnectionsLayer from './ConnectionsLayer';
@@ -1155,6 +1156,9 @@ export default function InfiniteCanvas() {
 
           {/* Cinematic Stress Reliefer particles */}
           <RelaxEffectsLayer />
+
+          {/* The Canvas Resident — a pixel cat that lives in world space */}
+          <CanvasResident />
         </div>
 
         {/* Drawing layer (SVG overlay) */}

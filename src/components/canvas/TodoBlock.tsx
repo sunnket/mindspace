@@ -31,12 +31,19 @@ export default function TodoBlock({ obj }: { obj: CanvasObjectData }) {
   }, [obj.content]);
 
   const save = useCallback((newItems: TodoItem[], newTitle?: string) => {
+    // Crossing into "everything done" is a goal completed — announce it so the
+    // Canvas Resident can celebrate. Only on the crossing, never on re-saves.
+    const wasAllDone = items.length >= 2 && items.every((i) => i.done);
+    const isAllDone = newItems.length >= 2 && newItems.every((i) => i.done);
+    if (isAllDone && !wasAllDone) {
+      window.dispatchEvent(new CustomEvent('mindspace:goal-complete'));
+    }
     setItems(newItems);
     updateObject(obj.id, {
       content: JSON.stringify(newItems),
       style: { ...obj.style, todoTitle: newTitle || title }
     });
-  }, [obj.id, obj.style, title, updateObject]);
+  }, [obj.id, obj.style, title, updateObject, items]);
 
   /** Put the caret at the end of an item's editable text. */
   const focusItem = (id: string) => {

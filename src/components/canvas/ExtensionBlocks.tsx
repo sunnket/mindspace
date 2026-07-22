@@ -663,6 +663,8 @@ export function FocusTimerBlock({ obj }: { obj: CanvasObjectData }) {
       completedRef.current = true;
       pomodoroChime();
       const isFocus = mode === 'focus';
+      // the Canvas Resident (and anything else listening) hears about kept focus
+      if (isFocus) window.dispatchEvent(new CustomEvent('mindspace:pomodoro-complete'));
       const nextSessions = isFocus ? sessions + 1 : sessions;
       const nextMode: PomodoroMode = isFocus
         ? (nextSessions > 0 && nextSessions % 4 === 0 ? 'long' : 'short')
