@@ -25,7 +25,7 @@ import GitHubBlock from './GitHubBlock';
 import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
-import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock, TimelineBlock } from './ExtensionBlocks';
+import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock, TimelineBlock, TableBlock } from './ExtensionBlocks';
 import WhiteboardBlock from './WhiteboardBlock';
 import BinderBlock from './BinderBlock';
 import MirrorBlock from './MirrorBlock';
@@ -2707,6 +2707,13 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <QuickDataBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isTable) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <TableBlock obj={obj} />
             </div>
           );
         }

@@ -53,7 +53,7 @@ export default function BinderBlock({ obj }: { obj: CanvasObjectData }) {
       title="Double-click to open this binder as a canvas"
     >
       {/* Binder spine with rings */}
-      <div className="w-4 shrink-0 flex flex-col justify-around py-4 bg-[rgba(var(--accent-rgb),0.85)] border-r border-black/10">
+      <div className="w-4 shrink-0 flex flex-col justify-around bg-[rgba(var(--accent-rgb),0.85)] border-r border-black/10" style={{ padding: '16px 0' }}>
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="w-2 h-2 rounded-full bg-white/80 shadow-[0_1px_1px_rgba(0,0,0,0.25)] mx-auto" />
         ))}
@@ -61,13 +61,14 @@ export default function BinderBlock({ obj }: { obj: CanvasObjectData }) {
 
       {/* Body — a faint dotted grid hints at the canvas that lives inside */}
       <div
-        className="flex-1 min-w-0 flex flex-col p-3.5 relative"
+        className="flex-1 min-w-0 flex flex-col relative"
         style={{
           backgroundImage: 'radial-gradient(circle, rgba(var(--accent-rgb),0.10) 0.5px, transparent 0.5px)',
           backgroundSize: '14px 14px',
+          padding: 14,
         }}
       >
-        <div className="flex items-center gap-1.5 mb-1">
+        <div className="flex items-center gap-1.5" style={{ marginBottom: 4 }}>
           <span className="text-sm leading-none">📁</span>
           <input
             type="text"
@@ -85,7 +86,7 @@ export default function BinderBlock({ obj }: { obj: CanvasObjectData }) {
         </p>
 
         {/* Actions */}
-        <div className="mt-auto flex items-center gap-1.5 pt-2">
+        <div className="mt-auto flex items-center gap-1.5" style={{ paddingTop: 8 }}>
           <button
             type="button"
             onClick={(e) => { stopDrag(e); open(); }}

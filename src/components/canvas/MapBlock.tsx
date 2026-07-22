@@ -133,9 +133,11 @@ export default function MapBlock({ obj }: { obj: CanvasObjectData }) {
       style={{ fontFamily: "'Outfit', sans-serif" }}
     >
       {/* Search header (its bare background doubles as the card's drag handle) */}
-      <div className="relative z-20 shrink-0 px-2 pt-2">
+      {/* Tailwind p-* is dead here (unlayered global reset) — inline padding on purpose */}
+      <div className="relative z-20 shrink-0" style={{ padding: '8px 8px 0' }}>
         <div
-          className="flex items-center gap-1.5 rounded-full bg-white/85 dark:bg-black/40 border border-white/40 dark:border-white/10 shadow-sm px-2.5 py-1.5"
+          className="flex items-center gap-1.5 rounded-full bg-white/85 dark:bg-black/40 border border-white/40 dark:border-white/10 shadow-sm"
+          style={{ padding: '6px 10px' }}
           onMouseDown={(e) => e.stopPropagation()}
         >
           <span className="text-[var(--accent)] shrink-0"><PinIcon /></span>
@@ -172,7 +174,8 @@ export default function MapBlock({ obj }: { obj: CanvasObjectData }) {
                 <button
                   key={`${p.lat}-${p.lng}-${i}`}
                   onClick={() => choose(p)}
-                  className="w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-[var(--accent-subtle)] transition-colors cursor-pointer border-b border-black/5 dark:border-white/5 last:border-0"
+                  className="w-full text-left flex items-start gap-2 hover:bg-[var(--accent-subtle)] transition-colors cursor-pointer border-b border-black/5 dark:border-white/5 last:border-0"
+                  style={{ padding: '8px 12px' }}
                 >
                   <span className="text-[var(--accent)] mt-0.5 shrink-0"><PinIcon size={12} /></span>
                   <span className="min-w-0">
@@ -184,11 +187,11 @@ export default function MapBlock({ obj }: { obj: CanvasObjectData }) {
             </motion.div>
           )}
         </AnimatePresence>
-        {error && <div className="px-3 pt-1 text-[10px] text-red-500/80" onMouseDown={(e) => e.stopPropagation()}>{error}</div>}
+        {error && <div className="text-[10px] text-red-500/80" style={{ padding: '4px 12px 0' }} onMouseDown={(e) => e.stopPropagation()}>{error}</div>}
       </div>
 
       {/* Map */}
-      <div className="relative flex-1 min-h-0 mt-2 overflow-hidden">
+      <div className="relative flex-1 min-h-0 overflow-hidden" style={{ marginTop: 8 }}>
         {hasLocation ? (
           <iframe
             key={`${lat}-${lng}-${mapStyle}`}
@@ -199,7 +202,7 @@ export default function MapBlock({ obj }: { obj: CanvasObjectData }) {
             referrerPolicy="no-referrer-when-downgrade"
           />
         ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center px-6 bg-[radial-gradient(circle_at_50%_35%,var(--accent-subtle),transparent_70%)]">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center bg-[radial-gradient(circle_at_50%_35%,var(--accent-subtle),transparent_70%)]" style={{ padding: '0 24px' }}>
             <span className="text-[var(--accent)] opacity-80"><PinIcon size={28} /></span>
             <span className="text-[12px] font-semibold text-[var(--text-secondary)]">Search any place to drop it on the map</span>
             <span className="text-[10px] text-[var(--text-tertiary)]">a landmark, an address, a city — or tap the ⊕ to use your location</span>
@@ -215,7 +218,8 @@ export default function MapBlock({ obj }: { obj: CanvasObjectData }) {
             onClick={copyCoords}
             onMouseDown={(e) => e.stopPropagation()}
             title="Copy coordinates"
-            className="absolute left-2 bottom-2 max-w-[62%] flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/90 dark:bg-black/60 backdrop-blur-md border border-white/50 dark:border-white/10 shadow-md cursor-pointer hover:bg-white transition-colors group"
+            className="absolute left-2 bottom-2 max-w-[62%] flex items-center gap-1.5 rounded-full bg-white/90 dark:bg-black/60 backdrop-blur-md border border-white/50 dark:border-white/10 shadow-md cursor-pointer hover:bg-white transition-colors group"
+            style={{ padding: '6px 10px' }}
           >
             <span className="text-[var(--accent)] shrink-0"><PinIcon size={11} /></span>
             <span className="min-w-0 text-left">
@@ -233,7 +237,8 @@ export default function MapBlock({ obj }: { obj: CanvasObjectData }) {
             <button
               onClick={cycleStyle}
               title={`Map style: ${styleLabel}`}
-              className="px-2.5 py-1.5 rounded-full bg-white/90 dark:bg-black/60 backdrop-blur-md border border-white/50 dark:border-white/10 shadow-md text-[9px] font-bold uppercase tracking-wider text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+              className="rounded-full bg-white/90 dark:bg-black/60 backdrop-blur-md border border-white/50 dark:border-white/10 shadow-md text-[9px] font-bold uppercase tracking-wider text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+              style={{ padding: '6px 10px' }}
             >
               {styleLabel}
             </button>
