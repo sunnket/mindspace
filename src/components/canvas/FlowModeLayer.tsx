@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useFlowStore, type FlowMood } from '@/store/flowStore';
+import { useFlowStore, type FlowMood, type FlowProgressStyle } from '@/store/flowStore';
 
 /**
  * Flow Mode overlay — the cinematic writing layer.
@@ -16,7 +16,7 @@ import { useFlowStore, type FlowMood } from '@/store/flowStore';
  * fully decoupled from how the canvas stores content.
  */
 
-const WORDS_PER_PAGE = 300;
+const WORDS_PER_PAGE = 160;
 
 /* ------------------------------ mood engine ------------------------------ */
 
@@ -92,31 +92,113 @@ function FlowAmbient({ mood }: { mood: FlowMood }) {
 
 /* --------------------------- living progress ----------------------------- */
 
-function ProgressWidget({ words, wpm, page, progress, emberRef }: {
-  words: number; wpm: number; page: number; progress: number; emberRef: React.RefObject<HTMLDivElement | null>;
-}) {
-  return (
-    <div className="flow-progress" aria-hidden>
-      <div className="sprite">
-        <div className="ember" ref={emberRef} />
-        <svg width="34" height="52" viewBox="0 0 34 52" fill="none">
-          <path
-            d="M17 50 C 14 40 20 30 17 20 C 15 13 17 11 17 9"
-            pathLength={100}
-            stroke="rgb(var(--flow-accent))" strokeWidth="2.2" strokeLinecap="round"
-            style={{ strokeDasharray: 100, strokeDashoffset: 100 * (1 - progress), transition: 'stroke-dashoffset .6s ease', opacity: 0.9 }}
-          />
-          {/* leaves unfurl as the page fills */}
-          <ellipse cx="10.5" cy="32" rx="6" ry="3" transform="rotate(-28 10.5 32)" fill="rgb(var(--flow-accent))" style={{ opacity: progress > 0.28 ? 0.75 : 0, transition: 'opacity .5s ease' }} />
-          <ellipse cx="23.5" cy="24" rx="6" ry="3" transform="rotate(28 23.5 24)" fill="rgb(var(--flow-accent))" style={{ opacity: progress > 0.62 ? 0.75 : 0, transition: 'opacity .5s ease' }} />
-          {/* bloom at the crown when a page is nearly done */}
-          <circle cx="17" cy="8" r="4" fill="rgb(var(--flow-accent))" style={{ opacity: progress > 0.9 ? 0.9 : 0, transition: 'opacity .5s ease' }} />
-        </svg>
+const c01 = (v: number) => Math.max(0, Math.min(1, v));
+
+const CAP: Record<FlowProgressStyle, string> = {
+  candle: 'A candle burns',
+  tree: 'A tree grows',
+  coffee: 'The cup drains',
+};
+
+/** Drag anywhere on the card to reposition it; the spot is remembered. */
+function useCardDrag() {
+  const progressPos = useFlowStore((s) => s.progressPos);
+  const setProgressPos = useFlowStore((s) => s.setProgressPos);
+  const ref = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [local, setLocal] = useState(progressPos);
+  const off = useRef<{ dx: number; dy: number } | null>(null);
+
+  useEffect(() => { if (!dragging) setLocal(progressPos); }, [progressPos, dragging]);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    const el = ref.current; if (!el) return;
+    const r = el.getBoundingClientRect();
+    off.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    setDragging(true);
+    el.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!off.current) return;
+    const el = ref.current; if (!el) return;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    const x = Math.max(8, Math.min(window.innerWidth - w - 8, e.clientX - off.current.dx));
+    const y = Math.max(8, Math.min(window.innerHeight - h - 8, e.clientY - off.current.dy));
+    setLocal({ x, y });
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (off.current) setProgressPos(local);
+    off.current = null;
+    setDragging(false);
+    ref.current?.releasePointerCapture?.(e.pointerId);
+  };
+
+  const style: React.CSSProperties | undefined = local ? { left: local.x, top: local.y, transform: 'none' } : undefined;
+  return { ref, dragging, style, handlers: { onPointerDown, onPointerMove, onPointerUp } };
+}
+
+function Vessel({ style, progress, emberRef }: { style: FlowProgressStyle; progress: number; emberRef: React.RefObject<HTMLDivElement | null> }) {
+  if (style === 'candle') {
+    const waxH = 10 + (1 - progress) * 32;      // burns down: 42 → 10
+    const flameBottom = 6 + waxH;
+    return (
+      <div className="vessel m-candle">
+        <div className="c-holder" />
+        <div className="c-wax" style={{ height: waxH }} />
+        <div className="spark c-halo" ref={emberRef} style={{ width: 30, height: 30, left: 'calc(50% - 15px)', bottom: flameBottom - 6 }} />
+        <div className="c-flame" style={{ bottom: flameBottom }} />
       </div>
+    );
+  }
+  if (style === 'coffee') {
+    const liquidH = 2 + (1 - progress) * 20;     // empties: 22 → 2
+    return (
+      <div className="vessel m-coffee">
+        <div className="saucer" />
+        <div className="handle" />
+        <div className="cup"><div className="liquid" style={{ height: liquidH }} /></div>
+        <div className="spark" ref={emberRef} style={{ width: 22, height: 22, left: 'calc(50% - 11px)', top: 0, borderRadius: '50%', background: 'radial-gradient(circle, rgba(var(--flow-accent),0.5), transparent 70%)', filter: 'blur(1px)' }} />
+        <div className="steam"><i /><i /><i /></div>
+      </div>
+    );
+  }
+  // tree — grows with words
+  const grow = 0.18 + 0.82 * progress;
+  const leaf = (t: number) => c01((progress - t) / (1 - t));
+  return (
+    <div className="vessel">
+      <svg className="m-tree" width="46" height="60" viewBox="0 0 46 60" style={{ overflow: 'visible' }}>
+        <path d="M23 58 C 22 48 24 42 23 34" pathLength={100} stroke="#7a5334" strokeWidth="3" strokeLinecap="round" style={{ strokeDasharray: 100, strokeDashoffset: 100 * (1 - grow), transition: 'stroke-dashoffset .6s ease' }} />
+        <path d="M23 42 C 20 39 17 39 14 36" pathLength={100} stroke="#7a5334" strokeWidth="2" strokeLinecap="round" style={{ strokeDasharray: 100, strokeDashoffset: 100 * (1 - leaf(0.32)), transition: 'stroke-dashoffset .6s ease' }} />
+        <path d="M23 38 C 26 35 29 35 32 31" pathLength={100} stroke="#7a5334" strokeWidth="2" strokeLinecap="round" style={{ strokeDasharray: 100, strokeDashoffset: 100 * (1 - leaf(0.5)), transition: 'stroke-dashoffset .6s ease' }} />
+        <ellipse className="leaf" cx="23" cy="24" rx="12" ry="10" fill="rgb(var(--flow-accent))" style={{ opacity: progress > 0.12 ? 0.85 : 0, transform: `scale(${c01(progress * 1.25)})` }} />
+        <ellipse className="leaf" cx="13.5" cy="31" rx="6.5" ry="5" fill="rgb(var(--flow-accent))" style={{ opacity: leaf(0.32) * 0.85, transform: `scale(${leaf(0.32)})` }} />
+        <ellipse className="leaf" cx="32.5" cy="27" rx="6.5" ry="5" fill="rgb(var(--flow-accent))" style={{ opacity: leaf(0.5) * 0.85, transform: `scale(${leaf(0.5)})` }} />
+        <circle cx="23" cy="17" r="3.4" fill="#fff8e6" style={{ opacity: progress > 0.9 ? 0.95 : 0, transition: 'opacity .5s ease' }} />
+      </svg>
+      <div className="spark" ref={emberRef} style={{ width: 32, height: 32, left: 'calc(50% - 16px)', top: 10, borderRadius: '50%', background: 'radial-gradient(circle, rgba(var(--flow-accent),0.5), transparent 70%)', filter: 'blur(1px)' }} />
+    </div>
+  );
+}
+
+function ProgressWidget({ words, wpm, page, progress, style, emberRef }: {
+  words: number; wpm: number; page: number; progress: number; style: FlowProgressStyle; emberRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const drag = useCardDrag();
+  return (
+    <div
+      ref={drag.ref}
+      className={`flow-progress${drag.dragging ? ' dragging' : ''}`}
+      style={drag.style}
+      title="Drag to move"
+      {...drag.handlers}
+    >
+      <Vessel style={style} progress={progress} emberRef={emberRef} />
       <div>
-        <div className="stat-words">{words.toLocaleString()}</div>
-        <div className="stat-label">words{page > 1 ? ` · p${page}` : ''}</div>
-        {wpm > 0 && <div className="stat-wpm">{wpm} wpm</div>}
+        <div className="cap">{CAP[style]}</div>
+        <div className="sub">{words.toLocaleString()} words{page > 1 ? ` · p${page}` : ''}</div>
+        {wpm > 0 && <div className="wpm">{wpm} wpm</div>}
       </div>
     </div>
   );
@@ -203,19 +285,27 @@ export default function FlowModeLayer() {
       const block = ed.getBoundingClientRect();
       if (block.width < 2 || block.height < 2) { tgt.a = 0; return; }
 
+      let cx = block.left + block.width / 2;
       let cy = block.top + Math.min(block.height, 60) / 2;
       try {
         const sel = window.getSelection();
         if (sel && sel.rangeCount) {
-          const rects = sel.getRangeAt(0).getClientRects();
-          const r = rects.length ? rects[rects.length - 1] : sel.getRangeAt(0).getBoundingClientRect();
-          if (r && r.height > 0) cy = r.top + r.height / 2;
+          const range = sel.getRangeAt(0);
+          const rects = range.getClientRects();
+          const r = rects.length ? rects[rects.length - 1] : range.getBoundingClientRect();
+          if (r && (r.height > 0 || r.width > 0)) {
+            // Hug the actual writing point (the caret), kept off the very edges.
+            const lo = Math.min(block.left + 40, block.right);
+            const hi = Math.max(block.right - 40, block.left);
+            cx = Math.min(hi, Math.max(lo, r.left));
+            cy = r.top + (r.height || 20) / 2;
+          }
         }
       } catch { /* selection unavailable — fall back to block center */ }
 
-      tgt.x = block.left + block.width / 2;
+      tgt.x = cx;
       tgt.y = cy;
-      tgt.s = Math.max(0.8, Math.min(2.6, (block.width / 2) / 150));
+      tgt.s = Math.max(0.85, Math.min(2.2, (block.width / 2) / 175));
       tgt.a = 1;
     };
 
@@ -231,8 +321,9 @@ export default function FlowModeLayer() {
       const spot = spotRef.current;
       if (spot) {
         const on = prefsRef.current.spotlight ? 1 : 0;
-        spot.style.transform = `translate3d(${cur.x - 1500}px, ${cur.y - 1500}px, 0) scale(${cur.s})`;
-        spot.style.opacity = String(cur.a * intensityRef.current * on);
+        spot.style.transform = `translate3d(${cur.x - 1600}px, ${cur.y - 1600}px, 0) scale(${cur.s})`;
+        // Keep the room deep even at lower intensity — the dim is the drama.
+        spot.style.opacity = String(cur.a * (0.7 + 0.3 * intensityRef.current) * on);
       }
       const edge = edgeRef.current;
       // A gentle cinematic frame when idle, deepening as you actually write.
@@ -287,7 +378,7 @@ export default function FlowModeLayer() {
       <div className="flow-spotlight" ref={spotRef} />
       {prefs.semanticWeather && <FlowAmbient mood={mood} />}
       {prefs.livingProgress && (
-        <ProgressWidget words={disp.words} wpm={disp.wpm} page={page} progress={progress} emberRef={emberRef} />
+        <ProgressWidget words={disp.words} wpm={disp.wpm} page={page} progress={progress} style={prefs.progressStyle} emberRef={emberRef} />
       )}
     </div>
   );

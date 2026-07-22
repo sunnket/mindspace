@@ -25,6 +25,10 @@ export type FlowMood =
   | 'ocean'
   | 'forest';
 
+/** The living-progress metaphor: a candle burning down, a tree growing, a coffee
+ *  draining — each fills over a "page" of words, then begins a fresh one. */
+export type FlowProgressStyle = 'candle' | 'tree' | 'coffee';
+
 export interface FlowPrefs {
   /** Warm spotlight that follows the caret + cinematic edge vignette. */
   spotlight: boolean;
@@ -34,8 +38,10 @@ export interface FlowPrefs {
   momentum: boolean;
   /** Read the mood of what you write and shift the room to match. */
   semanticWeather: boolean;
-  /** A living sprite (a growing sprout) + session word tally. */
+  /** A living metaphor (candle / tree / coffee) + session word tally. */
   livingProgress: boolean;
+  /** Which metaphor the living-progress card shows. */
+  progressStyle: FlowProgressStyle;
 }
 
 export interface FlowSession {
@@ -51,6 +57,8 @@ interface FlowState {
   prefs: FlowPrefs;
   /** Overall dimming strength of the room, 0.4–1. */
   intensity: number;
+  /** Where the draggable progress card sits (top-left px). null = default spot. */
+  progressPos: { x: number; y: number } | null;
 
   // --- live runtime (not persisted) ---
   mood: FlowMood;
@@ -66,6 +74,7 @@ interface FlowState {
   setTyping: (v: boolean) => void;
   setSession: (s: Partial<FlowSession>) => void;
   resetSession: () => void;
+  setProgressPos: (p: { x: number; y: number } | null) => void;
 }
 
 const DEFAULT_PREFS: FlowPrefs = {
@@ -74,6 +83,7 @@ const DEFAULT_PREFS: FlowPrefs = {
   momentum: true,
   semanticWeather: true,
   livingProgress: true,
+  progressStyle: 'candle',
 };
 
 const freshSession = (): FlowSession => ({ words: 0, wpm: 0, startedAt: Date.now() });
@@ -83,7 +93,8 @@ export const useFlowStore = create<FlowState>()(
     (set) => ({
       enabled: false,
       prefs: DEFAULT_PREFS,
-      intensity: 0.85,
+      intensity: 0.9,
+      progressPos: null,
 
       mood: 'calm',
       typing: false,
@@ -102,13 +113,14 @@ export const useFlowStore = create<FlowState>()(
       setTyping: (v) => set((s) => (s.typing === v ? s : { typing: v })),
       setSession: (s2) => set((s) => ({ session: { ...s.session, ...s2 } })),
       resetSession: () => set({ session: freshSession() }),
+      setProgressPos: (p) => set({ progressPos: p }),
     }),
     {
       name: 'canvabrains.flow',
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() => localStorage),
       // Persist preferences only — never the live session / mood / typing state.
-      partialize: (s) => ({ enabled: s.enabled, prefs: s.prefs, intensity: s.intensity }),
+      partialize: (s) => ({ enabled: s.enabled, prefs: s.prefs, intensity: s.intensity, progressPos: s.progressPos }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<FlowState>;
         return {

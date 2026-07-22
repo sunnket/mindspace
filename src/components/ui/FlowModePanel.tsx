@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useFlowStore, type FlowPrefs, type FlowMood } from '@/store/flowStore';
+import { useFlowStore, type FlowPrefs, type FlowMood, type FlowProgressStyle } from '@/store/flowStore';
 
 /**
  * Flow Mode preferences — the popover behind the toolbar's Flow icon. A master
@@ -11,12 +11,12 @@ import { useFlowStore, type FlowPrefs, type FlowMood } from '@/store/flowStore';
  * margin utilities, so they're avoided here).
  */
 
-const FEATURES: { key: keyof FlowPrefs; title: string; blurb: string }[] = [
+const FEATURES: { key: Exclude<keyof FlowPrefs, 'progressStyle'>; title: string; blurb: string }[] = [
   { key: 'spotlight', title: 'Spotlight & frame', blurb: 'A warm light follows your caret; the rest dims away.' },
   { key: 'chromeFade', title: 'Melt the chrome', blurb: 'Toolbar & panels fade out while you type.' },
   { key: 'momentum', title: 'Momentum ember', blurb: 'A living ember that flares with your typing rhythm.' },
   { key: 'semanticWeather', title: 'Semantic weather', blurb: 'The room shifts to match the mood of your words.' },
-  { key: 'livingProgress', title: 'Living progress', blurb: 'A sprite that grows with the words you write.' },
+  { key: 'livingProgress', title: 'Living progress', blurb: 'A candle, tree or cup that lives with your words. Drag it anywhere.' },
 ];
 
 const MOOD_DOT: Record<FlowMood, string> = {
@@ -126,6 +126,35 @@ export default function FlowModePanel({ onClose }: { onClose: () => void }) {
           );
         })}
 
+        {/* progress metaphor selector */}
+        {enabled && prefs.livingProgress && (
+          <div style={{ padding: '4px 9px 2px' }}>
+            <div className="uppercase font-extrabold" style={{ fontSize: 9, letterSpacing: '0.13em', color: 'var(--text-tertiary)', marginBottom: 6 }}>Progress metaphor</div>
+            <div className="flex gap-1.5">
+              {(['candle', 'tree', 'coffee'] as FlowProgressStyle[]).map((st) => {
+                const on = prefs.progressStyle === st;
+                return (
+                  <button
+                    key={st}
+                    type="button"
+                    onClick={() => setPref('progressStyle', st)}
+                    className="flex-1 flex flex-col items-center gap-1 rounded-xl cursor-pointer transition-all duration-150 active:scale-95"
+                    style={{
+                      padding: '8px 4px',
+                      background: on ? 'var(--accent-subtle)' : 'var(--well)',
+                      boxShadow: on ? '0 0 0 1.5px var(--accent)' : 'inset 0 1px 2px rgba(90,62,40,0.07)',
+                      color: on ? 'var(--accent)' : 'var(--text-secondary)',
+                    }}
+                  >
+                    <MetaIcon style={st} />
+                    <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: 'capitalize', letterSpacing: '0.02em' }}>{st}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* intensity */}
         <div className="flex items-center gap-3" style={{ padding: '10px 9px 4px', opacity: enabled && prefs.spotlight ? 1 : 0.5 }}>
           <span className="uppercase font-extrabold shrink-0" style={{ fontSize: 9, letterSpacing: '0.13em', color: 'var(--text-tertiary)' }}>Depth</span>
@@ -149,6 +178,35 @@ export default function FlowModePanel({ onClose }: { onClose: () => void }) {
         Done
       </button>
     </div>
+  );
+}
+
+function MetaIcon({ style }: { style: FlowProgressStyle }) {
+  if (style === 'candle') {
+    return (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 3c1.4 1.2 1.4 2.6 0 3.6C10.6 5.6 10.6 4.2 12 3Z" fill="currentColor" stroke="none" />
+        <rect x="9" y="9" width="6" height="11" rx="1.4" />
+        <path d="M12 6.8V9" />
+        <path d="M8 20h8" />
+      </svg>
+    );
+  }
+  if (style === 'tree') {
+    return (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 21v-6" />
+        <path d="M12 15 8.5 11.5M12 13l3-3" />
+        <circle cx="12" cy="8" r="5" fill="currentColor" fillOpacity="0.18" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 9h12v4a5 5 0 0 1-5 5H10a5 5 0 0 1-5-5V9Z" />
+      <path d="M17 10h2.2a2 2 0 0 1 0 4H17" />
+      <path d="M8.5 5.5c.6-.7.6-1.3 0-2M12 5.5c.6-.7.6-1.3 0-2" />
+    </svg>
   );
 }
 
