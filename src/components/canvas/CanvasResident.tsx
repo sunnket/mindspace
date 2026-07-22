@@ -7,16 +7,23 @@
  *  - It's a companion, not a screensaver. It reacts to YOU (cursor proximity
  *    makes it LOOK — pupils first, then a head turn — not move) and to the
  *    canvas (piles, connectors, running pomodoros, urgent countdowns, mirrors).
- *  - Nothing repeats identically. Blink timing, ear flicks, tail speed, idle
- *    durations all come from a persisted per-cat personality seed plus fresh
- *    randomness every cycle.
- *  - It never fights the user: drag it anywhere, it hangs by the scruff and
- *    resumes its life where you drop it.
+ *  - Nothing repeats identically. Blink timing, ear flicks, idle durations all
+ *    come from a persisted per-cat personality seed plus fresh randomness.
+ *  - It never fights the user: drag it anywhere, it hangs by the scruff, and
+ *    when you let go it FALLS and lands, rather than teleporting upright.
  *
- * Rendering is a tiny <canvas> redrawn procedurally each frame (no sprite
- * sheets) so gait, tail physics and micro-expressions are continuous.
- * The wrapper lives inside .canvas-world, so the cat pans/zooms with the
- * board like any real resident of it.
+ * Every pose is a baked sprite frame from lib/catSprites — see the note there
+ * for why. Two rules keep the pixels honest at render time:
+ *
+ *  1. The gait advances by DISTANCE TRAVELLED, not by time. Time-based legs
+ *     skate across the board whenever the walk speed isn't exactly the frame
+ *     rate's multiple; distance-based legs plant where they land.
+ *  2. The cat's position is snapped to whole art pixels and the backing store
+ *     is resized to match the camera's zoom, so one art pixel is one screen
+ *     pixel block. Sprites that move in fractional pixels shimmer.
+ *
+ * The wrapper lives inside .canvas-world, so the cat pans/zooms with the board
+ * like any real resident of it.
  *
  * NOTE: Tailwind padding/margin utilities are dead in this app (unlayered
  * global reset) — all spacing is inline styles.
@@ -27,28 +34,27 @@ import { useCanvasStore } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import {
   mulberry32, makePersonality, loadProfile, saveProfile,
-  perceive, chooseBehavior, COAT_PALETTES,
+  perceive, chooseBehavior,
   type CatProfile, type CatPersonality, type Behavior, type BrainState, type NestScrap,
 } from '@/lib/catBrain';
+import {
+  ART_W, ART_H, POSE_FRAMES, COATS, getSheet, type Sheet, type CompiledFrame,
+} from '@/lib/catSprites';
 
-/* ---------------- sprite geometry ---------------- */
-const GW = 48;            // art-pixel grid width
-const GH = 36;            // art-pixel grid height
-const GY = 34;            // ground row (feet)
-const PX = 3;             // device pixels per art pixel (crispness)
-const SCALE = 1.4;        // world px per art pixel → cat ≈ 67 world px long
-const TAIL_SEGS = 9;
+/** World px per art pixel. Fixed, so the cat is the same size on every screen. */
+const ART_PX = 1.6;
+/** World px of travel per walk frame — tuned so the paws never skate. */
+const STRIDE = 11;
 
 type Pose =
   | 'stand' | 'walk' | 'sit' | 'sleep' | 'groom' | 'stretch'
-  | 'scruff' | 'startle' | 'tightrope' | 'perch' | 'celebrate';
+  | 'scruff' | 'startle' | 'tightrope' | 'perch' | 'celebrate' | 'squash';
 
 interface Sim {
   x: number; y: number;
   vx: number; vy: number;
   facing: 1 | -1;
-  speed: number;
-  gait: number;
+  stridePhase: number;     // advanced by distance, not time
   pose: Pose;
   poseT: number;
   behavior: Behavior | null;
@@ -58,31 +64,27 @@ interface Sim {
   // eyes
   eyeOpen: number;
   nextBlink: number;
-  blinkT: number;          // >0 while a blink is in flight
-  slowBlinkT: number;      // >0 while a slow blink is in flight
-  // ears
-  earFlickL: number;
-  earFlickR: number;
+  blinkT: number;
+  slowBlinkT: number;
+  // ears — drives a whole-frame swap, never a half-pixel overlay
+  earFlick: number;
   // attention
-  attentive: number;       // 0..1 head-turn blend
+  attentive: number;
   attentiveSince: number;
   lookX: number; lookY: number;
-  headTilt: number;        // -1..1 target
-  headTiltCur: number;
   petMs: number;
   lastPurr: number;
-  // tail
-  tail: number[];
-  tailPuff: number;
   // tightrope / perch script
   ropeT: number;
-  rotation: number;
   perchStage: number;
-  // drag
+  // drag + the fall that follows it
   dragging: boolean;
   dragOff: { x: number; y: number };
   dragVX: number;
   dragMoved: number;
+  falling: boolean;
+  fallVY: number;
+  landY: number;
   // bubble
   bubble: string;
   bubbleUntil: number;
@@ -107,6 +109,47 @@ function ropePoint(c: { x1: number; y1: number; x2: number; y2: number; bendX?: 
   return { x, y, angle: Math.atan2(dy, dx) };
 }
 
+/** Which baked frame this instant of this pose looks like. */
+function frameNameFor(sim: Sim): string {
+  const t = sim.poseT;
+  switch (sim.pose) {
+    case 'walk':
+    case 'tightrope':
+    case 'perch': {
+      const seq = POSE_FRAMES.walk;
+      const i = Math.floor(sim.stridePhase) % seq.length;
+      return seq[(i + seq.length) % seq.length];
+    }
+    case 'sit': {
+      const seq = sim.earFlick > 0 ? POSE_FRAMES.sitEar : POSE_FRAMES.sit;
+      return seq[Math.floor(t / 1100) % seq.length];
+    }
+    case 'groom':
+      return POSE_FRAMES.groom[Math.floor(t / 280) % 2];
+    case 'sleep':
+      return POSE_FRAMES.sleep[Math.floor(t / 1600) % 2];
+    case 'stretch': {
+      // one-shot: reach out, hold, ease back. A looping stretch looks broken.
+      const seq = [0, 1, 2, 2, 2, 2, 1, 0];
+      return POSE_FRAMES.stretch[seq[Math.min(seq.length - 1, Math.floor(t / 340))]];
+    }
+    case 'celebrate': {
+      const seq = [0, 1, 1, 2, 0];
+      return POSE_FRAMES.celebrate[seq[Math.floor(t / 140) % seq.length]];
+    }
+    case 'squash':
+      return POSE_FRAMES.celebrate[2];
+    case 'scruff':
+      return POSE_FRAMES.scruff[sim.dragVX < 0 ? 0 : 1];
+    case 'startle':
+      return POSE_FRAMES.startle[0];
+    default: {
+      const seq = sim.earFlick > 0 ? POSE_FRAMES.standEar : POSE_FRAMES.stand;
+      return seq[Math.floor(t / 1100) % seq.length];
+    }
+  }
+}
+
 export default function CanvasResident() {
   const enabled = useCanvasStore((s) => s.residentEnabled);
   const readOnly = useCanvasStore((s) => s.readOnly);
@@ -122,6 +165,8 @@ export default function CanvasResident() {
   const personaRef = useRef<CatPersonality>(null as unknown as CatPersonality);
   const brainRef = useRef<BrainState>(null as unknown as BrainState);
   const simRef = useRef<Sim>(null as unknown as Sim);
+  const sheetRef = useRef<Sheet | null>(null);
+  const backingRef = useRef(0);          // current device-px-per-art-px
   const cursorRef = useRef({ sx: -9999, sy: -9999, wx: -99999, wy: -99999, vx: 0, vy: 0, t: 0 });
   const nextThinkRef = useRef(0);
   const knownObjectsRef = useRef<Map<string, { word: string; color: string }>>(new Map());
@@ -141,17 +186,16 @@ export default function CanvasResident() {
     const saved = profile.pos[spaceKey];
     simRef.current = {
       x: saved?.x ?? 0, y: saved?.y ?? 0,
-      vx: 0, vy: 0, facing: 1, speed: 0, gait: 0,
+      vx: 0, vy: 0, facing: 1, stridePhase: 0,
       pose: 'sit', poseT: 0,
       behavior: null, phase: 'dwell', dwellUntil: 0, travelDeadline: 0,
       eyeOpen: 1, nextBlink: performance.now() + 2000, blinkT: 0, slowBlinkT: 0,
-      earFlickL: 0, earFlickR: 0,
-      attentive: 0, attentiveSince: 0, lookX: 0, lookY: 0, headTilt: 0, headTiltCur: 0,
+      earFlick: 0,
+      attentive: 0, attentiveSince: 0, lookX: 0, lookY: 0,
       petMs: 0, lastPurr: 0,
-      tail: new Array(TAIL_SEGS).fill(-0.5),
-      tailPuff: 0,
-      ropeT: 0, rotation: 0, perchStage: 0,
+      ropeT: 0, perchStage: 0,
       dragging: false, dragOff: { x: 0, y: 0 }, dragVX: 0, dragMoved: 0,
+      falling: false, fallVY: 0, landY: 0,
       bubble: '', bubbleUntil: 0, lastBubble: 0,
     };
   }
@@ -321,28 +365,28 @@ export default function CanvasResident() {
   /* ---------- global reward events ---------- */
   useEffect(() => {
     if (!enabled || readOnly) return;
+    const celebrate = (text: string) => {
+      const sim = simRef.current;
+      if (sim.dragging || sim.falling) return;
+      sim.behavior = { kind: 'celebrate', dwell: 2800 };
+      sim.phase = 'dwell';
+      sim.dwellUntil = performance.now() + 2800;
+      sim.pose = 'celebrate';
+      sim.poseT = 0;
+      sim.bubble = text;
+      sim.bubbleUntil = performance.now() + 2600;
+    };
     const onPomodoro = () => {
       profileRef.current.pomodoros += 1;
       persist();
       bumpCard((v) => v + 1);
-      celebrate('✓');
+      celebrate('task complete!');
     };
     const onGoal = () => {
       profileRef.current.medalUntil = Date.now() + 24 * 3600_000;
       persist();
       bumpCard((v) => v + 1);
-      celebrate('★');
-    };
-    const celebrate = (glyph: string) => {
-      const sim = simRef.current;
-      if (sim.dragging) return;
-      sim.behavior = { kind: 'celebrate', dwell: 2600 };
-      sim.phase = 'dwell';
-      sim.dwellUntil = performance.now() + 2600;
-      sim.pose = 'celebrate';
-      sim.poseT = 0;
-      sim.bubble = glyph;
-      sim.bubbleUntil = performance.now() + 2200;
+      celebrate('nice one');
     };
     window.addEventListener('mindspace:pomodoro-complete', onPomodoro);
     window.addEventListener('mindspace:goal-complete', onGoal);
@@ -372,10 +416,11 @@ export default function CanvasResident() {
   }, [enabled, readOnly, pawTrail.length, trailFading]);
 
   /* ================================================================
-     THE LOOP — physics, brain ticks, and the pixel renderer
+     THE LOOP — physics, brain ticks, and the sprite blitter
      ================================================================ */
   useEffect(() => {
     if (!enabled || readOnly) return;
+    sheetRef.current = getSheet(personaRef.current.coat);
     let raf = 0;
     let last = performance.now();
 
@@ -387,24 +432,21 @@ export default function CanvasResident() {
       const persona = personaRef.current;
       const brain = brainRef.current;
       const rng = brain.rng;
+      const busy = sim.dragging || sim.falling;
 
       /* ---------- attention: the cursor makes it LOOK, not move ---------- */
       const c = cursorRef.current;
-      const cx = sim.x, cy = sim.y - 24 * SCALE; // roughly the head
+      const cx = sim.x, cy = sim.y - 26 * ART_PX; // roughly the head
       const dCursor = Math.hypot(c.wx - cx, c.wy - cy);
       const nearCursor = dCursor < 170;
 
-      if (nearCursor && !sim.dragging) {
+      if (nearCursor && !busy) {
         if (sim.attentive < 0.01) sim.attentiveSince = now;
         sim.attentive = Math.min(1, sim.attentive + dt * 4);
         const dx = c.wx - cx, dy = c.wy - cy;
         const m = Math.max(1, Math.hypot(dx, dy));
         sim.lookX = dx / m;
         sim.lookY = dy / m;
-        // an occasional tiny head tilt once it's been watching a moment
-        if (now - sim.attentiveSince > 900 && rng() < dt * 0.5) {
-          sim.headTilt = (rng() < 0.5 ? -1 : 1) * (0.5 + rng() * 0.5);
-        }
         // petting: cursor resting ON the cat
         const onCat = Math.abs(c.wx - sim.x) < 34 && c.wy > sim.y - 52 && c.wy < sim.y + 6;
         const cursorSpeed = Math.hypot(c.vx, c.vy);
@@ -412,7 +454,7 @@ export default function CanvasResident() {
           sim.petMs += dt * 1000;
           if (sim.petMs > 1200 && now - sim.lastPurr > 8000) {
             sim.lastPurr = now;
-            sim.slowBlinkT = 0.0001; // start a slow, trusting blink
+            sim.slowBlinkT = 0.0001; // a slow, trusting blink
             sim.petMs = 0;
           }
         } else {
@@ -420,10 +462,9 @@ export default function CanvasResident() {
         }
         // a cursor RUSHING at the cat startles it (and wakes it)
         const approach = ((cx - c.wx) * c.vx + (cy - c.wy) * c.vy) / Math.max(1, dCursor);
-        if (dCursor < 150 && approach > 1300 && sim.pose !== 'startle' && !sim.dragging) {
+        if (dCursor < 150 && approach > 1300 && sim.pose !== 'startle') {
           sim.pose = 'startle';
           sim.poseT = 0;
-          sim.tailPuff = 1;
           sim.behavior = null;
           const away = Math.sign(cx - c.wx) || 1;
           sim.x += away * 12;
@@ -431,10 +472,8 @@ export default function CanvasResident() {
         }
       } else {
         sim.attentive = Math.max(0, sim.attentive - dt * 2);
-        sim.headTilt *= Math.max(0, 1 - dt * 3);
         sim.petMs = 0;
       }
-      sim.headTiltCur += (sim.headTilt - sim.headTiltCur) * Math.min(1, dt * 8);
 
       /* ---------- blinking: sampled fresh every single time ---------- */
       if (sim.slowBlinkT > 0) {
@@ -457,16 +496,31 @@ export default function CanvasResident() {
       }
       if (sim.pose === 'sleep') sim.eyeOpen = 0;
 
-      /* ---------- ear flicks ---------- */
-      if (sim.pose !== 'sleep' || rng() < 0.3) {
-        if (sim.earFlickL <= 0 && rng() < persona.earTwitchiness * dt) sim.earFlickL = 140;
-        if (sim.earFlickR <= 0 && rng() < persona.earTwitchiness * dt * 0.8) sim.earFlickR = 140;
+      /* ---------- ear flicks (a frame swap, held briefly) ---------- */
+      if (sim.earFlick <= 0 && sim.pose !== 'sleep' && rng() < persona.earTwitchiness * dt) {
+        sim.earFlick = 170;
       }
-      sim.earFlickL = Math.max(0, sim.earFlickL - dt * 1000);
-      sim.earFlickR = Math.max(0, sim.earFlickR - dt * 1000);
+      sim.earFlick = Math.max(0, sim.earFlick - dt * 1000);
+
+      /* ---------- the fall after a drop ---------- */
+      if (sim.falling) {
+        sim.fallVY += 1500 * dt;
+        sim.y += sim.fallVY * dt;
+        if (sim.y >= sim.landY) {
+          sim.y = sim.landY;
+          sim.falling = false;
+          sim.fallVY = 0;
+          sim.pose = 'squash';       // absorb the landing before standing up
+          sim.poseT = 0;
+          profileRef.current.pos[spaceKey] = { x: sim.x, y: sim.y };
+          persist();
+          nextThinkRef.current = now + 1400;
+        }
+      }
 
       /* ---------- brain: choose / advance behaviors ---------- */
-      if (!sim.dragging && sim.pose !== 'startle') {
+      const scripted = sim.pose === 'startle' || sim.pose === 'squash';
+      if (!busy && !scripted) {
         if (!sim.behavior && now >= nextThinkRef.current) {
           const store = useCanvasStore.getState();
           const p = perceive(store.objects, spaceKey === 'root' ? undefined : spaceKey, Date.now());
@@ -500,62 +554,61 @@ export default function CanvasResident() {
               const ty = (dy / dist) * sp;
               sim.vx += (tx - sim.vx) * Math.min(1, dt * 3.2);
               sim.vy += (ty - sim.vy) * Math.min(1, dt * 3.2);
-              sim.x += sim.vx * dt;
-              sim.y += sim.vy * dt;
+              const mx = sim.vx * dt, my = sim.vy * dt;
+              sim.x += mx;
+              sim.y += my;
+              // the gait is driven by ground covered, so the paws don't skate
+              sim.stridePhase += Math.hypot(mx, my) / STRIDE;
               if (Math.abs(sim.vx) > 4) sim.facing = (sim.vx > 0 ? 1 : -1) as 1 | -1;
-              sim.pose = 'walk';
+              if (sim.pose !== 'walk') { sim.pose = 'walk'; sim.poseT = 0; }
             }
           } else {
             // dwell payloads
             advanceDwell(sim, b, now, dt, rng);
             if (now >= sim.dwellUntil) {
               sim.behavior = null;
-              sim.rotation = 0;
-              if (sim.pose !== 'sleep') sim.pose = 'stand';
+              if (sim.pose !== 'sleep') { sim.pose = 'stand'; sim.poseT = 0; }
               nextThinkRef.current = now + 150 + rng() * 400;
             }
           }
         }
       }
 
-      if (sim.pose === 'startle') {
-        sim.poseT += dt * 1000;
-        if (sim.poseT > 520) { sim.pose = 'stand'; sim.poseT = 0; }
-      }
-      sim.tailPuff = Math.max(0, sim.tailPuff - dt * 0.4);
+      if (sim.pose === 'startle' && sim.poseT > 620) { sim.pose = 'stand'; sim.poseT = 0; }
+      if (sim.pose === 'squash' && sim.poseT > 240) { sim.pose = 'stand'; sim.poseT = 0; }
 
-      /* ---------- gait + speed ---------- */
-      sim.speed = Math.hypot(sim.vx, sim.vy);
-      if (sim.pose === 'walk' || sim.pose === 'tightrope' || sim.pose === 'perch') {
-        sim.gait += dt * (3.2 + sim.speed * 0.055);
-      }
       sim.poseT += dt * 1000;
 
-      /* ---------- tail spring physics ---------- */
-      updateTail(sim, persona, dt, now);
-
       /* ---------- push to the DOM ---------- */
+      const sheet = sheetRef.current;
+      const frame = sheet?.[frameNameFor(sim)];
       const wrap = wrapRef.current;
-      if (wrap) {
-        wrap.style.left = `${sim.x}px`;
-        wrap.style.top = `${sim.y}px`;
-        wrap.style.transform = `translate(-50%, -100%) rotate(${sim.rotation}rad)`;
+      if (wrap && frame) {
+        // whole-art-pixel positions only; fractional ones shimmer as they move
+        const rx = Math.round(sim.x / ART_PX) * ART_PX;
+        const ry = Math.round(sim.y / ART_PX) * ART_PX;
+        const ax = sim.facing < 0 ? ART_W - frame.anchorX : frame.anchorX;
+        wrap.style.left = `${rx - ax * ART_PX}px`;
+        wrap.style.top = `${ry - ART_H * ART_PX}px`;
       }
       const shadow = shadowRef.current;
       if (shadow) {
-        const lift = sim.pose === 'celebrate' ? Math.abs(Math.sin(sim.poseT / 130)) : 0;
-        shadow.style.opacity = String(0.18 - lift * 0.1);
-        shadow.style.transform = `translateX(-50%) scaleX(${sim.pose === 'sleep' ? 1.15 : 1 - lift * 0.25})`;
+        // the shadow is the only cue that the jump leaves the ground
+        const airborne = sim.pose === 'celebrate' && frameNameFor(sim) === POSE_FRAMES.celebrate[1];
+        const wide = sim.pose === 'sleep' || sim.pose === 'squash';
+        shadow.style.opacity = String(airborne ? 0.07 : 0.16);
+        shadow.style.transform = `translateX(-50%) scaleX(${wide ? 1.2 : airborne ? 0.7 : 1})`;
       }
       const bubble = bubbleRef.current;
       if (bubble) {
-        const show = sim.bubble && now < sim.bubbleUntil;
+        const show = !!sim.bubble && now < sim.bubbleUntil;
         bubble.style.opacity = show ? '1' : '0';
-        bubble.style.transform = show ? 'translateY(0) scale(1)' : 'translateY(4px) scale(0.6)';
-        if (show) bubble.textContent = sim.bubble;
+        bubble.style.transform = show ? 'translateY(0)' : 'translateY(4px)';
+        const label = bubble.firstElementChild as HTMLElement | null;
+        if (show && label && label.textContent !== sim.bubble) label.textContent = sim.bubble;
       }
 
-      drawCat(sim, persona, profileRef.current);
+      drawSprite(sim, frame);
     };
 
     raf = requestAnimationFrame(loop);
@@ -563,7 +616,7 @@ export default function CanvasResident() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, readOnly, spaceKey, nest]);
 
-  /* ---------- behavior helpers (module-scope-ish, close over nothing) ---------- */
+  /* ---------- behavior helpers ---------- */
 
   function enterDwellPose(sim: Sim, b: Behavior) {
     sim.poseT = 0;
@@ -595,11 +648,11 @@ export default function CanvasResident() {
       case 'tightrope': {
         const c = b.connector!;
         const dur = Math.max(2600, c.length * 22); // pace scales with rope length
+        const before = { x: sim.x, y: sim.y };
         sim.ropeT = Math.min(1, sim.ropeT + (dt * 1000) / dur);
         const pt = ropePoint(c, sim.ropeT);
         sim.x = pt.x; sim.y = pt.y;
-        const balance = Math.sin(sim.poseT / 260) * 0.06 + Math.sin(sim.poseT / 730) * 0.04;
-        sim.rotation = Math.max(-0.55, Math.min(0.55, pt.angle * (Math.abs(pt.angle) > Math.PI / 2 ? 0 : 1))) + balance;
+        sim.stridePhase += Math.hypot(sim.x - before.x, sim.y - before.y) / STRIDE;
         sim.facing = (Math.cos(pt.angle) >= 0 ? 1 : -1) as 1 | -1;
         sim.pose = 'tightrope';
         if (sim.ropeT >= 1) sim.dwellUntil = now; // done crossing
@@ -612,7 +665,9 @@ export default function CanvasResident() {
         if (sim.perchStage === 0) {
           // walk the top edge
           const endX = obj.x + obj.width - 10;
-          sim.x += 34 * dt;
+          const step = 34 * dt;
+          sim.x += step;
+          sim.stridePhase += step / STRIDE;
           sim.facing = 1;
           sim.pose = 'perch';
           if (sim.x >= endX) { sim.perchStage = 1; sim.poseT = 0; }
@@ -622,8 +677,7 @@ export default function CanvasResident() {
           const t = Math.min(1, sim.poseT / (slide ? 460 : 320));
           sim.x += (slide ? 60 : 40) * dt;
           sim.y = obj.y - 1 + t * t * (obj.height + 1);
-          sim.rotation = slide ? 0.3 * (1 - t) : 0;
-          if (t >= 1) { sim.rotation = 0; sim.dwellUntil = now; }
+          if (t >= 1) sim.dwellUntil = now;
         }
         break;
       }
@@ -648,274 +702,84 @@ export default function CanvasResident() {
         break;
       }
       case 'mirror': {
-        // stare, tilt, one experimental paw
         if (sim.poseT > 1500 && sim.poseT < 1600 && !sim.bubble) {
           sim.bubble = '?';
           sim.bubbleUntil = now + 1500;
         }
-        if (rng() < dt * 0.7) sim.headTilt = (rng() < 0.5 ? -1 : 1) * 0.8;
         break;
       }
       case 'sleep': {
-        // nothing to do — sleeping IS the behavior. Breathing lives in the draw.
+        // nothing to do — sleeping IS the behavior. Breathing lives in the frames.
         break;
       }
       default: break;
     }
   }
 
-  /* ---------- tail ---------- */
-  function updateTail(sim: Sim, persona: CatPersonality, dt: number, now: number) {
-    const t = now / 1000;
-    const excited = sim.pose === 'celebrate' || sim.tailPuff > 0.4;
-    const lashing = sim.attentive > 0.6 && (sim.pose === 'sit' || sim.pose === 'stand');
-    const asleep = sim.pose === 'sleep';
-    const speedMul = asleep ? 0.15 : lashing ? 1.9 : excited ? 2.2 : 1;
-    const ampMul = asleep ? 0.12 : lashing ? 1.5 : excited ? 1.3 : 1;
-    for (let i = 0; i < TAIL_SEGS; i++) {
-      const k = i / (TAIL_SEGS - 1);
-      let base: number;
-      if (sim.pose === 'walk' || sim.pose === 'stand' || sim.pose === 'perch') {
-        base = -0.9 - k * 0.9; // relaxed up-curve
-      } else if (sim.pose === 'tightrope') {
-        base = -1.5 - k * 0.4 - sim.rotation * 2.2 * k; // counter-balance pole
-      } else if (sim.pose === 'startle' || sim.tailPuff > 0.5) {
-        base = -1.5 - k * 0.2;
-      } else if (asleep) {
-        base = 0.6 + k * 2.4; // wrapped around the body
-      } else if (sim.pose === 'celebrate') {
-        base = -1.6 - k * 0.2;
-      } else {
-        base = -0.4 - k * 1.4; // sitting: draped
-      }
-      const wave = Math.sin(t * persona.tailSpeed * 2.4 * speedMul + i * 0.62) * 0.14 * ampMul * (0.3 + k);
-      const target = base + wave;
-      sim.tail[i] += (target - sim.tail[i]) * Math.min(1, dt * (5 + k * 5));
-    }
-  }
-
   /* ================================================================
-     THE PIXEL CAT — drawn from scratch every frame
+     THE BLITTER — one baked frame, plus eyes that are actually alive
      ================================================================ */
-  function drawCat(sim: Sim, persona: CatPersonality, profile: CatProfile) {
+  function drawSprite(sim: Sim, frame: CompiledFrame | undefined) {
     const cv = spriteRef.current;
-    if (!cv) return;
+    if (!cv || !frame) return;
+
+    // match the backing store to the camera so one art pixel is one pixel block
+    const zoom = useCanvasStore.getState().camera.zoom;
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const k = Math.max(1, Math.min(10, Math.round(ART_PX * zoom * dpr)));
+    if (k !== backingRef.current) {
+      backingRef.current = k;
+      cv.width = ART_W * k;
+      cv.height = ART_H * k;
+    }
+
     const ctx = cv.getContext('2d');
     if (!ctx) return;
-    const pal = COAT_PALETTES[persona.coat % COAT_PALETTES.length];
-    ctx.clearRect(0, 0, GW * PX, GH * PX);
-    ctx.save();
-    ctx.scale(PX, PX);
-    if (sim.facing < 0) { ctx.translate(GW, 0); ctx.scale(-1, 1); }
+    const pal = COATS[personaRef.current.coat % COATS.length];
 
-    const px = (x: number, y: number, w: number, h: number, color: string) => {
-      ctx.fillStyle = color;
-      ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
-    };
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.imageSmoothingEnabled = false;
+    ctx.scale(k, k);
+    if (sim.facing < 0) { ctx.translate(ART_W, 0); ctx.scale(-1, 1); }
 
-    const month = new Date().getMonth();
-    const hasScarf = month === 11 || month === 0 || month === 1;
-    const hasHat = profile.pomodoros >= 100;
-    const hasMedal = profile.medalUntil > Date.now();
+    ctx.drawImage(frame.img, 0, 0);
 
-    /* --- tail (drawn first, behind the body) --- */
-    const drawTail = (baseX: number, baseY: number) => {
-      let tx = baseX, ty = baseY, ang = Math.PI; // start pointing backward
-      const size = sim.tailPuff > 0.4 ? 3 : 2;
-      for (let i = 0; i < TAIL_SEGS; i++) {
-        ang = Math.PI + sim.tail[i];
-        tx += Math.cos(ang) * 2.1;
-        ty += Math.sin(ang) * 2.1;
-        const ring = pal.stripe && i % 3 === 2 ? pal.stripe : i >= TAIL_SEGS - 2 ? pal.dark : pal.body;
-        px(tx - size / 2, ty - size / 2, size, size, ring);
+    // Pupils are painted here rather than baked, so the cat can watch the
+    // cursor without a second copy of every frame.
+    const open = sim.eyeOpen;
+    const localLookX = sim.facing < 0 ? -sim.lookX : sim.lookX;
+    const track = sim.attentive > 0.25 ? 1 : 0;
+    const px = track ? Math.round(Math.max(-1, Math.min(1, localLookX * 1.6))) : 0;
+    const py = track ? Math.round(Math.max(-1, Math.min(1, sim.lookY * 1.6))) : 0;
+
+    if (open > 0.32) {
+      ctx.fillStyle = pal.pupil;
+      for (let i = 0; i < frame.pupils.length; i++) {
+        const p = frame.pupils[i];
+        const eye = frame.eyes[i];
+        const x = eye ? Math.max(eye.x, Math.min(eye.x + eye.w - p.w, p.x + px)) : p.x + px;
+        const y = eye ? Math.max(eye.y, Math.min(eye.y + eye.h - p.h, p.y + py)) : p.y + py;
+        ctx.fillRect(x, y, p.w, p.h);
       }
-    };
-
-    /* --- ears (shared by profile + front heads) --- */
-    const ear = (x: number, y: number, flick: number, inner: boolean) => {
-      const drop = flick > 0 ? 1 : 0;
-      px(x, y + 2 + drop, 4, 2, pal.body);
-      px(x + 1, y + drop, 2, 2, pal.body);
-      if (inner && flick <= 0) px(x + 1, y + 2, 1, 1, pal.earInner);
-    };
-
-    /* --- eyes --- */
-    const eye = (x: number, y: number, pupilShift: number) => {
-      px(x, y, 2, 2, pal.eye);
-      const open = sim.eyeOpen;
-      if (open > 0.15) {
-        px(x + Math.max(0, Math.min(1, pupilShift)), y + (sim.lookY > 0.4 ? 1 : 0), 1, open > 0.6 ? 2 : 1, '#1B1B1F');
-      }
-      const lid = Math.round((1 - open) * 2);
-      if (lid > 0) px(x, y, 2, lid, pal.body);
-    };
-
-    const attentiveHead = sim.attentive > 0.55 && sim.pose !== 'sleep' && sim.pose !== 'scruff' && sim.pose !== 'stretch';
-    const tiltPx = Math.round(sim.headTiltCur * 1.6);
-    // pupils toward cursor, mapped into the sprite's local flip
-    const pupilShift = sim.facing < 0 ? (sim.lookX < -0.2 ? 1 : 0) : (sim.lookX > 0.2 ? 1 : 0);
-
-    const drawHeadProfile = (hx: number, hy: number) => {
-      px(hx, hy, 11, 10, pal.body);
-      px(hx + 9, hy + 5, 4, 4, pal.body);           // muzzle
-      px(hx + 9, hy + 8, 3, 1, pal.belly);          // chin
-      px(hx + 12, hy + 6, 1, 1, pal.nose);
-      ear(hx, hy - 3, sim.earFlickL, true);
-      ear(hx + 6, hy - 3, sim.earFlickR, true);
-      eye(hx + 6, hy + 3, pupilShift);
-      if (pal.stripe) { px(hx + 2, hy, 1, 3, pal.stripe); px(hx + 5, hy, 1, 2, pal.stripe); }
-      if (hasHat) { px(hx - 1, hy - 4, 12, 2, '#3E63DD'); px(hx + 1, hy - 6, 8, 2, '#3E63DD'); px(hx + 4, hy - 7, 2, 1, '#F5EFE7'); }
-    };
-
-    const drawHeadFront = (hx: number, hy: number) => {
-      // the over-the-shoulder look: both eyes on you
-      const lY = hy + (tiltPx > 0 ? 1 : 0);
-      const rY = hy + (tiltPx < 0 ? 1 : 0);
-      px(hx, hy, 12, 11, pal.body);
-      ear(hx - 1, lY - 3, sim.earFlickL, true);
-      ear(hx + 8, rY - 3, sim.earFlickR, true);
-      eye(hx + 2, lY + 4, pupilShift);
-      eye(hx + 8, rY + 4, pupilShift);
-      px(hx + 5, hy + 7, 2, 1, pal.nose);
-      px(hx + 4, hy + 9, 4, 1, pal.belly);          // muzzle
-      if (pal.stripe) px(hx + 5, hy, 2, 3, pal.stripe);
-      if (hasHat) { px(hx - 1, hy - 4, 14, 2, '#3E63DD'); px(hx + 1, hy - 6, 10, 2, '#3E63DD'); px(hx + 5, hy - 7, 2, 1, '#F5EFE7'); }
-    };
-
-    const drawScarf = (x: number, y: number, w: number) => {
-      px(x, y, w, 2, '#D64545');
-      px(x + 1, y + 2, 2, 3, '#B93A3A');
-    };
-
-    /* ---------------- poses ---------------- */
-    const bob = (sim.pose === 'walk' || sim.pose === 'perch' || sim.pose === 'tightrope')
-      ? Math.round(Math.sin(sim.gait * 2) * 1) : 0;
-
-    if (sim.pose === 'sleep') {
-      const breathe = Math.sin(sim.poseT / 1100) > 0.6 ? 1 : 0;
-      // curled loaf: stacked rows approximating a circle
-      px(12, 26 - breathe, 20, 6 + breathe, pal.body);
-      px(14, 22 - breathe, 16, 4, pal.body);
-      px(17, 20 - breathe, 10, 2, pal.body);
-      px(14, 30, 16, 2, pal.dark);
-      // tucked head
-      px(24, 22, 9, 8, pal.body);
-      px(31, 26, 2, 2, pal.nose);
-      px(26, 25, 4, 1, pal.dark);                    // closed eye line
-      ear(24, 19, sim.earFlickL, false);
-      ear(29, 19, sim.earFlickR, false);
-      // tail wrapped to the nose
-      px(10, 29, 16, 2, pal.stripe || pal.dark);
-      px(24, 28, 3, 2, pal.dark);
-      if (hasScarf) drawScarf(22, 28, 8);
-    } else if (sim.pose === 'sit' || sim.pose === 'groom') {
-      const grooming = sim.pose === 'groom';
-      const lick = grooming ? Math.round(Math.sin(sim.poseT / 160) * 1) : 0;
-      drawTail(11, 27);
-      // haunches
-      px(10, 18, 14, 10, pal.body);
-      px(12, 16, 10, 2, pal.body);
-      px(10, 28, 14, 4, pal.body);
-      px(11, 31, 12, 1, pal.dark);
-      // chest + front legs
-      px(22, 14, 8, 18, pal.body);
-      px(23, 20, 3, 12, pal.belly);
-      px(23, 32, 2, 2, pal.body);
-      px(27, 32, 2, 2, pal.body);
-      if (grooming) {
-        // one paw up, head bent to it
-        px(27, 22 + lick, 3, 3, pal.body);
-        drawHeadProfile(23, 8 + 2 + lick);
-      } else if (attentiveHead) {
-        drawHeadFront(21, 4);
-      } else {
-        drawHeadProfile(23, 6);
-      }
-      if (hasScarf) drawScarf(22, 13, 8);
-      if (hasMedal) px(25, 16, 2, 2, '#E8C547');
-    } else if (sim.pose === 'stretch') {
-      const t = Math.min(1, sim.poseT / 700);
-      const butt = Math.round(4 * t);
-      drawTail(9, 20 - butt);
-      px(8, 20 - butt, 12, 8, pal.body);             // raised rear
-      px(9, 27, 2, 7, pal.body); px(15, 27, 2, 7, pal.body);
-      px(18, 24, 12, 5, pal.body);                    // sloping back
-      px(28, 27, 8, 3, pal.body);                     // chest low
-      px(30, 30, 2, 4, pal.body); px(34, 30, 2, 4, pal.body); // front paws forward
-      drawHeadProfile(32, 16);
-    } else if (sim.pose === 'scruff') {
-      // hanging from the cursor by the scruff — limp, judging you
-      const sway = Math.round(Math.sin(sim.poseT / 300) * 1 + Math.max(-2, Math.min(2, sim.dragVX * 0.015)));
-      px(19 + sway, 12, 10, 14, pal.body);
-      px(21 + sway, 18, 6, 7, pal.belly);
-      const dangle = (i: number) => Math.round(Math.sin(sim.poseT / 240 + i * 1.4) * 1);
-      px(19 + sway, 26 + dangle(0), 2, 5, pal.body);
-      px(22 + sway, 26 + dangle(1), 2, 6, pal.body);
-      px(25 + sway, 26 + dangle(2), 2, 5, pal.body);
-      px(27 + sway, 26 + dangle(3), 2, 6, pal.body);
-      // tail hangs too
-      px(23 + sway, 31, 2, 4, pal.stripe || pal.dark);
-      // flat-eared, half-lidded head
-      px(18 + sway, 2, 12, 11, pal.body);
-      px(17 + sway, 3, 4, 2, pal.body); px(27 + sway, 3, 4, 2, pal.body); // flattened ears
-      px(20 + sway, 7, 2, 1, pal.eye); px(26 + sway, 7, 2, 1, pal.eye);   // narrowed eyes
-      px(23 + sway, 9, 2, 1, pal.nose);
-    } else if (sim.pose === 'startle') {
-      // the Halloween arch
-      drawTail(9, 14);
-      px(8, 16, 6, 8, pal.body);
-      px(12, 12, 8, 10, pal.body);                    // arched middle
-      px(18, 14, 8, 9, pal.body);
-      px(9, 24, 2, 10, pal.body); px(13, 24, 2, 10, pal.body);
-      px(21, 24, 2, 10, pal.body); px(25, 24, 2, 10, pal.body);
-      px(24, 4, 11, 10, pal.body);                    // head high, eyes wide
-      ear(24, 1, 0, true); ear(30, 1, 0, true);
-      px(27, 8, 2, 2, pal.eye); px(31, 8, 2, 2, pal.eye);
-      px(27, 8, 2, 2, '#1B1B1F'); px(31, 8, 2, 2, '#1B1B1F'); // dilated pupils
-      px(34, 10, 1, 1, pal.nose);
-    } else if (sim.pose === 'celebrate') {
-      const hop = Math.abs(Math.sin(sim.poseT / 130)) * 5;
-      const y0 = -Math.round(hop);
-      drawTail(10, 17 + y0);
-      px(9, 16 + y0, 22, 10, pal.body);
-      px(11, 24 + y0, 18, 2, pal.belly);
-      px(11, 26 + y0, 2, 8 - y0, pal.body); px(15, 26 + y0, 2, 8 - y0, pal.body);
-      px(23, 26 + y0, 2, 8 - y0, pal.body); px(27, 26 + y0, 2, 8 - y0, pal.body);
-      drawHeadFront(24, 5 + y0);
-      if (hasScarf) drawScarf(26, 15 + y0, 8);
-      if (hasMedal) px(29, 18 + y0, 2, 2, '#E8C547');
-    } else {
-      /* stand / walk / tightrope / perch — the workhorse pose */
-      const bodyTop = 16 + bob;
-      const bodyBot = 26 + bob;
-      drawTail(10, bodyTop + 1);
-      // legs — diagonal-pair gait, far legs darker for depth
-      const legs = [
-        { x: 12, ph: Math.PI, far: true },
-        { x: 15, ph: 0, far: false },
-        { x: 25, ph: 0, far: true },
-        { x: 28, ph: Math.PI, far: false },
-      ];
-      const moving = sim.speed > 6 || sim.pose === 'perch' || sim.pose === 'tightrope';
-      for (const leg of legs) {
-        const lift = moving ? Math.max(0, Math.sin(sim.gait + leg.ph)) * 2 : 0;
-        const stride = moving ? Math.cos(sim.gait + leg.ph) * 1.6 : 0;
-        px(leg.x + stride, bodyBot, 2, GY - bodyBot - lift, leg.far ? pal.dark : pal.body);
-      }
-      // body
-      px(9, bodyTop, 22, bodyBot - bodyTop, pal.body);
-      px(10, bodyTop - 1, 20, 1, pal.body);
-      px(11, bodyBot - 2, 18, 2, pal.belly);
-      px(10, bodyBot, 20, 1, pal.dark);
-      if (pal.stripe) for (let sx = 12; sx < 28; sx += 5) px(sx, bodyTop, 1, 4, pal.stripe);
-      // head
-      if (attentiveHead) drawHeadFront(26, 5 + bob);
-      else drawHeadProfile(29, 7 + bob);
-      if (hasScarf) drawScarf(27, bodyTop - 2, 8);
-      if (hasMedal) px(30, bodyTop + 2, 2, 2, '#E8C547');
     }
 
-    ctx.restore();
+    // lids close from the top; at the bottom of a blink the eye is one line
+    if (open < 0.995) {
+      for (const eye of frame.eyes) {
+        const lid = Math.min(eye.h, Math.round(eye.h * (1 - open)));
+        if (lid > 0) {
+          ctx.fillStyle = pal.body;
+          ctx.fillRect(eye.x, eye.y, eye.w, lid);
+        }
+        if (open < 0.2) {
+          ctx.fillStyle = pal.detail;
+          ctx.fillRect(eye.x, eye.y + Math.floor(eye.h / 2), eye.w, 1);
+        }
+      }
+    }
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
   /* ---------------- pointer: drag, drop, click-for-card ---------------- */
@@ -927,6 +791,7 @@ export default function CanvasResident() {
     const wx = (e.clientX - cam.x) / cam.zoom;
     const wy = (e.clientY - cam.y) / cam.zoom;
     sim.dragging = true;
+    sim.falling = false;
     sim.dragMoved = 0;
     sim.dragOff = { x: sim.x - wx, y: sim.y - wy };
     sim.behavior = null;
@@ -938,12 +803,11 @@ export default function CanvasResident() {
       const nwx = (ev.clientX - cam2.x) / cam2.zoom;
       const nwy = (ev.clientY - cam2.y) / cam2.zoom;
       sim.dragMoved += Math.abs(ev.movementX) + Math.abs(ev.movementY);
-      if (sim.dragMoved > 6) sim.pose = 'scruff';
+      if (sim.dragMoved > 6 && sim.pose !== 'scruff') { sim.pose = 'scruff'; sim.poseT = 0; }
       sim.dragVX = (ev.clientX - lastX) * 3;
       lastX = ev.clientX;
       sim.x = nwx + sim.dragOff.x;
       sim.y = nwy + sim.dragOff.y + (sim.pose === 'scruff' ? 46 : 0); // hangs below the hand
-      sim.rotation = 0;
     };
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
@@ -952,12 +816,10 @@ export default function CanvasResident() {
       sim.dragging = false;
       sim.dragVX = 0;
       if (wasDrag) {
-        sim.pose = 'stand';
-        sim.poseT = 0;
-        sim.tailPuff = 0.5;                     // mild indignity
-        nextThinkRef.current = performance.now() + 2500; // a beat to recompose
-        profileRef.current.pos[spaceKey] = { x: sim.x, y: sim.y };
-        persist();
+        // let go and the cat DROPS — gravity, then a landing it has to absorb
+        sim.falling = true;
+        sim.fallVY = 40;
+        sim.landY = sim.y + 16;
       } else {
         setCardOpen((v) => !v);
       }
@@ -970,7 +832,7 @@ export default function CanvasResident() {
 
   const profile = profileRef.current;
   const persona = personaRef.current;
-  const coat = COAT_PALETTES[persona.coat % COAT_PALETTES.length];
+  const coat = COATS[persona.coat % COATS.length];
   const stamps = Object.values(profile.stamps);
 
   return (
@@ -1031,10 +893,9 @@ export default function CanvasResident() {
         ref={wrapRef}
         className="absolute"
         style={{
-          width: GW * SCALE,
-          height: GH * SCALE,
+          width: ART_W * ART_PX,
+          height: ART_H * ART_PX,
           zIndex: 99999,
-          transform: 'translate(-50%, -100%)',
           cursor: 'grab',
           pointerEvents: 'auto',
         }}
@@ -1044,40 +905,61 @@ export default function CanvasResident() {
           ref={shadowRef}
           className="absolute pointer-events-none"
           style={{
-            left: '50%', bottom: -3,
-            width: GW * SCALE * 0.6, height: 8,
+            left: '50%', bottom: -2,
+            width: ART_W * ART_PX * 0.45, height: 7,
             borderRadius: '50%',
             background: 'rgba(30,20,10,1)',
             opacity: 0.16,
             transform: 'translateX(-50%)',
-            transition: 'opacity 0.2s',
+            transition: 'opacity 0.12s, transform 0.12s',
           }}
         />
         <canvas
           ref={spriteRef}
-          width={GW * PX}
-          height={GH * PX}
           className="pointer-events-none"
-          style={{ width: '100%', height: '100%', imageRendering: 'pixelated' }}
+          style={{
+            width: ART_W * ART_PX,
+            height: ART_H * ART_PX,
+            imageRendering: 'pixelated',
+            display: 'block',
+          }}
         />
         <div
           ref={bubbleRef}
-          className="absolute pointer-events-none font-bold text-center"
+          className="absolute pointer-events-none"
           style={{
-            left: '58%', top: -16,
-            minWidth: 18, height: 18,
-            lineHeight: '15px',
-            fontSize: 11,
-            fontFamily: 'monospace',
-            background: '#FFFDFA',
-            color: '#2D2A26',
-            border: '2px solid #2D2A26',
-            borderRadius: '7px 7px 7px 1px',
-            padding: '0 3px',
+            left: '62%', bottom: '86%',
             opacity: 0,
-            transition: 'opacity 0.18s, transform 0.18s',
+            transition: 'opacity 0.16s, transform 0.16s',
+            whiteSpace: 'nowrap',
           }}
-        />
+        >
+          <span
+            style={{
+              display: 'block',
+              background: '#FFFDF8',
+              color: '#1B1B22',
+              border: '2px solid #1B1B22',
+              borderRadius: 3,
+              padding: '2px 5px',
+              fontSize: 9,
+              lineHeight: '11px',
+              fontWeight: 800,
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              letterSpacing: '0.02em',
+            }}
+          />
+          {/* the little pixel tail on the bubble */}
+          <span
+            style={{
+              position: 'absolute', left: 5, top: '100%',
+              width: 0, height: 0,
+              borderLeft: '4px solid transparent',
+              borderRight: '4px solid transparent',
+              borderTop: '5px solid #1B1B22',
+            }}
+          />
+        </div>
       </div>
 
       {/* profile card — click the cat */}
@@ -1158,8 +1040,8 @@ export default function CanvasResident() {
 
           <div className="text-[9px] text-[var(--text-muted)]" style={{ marginTop: 8 }}>
             {profile.pomodoros >= 100
-              ? 'Earned the beanie. 100 focus sessions.'
-              : `Beanie at 100 focus sessions (${100 - profile.pomodoros} to go)`}
+              ? 'Has sat through 100 focus sessions with you.'
+              : `${100 - profile.pomodoros} more focus sessions and it'll have sat through a hundred.`}
           </div>
         </div>
       )}

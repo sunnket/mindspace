@@ -10,6 +10,7 @@
  */
 
 import { CanvasObjectData } from '@/lib/db';
+import { COATS } from '@/lib/catSprites';
 
 /* ------------------------------------------------------------------ */
 /* Seeded randomness — the personality must be stable across sessions  */
@@ -43,19 +44,9 @@ export interface CatPersonality {
   coat: number;
 }
 
-export const COAT_PALETTES: {
-  name: string;
-  body: string; dark: string; belly: string; earInner: string; eye: string; nose: string; stripe?: string;
-}[] = [
-  { name: 'orange tabby', body: '#E8933A', dark: '#B96A1F', belly: '#F7DCB8', earInner: '#E8A9A0', eye: '#7FB069', nose: '#D97B6C', stripe: '#C9772A' },
-  { name: 'charcoal',     body: '#4A4A52', dark: '#33333A', belly: '#8C8C96', earInner: '#A08088', eye: '#E8C547', nose: '#3A3A40' },
-  { name: 'grey tabby',   body: '#9A9AA4', dark: '#6E6E78', belly: '#D8D8DE', earInner: '#C9A0A8', eye: '#6FA86F', stripe: '#7E7E8A', nose: '#8A6E74' },
-  { name: 'cream',        body: '#E8D5B5', dark: '#C4AC85', belly: '#F8F0E0', earInner: '#E0B0A8', eye: '#5F8FB0', nose: '#D9958A' },
-  { name: 'tuxedo',       body: '#3A3A42', dark: '#26262E', belly: '#F2EFE8', earInner: '#B08890', eye: '#C9A227', nose: '#2E2E36' },
-];
-
 export function makePersonality(seed: number): CatPersonality {
   const r = mulberry32(seed);
+  const coatRoll = r();
   return {
     blinkMin: 2200 + r() * 1800,       // 2.2–4.0s floor
     blinkMax: 5200 + r() * 3600,       // 5.2–8.8s ceiling
@@ -64,7 +55,8 @@ export function makePersonality(seed: number): CatPersonality {
     laziness: 0.7 + r() * 0.9,
     curiosity: 0.35 + r() * 0.55,
     walkSpeed: 46 + r() * 26,
-    coat: Math.floor(r() * COAT_PALETTES.length),
+    // the black cat is the house style — the other coats are the rare ones
+    coat: coatRoll < 0.6 ? 0 : 1 + Math.floor(((coatRoll - 0.6) / 0.4) * (COATS.length - 1)),
   };
 }
 
