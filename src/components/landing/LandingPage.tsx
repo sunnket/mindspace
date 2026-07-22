@@ -333,10 +333,10 @@ export default function LandingPage() {
     seedDatabaseIfEmpty().then(refresh).catch(console.error);
   }, [refresh]);
 
-  // The canvas gallery ships in a warm dark theme by default. Restore the light
-  // default palette on unmount so an opened canvas starts from its own theme.
+  // The gallery ships on true black. Restore the default palette on unmount so
+  // an opened canvas starts from its own theme.
   useEffect(() => {
-    applyCanvasTheme(presetById('graphite') || DEFAULT_BACKGROUND);
+    applyCanvasTheme(presetById('ink') || DEFAULT_BACKGROUND);
     return () => resetCanvasTheme();
   }, []);
 

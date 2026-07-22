@@ -70,8 +70,20 @@ html, body {
   overflow: hidden;
   position: fixed;
   font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: var(--bg-primary);
+  /* THE FIRST PAINT, and the reason the app no longer flashes white.
+     Both routes mount through `dynamic(..., { ssr: false })`, so the server
+     sends an empty shell and the browser paints `body` on its own for the ~0.5s
+     it takes the client chunk to arrive. That paint used to be the light
+     `--bg-primary` (#FAF6F1) while the app's actual default canvas is dark, so
+     every load — landing or canvas, cold or warm — opened with a full white
+     frame before the real UI faded in.
+     A literal #000 here (not a variable) is painted from the very first style
+     rule, before any JS decides on a theme. `color-scheme` does the same job for
+     the surfaces the page doesn't own: the scrollbars, the canvas overscroll
+     gutter, and the pre-CSS blank the browser draws on navigation. */
+  background: #000;
   color: var(--text-primary);
+  color-scheme: dark;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

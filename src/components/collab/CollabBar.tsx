@@ -15,7 +15,6 @@ export default function CollabBar() {
   const peers = useCollabStore((s) => s.peers);
   const presenter = useCollabStore((s) => s.presenter);
   const transportKind = useCollabStore((s) => s.transportKind);
-  const openModal = useCollabStore((s) => s.openModal);
   const leave = useCollabStore((s) => s.leave);
   const isHost = useCollabStore((s) => s.isHost);
   const guestOriginView = useCollabStore((s) => s.guestOriginView);
@@ -64,34 +63,18 @@ export default function CollabBar() {
     );
   };
 
+  /* The idle "Collaborate" pill used to sit here, permanently parked at the top
+     of every board. It now lives with the other board actions on the canvas
+     title, so this component renders nothing until a session is actually
+     running — at which point the live status bar below is exactly the kind of
+     thing that SHOULD hold the top of the screen. */
+  if (!active) return null;
+
   return (
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[120] pointer-events-none">
       <AnimatePresence mode="wait">
-        {!active ? (
-          <motion.button
-            key="share"
-            layout
-            initial={{ opacity: 0, y: -12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            transition={spring}
-            onClick={openModal}
-            whileHover={{ y: -1 }}
-            whileTap={{ scale: 0.97 }}
-            className="glass-bar pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-bold text-[var(--text-primary)] cursor-pointer hover:text-[var(--accent)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="18" cy="5" r="3" />
-              <circle cx="6" cy="12" r="3" />
-              <circle cx="18" cy="19" r="3" />
-              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-            </svg>
-            Collaborate
-          </motion.button>
-        ) : (
-          <motion.div
-            key="session"
+        <motion.div
+          key="session"
             layout
             initial={{ opacity: 0, y: -12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -187,8 +170,7 @@ export default function CollabBar() {
                 <line x1="21" y1="12" x2="9" y2="12" />
               </svg>
             </button>
-          </motion.div>
-        )}
+        </motion.div>
       </AnimatePresence>
     </div>
   );

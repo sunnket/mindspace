@@ -124,6 +124,9 @@ interface CanvasStore {
   installSkillPreset: (presetId: string) => void;
   clearSkillset: () => void;
   skillSetPanelOpen: boolean;
+  /** The Plugins dropdown, opened from the canvas-title header. */
+  pluginsPanelOpen: boolean;
+  setPluginsPanelOpen: (v: boolean) => void;
   setSkillSetPanelOpen: (v: boolean) => void;
 
   // Objects
@@ -611,6 +614,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   clearSkillset: () => set({ skillset: null, isDirty: true }),
   skillSetPanelOpen: false,
   setSkillSetPanelOpen: (skillSetPanelOpen) => set({ skillSetPanelOpen }),
+  pluginsPanelOpen: false,
+  setPluginsPanelOpen: (pluginsPanelOpen) => set({ pluginsPanelOpen }),
 
   // Objects
   objects: [],
