@@ -10,11 +10,38 @@ export const dynamic = 'force-dynamic';
  * image and POSTs it here. We run a NIM vision-language model and return a
  * concrete description the agent then grounds its caption on.
  *
- * POST { image: "data:image/...;base64,…", prompt?: string }
+ * POST { image: "data:image/...;base64,…" | "https://…", prompt?: string }
  *  → { description } on success, { error } otherwise (agent degrades gracefully).
  */
 
 const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
+
+/** Inline-image ceiling for the NIM payload (base64 chars, not bytes). */
+const MAX_INLINE_CHARS = 320_000;
+
+/**
+ * Fetch a web image and inline it as a data URL.
+ *
+ * Images placed from web search are plain https URLs, and a browser canvas
+ * can't re-encode them (cross-origin taint), so the agent used to go blind on
+ * exactly the pictures it most often had to look at. The server has no such
+ * restriction — it fetches the bytes and hands them over base64-encoded.
+ */
+async function inlineRemoteImage(url: string): Promise<string> {
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(12_000),
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MindspaceVision/1.0)' },
+  });
+  if (!res.ok) throw new Error(`image fetch failed (${res.status})`);
+
+  const contentType = (res.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+  if (!contentType.startsWith('image/')) throw new Error(`not an image (${contentType})`);
+
+  const buf = Buffer.from(await res.arrayBuffer());
+  const dataUrl = `data:${contentType};base64,${buf.toString('base64')}`;
+  if (dataUrl.length > MAX_INLINE_CHARS) throw new Error('remote image too large to inline');
+  return dataUrl;
+}
 
 // Vision-capable NIMs, strongest first. If one stalls/errors we fail over.
 const VISION_MODELS = [
@@ -32,12 +59,23 @@ export async function POST(req: NextRequest) {
   try {
     const { image, prompt } = await req.json();
 
-    if (typeof image !== 'string' || !/^data:image\//.test(image)) {
-      return NextResponse.json({ error: 'A data:image/... payload is required' }, { status: 400 });
+    if (typeof image !== 'string' || !/^(data:image\/|https?:\/\/)/i.test(image)) {
+      return NextResponse.json({ error: 'A data:image/... payload or an http(s) image URL is required' }, { status: 400 });
     }
+
+    let inline = image;
+    if (!/^data:image\//.test(image)) {
+      try {
+        inline = await inlineRemoteImage(image);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return NextResponse.json({ error: `Could not read that image URL: ${msg}` }, { status: 502 });
+      }
+    }
+
     // NIM inline images have a payload ceiling; the client should downscale, but
     // guard here so a huge upload fails fast instead of timing out upstream.
-    if (image.length > 320_000) {
+    if (inline.length > MAX_INLINE_CHARS) {
       return NextResponse.json({ error: 'Image too large; downscale before sending' }, { status: 413 });
     }
 
@@ -70,11 +108,14 @@ export async function POST(req: NextRequest) {
                 role: 'user',
                 content: [
                   { type: 'text', text: userPrompt },
-                  { type: 'image_url', image_url: { url: image } },
+                  { type: 'image_url', image_url: { url: inline } },
                 ],
               },
             ],
-            max_tokens: 320,
+            /* Enough room to actually transcribe a screenshot or read out a
+               chart — the frame agent asks for every visible word, and 320
+               tokens cut those descriptions off mid-sentence. */
+            max_tokens: 700,
             temperature: 0.2,
             stream: false,
           }),

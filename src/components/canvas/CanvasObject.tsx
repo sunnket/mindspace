@@ -31,6 +31,27 @@ import BinderBlock from './BinderBlock';
 import MirrorBlock from './MirrorBlock';
 import { createPortal } from 'react-dom';
 import { ImageShape, imageShapeStyle, nextImageShape, IMAGE_SHAPE_LABEL } from '@/lib/imageShapes';
+import { getFrameKind, frameColorOf, frameKindMeta, objectsInFrame, type FrameKind } from '@/lib/frames';
+
+/** The mark on a frame's title tab that says what kind of region it is. */
+function FrameKindGlyph({ kind }: { kind: FrameKind }) {
+  const common = {
+    width: 11, height: 11, viewBox: '0 0 24 24', fill: 'none',
+    stroke: 'currentColor', strokeWidth: 2.4,
+    strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
+    'aria-hidden': true, className: 'shrink-0',
+  };
+  if (kind === 'delete') {
+    return <svg {...common}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>;
+  }
+  if (kind === 'scene') {
+    return <svg {...common}><rect x="2" y="4" width="20" height="16" rx="2" /><line x1="7" y1="4" x2="7" y2="20" /><line x1="17" y1="4" x2="17" y2="20" /></svg>;
+  }
+  if (kind === 'agent') {
+    return <svg {...common}><path d="M12 3v3M12 18v3M3 12h3M18 12h3" /><circle cx="12" cy="12" r="4.5" /></svg>;
+  }
+  return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="2" /></svg>;
+}
 
 /**
  * The DOM range at a viewport point. Two engines, two spellings: Firefox ships
@@ -610,7 +631,12 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         setSelectedId(dragObj.id);
       }
 
-      if (dragObj.id === obj.id) {
+      /* Raising the clicked object to the top is right for everything EXCEPT a
+         frame. A frame is a backdrop: promote it and it covers the very blocks
+         it wraps, so the first click on a frame made all of its contents
+         unclickable (addObject already guards the creation path — this was the
+         same bug arriving through interaction instead). */
+      if (dragObj.id === obj.id && dragObj.type !== 'frame') {
         updateObject(dragObj.id, { zIndex: getNextZIndex() });
       }
 
@@ -1146,7 +1172,9 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
          write in it. There is nothing to select on an empty block anyway. */
       const isBlank = !(obj.content || '').trim();
       // image & mirror already returned above (they tap-to-cycle, never type).
-      const canType = !isFunctionalBlock;
+      // A frame is typed into through its title tab, never its body — clicking
+      // the empty middle of an unnamed frame must not open a rename.
+      const canType = !isFunctionalBlock && obj.type !== 'frame';
 
       if (canType && (isSelected || isBlank)) {
         caretPoint.current = { x: e.clientX, y: e.clientY };
@@ -1268,6 +1296,15 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       latestContent.current = obj.content || '';
       contentRef.current.focus();
 
+      // A real <input> (the frame's title tab) has no DOM range to aim at —
+      // select what's there so a rename can be typed straight over, and bail
+      // before the contentEditable caret machinery below.
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+        caretPoint.current = null;
+        target.select();
+        return;
+      }
+
       // Put the caret WHERE THE USER CLICKED. Entering edit mode swaps the
       // rendered markup for a raw-text editable, which destroys the browser's
       // own caret placement — so we re-derive it from the click point against
@@ -1341,7 +1378,11 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const target = contentRef.current as any;
         const text = 'value' in target ? target.value : target.innerText;
         latestContent.current = text;
-        
+
+        // A frame's title is a NAME, not prose — "Q1/Q2" or "@team roadmap"
+        // must stay typeable without a command palette hijacking the keystroke.
+        if (obj.type === 'frame') return;
+
         // Slash Command Detection: matches a forward slash optionally followed by search query, e.g. "/coun"
         const match = text.match(/(?:^|\s)\/([a-zA-Z]*)$/);
         if (match) {
@@ -1849,29 +1890,87 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       }
 
       case 'frame': {
-        const frameColor = (obj.style?.frameColor as string) || '#C97B4B';
+        const kind = getFrameKind(obj);
+        const frameColor = frameColorOf(obj);
+        const meta = frameKindMeta(kind);
+        const captured = kind === 'normal' ? 0 : objectsInFrame(objects, obj).length;
+
+        /* Each kind reads differently at a glance. A delete frame in particular
+           must never be mistakable for a grouping frame, so it gets the
+           heaviest treatment: solid red rule and a warning wash. */
+        const borderStyle =
+          kind === 'delete' ? `2.5px solid ${frameColor}AA`
+          : kind === 'scene' ? `2px solid ${frameColor}80`
+          : kind === 'agent' ? `2px dashed ${frameColor}99`
+          : `2px dashed ${frameColor}66`;
+
         return (
           <div
             className="w-full h-full rounded-[22px] relative"
             style={{
-              border: `2px dashed ${frameColor}66`,
-              background: `${frameColor}0C`,
+              border: borderStyle,
+              background: kind === 'delete' ? `${frameColor}14` : `${frameColor}0C`,
             }}
           >
+            {/* Title tab. This is the rename affordance — it used to be an
+                11px pill whose editable collapsed to zero width when the name
+                was empty, so "double-click the frame to rename" put a caret
+                nobody could see, on a frame that is mostly covered by its own
+                contents anyway. Now it's a real, hit-testable control that
+                says what it does. */}
             <div
-              className="absolute -top-[13px] left-4 px-3 py-1 rounded-full text-[11px] font-bold shadow-sm max-w-[85%]"
-              style={{ background: frameColor, color: '#fff' }}
+              className="absolute -top-[15px] left-4 flex items-center gap-1.5 rounded-full shadow-sm max-w-[88%] group/frametab"
+              style={{ background: frameColor, color: '#fff', padding: '3px 10px' }}
+              title={isEditing ? undefined : `${meta.label} frame — click the name to rename`}
+              onMouseDown={(e) => {
+                // Never let a rename click start a frame drag.
+                if (isEditing) e.stopPropagation();
+              }}
+              onDoubleClick={(e) => {
+                if (readOnly) return;
+                e.stopPropagation();
+                setEditingId(obj.id);
+              }}
+              onClick={(e) => {
+                if (readOnly || isEditing) return;
+                // The tab doubles as the frame's drag handle, so a click that
+                // actually moved the frame must not also open a rename.
+                if (dragMovedRef.current) return;
+                e.stopPropagation();
+                setEditingId(obj.id);
+              }}
             >
+              <FrameKindGlyph kind={kind} />
               {isEditing ? (
-                <div
-                  ref={contentRef}
-                  contentEditable={isEditing}
-                  suppressContentEditableWarning
+                <input
+                  ref={contentRef as unknown as React.Ref<HTMLInputElement>}
                   onBlur={handleBlur}
-                  className="outline-none whitespace-nowrap"
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === 'Enter' || e.key === 'Escape') {
+                      e.preventDefault();
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  placeholder="Name this frame…"
+                  className="bg-transparent outline-none border-none text-[11px] font-bold text-white placeholder:text-white/60"
+                  style={{ minWidth: 130, width: `${Math.max(130, (obj.content || '').length * 7 + 24)}px` }}
                 />
               ) : (
-                <span className="whitespace-nowrap">{obj.content || 'Frame'}</span>
+                <span className="whitespace-nowrap text-[11px] font-bold cursor-text">
+                  {(obj.content || '').trim() || (
+                    <span className="text-white/70">Name this frame…</span>
+                  )}
+                </span>
+              )}
+              {captured > 0 && !isEditing && (
+                <span
+                  className="rounded-full text-[9px] font-extrabold tabular-nums shrink-0"
+                  style={{ background: 'rgba(255,255,255,0.24)', padding: '1px 6px' }}
+                  title={`${captured} block${captured === 1 ? '' : 's'} inside this frame`}
+                >
+                  {captured}
+                </span>
               )}
             </div>
           </div>

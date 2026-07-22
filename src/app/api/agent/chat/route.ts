@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { ChatMsg, HedgeSlot, nimApiKeys, openHedgedStream } from '@/lib/nim/hedge';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
-
-const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
 /* Launch PLAN by MEASURED speed (probed 2026-07-19). Chat must feel INSTANT, so
    it leads with nemotron-super-49b (~1s TTFT on 4/5 keys, fluent, smart — and
@@ -11,17 +10,12 @@ const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
    trace), hedges the fastest 8B on a different key, then the frontier for depth,
    then 8B again as a far-out rescue. mistral-medium (old lead) is OUT — it was
    timing out 45-60s on this tier. */
-const PLAN: { model: string; delayMs: number }[] = [
+const PLAN: HedgeSlot[] = [
   { model: 'nvidia/llama-3.3-nemotron-super-49b-v1', delayMs: 0 },
   { model: 'meta/llama-3.1-8b-instruct', delayMs: 2500 },
   { model: 'mistralai/mistral-large-3-675b-instruct-2512', delayMs: 6000 },
   { model: 'meta/llama-3.1-8b-instruct', delayMs: 14_000 },
 ];
-
-/* Give-up bound per attempt, NOT a latency dial — hedging owns perceived speed.
-   12s was too tight for the tier's congested days (probed 13-20s+ first tokens
-   on healthy models), and every breach became a user-facing failure. */
-const TTFT_DEADLINE_MS = 28_000;
 
 const SYSTEM_PROMPT = `You are the Mindspace Agent — a brilliant, warm AI partner living inside the user's infinite spatial canvas app. Right now you're talking with the user in a chat panel on the side of their canvas. You are, all at once, an expert software engineer, researcher, designer, analyst and writer, and you genuinely get things done.
 
@@ -55,146 +49,6 @@ Rules: never emit ⟦BUILD⟧ for a message the user just wants to READ, or on a
 
 {skillsetSection}{canvasSection}{filesSection}`;
 
-interface ChatMsg { role: 'user' | 'assistant' | 'system'; content: string }
-
-async function openModelStream(
-  apiKey: string,
-  model: string,
-  messages: ChatMsg[],
-  external?: AbortController, // lets the hedged racer cancel a losing attempt
-): Promise<ReadableStream<Uint8Array>> {
-  const controller = external ?? new AbortController();
-  const ttftTimer = setTimeout(() => controller.abort(), TTFT_DEADLINE_MS);
-
-  const res = await fetch(NVIDIA_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.55,
-      /* 4096 was truncating two things that must never be cut: a genuinely long
-         answer, and — worse — the trailing ⟦BUILD⟧ directive, whose JSON has to
-         close or the builder gets NOTHING (the "I said build it and nothing
-         happened" bug). The cap is just a ceiling; short replies still stop
-         early, so raising it costs latency only on replies that truly need it. */
-      max_tokens: 8000,
-      stream: true,
-    }),
-    signal: controller.signal,
-  });
-
-  if (!res.ok || !res.body) {
-    clearTimeout(ttftTimer);
-    const errText = res.body ? await res.text() : '';
-    throw new Error(`${model} status ${res.status}: ${errText.slice(0, 160)}`);
-  }
-
-  const upstream = res.body.getReader();
-  const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
-  let sseBuffer = '';
-
-  const pump = async (): Promise<string | null> => {
-    while (true) {
-      const { done, value } = await upstream.read();
-      if (done) return null;
-      sseBuffer += decoder.decode(value, { stream: true });
-      const lines = sseBuffer.split('\n');
-      sseBuffer = lines.pop() || '';
-      let out = '';
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('data:')) continue;
-        const payload = trimmed.slice(5).trim();
-        if (payload === '[DONE]') return out || '';
-        try {
-          const json = JSON.parse(payload);
-          const piece = json.choices?.[0]?.delta?.content;
-          if (typeof piece === 'string') out += piece;
-        } catch {
-          /* partial JSON line — next read completes it */
-        }
-      }
-      if (out) return out;
-    }
-  };
-
-  // Commit to this model only once its first token lands.
-  let firstText = '';
-  let firstSeen = false;
-  while (!firstSeen) {
-    const chunk = await pump();
-    if (chunk === null) {
-      clearTimeout(ttftTimer);
-      throw new Error(`${model} produced no content`);
-    }
-    if (chunk.length > 0) { firstSeen = true; firstText = chunk; }
-  }
-  clearTimeout(ttftTimer);
-
-  return new ReadableStream<Uint8Array>({
-    start(ctrl) { if (firstText) ctrl.enqueue(encoder.encode(firstText)); },
-    async pull(ctrl) {
-      try {
-        const chunk = await pump();
-        if (chunk === null) { ctrl.close(); return; }
-        if (chunk) ctrl.enqueue(encoder.encode(chunk));
-      } catch (e) {
-        ctrl.error(e);
-      }
-    },
-    cancel() { controller.abort(); },
-  });
-}
-
-/* HEDGED RACING over PLAN (same scheme as the canvas build route): each slot
-   has its own launch delay; a later slot enters the race only if nobody has
-   produced a first token yet. First token wins, losers are aborted, and a hard
-   failure pulls the next unlaunched slot forward immediately. */
-function openHedgedStream(
-  apiKeys: string[], startKey: number, messages: ChatMsg[],
-): Promise<{ stream: ReadableStream<Uint8Array>; model: string }> {
-  return new Promise((resolve, reject) => {
-    const controllers: (AbortController | undefined)[] = [];
-    const timers: (ReturnType<typeof setTimeout> | undefined)[] = [];
-    let launchedCount = 0;
-    let failed = 0;
-    let settled = false;
-    let lastError: Error = new Error('no models attempted');
-
-    const launch = (i: number) => {
-      if (settled || controllers[i]) return; // already raced this slot
-      if (timers[i] !== undefined) { clearTimeout(timers[i]); timers[i] = undefined; }
-      launchedCount++;
-      const controller = new AbortController();
-      controllers[i] = controller;
-      openModelStream(apiKeys[(startKey + i) % apiKeys.length], PLAN[i].model, messages, controller)
-        .then((stream) => {
-          if (settled) { controller.abort(); return; } // lost the race — cancel
-          settled = true;
-          timers.forEach((t) => { if (t !== undefined) clearTimeout(t); });
-          controllers.forEach((c, j) => { if (j !== i) c?.abort(); });
-          resolve({ stream, model: PLAN[i].model });
-        })
-        .catch((err) => {
-          lastError = err instanceof Error ? err : new Error(String(err));
-          if (!settled) console.warn(`Agent chat model ${PLAN[i].model} (slot ${i}) failed:`, lastError.message);
-          failed++;
-          if (settled) return;
-          const next = PLAN.findIndex((_, j) => !controllers[j]);
-          if (next !== -1) launch(next);
-          else if (failed >= launchedCount) reject(lastError);
-        });
-    };
-
-    PLAN.forEach((slot, i) => {
-      if (slot.delayMs <= 0) launch(i);
-      else timers[i] = setTimeout(() => launch(i), slot.delayMs);
-    });
-  });
-}
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -210,13 +64,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'messages required' }, { status: 400 });
     }
 
-    const apiKeys = [
-      process.env.NVIDIA_API_KEY,
-      process.env.NVIDIA_API_KEY_2,
-      process.env.NVIDIA_API_KEY_3,
-      process.env.NVIDIA_API_KEY_4,
-      process.env.NVIDIA_API_KEY_5,
-    ].filter(Boolean) as string[];
+    const apiKeys = nimApiKeys();
     if (apiKeys.length === 0) {
       return NextResponse.json({ success: false, error: 'No NVIDIA API keys configured' }, { status: 500 });
     }
@@ -255,7 +103,11 @@ export async function POST(req: NextRequest) {
 
     // Race the chain (hedged): first model to produce a token streams back.
     try {
-      const { stream, model } = await openHedgedStream(apiKeys, startKey, full);
+      /* max_tokens 8000, not the default 4096: that was truncating two things
+         that must never be cut — a genuinely long answer, and, worse, the
+         trailing ⟦BUILD⟧ directive, whose JSON has to close or the builder gets
+         NOTHING (the "I said build it and nothing happened" bug). */
+      const { stream, model } = await openHedgedStream(apiKeys, startKey, full, PLAN, { maxTokens: 8000 });
       return new NextResponse(stream, {
         headers: {
           'Content-Type': 'text/plain; charset=utf-8',

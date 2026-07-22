@@ -56,6 +56,16 @@ export interface Scene {
   durationMs?: number;
   /** Optional narration read aloud in present mode. */
   notes?: string;
+  /**
+   * Region scenes (born from a `scene`-kind frame) store the world-space
+   * rectangle instead of relying on `camera` alone. The camera is then derived
+   * at playback time, so the slide frames the same REGION on any screen size
+   * rather than replaying a camera captured on a different monitor — and the
+   * player can mask everything outside it.
+   */
+  rect?: { x: number; y: number; width: number; height: number };
+  /** The frame this scene mirrors; renaming that frame renames the slide. */
+  frameId?: string;
 }
 
 export interface CommentReply {

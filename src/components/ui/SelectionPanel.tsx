@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import TextAnimPanel, { LetterSparkIcon } from './TextAnimPanel';
 import type { TextAnimConfig } from '@/lib/textAnim';
+import { getFrameKind, frameKindMeta, frameTitle } from '@/lib/frames';
 
 /**
  * Contextual properties panel — a compact horizontal strip that appears just
@@ -118,6 +119,7 @@ export default function SelectionPanel() {
   const isTouring = useCanvasStore((s) => s.isTouring);
   const updateObject = useCanvasStore((s) => s.updateObject);
   const removeObject = useCanvasStore((s) => s.removeObject);
+  const setEditingId = useCanvasStore((s) => s.setEditingId);
   const duplicateObject = useCanvasStore((s) => s.duplicateObject);
   const addToTrash = useCanvasStore((s) => s.addToTrash);
   const connections = useCanvasStore((s) => s.connections);
@@ -240,7 +242,10 @@ export default function SelectionPanel() {
           {obj && (
             <>
               <span className="text-[9px] uppercase font-extrabold tracking-wider text-[var(--text-tertiary)] whitespace-nowrap mr-1">
-                {t === 'shape' ? 'Shape' : t === 'arrow' ? 'Arrow' : t === 'frame' ? 'Frame' : 'Text'}
+                {t === 'shape' ? 'Shape'
+                  : t === 'arrow' ? 'Arrow'
+                  : t === 'frame' ? `${frameKindMeta(getFrameKind(obj)).label} frame`
+                  : 'Text'}
               </span>
               <VDivider />
             </>
@@ -323,12 +328,31 @@ export default function SelectionPanel() {
             </>
           )}
 
-          {/* Frame color */}
-          {t === 'frame' && (
+          {/* Frame colour — grouping frames only. Delete / Scene / Ask-AI
+              frames are locked to their identity colour (that colour is the
+              warning), and their controls live in the frame's own HUD. */}
+          {t === 'frame' && getFrameKind(obj) === 'normal' && (
             <>
               {['#C97B4B', '#45B761', '#4A90D9', '#9B59B6', '#E93D82', '#2D2A26'].map((c) => (
                 <Swatch key={c} color={c} active={(S.frameColor as string) === c} onClick={() => patch({ frameColor: c })} />
               ))}
+              <VDivider />
+            </>
+          )}
+
+          {/* Rename — the frame's title tab is the primary affordance, but a
+              frame buried under its own contents is easier to rename from here. */}
+          {t === 'frame' && obj && (
+            <>
+              <button
+                onClick={() => setEditingId(obj.id)}
+                title="Rename frame (F2)"
+                className="h-7 rounded-lg flex items-center justify-center gap-1 text-[11px] font-bold bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer active:scale-95 shrink-0"
+                style={{ padding: '0 8px' }}
+              >
+                <Icon size={12}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></Icon>
+                <span className="text-[10px] max-w-[110px] truncate">{frameTitle(obj)}</span>
+              </button>
               <VDivider />
             </>
           )}

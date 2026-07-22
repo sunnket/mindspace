@@ -48,6 +48,7 @@ import ShareModal from '@/components/ui/ShareModal';
 import MinimizeDock from './MinimizeDock';
 import WarpPortal from './WarpPortal';
 import ScenesPanel from './ScenesPanel';
+import FrameHUD from './FrameHUD';
 import ChatLauncher from '@/components/chat/ChatLauncher';
 import AgentChatPanel from '@/components/chat/AgentChatPanel';
 import CollabBar from '@/components/collab/CollabBar';
@@ -571,6 +572,7 @@ export default function InfiniteCanvas() {
               setEditingId(obj.id);
               setMode('select');
             } else if (mode === 'frame') {
+              const draftKind = useCanvasStore.getState().frameDraftKind;
               const obj = addObject({
                 type: 'frame',
                 x: worldPos.x - 240,
@@ -579,7 +581,10 @@ export default function InfiniteCanvas() {
                 height: 320,
                 content: '',
                 zIndex: 0,
-                style: { frameColor: '#C97B4B' },
+                style: {
+                  frameColor: '#C97B4B',
+                  ...(draftKind !== 'normal' ? { frameKind: draftKind } : {}),
+                },
               });
               setSelectedId(obj.id);
               setEditingId(obj.id);
@@ -641,6 +646,18 @@ export default function InfiniteCanvas() {
       if (e.key === '?') {
         e.preventDefault();
         setShowShortcuts((s) => !s);
+        return;
+      }
+
+      // F2 = rename the selected frame (the conventional rename key, and a
+      // keyboard route to the title tab that doesn't depend on hitting it).
+      if (e.key === 'F2') {
+        const sel = useCanvasStore.getState().selectedId;
+        const selObj = sel ? useCanvasStore.getState().objects.find((o) => o.id === sel) : null;
+        if (selObj?.type === 'frame') {
+          e.preventDefault();
+          setEditingId(selObj.id);
+        }
         return;
       }
 
@@ -1280,6 +1297,9 @@ export default function InfiniteCanvas() {
       <AgentOverlay />
       <SkillSetPanel />
       <SelectionPanel />
+      {/* Controls for whichever frame is selected — kind picker, bulk delete,
+          slide capture, and the Ask-AI box for agent frames. */}
+      <FrameHUD />
       <Minimap />
       <CheckpointIndex />
       <SaveIndicator />

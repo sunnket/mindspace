@@ -14,6 +14,7 @@ import CanvasBackgroundPanel from './CanvasBackgroundPanel';
 import ShapePreview from '@/components/canvas/ShapePreview';
 import { RELAX_EFFECTS, RELAX_EFFECT_LIST } from '@/lib/relaxEffects';
 import RelaxIcon from './RelaxIcons';
+import { FRAME_KINDS, frameKindMeta } from '@/lib/frames';
 
 const FRAME_COLORS = [
   { name: 'Terracotta', hex: '#C97B4B' },
@@ -132,6 +133,8 @@ export default function FloatingToolbar() {
   const setTextSize = useCanvasStore((s) => s.setTextSize);
   const selectedId = useCanvasStore((s) => s.selectedId);
   const updateObject = useCanvasStore((s) => s.updateObject);
+  const frameDraftKind = useCanvasStore((s) => s.frameDraftKind);
+  const setFrameDraftKind = useCanvasStore((s) => s.setFrameDraftKind);
   const objects = useCanvasStore((s) => s.objects);
   const addObject = useCanvasStore((s) => s.addObject);
   const setSelectedId = useCanvasStore((s) => s.setSelectedId);
@@ -1610,6 +1613,39 @@ export default function FloatingToolbar() {
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
             <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
+              Frame type
+            </span>
+            <div className="flex gap-1">
+              {FRAME_KINDS.map((k) => {
+                const active = frameDraftKind === k.id;
+                return (
+                  <button
+                    key={k.id}
+                    onClick={() => setFrameDraftKind(k.id)}
+                    title={k.blurb}
+                    aria-pressed={active}
+                    className="flex-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer active:scale-95 whitespace-nowrap"
+                    style={{
+                      padding: '6px 4px',
+                      background: active ? k.color : 'var(--well)',
+                      color: active ? '#fff' : 'var(--text-secondary)',
+                    }}
+                  >
+                    {k.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-[var(--text-muted)] text-center leading-relaxed">
+              {frameKindMeta(frameDraftKind).blurb}
+            </p>
+
+            {/* Colour is the user's to choose only on a grouping frame — every
+                other kind is locked to its identity colour so it can't be
+                mistaken for one. */}
+            {frameDraftKind === 'normal' && (
+            <>
+            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
               Frame color
             </span>
             <div className="flex gap-1.5 justify-center">
@@ -1635,8 +1671,11 @@ export default function FloatingToolbar() {
                 );
               })}
             </div>
+            </>
+            )}
+
             <p className="text-[10px] text-[var(--text-muted)] text-center leading-relaxed">
-              Click to place a frame, then drag its title tab to move it. Great for grouping related cards.
+              Click to place it, then click its title tab to name it.
             </p>
           </motion.div>
         )}

@@ -5,6 +5,7 @@ import type { CanvasOp } from '@/lib/collab/types';
 import { CanvasBackground, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 import type { RelaxEffectId } from '@/lib/relaxEffects';
 import { CanvasSkillset, emptySkillset, makeRule, getPreset, installPreset } from '@/lib/skillset';
+import { cameraForRect, objectsInFrame, strokesInFrame, type FrameKind } from '@/lib/frames';
 
 export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax';
 
@@ -48,13 +49,17 @@ export function isAutoCleanable(o: CanvasObjectData): boolean {
 }
 
 export interface UndoAction {
-  type: 'add' | 'delete' | 'move' | 'edit' | 'stroke-add' | 'stroke-delete';
+  type: 'add' | 'delete' | 'move' | 'edit' | 'stroke-add' | 'stroke-delete' | 'bulk-delete';
   objectId?: string;
   strokeId?: string;
   before?: Partial<CanvasObjectData> | null;
   after?: Partial<CanvasObjectData> | null;
   strokeData?: DrawingStroke;
   objectData?: CanvasObjectData;
+  /** bulk-delete: everything a delete frame swept, restored as one undo. */
+  objectsData?: CanvasObjectData[];
+  strokesData?: DrawingStroke[];
+  connectionsData?: ConnectionData[];
 }
 
 interface CanvasStore {
@@ -80,6 +85,10 @@ interface CanvasStore {
   setScenes: (scenes: Scene[]) => void;
   addScene: (name?: string) => void;
   addSceneWithCamera: (name: string, camera: { x: number; y: number; zoom: number }, durationMs?: number, notes?: string) => void;
+  /** Turn a `scene`-kind frame into a slide (or refresh the one it already owns). */
+  addSceneFromFrame: (frameId: string) => void;
+  /** Create/refresh a slide for every scene frame on this canvas, in reading order. */
+  syncSceneFrames: () => number;
   removeScene: (id: string) => void;
   renameScene: (id: string, name: string) => void;
   moveScene: (id: string, dir: -1 | 1) => void;
@@ -124,6 +133,11 @@ interface CanvasStore {
   updateObject: (id: string, updates: Partial<CanvasObjectData>) => void;
   removeObject: (id: string) => void;
   duplicateObject: (id: string) => CanvasObjectData | null;
+  /** Sweep everything a delete-frame captures. One undo entry puts it all back. */
+  deleteRegion: (frameId: string, opts?: { keepFrame?: boolean }) => number;
+  /** Which kind of frame the frame tool will place next. */
+  frameDraftKind: FrameKind;
+  setFrameDraftKind: (kind: FrameKind) => void;
 
   // Layer ordering (z-index)
   bringToFront: (id: string) => void;
@@ -402,16 +416,65 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     };
     set({ scenes: [...scenes, scene], isDirty: true });
   },
+  /* A scene FRAME stores its rectangle, not a camera. The camera is re-derived
+     at playback for the current viewport, so the slide frames the same region
+     on any screen — and the player can dim everything outside it. */
+  addSceneFromFrame: (frameId) => {
+    const state = get();
+    const frame = state.objects.find((o) => o.id === frameId && o.type === 'frame');
+    if (!frame) return;
+    const rect = { x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+    const name = (frame.content || '').trim() || `Scene ${state.scenes.length + 1}`;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+    const camera = cameraForRect(rect, vw, vh);
+
+    const existing = state.scenes.find((s) => s.frameId === frameId);
+    if (existing) {
+      set((s) => ({
+        scenes: s.scenes.map((sc) => (sc.frameId === frameId ? { ...sc, name, rect, camera } : sc)),
+        isDirty: true,
+      }));
+      return;
+    }
+    const scene: Scene = {
+      id: uuidv4(), name, camera, rect, frameId,
+      order: state.scenes.length, durationMs: 1400,
+    };
+    set((s) => ({ scenes: [...s.scenes, scene], isDirty: true }));
+  },
+
+  syncSceneFrames: () => {
+    const state = get();
+    const stack = state.canvasStack;
+    const activeParent = stack.length > 0 ? stack[stack.length - 1] : undefined;
+    const frames = state.objects
+      .filter((o) => o.type === 'frame' && o.parentId === activeParent && o.style?.frameKind === 'scene')
+      .sort((a, b) => (Math.abs(a.y - b.y) > 40 ? a.y - b.y : a.x - b.x));
+    frames.forEach((f) => get().addSceneFromFrame(f.id));
+    return frames.length;
+  },
+
   removeScene: (id) =>
     set((state) => ({
       scenes: state.scenes.filter((s) => s.id !== id).map((s, i) => ({ ...s, order: i })),
       isDirty: true,
     })),
   renameScene: (id, name) =>
-    set((state) => ({
-      scenes: state.scenes.map((s) => (s.id === id ? { ...s, name } : s)),
-      isDirty: true,
-    })),
+    set((state) => {
+      const scene = state.scenes.find((s) => s.id === id);
+      const scenes = state.scenes.map((s) => (s.id === id ? { ...s, name } : s));
+      // Renaming a frame scene renames its FRAME too, or the next frame edit
+      // would push the old title straight back over this one.
+      if (scene?.frameId) {
+        return {
+          scenes,
+          objects: state.objects.map((o) => (o.id === scene.frameId ? { ...o, content: name, updatedAt: Date.now() } : o)),
+          isDirty: true,
+        };
+      }
+      return { scenes, isDirty: true };
+    }),
   moveScene: (id, dir) =>
     set((state) => {
       const ordered = [...state.scenes].sort((a, b) => a.order - b.order);
@@ -665,6 +728,29 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         };
       }
 
+      /* A scene frame IS its slide: rename or resize the frame and the slide it
+         owns follows, so the tour never drifts out of sync with the board. */
+      const sceneFrame = obj.type === 'frame'
+        && obj.style?.frameKind === 'scene'
+        && state.scenes.some((s) => s.frameId === id);
+      if (sceneFrame) {
+        const next = { ...obj, ...updates };
+        const rect = { x: next.x, y: next.y, width: next.width, height: next.height };
+        const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+        const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+        return {
+          objects: state.objects.map((o) =>
+            o.id === id ? { ...o, ...updates, updatedAt: Date.now() } : o
+          ),
+          scenes: state.scenes.map((s) =>
+            s.frameId === id
+              ? { ...s, name: (next.content || '').trim() || s.name, rect, camera: cameraForRect(rect, vw, vh) }
+              : s
+          ),
+          isDirty: true,
+        };
+      }
+
       return {
         objects: state.objects.map((o) =>
           o.id === id ? { ...o, ...updates, updatedAt: Date.now() } : o
@@ -696,6 +782,63 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       }
     });
   },
+
+  /**
+   * Sweep a delete-frame's region: every block whose centre sits inside, the
+   * ink drawn there, and the connections that touched any of it — gone in one
+   * move, and back in one Ctrl+Z.
+   *
+   * Doing this as N separate removeObject calls would have cost the user N
+   * undos to recover from a misplaced frame, which makes a bulk eraser far too
+   * dangerous to use. So it pushes ONE `bulk-delete` entry carrying everything
+   * it took.
+   */
+  deleteRegion: (frameId, opts) => {
+    const state = get();
+    const frame = state.objects.find((o) => o.id === frameId && o.type === 'frame');
+    if (!frame) return 0;
+
+    const doomedObjects = objectsInFrame(state.objects, frame);
+    const doomedStrokes = strokesInFrame(state.strokes, frame);
+    if (!opts?.keepFrame) doomedObjects.push(frame);
+    if (doomedObjects.length === 0 && doomedStrokes.length === 0) return 0;
+
+    const objIds = new Set(doomedObjects.map((o) => o.id));
+    const strokeIds = new Set(doomedStrokes.map((s) => s.id));
+    const doomedConns = state.connections.filter((c) => objIds.has(c.fromId) || objIds.has(c.toId));
+    const connIds = new Set(doomedConns.map((c) => c.id));
+
+    set((s) => ({
+      objects: s.objects.filter((o) => !objIds.has(o.id)),
+      strokes: s.strokes.filter((st) => !strokeIds.has(st.id)),
+      connections: s.connections.filter((c) => !connIds.has(c.id)),
+      selectedId: s.selectedId && objIds.has(s.selectedId) ? null : s.selectedId,
+      editingId: s.editingId && objIds.has(s.editingId) ? null : s.editingId,
+      focusedId: s.focusedId && objIds.has(s.focusedId) ? null : s.focusedId,
+      isDirty: true,
+      undoStack: [...s.undoStack, {
+        type: 'bulk-delete' as const,
+        objectsData: doomedObjects,
+        strokesData: doomedStrokes,
+        connectionsData: doomedConns,
+      }],
+      redoStack: [],
+    }));
+
+    // Tell collaborators, then clear local storage. Both are per-item; only the
+    // UNDO needs to be atomic, and that's held in the single stack entry above.
+    doomedObjects.forEach((o) => emitCollab({ kind: 'remove', id: o.id }));
+    void import('@/lib/db').then(({ deleteObject, deleteConnection, deleteStroke }) => {
+      doomedObjects.forEach((o) => deleteObject(o.id).catch(() => {}));
+      doomedConns.forEach((c) => deleteConnection(c.id).catch(() => {}));
+      doomedStrokes.forEach((s) => deleteStroke(s.id).catch(() => {}));
+    });
+
+    return doomedObjects.length + doomedStrokes.length;
+  },
+
+  frameDraftKind: 'normal',
+  setFrameDraftKind: (frameDraftKind) => set({ frameDraftKind }),
 
   // Clone an object (offset a little so it's visible), give it a fresh id and the
   // top z-index, and select it. Arrows clone their start/end/bend geometry too.
@@ -1108,6 +1251,25 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           });
         }
         break;
+      case 'bulk-delete': {
+        // A delete frame's whole sweep comes back at once — blocks, ink and the
+        // connections between them — so one Ctrl+Z fully reverses it.
+        const objs = action.objectsData || [];
+        const strs = action.strokesData || [];
+        const conns = action.connectionsData || [];
+        const objIds = new Set(objs.map((o) => o.id));
+        const strIds = new Set(strs.map((s) => s.id));
+        const connIds = new Set(conns.map((c) => c.id));
+        set({
+          objects: [...state.objects.filter((o) => !objIds.has(o.id)), ...objs],
+          strokes: [...state.strokes.filter((s) => !strIds.has(s.id)), ...strs],
+          connections: [...state.connections.filter((c) => !connIds.has(c.id)), ...conns],
+          undoStack: newUndoStack,
+          redoStack: [...state.redoStack, action],
+          isDirty: true,
+        });
+        break;
+      }
     }
   },
   redo: () => {
@@ -1171,9 +1333,23 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           });
         }
         break;
+      case 'bulk-delete': {
+        const objIds = new Set((action.objectsData || []).map((o) => o.id));
+        const strIds = new Set((action.strokesData || []).map((s) => s.id));
+        const connIds = new Set((action.connectionsData || []).map((c) => c.id));
+        set({
+          objects: state.objects.filter((o) => !objIds.has(o.id)),
+          strokes: state.strokes.filter((s) => !strIds.has(s.id)),
+          connections: state.connections.filter((c) => !connIds.has(c.id)),
+          undoStack: [...state.undoStack, action],
+          redoStack: newRedoStack,
+          isDirty: true,
+        });
+        break;
+      }
     }
   },
-  
+
   // Save status
   isDirty: false,
   setDirty: (dirty) => set({ isDirty: dirty }),

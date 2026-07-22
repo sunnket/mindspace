@@ -4,14 +4,64 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import { Scene } from '@/lib/db';
+import { cameraForRect, rectToScreen } from '@/lib/frames';
 
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+/**
+ * Where a scene's camera should actually land.
+ *
+ * A scene born from a scene-FRAME stores its rectangle, so the camera is
+ * re-derived for the CURRENT viewport — the slide frames the same region on a
+ * laptop and on a 34" monitor instead of replaying a camera captured somewhere
+ * else. Plain "capture view" scenes keep their stored camera exactly as before.
+ */
+function targetCamera(scene: Scene): { x: number; y: number; zoom: number } {
+  if (!scene.rect) return scene.camera;
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+  return cameraForRect(scene.rect, vw, vh);
+}
 
 /**
  * Cinematic tour playback. Flies the camera scene→scene with eased motion and
  * a subtle "dolly" (zoom-out dip mid-flight) on long jumps so big leaps feel
  * filmic instead of teleporting. Space toggles play, arrows step, Esc exits.
  */
+/**
+ * Dims everything outside a world-space rectangle. Four panels rather than a
+ * box-shadow so the cut-out edge stays exact at any zoom, and it re-projects on
+ * every camera change so it stays glued to the region while the player flies.
+ */
+function RegionMask({ rect }: { rect: { x: number; y: number; width: number; height: number } }) {
+  const camera = useCanvasStore((s) => s.camera);
+  const r = rectToScreen(rect, camera);
+  const shade = 'rgba(14,12,11,0.78)';
+  const panel = (style: React.CSSProperties, key: string) => (
+    <div key={key} className="absolute" style={{ background: shade, ...style }} />
+  );
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.45 }}
+      className="fixed inset-0 z-[238] pointer-events-none overflow-hidden"
+    >
+      {panel({ left: 0, top: 0, width: '100%', height: Math.max(0, r.y) }, 'top')}
+      {panel({ left: 0, top: r.y + r.height, width: '100%', bottom: 0 }, 'bottom')}
+      {panel({ left: 0, top: r.y, width: Math.max(0, r.x), height: r.height }, 'left')}
+      {panel({ left: r.x + r.width, top: r.y, right: 0, height: r.height }, 'right')}
+      <div
+        className="absolute rounded-[18px]"
+        style={{
+          left: r.x, top: r.y, width: r.width, height: r.height,
+          boxShadow: '0 0 0 1.5px rgba(255,255,255,0.16), 0 0 90px rgba(0,0,0,0.5)',
+        }}
+      />
+    </motion.div>
+  );
+}
+
 export default function TourPlayer({
   scenes,
   startIndex,
@@ -94,7 +144,7 @@ export default function TourPlayer({
       for (let i = from; i < total; i++) {
         if (!playingRef.current) break;
         setIndex(i);
-        await flyTo(ordered[i].camera, ordered[i].durationMs || 1400);
+        await flyTo(targetCamera(ordered[i]), ordered[i].durationMs || 1400);
         if (!playingRef.current) break;
         if (i < total - 1) {
           // Linger longer on stops with notes so the caption can be read — but
@@ -123,7 +173,7 @@ export default function TourPlayer({
       const clamped = Math.max(0, Math.min(total - 1, i));
       pause();
       setIndex(clamped);
-      flyTo(ordered[clamped].camera, 900);
+      flyTo(targetCamera(ordered[clamped]), 900);
     },
     [flyTo, ordered, total, pause]
   );
@@ -169,6 +219,37 @@ export default function TourPlayer({
 
   return (
     <>
+      {/* A scene FRAME presents only its own region: everything outside the
+          rectangle is dimmed away, so a slide shows what was framed and not
+          whatever happens to sit beside it. Free-roam still works — the mask
+          tracks the camera, so panning out simply reveals the dimmed rest. */}
+      {current?.rect && <RegionMask rect={current.rect} />}
+
+      {/* Slide title — a frame scene is named by its frame, and that name is
+          the heading of the slide. */}
+      {current?.rect && (
+        <motion.div
+          key={`title-${current.id}`}
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="fixed top-10 left-1/2 -translate-x-1/2 z-[250] pointer-events-none text-center"
+          style={{ maxWidth: 'min(900px, 88vw)' }}
+        >
+          <span
+            className="text-[9px] font-extrabold uppercase tracking-[0.22em] text-white/55 block"
+            style={{ marginBottom: 6 }}
+          >
+            {index + 1} / {total}
+          </span>
+          <h2
+            className="text-white font-bold leading-tight"
+            style={{ fontFamily: "'Outfit', sans-serif", fontSize: 30, textShadow: '0 2px 24px rgba(0,0,0,0.55)' }}
+          >
+            {current.name}
+          </h2>
+        </motion.div>
+      )}
+
       {/* soft cinematic vignette */}
       <div className="fixed inset-0 z-[240] pointer-events-none" style={{ boxShadow: 'inset 0 0 220px 40px rgba(45,42,38,0.28)' }} />
 
