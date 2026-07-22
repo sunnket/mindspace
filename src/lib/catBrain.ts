@@ -148,6 +148,10 @@ export interface Perception {
   connectors: ConnectorInfo[];
   /** blocks big and sturdy enough to walk along the top of */
   perchable: CanvasObjectData[];
+  /** small, battable things — and piles, which are the best toy on the board */
+  playthings: CanvasObjectData[];
+  /** something big enough to shelter beside when the weather turns */
+  shelters: CanvasObjectData[];
   /** center of mass of the content, for wandering near the action */
   centroid: { x: number; y: number } | null;
 }
@@ -209,6 +213,11 @@ export function perceive(objects: CanvasObjectData[], spaceId: string | undefine
     .filter((c) => c.length > 220);
 
   const perchable = blocks.filter((o) => o.width >= 200 && o.height >= 110);
+  const playthings = [
+    ...pileTops,
+    ...blocks.filter((o) => o.width < 230 && (o.type === 'sticky' || o.type === 'shape' || o.type === 'image')),
+  ];
+  const shelters = blocks.filter((o) => o.width >= 250 && o.height >= 130);
 
   let centroid: { x: number; y: number } | null = null;
   if (blocks.length > 0) {
@@ -217,7 +226,7 @@ export function perceive(objects: CanvasObjectData[], spaceId: string | undefine
     centroid = { x: sx / blocks.length, y: sy / blocks.length };
   }
 
-  return { blocks, pileTops, warm, stale, runningTimers, urgentCountdowns, mirrors, charts, connectors, perchable, centroid };
+  return { blocks, pileTops, warm, stale, runningTimers, urgentCountdowns, mirrors, charts, connectors, perchable, playthings, shelters, centroid };
 }
 
 /* ------------------------------------------------------------------ */
@@ -237,6 +246,11 @@ export type BehaviorKind =
   | 'mirror'        // stare at the camera mirror, tilt head, paw it once
   | 'countdown'     // sit beside an urgent countdown and worry at you
   | 'nest_visit'    // check on the nest, fuss with the scraps
+  | 'roll'          // flop over and wriggle, for no reason at all
+  | 'play'          // bat at a pile or a small block until it gets boring
+  | 'shelter'       // the weather turned — get under something
+  | 'chase'         // the laser pointer. Commanded, never chosen.
+  | 'come'          // you wrote its name somewhere. Commanded.
   | 'celebrate';    // a completed goal — bounce, tail high
 
 export interface Behavior {
@@ -259,6 +273,9 @@ const COOLDOWN: Partial<Record<BehaviorKind, number>> = {
   timer_perch: 4 * 60_000,
   countdown: 15 * 60_000,
   nest_visit: 12 * 60_000,
+  roll: 4 * 60_000,
+  play: 3 * 60_000,
+  shelter: 90_000,
   sleep: 6 * 60_000,
   groom: 100_000,
   stretch: 3 * 60_000,
@@ -271,6 +288,22 @@ export interface BrainState {
 
 /** The user's current window onto the board, in world coordinates. */
 export interface Viewport { x: number; y: number; w: number; h: number }
+
+/**
+ * What the room feels like. Derived from the active Relax effect, because a cat
+ * that ignores the rain falling on the canvas isn't living on the same board
+ * you are.
+ */
+export interface Mood {
+  /** weather worth getting under something for */
+  wet: boolean;
+  /** something happening overhead worth sitting and watching */
+  skyshow: boolean;
+  /** drifting things to chase and bat at */
+  playful: boolean;
+  /** quiet enough to sleep through */
+  calm: boolean;
+}
 
 /**
  * A companion you have to go looking for isn't a companion. Everything below
@@ -305,6 +338,7 @@ export function chooseBehavior(
   now: number,
   nest?: { x: number; y: number } | null,
   view?: Viewport | null,
+  mood?: Mood | null,
 ): Behavior {
   const r = state.rng;
   const options: { w: number; make: () => Behavior }[] = [];
@@ -335,7 +369,11 @@ export function chooseBehavior(
   };
 
   // --- idle filler (always available) ---
-  options.push({ w: 2.6 * personality.laziness, make: () => ({ kind: 'idle_sit', dwell: (4000 + r() * 9000) * personality.laziness }) });
+  // a sky worth watching keeps a cat sitting still for a long time
+  options.push({
+    w: (mood?.skyshow ? 4.2 : 2.6) * personality.laziness,
+    make: () => ({ kind: 'idle_sit', dwell: (mood?.skyshow ? 12_000 : 4000) + r() * 9000 * personality.laziness }),
+  });
   options.push({ w: 1.1, make: () => ({ kind: 'idle_stand', dwell: 2200 + r() * 4200 }) });
   if (ready(state, 'groom', now)) {
     options.push({ w: 1.3, make: () => ({ kind: 'groom', dwell: 3800 + r() * 4800 }) });
@@ -367,12 +405,48 @@ export function chooseBehavior(
     });
   }
 
+  // --- the board's weather ---
+  if (mood?.wet && p.shelters.length && ready(state, 'shelter', now)) {
+    const sh = pick(r, visibleFirst(p.shelters));
+    options.push({
+      w: 4.0, // getting out of the rain beats almost anything else
+      make: () => ({
+        kind: 'shelter',
+        objId: sh.id,
+        target: { x: sh.x + sh.width * (0.2 + r() * 0.6), y: sh.y + sh.height + 2 },
+        dwell: 20_000 + r() * 40_000,
+      }),
+    });
+  }
+
+  if (p.playthings.length && ready(state, 'play', now)) {
+    const toy = pick(r, visibleFirst(p.playthings));
+    options.push({
+      w: (mood?.playful ? 3.4 : 1.5) * personality.curiosity * distW(near(toy)),
+      make: () => ({
+        kind: 'play',
+        objId: toy.id,
+        // parks to the RIGHT of the toy: the paw frames reach left, so this is
+        // the side it has to stand on to actually make contact with it
+        target: { x: toy.x + toy.width + 14, y: toy.y + toy.height * 0.85 },
+        dwell: 5000 + r() * 7000,
+      }),
+    });
+  }
+
+  if (ready(state, 'roll', now)) {
+    options.push({
+      w: 1.0 * personality.laziness,
+      make: () => ({ kind: 'roll', dwell: 3200 + r() * 2600 }),
+    });
+  }
+
   // --- sleep, preferring piles and warm (recently edited) blocks ---
   if (ready(state, 'sleep', now)) {
     const spots = visibleFirst([...p.pileTops, ...p.warm.filter((o) => o.width >= 150)]);
     const spot = spots.length && r() < 0.75 ? pick(r, spots) : null;
     options.push({
-      w: 1.5 * personality.laziness,
+      w: (mood?.calm ? 2.6 : 1.5) * personality.laziness,
       make: () => ({
         kind: 'sleep',
         objId: spot?.id,

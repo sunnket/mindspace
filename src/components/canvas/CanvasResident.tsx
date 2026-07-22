@@ -30,15 +30,16 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useCanvasStore } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import {
   mulberry32, makePersonality, loadProfile, saveProfile,
   perceive, chooseBehavior,
   type CatProfile, type CatPersonality, type Behavior, type BrainState, type NestScrap,
-  type Viewport,
+  type Viewport, type Mood,
 } from '@/lib/catBrain';
-import { pickThought, SPEECH_KINDS, type ThoughtKind } from '@/lib/catThoughts';
+import { pickThought, readObject, SPEECH_KINDS, type ThoughtKind } from '@/lib/catThoughts';
 import {
   ART_W, ART_H, POSE_FRAMES, COATS, getSheet, type Sheet, type CompiledFrame,
 } from '@/lib/catSprites';
@@ -47,10 +48,27 @@ import {
 const ART_PX = 1.6;
 /** World px of travel per walk frame — tuned so the paws never skate. */
 const STRIDE = 11;
+/** A gallop covers more ground per frame than a walk does. */
+const STRIDE_RUN = 17;
+
+/**
+ * The board's weather, read off the active Relax effect. A cat that carries on
+ * sunbathing while rain falls on the canvas isn't living on the same board you
+ * are — which is the entire point of it being here.
+ */
+function moodFor(fx: string | null | undefined): Mood {
+  return {
+    wet: fx === 'rain' || fx === 'snow' || fx === 'ocean',
+    skyshow: fx === 'fireflies' || fx === 'lanterns' || fx === 'galaxy' || fx === 'aurora' || fx === 'fireworks',
+    playful: fx === 'bubblewrap' || fx === 'flowers' || fx === 'ripples',
+    calm: fx === 'breathing' || fx === 'chimes' || fx === 'handpan' || fx === 'gate',
+  };
+}
 
 type Pose =
-  | 'stand' | 'walk' | 'sit' | 'sleep' | 'groom' | 'stretch'
-  | 'scruff' | 'startle' | 'tightrope' | 'perch' | 'celebrate' | 'squash';
+  | 'stand' | 'walk' | 'run' | 'sit' | 'sleep' | 'groom' | 'stretch'
+  | 'scruff' | 'startle' | 'tightrope' | 'perch' | 'celebrate' | 'squash'
+  | 'roll' | 'pounce' | 'paw';
 
 interface Sim {
   x: number; y: number;
@@ -135,6 +153,22 @@ function frameNameFor(sim: Sim): string {
       const i = Math.floor(sim.stridePhase) % seq.length;
       return seq[(i + seq.length) % seq.length];
     }
+    case 'run': {
+      const seq = POSE_FRAMES.run;
+      const i = Math.floor(sim.stridePhase) % seq.length;
+      return seq[(i + seq.length) % seq.length];
+    }
+    case 'roll': {
+      // over and back, never a loop in one direction — that's a barrel roll
+      const seq = [0, 1, 2, 3, 2, 1];
+      return POSE_FRAMES.roll[seq[Math.floor(t / 280) % seq.length]];
+    }
+    case 'pounce': {
+      const seq = [0, 0, 1, 2, 2, 2];
+      return POSE_FRAMES.pounce[seq[Math.min(seq.length - 1, Math.floor(t / 130))]];
+    }
+    case 'paw':
+      return POSE_FRAMES.paw[Math.floor(t / 230) % 2];
     case 'sit': {
       const seq = sim.earFlick > 0 ? POSE_FRAMES.sitEar : POSE_FRAMES.sit;
       return seq[Math.floor(t / 1100) % seq.length];
@@ -198,6 +232,8 @@ export default function CanvasResident() {
   const bubbleBoxRef = useRef<HTMLSpanElement>(null);
   const bubbleTailRef = useRef<HTMLSpanElement>(null);
   const bubbleDotsRef = useRef<HTMLSpanElement>(null);
+  const laserRef = useRef({ on: false, sx: 0, sy: 0, wx: 0, wy: 0, lastMove: 0 });
+  const [laserOn, setLaserOn] = useState(false);
 
   const [cardOpen, setCardOpen] = useState(false);
   const [, bumpCard] = useState(0);
@@ -235,18 +271,21 @@ export default function CanvasResident() {
    * control here: a companion that comments every few seconds is a chatbot
    * sitting on your board, and you stop reading it by the second day.
    */
-  const think = useCallback((kind: ThoughtKind, minGap = 34_000, hold = 2800) => {
+  const say = useCallback((line: string, speech = false, minGap = 26_000, hold = 2800) => {
     const sim = simRef.current;
-    if (!sim) return;
+    if (!sim || !line) return;
     const now = performance.now();
     if (now - sim.lastBubble < minGap) return;
-    const line = pickThought(kind, brainRef.current.rng, recentThoughtRef.current);
-    if (!line) return;
     sim.bubble = line;
-    sim.bubbleKind = SPEECH_KINDS.has(kind) ? 'speech' : 'thought';
+    sim.bubbleKind = speech ? 'speech' : 'thought';
     sim.bubbleUntil = now + hold;
     sim.lastBubble = now;
   }, []);
+
+  const think = useCallback((kind: ThoughtKind, minGap = 34_000, hold = 2800) => {
+    const line = pickThought(kind, brainRef.current.rng, recentThoughtRef.current);
+    say(line, SPEECH_KINDS.has(kind), minGap, hold);
+  }, [say]);
 
   /* ---------- entering a space: position, stamp, footprints, nest ---------- */
   useEffect(() => {
@@ -444,6 +483,81 @@ export default function CanvasResident() {
     };
   }, [enabled, readOnly, persist]);
 
+  /* ---------- laser pointer play mode ---------- */
+  useEffect(() => {
+    laserRef.current.on = laserOn;
+    if (!laserOn) return;
+    const sim = simRef.current;
+    // drop whatever it was doing — a cat does not finish its nap first
+    sim.behavior = { kind: 'chase', target: { x: sim.x, y: sim.y }, dwell: 0 };
+    sim.phase = 'travel';
+    sim.travelDeadline = performance.now() + 3_600_000;
+    think('chase', 0, 2000);
+
+    const onMove = (e: PointerEvent) => {
+      const cam = useCanvasStore.getState().camera;
+      const l = laserRef.current;
+      l.sx = e.clientX; l.sy = e.clientY;
+      l.wx = (e.clientX - cam.x) / cam.zoom;
+      l.wy = (e.clientY - cam.y) / cam.zoom;
+      l.lastMove = performance.now();
+      const dot = document.getElementById('cat-laser-dot');
+      if (dot) dot.style.transform = `translate(${e.clientX}px, ${e.clientY}px) translate(-50%,-50%)`;
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setLaserOn(false); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('keydown', onKey);
+      const s2 = simRef.current;
+      if (s2.behavior?.kind === 'chase') { s2.behavior = null; s2.pose = 'stand'; s2.poseT = 0; }
+    };
+  }, [laserOn, think]);
+
+  /* ---------- you wrote its name on the board ---------- */
+  useEffect(() => {
+    if (!enabled || readOnly) return;
+    const seen = new Set<string>();
+    const nameRe = () => {
+      const n = (profileRef.current.name || '').trim();
+      if (n.length < 2) return null;
+      return new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    };
+    const scan = (objs: CanvasObjectData[]) => {
+      const re = nameRe();
+      if (!re) return;
+      const sid = spaceKey === 'root' ? undefined : spaceKey;
+      for (const o of objs) {
+        if ((o.parentId ?? undefined) !== sid) continue;
+        const hit = re.test(o.content || '');
+        if (hit && !seen.has(o.id)) {
+          seen.add(o.id);
+          const sim = simRef.current;
+          if (sim.dragging || sim.falling || laserRef.current.on) return;
+          // being called outranks everything except being held
+          sim.behavior = {
+            kind: 'come',
+            objId: o.id,
+            target: { x: o.x + o.width * 0.5, y: o.y + o.height + 4 },
+            dwell: 6000 + Math.random() * 5000,
+          };
+          sim.phase = 'travel';
+          sim.travelDeadline = performance.now() + 25_000;
+          think('called', 0, 2400);
+          return;
+        }
+        if (!hit) seen.delete(o.id);
+      }
+    };
+    // don't stampede on mount — only react to names that appear from now on
+    for (const o of useCanvasStore.getState().objects) {
+      const re = nameRe();
+      if (re && re.test(o.content || '')) seen.add(o.id);
+    }
+    return useCanvasStore.subscribe((st) => scan(st.objects));
+  }, [enabled, readOnly, spaceKey, think]);
+
   /* ---------- it notices how you're typing ---------- */
   useEffect(() => {
     if (!enabled || readOnly) return;
@@ -608,7 +722,10 @@ export default function CanvasResident() {
       const onScreen =
         sim.x > view.x - 60 && sim.x < view.x + view.w + 60 &&
         sim.y > view.y - 60 && sim.y < view.y + view.h + 60;
-      if (!busy && !onScreen) {
+      // Being called, or chasing the laser, is a destination the user chose —
+      // the stay-on-screen rule must not cancel it half way there.
+      const summoned = sim.behavior?.kind === 'come' || sim.behavior?.kind === 'chase';
+      if (!busy && !onScreen && !summoned) {
         offScreenMsRef.current += dt * 1000;
         if (offScreenMsRef.current > 5000) {
           offScreenMsRef.current = 0;
@@ -637,7 +754,8 @@ export default function CanvasResident() {
           const store = useCanvasStore.getState();
           const p = perceive(store.objects, spaceKey === 'root' ? undefined : spaceKey, Date.now());
           sceneRef.current = { blocks: p.blocks.length, stale: p.stale.length };
-          const b = chooseBehavior(brain, p, persona, { x: sim.x, y: sim.y }, Date.now(), nest, view);
+          const mood = moodFor(useCanvasStore.getState().relaxEffect);
+          const b = chooseBehavior(brain, p, persona, { x: sim.x, y: sim.y }, Date.now(), nest, view, mood);
           sim.behavior = b;
           sim.phase = b.target ? 'travel' : 'dwell';
           sim.travelDeadline = now + 22_000;
@@ -650,30 +768,62 @@ export default function CanvasResident() {
         }
 
         const b = sim.behavior;
+
+        // the laser moves, so the destination has to be re-read every frame
+        if (b?.kind === 'chase') {
+          const l = laserRef.current;
+          if (!l.on) {
+            sim.behavior = null;
+            sim.pose = 'stand';
+            sim.poseT = 0;
+          } else {
+            b.target = { x: l.wx, y: l.wy + 8 };
+            const d = Math.hypot(l.wx - sim.x, l.wy + 8 - sim.y);
+            // it only ever "catches" the dot when you hold still for it
+            if (d < 34 && now - l.lastMove > 500 && sim.pose !== 'pounce') {
+              sim.pose = 'pounce';
+              sim.poseT = 0;
+              think('caught', 9000, 1800);
+            }
+            if (sim.pose === 'pounce' && sim.poseT > 800) { sim.pose = 'run'; sim.poseT = 0; }
+          }
+        } else if (b?.kind === 'come' && b.objId) {
+          // you can drag the note it's running to; it keeps up
+          const o = useCanvasStore.getState().objects.find((x) => x.id === b.objId);
+          if (o) b.target = { x: o.x + o.width * 0.5, y: o.y + o.height + 4 };
+        }
+
         if (b) {
-          if (sim.phase === 'travel' && b.target) {
+          if (sim.phase === 'travel' && b.target && sim.pose !== 'pounce') {
             // steering — accelerate, arc, settle; never teleport-snappy
             const dx = b.target.x - sim.x;
             const dy = b.target.y - sim.y;
             const dist = Math.hypot(dx, dy);
-            if (dist < 8 || now > sim.travelDeadline) {
+            // a chase has no destination to arrive at — that's the joke
+            const running = b.kind === 'chase' || b.kind === 'come';
+            if (b.kind !== 'chase' && (dist < 8 || now > sim.travelDeadline)) {
               sim.phase = 'dwell';
               sim.dwellUntil = now + b.dwell;
               sim.vx = 0; sim.vy = 0;
               enterDwellPose(sim, b);
-            } else {
-              const sp = persona.walkSpeed * (dist < 60 ? 0.55 : 1);
+            } else if (dist > 6) {
+              const sp = persona.walkSpeed * (running ? 2.2 : 1) * (dist < 60 && !running ? 0.55 : 1);
               const tx = (dx / dist) * sp;
               const ty = (dy / dist) * sp;
-              sim.vx += (tx - sim.vx) * Math.min(1, dt * 3.2);
-              sim.vy += (ty - sim.vy) * Math.min(1, dt * 3.2);
+              const ease = Math.min(1, dt * (running ? 5.5 : 3.2));
+              sim.vx += (tx - sim.vx) * ease;
+              sim.vy += (ty - sim.vy) * ease;
               const mx = sim.vx * dt, my = sim.vy * dt;
               sim.x += mx;
               sim.y += my;
               // the gait is driven by ground covered, so the paws don't skate
-              sim.stridePhase += Math.hypot(mx, my) / STRIDE;
+              sim.stridePhase += Math.hypot(mx, my) / (running ? STRIDE_RUN : STRIDE);
               if (Math.abs(sim.vx) > 4) sim.facing = (sim.vx > 0 ? 1 : -1) as 1 | -1;
-              if (sim.pose !== 'walk') { sim.pose = 'walk'; sim.poseT = 0; }
+              const want: Pose = running ? 'run' : 'walk';
+              if (sim.pose !== want) { sim.pose = want; sim.poseT = 0; }
+            } else {
+              sim.vx = 0; sim.vy = 0;
+              if (sim.pose === 'run' || sim.pose === 'walk') { sim.pose = 'stand'; sim.poseT = 0; }
             }
           } else {
             // dwell payloads
@@ -698,6 +848,11 @@ export default function CanvasResident() {
           }
         } else if (sim.pose === 'walk' && rng() < dt * 0.02) {
           think('walk', 48_000, 2200);
+        }
+        if ((sim.pose === 'sit' || sim.pose === 'stand') && rng() < dt * 0.03) {
+          const mood = moodFor(useCanvasStore.getState().relaxEffect);
+          if (mood.skyshow) think('skyshow', 30_000, 2600);
+          else if (mood.wet) think('rain', 30_000, 2600);
         }
       }
 
@@ -756,11 +911,19 @@ export default function CanvasResident() {
   function enterDwellPose(sim: Sim, b: Behavior) {
     sim.poseT = 0;
     const rng = brainRef.current.rng;
-    const kind = b.kind === 'sleep' && b.objId && rng() < 0.5 ? 'pile' : THOUGHT_FOR[b.kind];
-    if (kind && rng() < 0.55) {
-      // a stale block gets its own remark — that's the whole point of noticing
-      const t: ThoughtKind = kind === 'block' && sceneRef.current.stale > 0 && rng() < 0.4 ? 'stale' : kind;
-      think(t, 24_000, 2800);
+    // If it walked to a specific block, it comments on THAT block — its type,
+    // or better, what it actually says. Generic lines are the fallback.
+    const obj = b.objId ? useCanvasStore.getState().objects.find((o) => o.id === b.objId) : null;
+    const read = obj && rng() < 0.7 ? readObject(obj, rng) : null;
+    if (read) {
+      say(read, false, 24_000, 2900);
+    } else {
+      const kind = b.kind === 'sleep' && b.objId && rng() < 0.5 ? 'pile' : THOUGHT_FOR[b.kind];
+      if (kind && rng() < 0.55) {
+        // a stale block gets its own remark — the whole point of noticing
+        const t: ThoughtKind = kind === 'block' && sceneRef.current.stale > 0 && rng() < 0.4 ? 'stale' : kind;
+        think(t, 24_000, 2800);
+      }
     }
     sim.perchStage = 0;
     sim.ropeT = 0;
@@ -773,7 +936,10 @@ export default function CanvasResident() {
     }
     switch (b.kind) {
       case 'idle_sit': case 'countdown': case 'mirror': case 'timer_perch': case 'nest_visit':
+      case 'shelter': case 'come':
         sim.pose = 'sit'; break;
+      case 'roll': sim.pose = 'roll'; break;
+      case 'play': sim.pose = 'paw'; break;
       case 'groom': sim.pose = 'groom'; break;
       case 'stretch': sim.pose = 'stretch'; break;
       case 'sleep': sim.pose = 'sleep'; break;
@@ -843,6 +1009,26 @@ export default function CanvasResident() {
       }
       case 'mirror': {
         if (sim.poseT > 1500 && sim.poseT < 1620) think('mirror', 12_000, 2400);
+        break;
+      }
+      case 'play': {
+        const obj = store.objects.find((o) => o.id === b.objId);
+        if (!obj) { sim.dwellUntil = now; break; }
+        // The paw reaches toward -x in the art, and the cat parked on the toy's
+        // right, so unflipped is the direction that actually connects. Pounce
+        // is a side-view launch toward +x and would fire the wrong way here —
+        // it belongs to the laser chase, where facing comes from velocity.
+        sim.facing = 1;
+        if (sim.pose !== 'paw') { sim.pose = 'paw'; sim.poseT = 0; }
+        if (rng() < dt * 0.25) think('play', 10_000, 1800);
+        break;
+      }
+      case 'roll': {
+        if (sim.poseT > 500 && rng() < dt * 0.5) think('roll', 20_000, 2000);
+        break;
+      }
+      case 'shelter': {
+        if (rng() < dt * 0.25) think(rng() < 0.5 ? 'shelter' : 'rain', 20_000, 2400);
         break;
       }
       case 'sleep': {
@@ -972,9 +1158,6 @@ export default function CanvasResident() {
   if (!enabled || readOnly || !profileRef.current) return null;
 
   const profile = profileRef.current;
-  const persona = personaRef.current;
-  const coat = COATS[persona.coat % COATS.length];
-  const stamps = Object.values(profile.stamps);
 
   return (
     <>
@@ -1128,23 +1311,23 @@ export default function CanvasResident() {
         </div>
       </div>
 
-      {/* profile card — click the cat */}
+      {/* the menu — name, sleep, laser. Nothing else earns a click. */}
       {cardOpen && (
         <div
           className="absolute glass-panel"
           style={{
-            left: simRef.current.x + 46,
-            top: simRef.current.y - 150,
-            width: 216,
+            left: simRef.current.x + 40,
+            top: simRef.current.y - 96,
+            width: 178,
             zIndex: 100000,
-            padding: '12px 14px',
+            padding: '10px 11px',
             fontFamily: "'Outfit', sans-serif",
           }}
           onPointerDown={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
           onWheel={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between gap-2" style={{ marginBottom: 6 }}>
+          <div className="flex items-center gap-2" style={{ marginBottom: 8 }}>
             <input
               value={profile.name}
               onChange={(e) => {
@@ -1152,7 +1335,9 @@ export default function CanvasResident() {
                 persist();
                 bumpCard((v) => v + 1);
               }}
-              className="bg-transparent outline-none text-[13px] font-extrabold text-[var(--text-primary)] min-w-0 flex-1 border-b border-transparent focus:border-[var(--accent)]"
+              placeholder="name"
+              className="bg-transparent outline-none text-[13px] font-extrabold text-[var(--text-primary)] min-w-0 flex-1 border-b border-[var(--border-strong)] focus:border-[var(--accent)]"
+              style={{ paddingBottom: 2 }}
               aria-label="Cat name"
             />
             <button
@@ -1163,54 +1348,71 @@ export default function CanvasResident() {
               ×
             </button>
           </div>
-          <div className="text-[10px] text-[var(--text-tertiary)] font-semibold" style={{ marginBottom: 8 }}>
-            {coat.name} · resident of this board
+
+          <div className="text-[9px] text-[var(--text-muted)]" style={{ marginBottom: 9, lineHeight: '12px' }}>
+            Write “{profile.name || 'its name'}” on a note and it&apos;ll come running.
           </div>
 
-          <div className="flex flex-col gap-1 text-[10.5px] text-[var(--text-secondary)]">
-            <div className="flex justify-between">
-              <span>Focus sessions kept company</span>
-              <span className="font-extrabold tabular-nums">{profile.pomodoros}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Canvases visited</span>
-              <span className="font-extrabold tabular-nums">{stamps.length}</span>
-            </div>
-            {nest && (
-              <div className="flex justify-between">
-                <span>Keepsakes in the nest</span>
-                <span className="font-extrabold tabular-nums">{nest.scraps.length}</span>
-              </div>
-            )}
-          </div>
+          <button
+            onClick={() => {
+              const sim = simRef.current;
+              sim.behavior = { kind: 'sleep', dwell: 120_000 };
+              sim.phase = 'dwell';
+              sim.dwellUntil = performance.now() + 120_000;
+              sim.pose = 'sleep';
+              sim.poseT = 0;
+              setLaserOn(false);
+              setCardOpen(false);
+            }}
+            className="w-full text-left text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg cursor-pointer flex items-center gap-2"
+            style={{ padding: '6px 8px', background: 'var(--bg-inset, rgba(0,0,0,0.05))', marginBottom: 5 }}
+          >
+            <span aria-hidden="true">🌙</span> Go to sleep
+          </button>
 
-          {stamps.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--text-tertiary)]" style={{ marginBottom: 3 }}>
-                Passport
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {stamps.slice(0, 6).map((s, i) => (
-                  <span
-                    key={i}
-                    className="text-[9px] font-bold rounded-full text-[var(--accent)]"
-                    style={{ background: 'rgba(201,123,75,0.12)', padding: '2px 7px' }}
-                    title={`First visited ${new Date(s.firstVisit).toLocaleDateString()}`}
-                  >
-                    {s.name.slice(0, 14) || 'unnamed'}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="text-[9px] text-[var(--text-muted)]" style={{ marginTop: 8 }}>
-            {profile.pomodoros >= 100
-              ? 'Has sat through 100 focus sessions with you.'
-              : `${100 - profile.pomodoros} more focus sessions and it'll have sat through a hundred.`}
-          </div>
+          <button
+            onClick={() => { setLaserOn((v) => !v); setCardOpen(false); }}
+            className="w-full text-left text-[11px] font-bold rounded-lg cursor-pointer flex items-center gap-2"
+            style={{
+              padding: '6px 8px',
+              background: laserOn ? 'rgba(220,60,60,0.16)' : 'var(--bg-inset, rgba(0,0,0,0.05))',
+              color: laserOn ? '#D93B3B' : 'var(--text-secondary)',
+            }}
+          >
+            <span aria-hidden="true">🔴</span> {laserOn ? 'Stop the laser' : 'Laser pointer'}
+          </button>
         </div>
       )}
+
+      {/* laser play mode — a real dot, and the cat loses its mind over it */}
+      {laserOn && typeof document !== 'undefined' && createPortal(
+        <>
+          <div
+            id="cat-laser-dot"
+            style={{
+              position: 'fixed', left: 0, top: 0, zIndex: 2147483000,
+              width: 12, height: 12, borderRadius: '50%',
+              background: 'radial-gradient(circle, #FF5A5A 0%, #E01B1B 55%, rgba(224,27,27,0) 72%)',
+              boxShadow: '0 0 14px 5px rgba(224,27,27,0.55)',
+              pointerEvents: 'none',
+            }}
+          />
+          <div
+            style={{
+              position: 'fixed', left: '50%', bottom: 22, transform: 'translateX(-50%)',
+              zIndex: 2147483000,
+              background: 'rgba(20,18,16,0.9)', color: '#F5F2EA',
+              borderRadius: 999, padding: '6px 14px',
+              fontSize: 11, fontWeight: 700, fontFamily: "'Outfit', sans-serif",
+              pointerEvents: 'none', letterSpacing: '0.01em',
+            }}
+          >
+            Move the pointer — hold still and {profile.name || 'the cat'} pounces · Esc to stop
+          </div>
+        </>,
+        document.body,
+      )}
+
     </>
   );
 }

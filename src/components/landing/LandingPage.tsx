@@ -26,6 +26,7 @@ import { useChatUnreadTotal } from '@/store/chatStore';
 import { exportBoardById } from '@/lib/boardIO';
 import { applyCanvasTheme, resetCanvasTheme, presetById, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 import { gistOf, rankForPreview, effectiveFontSize, textRole, isSemanticCandidate } from '@/lib/semanticZoom';
+import LandingResident from './LandingResident';
 
 /* ============================================================
    Types
@@ -649,6 +650,9 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex overflow-x-hidden relative paper-texture">
       <div className="noise-overlay" />
+
+      {/* the resident wanders the bottom of the page while you decide */}
+      <LandingResident />
 
       {/* ---------- Floating clay dock ---------- */}
       {/* The dock was rendering flush against x=0 — `ml-4` never did anything

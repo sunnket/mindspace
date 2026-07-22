@@ -32,7 +32,15 @@ export type ThoughtKind =
   | 'startle'
   | 'pet'
   | 'clutter'        // the canvas has got away from you
-  | 'empty';         // ...or there's nothing on it at all
+  | 'empty'          // ...or there's nothing on it at all
+  | 'rain'           // the Relax layer is weather
+  | 'shelter'
+  | 'skyshow'        // ...or it's fireflies, lanterns, aurora
+  | 'play'
+  | 'roll'
+  | 'chase'          // the laser
+  | 'caught'
+  | 'called';        // you wrote its name on the board
 
 const POOLS: Record<ThoughtKind, string[]> = {
   typing_fast: [
@@ -112,11 +120,70 @@ const POOLS: Record<ThoughtKind, string[]> = {
     'big empty',
     'just us then',
   ],
+  rain: ['it is raining', 'wet', 'i do not love this', 'indoors was fine'],
+  shelter: ['dry here', 'i will wait it out', 'good roof', 'this will do'],
+  skyshow: ['ooh', 'lights', 'look up', 'pretty', 'i could watch this'],
+  play: ['got it', 'again', 'this one moves', 'boop', 'mine', 'stop wriggling'],
+  roll: ['aaaa', 'floor is good', 'wriggle', 'no reason', 'the belly is out'],
+  chase: ['THE DOT', 'get it get it', 'mine mine mine', 'come back', 'i see it'],
+  caught: ['got the dot', 'it was mine all along', 'ha', 'defeated'],
+  called: ['someone said my name', 'coming', 'that is me', 'you called?'],
 };
+
+/* ------------------------------------------------------------------ */
+/* Reading the actual board                                            */
+/* ------------------------------------------------------------------ */
+
+/** Lines keyed to what a block IS. */
+const BY_TYPE: Record<string, string[]> = {
+  sticky: ['a little yellow one', 'sticky', 'i could sit on this'],
+  image: ['a picture', 'is that food', 'who is that', 'nice picture'],
+  text: ['words words words', 'a lot of words', 'reading is hard'],
+  heading: ['big letters', 'important then', 'this one shouts'],
+  shape: ['a shape', 'geometry', 'very square'],
+  browser: ['the internet is in there', 'tiny window', 'do not scroll'],
+  drawing: ['you drew this', 'abstract', 'is that me'],
+  card: ['a card', 'boxes inside boxes', 'neat'],
+  'workflow-node': ['a plan', 'arrows mean plan', 'organised. suspicious'],
+  mirror: ['who is that', 'there is a cat in there', 'hello me'],
+};
+
+/** ...and lines keyed to what it SAYS. These win — content beats type. */
+const BY_CONTENT: { re: RegExp; lines: string[] }[] = [
+  { re: /(bug|broken|error|crash|fail)/i, lines: ['something is broken', 'uh oh', 'that sounds bad'] },
+  { re: /(todo|task|checklist)/i, lines: ['a list. ambitious', 'so many boxes', 'good luck'] },
+  { re: /(idea|maybe|what if)/i, lines: ['an idea!', 'ooh', 'i like this one'] },
+  { re: /(meeting|call|standup|sync)/i, lines: ['people talk time', 'sounds long'] },
+  { re: /(deadline|due|ship|launch)/i, lines: ['soon then', 'that is coming up'] },
+  { re: /(done|shipped|finished|complete)/i, lines: ['finished one', 'nice', 'good'] },
+  { re: /\?\s*$/, lines: ['good question', 'i do not know either', 'hm'] },
+];
+
+/**
+ * What the cat makes of one particular block. Returns null when it hasn't got
+ * an opinion, which is most of the time — the caller should fall back to a
+ * generic line rather than forcing a comment on every object.
+ */
+export function readObject(
+  o: { type?: string; content?: string } | null | undefined,
+  rng: () => number,
+): string | null {
+  if (!o) return null;
+  const text = (o.content || '').trim();
+  if (text === '' && o.type !== 'image' && o.type !== 'drawing' && o.type !== 'mirror') {
+    return rng() < 0.5 ? 'this one is empty' : 'unfinished';
+  }
+  for (const rule of BY_CONTENT) {
+    if (rule.re.test(text)) return rule.lines[Math.floor(rng() * rule.lines.length)];
+  }
+  const pool = BY_TYPE[o.type || ''];
+  if (pool && rng() < 0.8) return pool[Math.floor(rng() * pool.length)];
+  return null;
+}
 
 /** Thought clouds shaped like the thing they came from — speech is louder. */
 export const SPEECH_KINDS: ReadonlySet<ThoughtKind> = new Set<ThoughtKind>([
-  'startle', 'scruff', 'dropped', 'countdown',
+  'startle', 'scruff', 'dropped', 'countdown', 'chase', 'caught', 'called', 'play',
 ]);
 
 /**
