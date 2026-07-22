@@ -377,6 +377,12 @@ export default function InfiniteCanvas() {
     (e: WheelEvent) => {
       e.preventDefault();
 
+      /* A tour is a slideshow, not a canvas. Scrolling during one dragged the
+         board out from under the slide — and for a frame scene, whose mask is
+         pinned to a region, that just scrolled the content out of its own
+         frame. Playback owns the camera; the arrows and Esc own navigation. */
+      if (useCanvasStore.getState().isTouring) return;
+
       if (e.ctrlKey || e.metaKey) {
         // Smooth exponential zoom for trackpads and mouse wheels
         const zoomFactor = Math.exp(-e.deltaY * 0.005);
@@ -417,6 +423,8 @@ export default function InfiniteCanvas() {
     (e: React.MouseEvent) => {
       if (e.button === 2) return; // Ignore right click
       if (mode === 'draw') return;
+      // Playback owns the camera — see handleWheel.
+      if (useCanvasStore.getState().isTouring) return;
 
       // Close plus menu
       if (plusMenuPos) {
@@ -1189,7 +1197,7 @@ export default function InfiniteCanvas() {
       </svg>
 
       {/* UI overlays */}
-      <div className="fixed top-12 left-10 z-50 pointer-events-auto flex flex-col items-start">
+      <div className="canvas-chrome fixed top-12 left-10 z-50 pointer-events-auto flex flex-col items-start">
         <div className="group/head flex items-center gap-2.5">
           {isEditingTitle ? (
             <input
@@ -1288,50 +1296,63 @@ export default function InfiniteCanvas() {
       {/* Flow Mode: cinematic focus-writing overlay (spotlight, weather, progress) */}
       <FlowModeLayer />
 
-      <FloatingToolbar />
-      <SpatialSearch />
-      <CommandPalette />
-      <PlusMenu />
-      <SlashCommandMenu />
-      <AtMentionMenu />
-      <AgentOverlay />
-      <SkillSetPanel />
-      <SelectionPanel />
-      {/* Controls for whichever frame is selected — kind picker, bulk delete,
-          slide capture, and the Ask-AI box for agent frames. */}
-      <FrameHUD />
-      <Minimap />
-      <CheckpointIndex />
-      <SaveIndicator />
-      <TrashPile />
-      <VoiceOrb />
-      <AuthButton hideGuest={true} />
+      {/* Every piece of app chrome, in ONE wrapper.
+          A tour is a presentation, and `.tour-mode` used to hide only four of
+          these by class — so the title, Share, collab bar, sign-in and chat
+          launcher all stayed on screen over the slide. Grouping them means the
+          tour hides the chrome wholesale instead of by enumeration, and nothing
+          new has to remember to opt in. The wrapper is an unstyled, unpositioned
+          div, so it creates no stacking context and every `fixed` child keeps
+          the exact position and z-index it had. */}
+      <div className="canvas-chrome">
+        <FloatingToolbar />
+        <SpatialSearch />
+        <CommandPalette />
+        <PlusMenu />
+        <SlashCommandMenu />
+        <AtMentionMenu />
+        <AgentOverlay />
+        <SkillSetPanel />
+        <SelectionPanel />
+        {/* Controls for whichever frame is selected — kind picker, bulk delete,
+            slide capture, and the Ask-AI box for agent frames. */}
+        <FrameHUD />
+        <Minimap />
+        <CheckpointIndex />
+        <SaveIndicator />
+        <TrashPile />
+        <VoiceOrb />
+        <AuthButton hideGuest={true} />
 
-      {/* Live collaboration */}
-      <CollabBar />
-      <CollabCursors />
-      <CollabModal />
-      <PulseLayer />
+        {/* Live collaboration */}
+        <CollabBar />
+        <CollabCursors />
+        <CollabModal />
+        <PulseLayer />
 
-      {/* Keyboard shortcuts help (press ?) */}
-      <ShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
+        {/* Keyboard shortcuts help (press ?) */}
+        <ShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
 
-      {/* Share & export */}
-      {showShare && <ShareModal onClose={() => setShowShare(false)} />}
+        {/* Share & export */}
+        {showShare && <ShareModal onClose={() => setShowShare(false)} />}
 
-      {/* Minimize shelf: drag any object into the top-left corner to dock it */}
-      <MinimizeDock />
+        {/* Minimize shelf: drag any object into the top-left corner to dock it */}
+        <MinimizeDock />
 
-      {/* Warp: teleport objects to other canvases via portals */}
-      <WarpPortal />
+        {/* Warp: teleport objects to other canvases via portals */}
+        <WarpPortal />
 
-      {/* Scenes: cinematic camera tours */}
+        {/* Human↔human DM chat (launched from the toolbar's Messages button) */}
+        <ChatLauncher />
+        {/* AI agent chat — corner launcher + resizable right-side panel */}
+        <AgentChatPanel />
+      </div>
+
+      {/* Scenes: cinematic camera tours. Deliberately OUTSIDE .canvas-chrome —
+          it renders the tour player itself, which must survive the very rule
+          that hides the chrome. Its launcher pill opts in separately via the
+          .scenes-launcher class. */}
       <ScenesPanel />
-
-      {/* Human↔human DM chat (launched from the toolbar's Messages button) */}
-      <ChatLauncher />
-      {/* AI agent chat — corner launcher + resizable right-side panel */}
-      <AgentChatPanel />
     </>
   );
 }

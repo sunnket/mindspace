@@ -157,6 +157,12 @@ html, body {
 .shape-rough-2 { filter: url(#ms-rough-2); }
 
 /* Scenes: distraction-free "tour mode" fades the canvas chrome out of the way */
+/* A tour is a presentation — the app gets out of the way. `.canvas-chrome`
+   wraps every overlay (toolbar, title, Share, collab bar, sign-in, chat, docks)
+   so this hides them wholesale; the individual classes stay listed for the
+   handful that render outside the wrapper. The tour's own controls live above
+   this and are unaffected. */
+.tour-mode .canvas-chrome,
 .tour-mode .floating-toolbar,
 .tour-mode .minimap-container,
 .tour-mode .scenes-launcher,

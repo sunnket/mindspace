@@ -29,35 +29,68 @@ function targetCamera(scene: Scene): { x: number; y: number; zoom: number } {
  * filmic instead of teleporting. Space toggles play, arrows step, Esc exits.
  */
 /**
- * Dims everything outside a world-space rectangle. Four panels rather than a
- * box-shadow so the cut-out edge stays exact at any zoom, and it re-projects on
- * every camera change so it stays glued to the region while the player flies.
+ * Blacks out everything outside a world-space rectangle, so a frame scene
+ * presents ONLY what was framed.
+ *
+ * Four opaque panels rather than a box-shadow: the cut-out edge stays exact at
+ * any zoom, and the panels sit ABOVE the app chrome, so nothing from the canvas
+ * or the UI can bleed in around the slide. It re-projects on every camera change
+ * so it stays glued to the region while the player flies. No ring, no border —
+ * the slide should look like a slide, not like a framed region of a canvas.
  */
-function RegionMask({ rect }: { rect: { x: number; y: number; width: number; height: number } }) {
+function RegionMask({
+  rect, title, index, total,
+}: {
+  rect: { x: number; y: number; width: number; height: number };
+  title: string;
+  index: number;
+  total: number;
+}) {
   const camera = useCanvasStore((s) => s.camera);
   const r = rectToScreen(rect, camera);
-  const shade = 'rgba(14,12,11,0.78)';
+  const shade = '#0B0A09';
   const panel = (style: React.CSSProperties, key: string) => (
     <div key={key} className="absolute" style={{ background: shade, ...style }} />
   );
+
+  // The frame's name is the slide's heading, and it belongs in the black band
+  // ABOVE the slide. Positioning it off the same projection as the mask is what
+  // guarantees it can never land on top of the content it's titling.
+  const bandH = Math.max(0, r.y);
+  const showTitle = bandH > 46;
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.45 }}
-      className="fixed inset-0 z-[238] pointer-events-none overflow-hidden"
+      className="fixed inset-0 z-[242] pointer-events-none overflow-hidden"
     >
-      {panel({ left: 0, top: 0, width: '100%', height: Math.max(0, r.y) }, 'top')}
+      {panel({ left: 0, top: 0, width: '100%', height: bandH }, 'top')}
       {panel({ left: 0, top: r.y + r.height, width: '100%', bottom: 0 }, 'bottom')}
       {panel({ left: 0, top: r.y, width: Math.max(0, r.x), height: r.height }, 'left')}
       {panel({ left: r.x + r.width, top: r.y, right: 0, height: r.height }, 'right')}
-      <div
-        className="absolute rounded-[18px]"
-        style={{
-          left: r.x, top: r.y, width: r.width, height: r.height,
-          boxShadow: '0 0 0 1.5px rgba(255,255,255,0.16), 0 0 90px rgba(0,0,0,0.5)',
-        }}
-      />
+
+      {showTitle && (
+        <div
+          className="absolute flex flex-col items-center justify-center text-center"
+          style={{ left: 0, top: 0, width: '100%', height: bandH, padding: '0 24px' }}
+        >
+          <span className="text-[9px] font-extrabold uppercase tracking-[0.22em] text-white/45">
+            {index + 1} / {total}
+          </span>
+          <h2
+            className="text-white font-bold leading-tight truncate w-full"
+            style={{
+              fontFamily: "'Outfit', sans-serif",
+              fontSize: Math.max(16, Math.min(30, bandH * 0.34)),
+              marginTop: 4,
+            }}
+          >
+            {title}
+          </h2>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -219,39 +252,20 @@ export default function TourPlayer({
 
   return (
     <>
-      {/* A scene FRAME presents only its own region: everything outside the
-          rectangle is dimmed away, so a slide shows what was framed and not
-          whatever happens to sit beside it. Free-roam still works — the mask
-          tracks the camera, so panning out simply reveals the dimmed rest. */}
-      {current?.rect && <RegionMask rect={current.rect} />}
-
-      {/* Slide title — a frame scene is named by its frame, and that name is
-          the heading of the slide. */}
+      {/* A scene FRAME presents ONLY its own region: everything outside the
+          rectangle is blacked out — canvas and app chrome alike — and the frame
+          name is the slide's heading. The mask tracks the camera, so it stays
+          locked to the region for the whole flight. */}
       {current?.rect && (
-        <motion.div
-          key={`title-${current.id}`}
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="fixed top-10 left-1/2 -translate-x-1/2 z-[250] pointer-events-none text-center"
-          style={{ maxWidth: 'min(900px, 88vw)' }}
-        >
-          <span
-            className="text-[9px] font-extrabold uppercase tracking-[0.22em] text-white/55 block"
-            style={{ marginBottom: 6 }}
-          >
-            {index + 1} / {total}
-          </span>
-          <h2
-            className="text-white font-bold leading-tight"
-            style={{ fontFamily: "'Outfit', sans-serif", fontSize: 30, textShadow: '0 2px 24px rgba(0,0,0,0.55)' }}
-          >
-            {current.name}
-          </h2>
-        </motion.div>
+        <RegionMask rect={current.rect} title={current.name} index={index} total={total} />
       )}
 
-      {/* soft cinematic vignette */}
-      <div className="fixed inset-0 z-[240] pointer-events-none" style={{ boxShadow: 'inset 0 0 220px 40px rgba(45,42,38,0.28)' }} />
+      {/* Soft cinematic vignette — for camera scenes only. A frame scene is
+          already hard-edged by its mask, and layering a vignette under it just
+          muddied the slide. */}
+      {!current?.rect && (
+        <div className="fixed inset-0 z-[240] pointer-events-none" style={{ boxShadow: 'inset 0 0 220px 40px rgba(45,42,38,0.28)' }} />
+      )}
 
       {/* Hide native cursor when laser is active */}
       {laserActive && (

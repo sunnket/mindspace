@@ -541,6 +541,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const setSlashMenu = useCanvasStore((s) => s.setSlashMenu);
   const setAtMenu = useCanvasStore((s) => s.setAtMenu);
   const readOnly = useCanvasStore((s) => s.readOnly);
+  const isTouring = useCanvasStore((s) => s.isTouring);
 
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -1894,6 +1895,12 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         const frameColor = frameColorOf(obj);
         const meta = frameKindMeta(kind);
         const captured = kind === 'normal' ? 0 : objectsInFrame(objects, obj).length;
+
+        /* During a tour, a tool frame is scaffolding, not content — a scene
+           frame would otherwise present its own blue outline and a title tab
+           duplicating the slide heading right on top of the slide. A plain
+           grouping frame stays: that one is a deliberate visual, not a control. */
+        if (isTouring && kind !== 'normal') return null;
 
         /* Each kind reads differently at a glance. A delete frame in particular
            must never be mistakable for a grouping frame, so it gets the
