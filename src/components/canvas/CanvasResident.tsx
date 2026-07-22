@@ -36,7 +36,9 @@ import {
   mulberry32, makePersonality, loadProfile, saveProfile,
   perceive, chooseBehavior,
   type CatProfile, type CatPersonality, type Behavior, type BrainState, type NestScrap,
+  type Viewport,
 } from '@/lib/catBrain';
+import { pickThought, SPEECH_KINDS, type ThoughtKind } from '@/lib/catThoughts';
 import {
   ART_W, ART_H, POSE_FRAMES, COATS, getSheet, type Sheet, type CompiledFrame,
 } from '@/lib/catSprites';
@@ -87,9 +89,22 @@ interface Sim {
   landY: number;
   // bubble
   bubble: string;
+  bubbleKind: 'speech' | 'thought';
   bubbleUntil: number;
   lastBubble: number;
 }
+
+/** What arriving somewhere puts in the cat's head. */
+const THOUGHT_FOR: Partial<Record<Behavior['kind'], ThoughtKind>> = {
+  sleep: 'sleep',
+  timer_perch: 'timer',
+  countdown: 'countdown',
+  mirror: 'mirror',
+  nest_visit: 'nest',
+  perch_walk: 'block',
+  idle_sit: 'idle',
+  tightrope: 'walk',
+};
 
 interface PawPrint { x: number; y: number; angle: number; flip: boolean }
 
@@ -144,6 +159,12 @@ function frameNameFor(sim: Sim): string {
     case 'startle':
       return POSE_FRAMES.startle[0];
     default: {
+      // Only a standing cat turns its face out of profile to look at you.
+      // Doing this while it walks is what made it read as a broken neck.
+      if (sim.attentive > 0.55) {
+        const a = POSE_FRAMES.standAttentive;
+        return a[Math.floor(t / 1100) % a.length];
+      }
       const seq = sim.earFlick > 0 ? POSE_FRAMES.standEar : POSE_FRAMES.stand;
       return seq[Math.floor(t / 1100) % seq.length];
     }
@@ -170,6 +191,13 @@ export default function CanvasResident() {
   const cursorRef = useRef({ sx: -9999, sy: -9999, wx: -99999, wy: -99999, vx: 0, vy: 0, t: 0 });
   const nextThinkRef = useRef(0);
   const knownObjectsRef = useRef<Map<string, { word: string; color: string }>>(new Map());
+  const recentThoughtRef = useRef<Map<ThoughtKind, string>>(new Map());
+  const sceneRef = useRef({ blocks: 0, stale: 0 });
+  const offScreenMsRef = useRef(0);
+  const typingRef = useRef<{ stamps: number[] }>({ stamps: [] });
+  const bubbleBoxRef = useRef<HTMLSpanElement>(null);
+  const bubbleTailRef = useRef<HTMLSpanElement>(null);
+  const bubbleDotsRef = useRef<HTMLSpanElement>(null);
 
   const [cardOpen, setCardOpen] = useState(false);
   const [, bumpCard] = useState(0);
@@ -196,11 +224,29 @@ export default function CanvasResident() {
       ropeT: 0, perchStage: 0,
       dragging: false, dragOff: { x: 0, y: 0 }, dragVX: 0, dragMoved: 0,
       falling: false, fallVY: 0, landY: 0,
-      bubble: '', bubbleUntil: 0, lastBubble: 0,
+      bubble: '', bubbleKind: 'thought', bubbleUntil: 0, lastBubble: 0,
     };
   }
 
   const persist = useCallback(() => saveProfile(profileRef.current), []);
+
+  /**
+   * Say something — but only if it's earned the airtime. `minGap` is the real
+   * control here: a companion that comments every few seconds is a chatbot
+   * sitting on your board, and you stop reading it by the second day.
+   */
+  const think = useCallback((kind: ThoughtKind, minGap = 34_000, hold = 2800) => {
+    const sim = simRef.current;
+    if (!sim) return;
+    const now = performance.now();
+    if (now - sim.lastBubble < minGap) return;
+    const line = pickThought(kind, brainRef.current.rng, recentThoughtRef.current);
+    if (!line) return;
+    sim.bubble = line;
+    sim.bubbleKind = SPEECH_KINDS.has(kind) ? 'speech' : 'thought';
+    sim.bubbleUntil = now + hold;
+    sim.lastBubble = now;
+  }, []);
 
   /* ---------- entering a space: position, stamp, footprints, nest ---------- */
   useEffect(() => {
@@ -374,7 +420,9 @@ export default function CanvasResident() {
       sim.pose = 'celebrate';
       sim.poseT = 0;
       sim.bubble = text;
+      sim.bubbleKind = 'speech';
       sim.bubbleUntil = performance.now() + 2600;
+      sim.lastBubble = performance.now();
     };
     const onPomodoro = () => {
       profileRef.current.pomodoros += 1;
@@ -395,6 +443,29 @@ export default function CanvasResident() {
       window.removeEventListener('mindspace:goal-complete', onGoal);
     };
   }, [enabled, readOnly, persist]);
+
+  /* ---------- it notices how you're typing ---------- */
+  useEffect(() => {
+    if (!enabled || readOnly) return;
+    const t = typingRef.current;
+    let stallTimer: number | undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key.length !== 1 && e.key !== 'Backspace' && e.key !== 'Enter') return;
+      const now = performance.now();
+      t.stamps.push(now);
+      if (t.stamps.length > 60) t.stamps.shift();
+      const burst = t.stamps.filter((s) => now - s < 2200).length;
+      if (burst >= 14) think('typing_fast', 26_000, 2400);
+      window.clearTimeout(stallTimer);
+      // ...and notices when you stop dead in the middle of a sentence
+      if (burst >= 6) {
+        stallTimer = window.setTimeout(() => think('typing_stalled', 44_000, 2600), 5200);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); window.clearTimeout(stallTimer); };
+  }, [enabled, readOnly, think]);
 
   /* ---------- cursor tracking (screen → world, with velocity) ---------- */
   useEffect(() => {
@@ -434,6 +505,14 @@ export default function CanvasResident() {
       const rng = brain.rng;
       const busy = sim.dragging || sim.falling;
 
+      const cam = useCanvasStore.getState().camera;
+      const view: Viewport = {
+        x: -cam.x / cam.zoom,
+        y: -cam.y / cam.zoom,
+        w: window.innerWidth / cam.zoom,
+        h: window.innerHeight / cam.zoom,
+      };
+
       /* ---------- attention: the cursor makes it LOOK, not move ---------- */
       const c = cursorRef.current;
       const cx = sim.x, cy = sim.y - 26 * ART_PX; // roughly the head
@@ -447,6 +526,10 @@ export default function CanvasResident() {
         const m = Math.max(1, Math.hypot(dx, dy));
         sim.lookX = dx / m;
         sim.lookY = dy / m;
+        // standing still and watching you? then turn to face you properly
+        if (sim.pose === 'stand' && Math.abs(dx) > 12) {
+          sim.facing = (dx > 0 ? 1 : -1) as 1 | -1;
+        }
         // petting: cursor resting ON the cat
         const onCat = Math.abs(c.wx - sim.x) < 34 && c.wy > sim.y - 52 && c.wy < sim.y + 6;
         const cursorSpeed = Math.hypot(c.vx, c.vy);
@@ -456,6 +539,7 @@ export default function CanvasResident() {
             sim.lastPurr = now;
             sim.slowBlinkT = 0.0001; // a slow, trusting blink
             sim.petMs = 0;
+            think('pet', 18_000, 2000);
           }
         } else {
           sim.petMs = Math.max(0, sim.petMs - dt * 2000);
@@ -466,6 +550,7 @@ export default function CanvasResident() {
           sim.pose = 'startle';
           sim.poseT = 0;
           sim.behavior = null;
+          think('startle', 7000, 1500);
           const away = Math.sign(cx - c.wx) || 1;
           sim.x += away * 12;
           sim.facing = (away < 0 ? 1 : -1) as 1 | -1; // face the threat
@@ -512,10 +597,37 @@ export default function CanvasResident() {
           sim.fallVY = 0;
           sim.pose = 'squash';       // absorb the landing before standing up
           sim.poseT = 0;
+          think('dropped', 4000, 1800);
           profileRef.current.pos[spaceKey] = { x: sim.x, y: sim.y };
           persist();
           nextThinkRef.current = now + 1400;
         }
+      }
+
+      /* ---------- stay where the user is actually looking ---------- */
+      const onScreen =
+        sim.x > view.x - 60 && sim.x < view.x + view.w + 60 &&
+        sim.y > view.y - 60 && sim.y < view.y + view.h + 60;
+      if (!busy && !onScreen) {
+        offScreenMsRef.current += dt * 1000;
+        if (offScreenMsRef.current > 5000) {
+          offScreenMsRef.current = 0;
+          // If you panned somewhere far, don't make the cat trek for a minute
+          // and a half — it re-enters from the nearest edge, same as it does
+          // when you open a space. Otherwise it just walks back.
+          const cxv = view.x + view.w / 2, cyv = view.y + view.h / 2;
+          if (Math.hypot(sim.x - cxv, sim.y - cyv) > Math.max(view.w, view.h) * 1.2) {
+            const fromLeft = sim.x < cxv;
+            sim.x = fromLeft ? view.x - 60 : view.x + view.w + 60;
+            sim.y = view.y + view.h * (0.3 + rng() * 0.45);
+          }
+          sim.behavior = null;
+          sim.dwellUntil = 0;
+          nextThinkRef.current = 0;
+          if (sim.pose === 'sleep') { sim.pose = 'stand'; sim.poseT = 0; }
+        }
+      } else {
+        offScreenMsRef.current = 0;
       }
 
       /* ---------- brain: choose / advance behaviors ---------- */
@@ -524,7 +636,8 @@ export default function CanvasResident() {
         if (!sim.behavior && now >= nextThinkRef.current) {
           const store = useCanvasStore.getState();
           const p = perceive(store.objects, spaceKey === 'root' ? undefined : spaceKey, Date.now());
-          const b = chooseBehavior(brain, p, persona, { x: sim.x, y: sim.y }, Date.now(), nest);
+          sceneRef.current = { blocks: p.blocks.length, stale: p.stale.length };
+          const b = chooseBehavior(brain, p, persona, { x: sim.x, y: sim.y }, Date.now(), nest, view);
           sim.behavior = b;
           sim.phase = b.target ? 'travel' : 'dwell';
           sim.travelDeadline = now + 22_000;
@@ -574,6 +687,20 @@ export default function CanvasResident() {
         }
       }
 
+      /* ---------- ambient thoughts ---------- */
+      if (!busy) {
+        if (sim.pose === 'sleep') {
+          think('sleep', 9000 + rng() * 7000, 2400);
+        } else if (sim.pose === 'sit' || sim.pose === 'stand') {
+          if (rng() < dt * 0.05) {
+            const n = sceneRef.current.blocks;
+            think(n === 0 ? 'empty' : n > 26 ? 'clutter' : 'idle', 34_000, 2900);
+          }
+        } else if (sim.pose === 'walk' && rng() < dt * 0.02) {
+          think('walk', 48_000, 2200);
+        }
+      }
+
       if (sim.pose === 'startle' && sim.poseT > 620) { sim.pose = 'stand'; sim.poseT = 0; }
       if (sim.pose === 'squash' && sim.poseT > 240) { sim.pose = 'stand'; sim.poseT = 0; }
 
@@ -600,12 +727,20 @@ export default function CanvasResident() {
         shadow.style.transform = `translateX(-50%) scaleX(${wide ? 1.2 : airborne ? 0.7 : 1})`;
       }
       const bubble = bubbleRef.current;
-      if (bubble) {
+      const box = bubbleBoxRef.current;
+      if (bubble && box) {
         const show = !!sim.bubble && now < sim.bubbleUntil;
         bubble.style.opacity = show ? '1' : '0';
         bubble.style.transform = show ? 'translateY(0)' : 'translateY(4px)';
-        const label = bubble.firstElementChild as HTMLElement | null;
-        if (show && label && label.textContent !== sim.bubble) label.textContent = sim.bubble;
+        if (show && box.textContent !== sim.bubble) box.textContent = sim.bubble;
+        if (show) {
+          // a thought is a soft cloud with trailing dots; speech is hard-edged
+          // with a tail. Same words read completely differently in each.
+          const thought = sim.bubbleKind === 'thought';
+          box.style.borderRadius = thought ? '9px' : '3px';
+          if (bubbleTailRef.current) bubbleTailRef.current.style.display = thought ? 'none' : 'block';
+          if (bubbleDotsRef.current) bubbleDotsRef.current.style.display = thought ? 'block' : 'none';
+        }
       }
 
       drawSprite(sim, frame);
@@ -620,6 +755,13 @@ export default function CanvasResident() {
 
   function enterDwellPose(sim: Sim, b: Behavior) {
     sim.poseT = 0;
+    const rng = brainRef.current.rng;
+    const kind = b.kind === 'sleep' && b.objId && rng() < 0.5 ? 'pile' : THOUGHT_FOR[b.kind];
+    if (kind && rng() < 0.55) {
+      // a stale block gets its own remark — that's the whole point of noticing
+      const t: ThoughtKind = kind === 'block' && sceneRef.current.stale > 0 && rng() < 0.4 ? 'stale' : kind;
+      think(t, 24_000, 2800);
+    }
     sim.perchStage = 0;
     sim.ropeT = 0;
     // scripted behaviors own their own ending — give them room, they will
@@ -692,20 +834,15 @@ export default function CanvasResident() {
         break;
       }
       case 'countdown': {
-        if (now - sim.lastBubble > 5200 && rng() < dt * 1.6) {
-          sim.bubble = '!';
-          sim.bubbleUntil = now + 1600;
-          sim.lastBubble = now;
+        if (rng() < dt * 1.6) {
+          think('countdown', 14_000, 2200);
           sim.attentive = 1; // turns to look at you: "have you SEEN this?"
           sim.lookX = 0; sim.lookY = 0.3;
         }
         break;
       }
       case 'mirror': {
-        if (sim.poseT > 1500 && sim.poseT < 1600 && !sim.bubble) {
-          sim.bubble = '?';
-          sim.bubbleUntil = now + 1500;
-        }
+        if (sim.poseT > 1500 && sim.poseT < 1620) think('mirror', 12_000, 2400);
         break;
       }
       case 'sleep': {
@@ -803,7 +940,11 @@ export default function CanvasResident() {
       const nwx = (ev.clientX - cam2.x) / cam2.zoom;
       const nwy = (ev.clientY - cam2.y) / cam2.zoom;
       sim.dragMoved += Math.abs(ev.movementX) + Math.abs(ev.movementY);
-      if (sim.dragMoved > 6 && sim.pose !== 'scruff') { sim.pose = 'scruff'; sim.poseT = 0; }
+      if (sim.dragMoved > 6 && sim.pose !== 'scruff') {
+        sim.pose = 'scruff';
+        sim.poseT = 0;
+        think('scruff', 6000, 2200);
+      }
       sim.dragVX = (ev.clientX - lastX) * 3;
       lastX = ev.clientX;
       sim.x = nwx + sim.dragOff.x;
@@ -928,20 +1069,23 @@ export default function CanvasResident() {
           ref={bubbleRef}
           className="absolute pointer-events-none"
           style={{
-            left: '62%', bottom: '86%',
+            left: '58%', bottom: '88%',
             opacity: 0,
             transition: 'opacity 0.16s, transform 0.16s',
-            whiteSpace: 'nowrap',
           }}
         >
           <span
+            ref={bubbleBoxRef}
             style={{
               display: 'block',
               background: '#FFFDF8',
               color: '#1B1B22',
               border: '2px solid #1B1B22',
-              borderRadius: 3,
-              padding: '2px 5px',
+              borderRadius: 9,
+              padding: '3px 6px',
+              maxWidth: 124,
+              width: 'max-content',
+              textAlign: 'center',
               fontSize: 9,
               lineHeight: '11px',
               fontWeight: 800,
@@ -949,16 +1093,38 @@ export default function CanvasResident() {
               letterSpacing: '0.02em',
             }}
           />
-          {/* the little pixel tail on the bubble */}
+          {/* speech: a hard pixel tail */}
           <span
+            ref={bubbleTailRef}
             style={{
-              position: 'absolute', left: 5, top: '100%',
+              display: 'none',
+              position: 'absolute', left: 6, top: '100%',
               width: 0, height: 0,
               borderLeft: '4px solid transparent',
               borderRight: '4px solid transparent',
               borderTop: '5px solid #1B1B22',
             }}
           />
+          {/* thought: two shrinking clouds trailing down to its head */}
+          <span
+            ref={bubbleDotsRef}
+            style={{ position: 'absolute', left: 4, top: '100%' }}
+          >
+            <span
+              style={{
+                display: 'block', width: 5, height: 5, marginLeft: 2,
+                background: '#FFFDF8', border: '2px solid #1B1B22',
+                borderRadius: '50%',
+              }}
+            />
+            <span
+              style={{
+                display: 'block', width: 3, height: 3, marginTop: 1,
+                background: '#FFFDF8', border: '2px solid #1B1B22',
+                borderRadius: '50%',
+              }}
+            />
+          </span>
         </div>
       </div>
 

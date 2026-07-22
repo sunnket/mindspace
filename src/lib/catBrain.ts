@@ -269,6 +269,20 @@ export interface BrainState {
   rng: () => number;
 }
 
+/** The user's current window onto the board, in world coordinates. */
+export interface Viewport { x: number; y: number; w: number; h: number }
+
+/**
+ * A companion you have to go looking for isn't a companion. Everything below
+ * that picks a place to be runs through this: on-screen candidates are strongly
+ * preferred, and if the cat has wandered off the edge entirely, coming back is
+ * weighted above anything else it might have wanted to do.
+ */
+function seenBy(view: Viewport | null | undefined, x: number, y: number, w = 0, h = 0): boolean {
+  if (!view) return true;
+  return x + w > view.x && x < view.x + view.w && y + h > view.y && y < view.y + view.h;
+}
+
 function ready(state: BrainState, kind: BehaviorKind, now: number): boolean {
   const last = state.lastDone[kind] || 0;
   return now - last > (COOLDOWN[kind] || 0);
@@ -290,11 +304,35 @@ export function chooseBehavior(
   pos: { x: number; y: number },
   now: number,
   nest?: { x: number; y: number } | null,
+  view?: Viewport | null,
 ): Behavior {
   const r = state.rng;
   const options: { w: number; make: () => Behavior }[] = [];
   const near = (o: CanvasObjectData) => Math.hypot(o.x + o.width / 2 - pos.x, o.y + o.height / 2 - pos.y);
   const distW = (d: number) => Math.max(0.25, 1 - d / 2600); // closer things tempt more
+
+  /** a point well inside the viewport, never hard against an edge */
+  const spotInView = () => {
+    if (!view) return { x: pos.x + (r() - 0.5) * 700, y: pos.y + (r() - 0.5) * 700 };
+    const mx = Math.min(140, view.w * 0.18);
+    const my = Math.min(140, view.h * 0.18);
+    return {
+      x: view.x + mx + r() * Math.max(1, view.w - mx * 2),
+      y: view.y + my + r() * Math.max(1, view.h - my * 2),
+    };
+  };
+
+  // Off-screen is an emergency, not a mood. Walking back trumps everything.
+  const onScreen = seenBy(view, pos.x, pos.y);
+  if (!onScreen) {
+    return { kind: 'wander', target: spotInView(), dwell: 500 + r() * 1200 };
+  }
+
+  /** prefer candidates the user can actually see; fall back if none are */
+  const visibleFirst = (arr: CanvasObjectData[]) => {
+    const vis = arr.filter((o) => seenBy(view, o.x, o.y, o.width, o.height));
+    return vis.length ? vis : arr;
+  };
 
   // --- idle filler (always available) ---
   options.push({ w: 2.6 * personality.laziness, make: () => ({ kind: 'idle_sit', dwell: (4000 + r() * 9000) * personality.laziness }) });
@@ -312,6 +350,11 @@ export function chooseBehavior(
     options.push({
       w: 1.7,
       make: () => {
+        // most strolls stay on screen; the rest drift toward the content's
+        // centre of mass so the cat still explores the board it lives on
+        if (view && r() < 0.75) {
+          return { kind: 'wander', target: spotInView(), dwell: 600 + r() * 1800 };
+        }
         const spread = 380 + r() * 520;
         const cx = anchor.x * 0.35 + pos.x * 0.65;
         const cy = anchor.y * 0.35 + pos.y * 0.65;
@@ -326,7 +369,7 @@ export function chooseBehavior(
 
   // --- sleep, preferring piles and warm (recently edited) blocks ---
   if (ready(state, 'sleep', now)) {
-    const spots = [...p.pileTops, ...p.warm.filter((o) => o.width >= 150)];
+    const spots = visibleFirst([...p.pileTops, ...p.warm.filter((o) => o.width >= 150)]);
     const spot = spots.length && r() < 0.75 ? pick(r, spots) : null;
     options.push({
       w: 1.5 * personality.laziness,
@@ -369,7 +412,7 @@ export function chooseBehavior(
   }
 
   if (p.mirrors.length && ready(state, 'mirror', now)) {
-    const m = pick(r, p.mirrors);
+    const m = pick(r, visibleFirst(p.mirrors));
     options.push({
       w: 1.6 * personality.curiosity * distW(near(m)),
       make: () => ({
@@ -396,7 +439,7 @@ export function chooseBehavior(
 
   if (p.perchable.length && ready(state, 'perch_walk', now)) {
     // charts are the preferred parkour — the slide off the end is the point
-    const candidates = p.charts.length && r() < 0.6 ? p.charts : p.perchable;
+    const candidates = visibleFirst(p.charts.length && r() < 0.6 ? p.charts : p.perchable);
     const b = pick(r, candidates.filter((o) => o.width >= 200));
     if (b) {
       options.push({
