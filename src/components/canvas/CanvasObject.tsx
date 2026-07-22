@@ -519,7 +519,7 @@ interface CanvasObjectProps {
   isFocused: boolean;
 }
 
-function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
+function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObjectProps) {
   const updateObject = useCanvasStore((s) => s.updateObject);
   const setSelectedId = useCanvasStore((s) => s.setSelectedId);
   const setFocusedId = useCanvasStore((s) => s.setFocusedId);
@@ -545,7 +545,20 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
+  const [isHoveredRaw, setIsHovered] = useState(false);
+
+  /* A tour presents CONTENT — every trace of editing UI on the objects
+     themselves goes away for the duration.
+     This is not cosmetic: a selected frame's eight resize handles are pinned to
+     its bounds, which is exactly where a frame scene's mask cuts, so each one
+     showed up as a half-circle notched into the edge of the slide. Neutralising
+     selection and hover here (rather than hiding handles in CSS) also takes out
+     the selection ring, the "tap to cycle shape" hint, the workflow-node hover
+     controls and the arrow handles in one move — including any object the mouse
+     happens to pass over mid-presentation. The real selection is untouched and
+     comes straight back when the tour ends. */
+  const isSelected = isSelectedProp && !isTouring;
+  const isHovered = isHoveredRaw && !isTouring;
   /** Full-screen image preview ("full view" frame button). */
   const [lightboxOpen, setLightboxOpen] = useState(false);
   /** True right after a real drag so the mouseup's click doesn't also cycle the
@@ -602,7 +615,9 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     (e: React.MouseEvent) => {
       // Public share viewer: look, don't touch. Let native events through (so
       // links/embeds/scroll still work) but never start a drag or select.
-      if (readOnly) return;
+      // A tour takes the same deal: the presenter can still click a link or an
+      // embed, but can't nudge a block out of place mid-slide.
+      if (readOnly || isTouring) return;
       if (mode === 'draw' || isEditing) return;
 
       // Clicks on embedded controls (poll options, settings inputs, checkpoint
@@ -893,7 +908,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp, END_DRAG);
     },
-    [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex, addObject, readOnly]
+    [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex, addObject, readOnly, isTouring]
   );
 
   const handleResizeStart = useCallback(
@@ -1105,7 +1120,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (readOnly) return;
+      if (readOnly || isTouring) return;
 
       if (obj.type === 'heading') {
         // Navigate into nested canvas
@@ -1128,13 +1143,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         setEditingId(obj.id);
       }
     },
-    [obj, setFocusedId, pushCanvas, setEditingId, readOnly]
+    [obj, setFocusedId, pushCanvas, setEditingId, readOnly, isTouring]
   );
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (readOnly) return;
+      if (readOnly || isTouring) return;
       if (mode === 'draw' || isEditing) return;
 
       if (mode === 'connector') {
@@ -1182,7 +1197,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         setEditingId(obj.id);
       }
     },
-    [mode, isEditing, isSelected, obj, setEditingId, updateObject, toggleConnectorSelection, readOnly]
+    [mode, isEditing, isSelected, obj, setEditingId, updateObject, toggleConnectorSelection, readOnly, isTouring]
   );
 
   // Handle unified content saving. Compares against the LIVE stored content
