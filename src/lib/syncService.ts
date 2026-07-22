@@ -109,6 +109,7 @@ async function upsertCanvasRow(state: Partial<CanvasState>, canvasId: string, us
     threads: state.threads || [],
     background: state.background || null,
     skillset: state.skillset || null,
+    constellations: state.constellations || {},
   };
   let { error } = await supabase.from('canvases').upsert(extended);
   if (error) {
@@ -294,6 +295,7 @@ export async function pullCloudToLocal(userId: string): Promise<boolean> {
         scenes: c.scenes ?? local?.scenes ?? [],
         threads: c.threads ?? local?.threads ?? [],
         skillset: c.skillset ?? local?.skillset,
+        constellations: c.constellations ?? local?.constellations ?? {},
         lastModified: c.last_modified,
         category: c.category,
         isFavorite: c.is_favorite,

@@ -95,6 +95,8 @@ export interface CanvasState {
   threads?: CommentThread[];
   /** Per-canvas Skill Set — standing rules the AI agent obeys in this canvas. */
   skillset?: import('./skillset').CanvasSkillset;
+  /** Constellation View — custom names keyed by the naming block's id. */
+  constellations?: Record<string, string>;
   lastModified: number;
   category?: string;
   isFavorite?: boolean;

@@ -7,6 +7,7 @@ import type { RelaxEffectId } from '@/lib/relaxEffects';
 import { CanvasSkillset, emptySkillset, makeRule, getPreset, installPreset } from '@/lib/skillset';
 import { cameraForRect, objectsInFrame, strokesInFrame, type FrameKind } from '@/lib/frames';
 import { isStackable, stackIdOf, membersOf, stackSlots } from '@/lib/stacks';
+import { GALAXY_ENTER_ZOOM, GALAXY_EXIT_ZOOM } from '@/lib/constellations';
 
 export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax';
 
@@ -96,6 +97,18 @@ interface CanvasStore {
   animateCamera: (target: { x: number; y: number; zoom: number }, duration?: number) => void;
   checkpoint: { x: number; y: number; zoom: number } | null;
   setCheckpoint: (checkpoint: { x: number; y: number; zoom: number } | null) => void;
+
+  // Constellation View — the galaxy at the top of the zoom. Only the user's
+  // custom names persist (keyed by the naming block's id); the clusters
+  // themselves are always re-derived from block positions.
+  constellationNames: Record<string, string>;
+  /** Replace the map without marking dirty — used when loading a canvas. */
+  setConstellationNames: (map: Record<string, string>) => void;
+  setConstellationName: (anchorId: string, name: string) => void;
+  /** Fly the camera up into the night sky (drops zoom below the galaxy band). */
+  enterConstellationView: () => void;
+  /** Fly back down to a readable overview of the board. */
+  exitConstellationView: () => void;
 
   // Scenes (cinematic tours)
   scenes: Scene[];
@@ -429,6 +442,83 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Checkpoint
   checkpoint: null,
   setCheckpoint: (checkpoint) => set({ checkpoint, isDirty: true }),
+
+  // Constellation View — custom names, persisted with the canvas state.
+  constellationNames: {},
+  setConstellationNames: (map) => set({ constellationNames: map || {} }),
+  setConstellationName: (anchorId, name) =>
+    set((state) => {
+      const next = { ...state.constellationNames };
+      const v = (name || '').trim();
+      // An empty name clears the override so the cluster reverts to its derived
+      // name — the map only ever holds names the user actually chose.
+      if (v) next[anchorId] = v;
+      else delete next[anchorId];
+      return { constellationNames: next, isDirty: true };
+    }),
+  enterConstellationView: () => {
+    const { objects, canvasStack, urlCanvasId, animateCamera } = get();
+    const pid = resolveParentId(canvasStack, urlCanvasId);
+    const level = objects.filter(
+      (o) =>
+        (o.parentId ?? undefined) === pid &&
+        !o.style?.isMinimized &&
+        o.type !== 'arrow' &&
+        o.type !== 'drawing',
+    );
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+    if (level.length === 0) {
+      animateCamera({ x: vw / 2, y: vh / 2, zoom: GALAXY_ENTER_ZOOM }, 900);
+      return;
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const o of level) {
+      minX = Math.min(minX, o.x);
+      minY = Math.min(minY, o.y);
+      maxX = Math.max(maxX, o.x + o.width);
+      maxY = Math.max(maxY, o.y + o.height);
+    }
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    animateCamera(
+      { x: vw / 2 - cx * GALAXY_ENTER_ZOOM, y: vh / 2 - cy * GALAXY_ENTER_ZOOM, zoom: GALAXY_ENTER_ZOOM },
+      900,
+    );
+  },
+  exitConstellationView: () => {
+    const { objects, canvasStack, urlCanvasId, animateCamera } = get();
+    const pid = resolveParentId(canvasStack, urlCanvasId);
+    const level = objects.filter(
+      (o) =>
+        (o.parentId ?? undefined) === pid &&
+        !o.style?.isMinimized &&
+        o.type !== 'arrow' &&
+        o.type !== 'drawing',
+    );
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+    if (level.length === 0) {
+      animateCamera({ x: vw / 2, y: vh / 2, zoom: 1 }, 800);
+      return;
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const o of level) {
+      minX = Math.min(minX, o.x);
+      minY = Math.min(minY, o.y);
+      maxX = Math.max(maxX, o.x + o.width);
+      maxY = Math.max(maxY, o.y + o.height);
+    }
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const bw = maxX - minX;
+    const bh = maxY - minY;
+    // Land at a readable overview: fit-all if that's tighter than the exit
+    // floor, but never so far out that we drop straight back into the sky.
+    const fit = Math.min(vw / Math.max(1, bw * 1.3), vh / Math.max(1, bh * 1.3), 0.9);
+    const zoom = Math.max(GALAXY_EXIT_ZOOM, fit);
+    animateCamera({ x: vw / 2 - cx * zoom, y: vh / 2 - cy * zoom, zoom }, 800);
+  },
 
   // Scenes (cinematic tours) — persisted with the canvas state, sync via cloud
   scenes: [],

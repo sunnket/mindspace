@@ -25,6 +25,7 @@ import {
 import CanvasObject from './CanvasObject';
 import RelaxEffectsLayer from './RelaxEffectsLayer';
 import CanvasResident from './CanvasResident';
+import ConstellationView from './ConstellationView';
 import FlowModeLayer from './FlowModeLayer';
 import DrawingLayer from './DrawingLayer';
 import ConnectionsLayer from './ConnectionsLayer';
@@ -312,6 +313,8 @@ export default function InfiniteCanvas() {
         useCanvasStore.getState().setThreads(savedCamera?.threads || []);
         // Load this canvas's Skill Set (per-canvas agent rules); null when none.
         setSkillset(savedCamera?.skillset || null);
+        // Load this canvas's Constellation View custom names (anchor id → name).
+        useCanvasStore.getState().setConstellationNames(savedCamera?.constellations || {});
         setLoaded(true);
       } catch (err) {
         console.error('Failed to load canvas data:', err);
@@ -341,6 +344,7 @@ export default function InfiniteCanvas() {
         scenes: state.scenes,
         threads: state.threads,
         skillset: state.skillset || undefined,
+        constellations: state.constellationNames,
         lastModified: Date.now(),
       }).catch(err => console.error('Failed to save canvas state on unmount:', err));
 
@@ -364,6 +368,7 @@ export default function InfiniteCanvas() {
                   scenes: state.scenes,
                   threads: state.threads,
                   skillset: state.skillset || undefined,
+                  constellations: state.constellationNames,
                   lastModified: Date.now(),
                 },
                 state.objects,
@@ -401,6 +406,7 @@ export default function InfiniteCanvas() {
             scenes: useCanvasStore.getState().scenes,
             threads: useCanvasStore.getState().threads,
             skillset: useCanvasStore.getState().skillset || undefined,
+            constellations: useCanvasStore.getState().constellationNames,
             lastModified: Date.now(),
           }),
         ]);
@@ -422,6 +428,7 @@ export default function InfiniteCanvas() {
               scenes: useCanvasStore.getState().scenes,
               threads: useCanvasStore.getState().threads,
               skillset: useCanvasStore.getState().skillset || undefined,
+              constellations: useCanvasStore.getState().constellationNames,
               lastModified: Date.now(),
             },
             objects,
@@ -1413,6 +1420,11 @@ export default function InfiniteCanvas() {
       
       {/* Flow Mode: cinematic focus-writing overlay (spotlight, weather, progress) */}
       <FlowModeLayer />
+
+      {/* Constellation View: pull the camera all the way out and the board
+          becomes a navigable night sky. Portals itself to <body>; renders only
+          once the zoom crosses the galaxy band. */}
+      <ConstellationView />
 
       {/* Every piece of app chrome, in ONE wrapper.
           A tour is a presentation, and `.tour-mode` used to hide only four of
