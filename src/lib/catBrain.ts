@@ -55,8 +55,9 @@ export function makePersonality(seed: number): CatPersonality {
     laziness: 0.7 + r() * 0.9,
     curiosity: 0.35 + r() * 0.55,
     walkSpeed: 46 + r() * 26,
-    // the black cat is the house style — the other coats are the rare ones
-    coat: coatRoll < 0.6 ? 0 : 1 + Math.floor(((coatRoll - 0.6) / 0.4) * (COATS.length - 1)),
+    // one coat ships (ginger). Kept as an index so adding a second is a
+    // one-line change rather than a refactor of the sprite compiler.
+    coat: Math.floor(coatRoll * COATS.length),
   };
 }
 

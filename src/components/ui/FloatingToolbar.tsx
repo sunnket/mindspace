@@ -127,8 +127,6 @@ export default function FloatingToolbar() {
   const undoStack = useCanvasStore((s) => s.undoStack);
   const redoStack = useCanvasStore((s) => s.redoStack);
   const setPlusMenuPos = useCanvasStore((s) => s.setPlusMenuPos);
-  const residentEnabled = useCanvasStore((s) => s.residentEnabled);
-  const setResidentEnabled = useCanvasStore((s) => s.setResidentEnabled);
   
   const textSize = useCanvasStore((s) => s.textSize);
   const setTextSize = useCanvasStore((s) => s.setTextSize);
@@ -402,32 +400,6 @@ export default function FloatingToolbar() {
           title="Add Item"
         >
           +
-        </motion.button>
-
-        {/* Canvas Resident — the cat lives here */}
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => setResidentEnabled(!residentEnabled)}
-          className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
-            residentEnabled
-              ? 'text-[var(--accent)] bg-[var(--accent-subtle)]'
-              : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
-          }`}
-          title={residentEnabled ? 'Canvas Resident: on — click to shoo the cat away' : 'Canvas Resident: off — click to let the cat back in'}
-        >
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            {/* cat face: ears + head + whisker dots */}
-            <path d="M4 9 L4 3.5 L8.5 7" />
-            <path d="M20 9 L20 3.5 L15.5 7" />
-            <path d="M4 9 a8 7.5 0 1 0 16 0" fill="none" />
-            <circle cx="9" cy="11" r="0.7" fill="currentColor" stroke="none" />
-            <circle cx="15" cy="11" r="0.7" fill="currentColor" stroke="none" />
-            <path d="M12 13.5 l-1 1.2 M12 13.5 l1 1.2" strokeWidth="1.4" />
-          </svg>
-          {!residentEnabled && (
-            <span className="absolute w-[22px] h-[1.5px] bg-[var(--text-tertiary)] rotate-45 rounded-full" />
-          )}
         </motion.button>
 
         {/* Separator */}

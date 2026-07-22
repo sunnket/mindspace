@@ -483,11 +483,70 @@ export default function CanvasResident() {
     };
   }, [enabled, readOnly, persist]);
 
+  /* ---------- the weather changed ---------- */
+  useEffect(() => {
+    if (!enabled || readOnly) return;
+    let prev = useCanvasStore.getState().relaxEffect;
+    return useCanvasStore.subscribe((st) => {
+      const fx = st.relaxEffect;
+      if (fx === prev) return;
+      prev = fx;
+      const sim = simRef.current;
+      if (sim.dragging || sim.falling || laserRef.current.on) return;
+
+      // React on the spot. Nudging a weight and waiting for the next idle
+      // re-think is why this looked like it wasn't implemented at all — by the
+      // time it mattered the cat had already picked something else to do.
+      sim.behavior = null;
+      sim.dwellUntil = 0;
+      nextThinkRef.current = 0;
+      if (!fx) return;
+
+      const mood = moodFor(fx);
+      if (mood.wet) {
+        const p = perceive(useCanvasStore.getState().objects, spaceKey === 'root' ? undefined : spaceKey, Date.now());
+        const sh = p.shelters
+          .map((o) => ({ o, d: Math.hypot(o.x + o.width / 2 - sim.x, o.y + o.height / 2 - sim.y) }))
+          .sort((a, b) => a.d - b.d)[0];
+        if (sh) {
+          sim.behavior = {
+            kind: 'shelter',
+            objId: sh.o.id,
+            target: { x: sh.o.x + sh.o.width * 0.5, y: sh.o.y + sh.o.height + 2 },
+            dwell: 30_000 + Math.random() * 40_000,
+          };
+          sim.phase = 'travel';
+          sim.travelDeadline = performance.now() + 25_000;
+        }
+        think('rain', 0, 2800);
+      } else if (mood.skyshow) {
+        sim.pose = 'sit';
+        sim.poseT = 0;
+        think('skyshow', 0, 3000);
+      } else if (mood.playful) {
+        think('play', 0, 2400);
+      } else if (mood.calm) {
+        think('idle', 0, 2600);
+      }
+    });
+  }, [enabled, readOnly, spaceKey, think]);
+
   /* ---------- laser pointer play mode ---------- */
   useEffect(() => {
     laserRef.current.on = laserOn;
     if (!laserOn) return;
     const sim = simRef.current;
+    // Seed the dot at the cursor we already track. Without this it starts at
+    // world (0,0) and the cat bolts off the edge of a panned board — which
+    // looks exactly like the feature doing nothing at all.
+    const cur = cursorRef.current;
+    const l0 = laserRef.current;
+    if (cur.wx > -90000) {
+      l0.wx = cur.wx; l0.wy = cur.wy; l0.sx = cur.sx; l0.sy = cur.sy;
+    } else {
+      l0.wx = sim.x; l0.wy = sim.y;
+    }
+    l0.lastMove = performance.now();
     // drop whatever it was doing — a cat does not finish its nap first
     sim.behavior = { kind: 'chase', target: { x: sim.x, y: sim.y }, dwell: 0 };
     sim.phase = 'travel';
@@ -524,13 +583,17 @@ export default function CanvasResident() {
       if (n.length < 2) return null;
       return new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
     };
+    // Rich-text blocks keep HTML in `content`; a name wrapped in a <strong>
+    // or split by a stray <span> never matches the raw string.
+    const plain = (html: string) =>
+      html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
     const scan = (objs: CanvasObjectData[]) => {
       const re = nameRe();
       if (!re) return;
       const sid = spaceKey === 'root' ? undefined : spaceKey;
       for (const o of objs) {
         if ((o.parentId ?? undefined) !== sid) continue;
-        const hit = re.test(o.content || '');
+        const hit = re.test(plain(o.content || ''));
         if (hit && !seen.has(o.id)) {
           seen.add(o.id);
           const sim = simRef.current;
@@ -553,7 +616,7 @@ export default function CanvasResident() {
     // don't stampede on mount — only react to names that appear from now on
     for (const o of useCanvasStore.getState().objects) {
       const re = nameRe();
-      if (re && re.test(o.content || '')) seen.add(o.id);
+      if (re && re.test(plain(o.content || ''))) seen.add(o.id);
     }
     return useCanvasStore.subscribe((st) => scan(st.objects));
   }, [enabled, readOnly, spaceKey, think]);
@@ -843,16 +906,18 @@ export default function CanvasResident() {
           think('sleep', 9000 + rng() * 7000, 2400);
         } else if (sim.pose === 'sit' || sim.pose === 'stand') {
           if (rng() < dt * 0.05) {
-            const n = sceneRef.current.blocks;
-            think(n === 0 ? 'empty' : n > 26 ? 'clutter' : 'idle', 34_000, 2900);
+            // whatever the board is doing wins — a generic musing while it's
+            // raining on the canvas is the cat ignoring the room
+            const mood = moodFor(useCanvasStore.getState().relaxEffect);
+            if (mood.skyshow) think('skyshow', 26_000, 2800);
+            else if (mood.wet) think('rain', 26_000, 2800);
+            else {
+              const n = sceneRef.current.blocks;
+              think(n === 0 ? 'empty' : n > 26 ? 'clutter' : 'idle', 34_000, 2900);
+            }
           }
         } else if (sim.pose === 'walk' && rng() < dt * 0.02) {
           think('walk', 48_000, 2200);
-        }
-        if ((sim.pose === 'sit' || sim.pose === 'stand') && rng() < dt * 0.03) {
-          const mood = moodFor(useCanvasStore.getState().relaxEffect);
-          if (mood.skyshow) think('skyshow', 30_000, 2600);
-          else if (mood.wet) think('rain', 30_000, 2600);
         }
       }
 
