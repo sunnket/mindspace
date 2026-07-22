@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { useCanvasStore } from '@/store/canvasStore';
+import { useCanvasStore, resolveParentId } from '@/store/canvasStore';
 import { useAuthStore } from '@/store/authStore';
 import { formatSkillsetForAgent } from '@/lib/skillset';
 import {
@@ -61,8 +61,7 @@ function parseBuild(full: string): { visible: string; build: { instruction: stri
 /** A compact text snapshot of the visible board so the chat model has awareness. */
 function buildCanvasContext(): string {
   const store = useCanvasStore.getState();
-  const stack = store.canvasStack;
-  const activeParent = stack.length > 0 ? stack[stack.length - 1] : (store.urlCanvasId === 'root' ? undefined : store.urlCanvasId);
+  const activeParent = resolveParentId(store.canvasStack, store.urlCanvasId);
   const objs = store.objects.filter((o) => o.parentId === activeParent && !o.style?.isMinimized);
   if (objs.length === 0) return '';
   const cam = store.camera;

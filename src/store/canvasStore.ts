@@ -28,6 +28,22 @@ function emitCollab(op: CanvasOp) {
 }
 
 /**
+ * The canvas level the user is currently looking at — the `parentId` that its
+ * objects carry.
+ *
+ * Two things decide it and BOTH matter: a nested space pushes onto canvasStack,
+ * and the board itself is identified by urlCanvasId. Only the root board has
+ * objects with no parent, so deriving this from the stack alone silently
+ * reports "root" for every real canvas — and any filter built on it returns
+ * nothing at all. That is exactly how the minimap ended up drawing an empty
+ * board. One definition, so the two halves can't drift apart again.
+ */
+export function resolveParentId(canvasStack: string[], urlCanvasId: string): string | undefined {
+  if (canvasStack.length > 0) return canvasStack[canvasStack.length - 1];
+  return urlCanvasId === 'root' ? undefined : urlCanvasId;
+}
+
+/**
  * Whether an object may be auto-removed when its text content is blank.
  * Only plain text/heading/sticky and featureless cards qualify. A card with
  * ANY `is*` feature flag (isTodo, isPoll, isCountdown, isQuote, isLiveMetric,
@@ -450,8 +466,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   syncSceneFrames: () => {
     const state = get();
-    const stack = state.canvasStack;
-    const activeParent = stack.length > 0 ? stack[stack.length - 1] : undefined;
+    const activeParent = resolveParentId(state.canvasStack, state.urlCanvasId);
     const frames = state.objects
       .filter((o) => o.type === 'frame' && o.parentId === activeParent && o.style?.frameKind === 'scene')
       .sort((a, b) => (Math.abs(a.y - b.y) > 40 ? a.y - b.y : a.x - b.x));

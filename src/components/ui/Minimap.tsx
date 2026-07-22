@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useCanvasStore } from '@/store/canvasStore';
+import { useCanvasStore, resolveParentId } from '@/store/canvasStore';
 
 /**
  * The minimap — an overview of the board and a way to get across it fast.
@@ -21,6 +21,7 @@ export default function Minimap() {
   const camera = useCanvasStore((s) => s.camera);
   const setCamera = useCanvasStore((s) => s.setCamera);
   const canvasStack = useCanvasStore((s) => s.canvasStack);
+  const urlCanvasId = useCanvasStore((s) => s.urlCanvasId);
 
   const [expanded, setExpanded] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -41,7 +42,7 @@ export default function Minimap() {
   const H = expanded ? LARGE.h : SMALL.h;
 
   // Only this canvas level — a nested space shouldn't map its parent's objects.
-  const activeParent = canvasStack.length > 0 ? canvasStack[canvasStack.length - 1] : undefined;
+  const activeParent = resolveParentId(canvasStack, urlCanvasId);
   const visible = useMemo(
     () => objects.filter((o) => o.parentId === activeParent && !o.style?.isMinimized),
     [objects, activeParent],

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useCanvasStore } from '@/store/canvasStore';
+import { useCanvasStore, resolveParentId } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import { Occupancy, rectOf, isBackdrop, settle, fitFrame } from '@/lib/canvasLayout';
 import { formatSkillsetForAgent } from '@/lib/skillset';
@@ -233,10 +233,7 @@ export default function AgentOverlay() {
     const live = () => useCanvasStore.getState();
 
     // Snapshot the canvas level the user is looking at
-    const stack = store.canvasStack;
-    const activeParent = stack.length > 0
-      ? stack[stack.length - 1]
-      : (store.urlCanvasId === 'root' ? undefined : store.urlCanvasId);
+    const activeParent = resolveParentId(store.canvasStack, store.urlCanvasId);
     const visibleObjects = store.objects.filter((o) => o.parentId === activeParent && !o.style?.isMinimized);
     const visibleIds = new Set(visibleObjects.map((o) => o.id));
     const visibleConnections = store.connections.filter((c) => visibleIds.has(c.fromId) && visibleIds.has(c.toId));

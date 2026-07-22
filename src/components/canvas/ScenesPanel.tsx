@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useCanvasStore } from '@/store/canvasStore';
+import { useCanvasStore, resolveParentId } from '@/store/canvasStore';
 import { CanvasObjectData, Scene } from '@/lib/db';
 import TourPlayer from './TourPlayer';
 
@@ -118,11 +118,12 @@ function SceneList({ onPlay }: { onPlay: () => void }) {
   const animateCamera = useCanvasStore((s) => s.animateCamera);
   const syncSceneFrames = useCanvasStore((s) => s.syncSceneFrames);
   const canvasStack = useCanvasStore((s) => s.canvasStack);
+  const urlCanvasId = useCanvasStore((s) => s.urlCanvasId);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
 
   const ordered = [...scenes].sort((a, b) => a.order - b.order);
-  const activeParent = canvasStack.length > 0 ? canvasStack[canvasStack.length - 1] : undefined;
+  const activeParent = resolveParentId(canvasStack, urlCanvasId);
   const sceneFrameCount = objects.filter(
     (o) => o.type === 'frame' && o.parentId === activeParent && o.style?.frameKind === 'scene',
   ).length;
