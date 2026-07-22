@@ -6,6 +6,7 @@ import { CanvasBackground, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 import type { RelaxEffectId } from '@/lib/relaxEffects';
 import { CanvasSkillset, emptySkillset, makeRule, getPreset, installPreset } from '@/lib/skillset';
 import { cameraForRect, objectsInFrame, strokesInFrame, type FrameKind } from '@/lib/frames';
+import { isStackable, stackIdOf, membersOf, stackSlots } from '@/lib/stacks';
 
 export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax';
 
@@ -190,7 +191,22 @@ interface CanvasStore {
   // Selection
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
-  
+
+  /* Stacks — piles you make by dropping a note onto another note.
+     `spreadStackId` is the one pile currently bloomed open. It is VIEW state,
+     not board state: it never persists, never syncs to collaborators, and
+     never reaches an export, because which pile you happen to have open is
+     about you, not about the board. */
+  spreadStackId: string | null;
+  setSpreadStack: (stackId: string | null) => void;
+  /** Drop `dragId` onto `targetId` and pile them (joining an existing pile). */
+  stackObjects: (dragId: string, targetId: string) => void;
+  /** Pull one card out of its pile and drop it at `x`/`y` as its own block. */
+  unstackObject: (id: string, x: number, y: number) => void;
+  /** Deal an entire pile back out onto the board as loose cards. */
+  scatterStack: (stackId: string) => void;
+
+
   // Interaction mode
   mode: InteractionMode;
   setMode: (mode: InteractionMode) => void;
@@ -1128,7 +1144,84 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     blankObjects.forEach(o => state.removeObject(o.id));
     set({ selectedId: id });
   },
-  
+
+  /* ---- Stacks ---------------------------------------------------------
+     Piling is only ever a write to `style` — stackId and stackOrder — which
+     means it rides the existing updateObject path and so gets persistence,
+     collab broadcast and undo for free, and cannot introduce a second way for
+     a board to change. */
+  spreadStackId: null,
+  setSpreadStack: (stackId) => set({ spreadStackId: stackId }),
+
+  stackObjects: (dragId, targetId) => {
+    const state = get();
+    const drag = state.objects.find((o) => o.id === dragId);
+    const target = state.objects.find((o) => o.id === targetId);
+    if (!drag || !target || dragId === targetId) return;
+    if (!isStackable(drag) || !isStackable(target)) return;
+
+    // Land on the pile the target already belongs to, or start one on it.
+    const stackId = stackIdOf(target) || `stk-${uuidv4()}`;
+    const existing = membersOf(state.objects, stackId);
+    const onTop = existing.length
+      ? Math.max(...existing.map((m) => (m.style?.stackOrder as number) ?? 0)) + 1
+      : 1;
+
+    // Everything a pile is made of comes along: the whole run when the dragged
+    // card was itself carrying a pile, so dropping one pile on another merges
+    // them instead of stranding the cards underneath.
+    const dragStack = stackIdOf(drag);
+    const moving = dragStack ? membersOf(state.objects, dragStack) : [drag];
+
+    // Seed the pile onto the target if it wasn't in one yet.
+    if (!stackIdOf(target)) {
+      state.updateObject(target.id, { style: { ...target.style, stackId, stackOrder: 0 } });
+    }
+
+    moving.forEach((m, i) => {
+      const live = get().objects.find((o) => o.id === m.id);
+      if (!live) return;
+      state.updateObject(m.id, {
+        // Members share the pile's spot; the fan is drawn, never stored.
+        x: target.x,
+        y: target.y,
+        style: { ...live.style, stackId, stackOrder: onTop + i },
+      });
+    });
+  },
+
+  unstackObject: (id, x, y) => {
+    const state = get();
+    const obj = state.objects.find((o) => o.id === id);
+    if (!obj) return;
+    const style = { ...(obj.style || {}) };
+    delete style.stackId;
+    delete style.stackOrder;
+    state.updateObject(id, { x, y, style, zIndex: state.getNextZIndex() });
+  },
+
+  scatterStack: (stackId) => {
+    const state = get();
+    const members = membersOf(state.objects, stackId);
+    if (members.length < 2) return;
+
+    // Deal them onto the same grid the pile was showing when open, so cards
+    // land exactly where they already appear to be rather than jumping.
+    const slots = stackSlots(state.objects, stackId);
+    members.forEach((m) => {
+      const slot = slots.get(m.id);
+      const style = { ...(m.style || {}) };
+      delete style.stackId;
+      delete style.stackOrder;
+      state.updateObject(m.id, {
+        x: m.x + (slot?.dx ?? 0),
+        y: m.y + (slot?.dy ?? 0),
+        style,
+      });
+    });
+    set({ spreadStackId: null });
+  },
+
   // Interaction mode
   mode: 'select',
   setMode: (mode) => set({ mode }),

@@ -55,6 +55,15 @@ async function captureBoard(scale = 2): Promise<{ dataUrl: string; width: number
      exporting from a zoomed-out view would raster every text block as its
      one-line gist, blown up to full size, with the real prose faded to
      nothing underneath. `exporting` suspends it for the duration. */
+  /* An open pile is view state too — it says what YOU are reading right now,
+     not what the board is. Gather it first, and give the tween time to land,
+     or the export catches the cards mid-bloom. Costs nothing when no pile is
+     open, which is almost always. */
+  if (useCanvasStore.getState().spreadStackId) {
+    useCanvasStore.getState().setSpreadStack(null);
+    await new Promise((resolve) => setTimeout(resolve, 340));
+  }
+
   world.classList.add('exporting');
   try {
     const dataUrl = await toPng(world, {

@@ -31,6 +31,7 @@ import BinderBlock from './BinderBlock';
 import MirrorBlock from './MirrorBlock';
 import SemanticGist from './SemanticGist';
 import { semanticView } from '@/lib/semanticZoom';
+import { stackSlots, stackTargetAt, membersOf, isStackable } from '@/lib/stacks';
 import { createPortal } from 'react-dom';
 import { ImageShape, imageShapeStyle, nextImageShape, IMAGE_SHAPE_LABEL } from '@/lib/imageShapes';
 import { getFrameKind, frameColorOf, frameKindMeta, objectsInFrame, type FrameKind } from '@/lib/frames';
@@ -544,6 +545,11 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
   const setAtMenu = useCanvasStore((s) => s.setAtMenu);
   const readOnly = useCanvasStore((s) => s.readOnly);
   const isTouring = useCanvasStore((s) => s.isTouring);
+  const spreadStackId = useCanvasStore((s) => s.spreadStackId);
+  const setSpreadStack = useCanvasStore((s) => s.setSpreadStack);
+
+  /** Where this card sits in its pile, if it's in one. See lib/stacks.ts. */
+  const stackSlot = stackSlots(objects, spreadStackId).get(obj.id) ?? null;
 
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -644,6 +650,21 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         dragObj = addObject({ ...obj, zIndex: getNextZIndex(), createdAt: Date.now(), updatedAt: Date.now() });
       }
 
+      /* Taking hold of a card in an OPEN pile.
+         A pile's fan is drawn, never stored — every member shares the pile's
+         one x/y — so a spread card sits somewhere its own data says it isn't.
+         Two consequences, and both matter:
+
+         Nothing is detached HERE. Grabbing is not pulling: you have to be
+         able to click a spread card to read or edit it, and detaching on
+         mousedown would tear a card out of the pile every time you tried.
+         The detach happens on the first real movement, below.
+
+         And the drag has to start from where the card LOOKS like it is, or it
+         jumps by the width of its own offset the moment it comes loose. */
+      const grabbedSlot = stackSlots(objects, spreadStackId).get(dragObj.id);
+      const spreadGrab = grabbedSlot?.spread && dragObj.id === obj.id ? grabbedSlot : null;
+
       // Only select if not in connector mode
       if (mode !== 'connector') {
         setSelectedId(dragObj.id);
@@ -663,12 +684,25 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         ? objects.filter((o) => o.style?.frameParentId === dragObj.id).map((o) => ({ id: o.id, x: o.x, y: o.y }))
         : [];
 
-      const before = { x: dragObj.x, y: dragObj.y };
+      /* A CLOSED pile moves as one object, the way a real stack of paper does
+         — you can't slide the top note off a pile without opening it first,
+         and neither can you here. That asymmetry is the whole interaction:
+         drag a closed pile to move it, open it to take one card out. */
+      const carriedStack =
+        grabbedSlot && !grabbedSlot.spread
+          ? membersOf(objects, grabbedSlot.stackId)
+              .filter((m) => m.id !== dragObj.id)
+              .map((m) => ({ id: m.id, x: m.x, y: m.y }))
+          : [];
+      const carried = [...frameChildren, ...carriedStack];
+
+      const before = { x: dragObj.x, y: dragObj.y, style: dragObj.style };
       dragStart.current = {
         x: e.clientX,
         y: e.clientY,
-        objX: dragObj.x,
-        objY: dragObj.y,
+        // Drawn position, not stored position — see spreadGrab above.
+        objX: dragObj.x + (spreadGrab?.dx ?? 0),
+        objY: dragObj.y + (spreadGrab?.dy ?? 0),
         // For arrows:
         objStartX: dragObj.style?.startX as number || 0,
         objStartY: dragObj.style?.startY as number || 0,
@@ -689,6 +723,8 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       let overChatZone = false;
       let overAgentChatZone = false;
       let draggedFar = false;
+      /** Set once a card has actually been pulled clear of an open pile. */
+      let detached = false;
       const HOTZONE_W = 210;
 
       const handleMouseMove = (moveE: MouseEvent) => {
@@ -763,6 +799,16 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           if (snap.y !== null) newY = snap.y;
         }
 
+        /* The moment a grab on a spread card becomes a real drag, that card
+           leaves the pile — at exactly the spot it was already drawn, so it
+           comes away under the cursor without a jump. Until then nothing has
+           moved and nothing has changed, so a click is still just a click. */
+        if (spreadGrab && !detached) {
+          if (!draggedFar) return;
+          detached = true;
+          useCanvasStore.getState().unstackObject(dragObj.id, newX, newY);
+        }
+
         if (dragObj.type === 'arrow') {
           const ds = dragStart.current as any;
           updateObject(dragObj.id, {
@@ -781,8 +827,8 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           updateObject(dragObj.id, { x: newX, y: newY });
         }
 
-        if (frameChildren.length > 0) {
-          frameChildren.forEach((c) => {
+        if (carried.length > 0) {
+          carried.forEach((c) => {
             useCanvasStore.getState().updateObject(c.id, { x: c.x + dx, y: c.y + dy });
           });
         }
@@ -881,6 +927,37 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           }
         }
 
+        /* Dropping a note onto another note piles them.
+           Aimed by the dragged card's CENTRE, because that's what people
+           watch while they drag. This sits after the binder and dock checks
+           so those keep priority, and before frame grouping so a pile made
+           inside a frame still joins the frame. */
+        if (draggedFar && isStackable(dragObj)) {
+          const state = useCanvasStore.getState();
+          const live = state.objects.find((o) => o.id === dragObj.id);
+          if (live) {
+            const target = stackTargetAt(
+              state.objects,
+              live,
+              { x: live.x + live.width / 2, y: live.y + live.height / 2 },
+              // Aim at the cards as DRAWN — an open pile's members are all
+              // stored at one spot but shown spread around it.
+              stackSlots(state.objects, state.spreadStackId)
+            );
+            if (target) {
+              state.stackObjects(live.id, target.id);
+              state.setSpreadStack(null);
+              /* `before` carries the pre-drop style, so one Ctrl+Z lifts this
+                 card back off the pile and puts it where it came from. The
+                 note it landed on keeps a stackId, which is inert: a pile is
+                 only a pile at two members or more (lib/stacks.ts), so a
+                 leftover id on a lone card is simply never a pile. */
+              pushUndo({ type: 'edit', objectId: live.id, before, after: { x: live.x, y: live.y } });
+              return;
+            }
+          }
+        }
+
         // Dropping a non-frame object inside a frame's bounds groups it —
         // move the frame later and this comes along for the ride.
         if (dragObj.type !== 'frame' && dragObj.type !== 'arrow') {
@@ -910,7 +987,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp, END_DRAG);
     },
-    [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex, addObject, readOnly, isTouring]
+    [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex, addObject, readOnly, isTouring, spreadStackId]
   );
 
   const handleResizeStart = useCallback(
@@ -1151,7 +1228,23 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (readOnly || isTouring) return;
+      if (isTouring) return;
+
+      /* One tap opens a pile. Until it's open there is nothing useful to do
+         with the card you clicked — it's the only one of several you can even
+         see — so the tap belongs to the pile, not to the card. Selecting and
+         editing come back the moment it's spread. A drag is not a tap.
+
+         This sits ABOVE the read-only guard on purpose: opening a pile writes
+         nothing to the board, and a viewer who can't open one can't read a
+         single card underneath the top of it. */
+      if (stackSlot && !stackSlot.spread && !dragMovedRef.current) {
+        setSpreadStack(stackSlot.stackId);
+        if (!readOnly) setSelectedId(null);
+        return;
+      }
+
+      if (readOnly) return;
       if (mode === 'draw' || isEditing) return;
 
       if (mode === 'connector') {
@@ -1199,7 +1292,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         setEditingId(obj.id);
       }
     },
-    [mode, isEditing, isSelected, obj, setEditingId, updateObject, toggleConnectorSelection, readOnly, isTouring]
+    [mode, isEditing, isSelected, obj, setEditingId, updateObject, toggleConnectorSelection, readOnly, isTouring, stackSlot, setSpreadStack, setSelectedId]
   );
 
   // Handle unified content saving. Compares against the LIVE stored content
@@ -3963,7 +4056,11 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
            where it belongs: behind. */
         zIndex: obj.type === 'frame'
           ? (obj.zIndex ?? 0)
-          : (isDragging ? 1000 : isSelected ? 100 : (obj.zIndex ?? 1)),
+          : isDragging ? 1000
+          /* A pile orders its own members, and an open one floats over the
+             board — otherwise cards bloom out underneath their neighbours. */
+          : stackSlot ? stackSlot.z
+          : isSelected ? 100 : (obj.zIndex ?? 1),
         cursor: mode === 'connector' ? 'grab' : isEditing ? 'text' : isDragging ? 'grabbing' : 'pointer',
         // Per-object opacity + custom text color set from the selection panel.
         opacity: (obj.style?.opacity as number | undefined) ?? undefined,
@@ -3992,7 +4089,15 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       animate={mode === 'connector' ? {
         y: [0, -10, 0, 10, 0],
         rotate: [obj.rotation || 0, (obj.rotation || 0) + 0.5, obj.rotation || 0, (obj.rotation || 0) - 0.5, obj.rotation || 0],
-      } : { y: 0, rotate: obj.rotation || 0 }}
+      } : {
+        /* The pile's whole layout lives here, as a transform on top of the
+           shared x/y every member stores. Spreading and gathering are then
+           just a change of target, which framer-motion tweens for free — and
+           since nothing was written down, nothing has to be put back. */
+        x: stackSlot ? stackSlot.dx : 0,
+        y: stackSlot ? stackSlot.dy : 0,
+        rotate: (obj.rotation || 0) + (stackSlot ? stackSlot.rotate : 0),
+      }}
       transition={mode === 'connector' ? {
         y: {
           duration: 3 + (obj.x % 500) / 100,
@@ -4019,6 +4124,29 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       }}
     >
       {renderContent()}
+
+      {/* How deep the pile goes. Only the top card says it — the ones below
+          are edges, and an edge with a badge on it reads as a separate note. */}
+      {stackSlot && !stackSlot.spread && stackSlot.isTop && (
+        <motion.div
+          initial={{ scale: 0.6, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+          className="absolute -top-2 -right-2 z-[30] rounded-full bg-[var(--accent)] text-white font-semibold tabular-nums pointer-events-none flex items-center justify-center"
+          style={{
+            // Inline: the global reset kills padding utilities, and a badge
+            // with dead padding clips its own number at the corners.
+            minWidth: 22,
+            height: 22,
+            padding: '0 6px',
+            fontSize: 11,
+            boxShadow: '0 2px 8px rgba(45,42,38,0.28)',
+          }}
+          title={`${stackSlot.count} notes — click to spread`}
+        >
+          {stackSlot.count}
+        </motion.div>
+      )}
 
       {/* What this block is about, once its words are too small to read. */}
       {semantic && (

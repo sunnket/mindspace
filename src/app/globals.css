@@ -384,18 +384,96 @@ html, body {
 }
 
 /* Sticky note */
+/* ---- Sticky notes ---------------------------------------------------------
+   A real sticky note is glued along a strip at the TOP and nothing else. The
+   rest of it hangs, so the bottom edge always sits a little off the wall and
+   flutters when you brush past it.
+
+   That's the whole model here: the note is hinged at its top edge
+   (`transform-origin: 50% 0`) and rests at a slight positive rotateX, which —
+   with CSS's axes — tips the bottom toward the viewer. Hover flutters it up
+   and lets it settle in damped swings, the way paper actually does.
+
+   Only `transform` and `opacity` animate. The cast shadow is a pseudo-element
+   whose opacity rides along, rather than an animated box-shadow, which would
+   repaint the note on every frame. */
 .sticky-note {
+  position: relative;
   font-family: 'Inter', sans-serif;
   padding: 16px 20px;
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   min-width: 180px;
   min-height: 120px;
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  transform-origin: 50% 0%;
+  transform: perspective(760px) rotateX(1.1deg);
+  transition: box-shadow 0.2s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.sticky-note:hover {
+/* The paper curving away from the wall as it leaves the adhesive. */
+.sticky-note::before {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 26%;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0));
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+/* What the lifted bottom edge casts onto the canvas underneath it. */
+.sticky-note::after {
+  content: '';
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  bottom: -7px;
+  height: 15px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(45, 42, 38, 0.22), rgba(45, 42, 38, 0) 72%);
+  opacity: 0.45;
+  transition: opacity 0.22s ease;
+  pointer-events: none;
+}
+
+/* `:not(.dragging)` matters: without it, every note the cursor crosses while
+   you haul one across the board flutters in its wake. */
+.canvas-object:not(.dragging):hover .sticky-note {
   box-shadow: var(--shadow-lg);
+  will-change: transform;
+  animation: sticky-flutter 0.62s cubic-bezier(0.33, 1, 0.68, 1) both;
+}
+
+.canvas-object:not(.dragging):hover .sticky-note::after {
+  opacity: 0.95;
+}
+
+.canvas-object:not(.dragging):hover .sticky-note::before {
+  opacity: 1;
+}
+
+/* Swings that shrink — the note lifts, overshoots past its rest angle, and
+   settles. Ending ON the rest angle (not at 0) is what stops the snap-back. */
+@keyframes sticky-flutter {
+  0% { transform: perspective(760px) rotateX(1.1deg); }
+  26% { transform: perspective(760px) rotateX(8.4deg); }
+  50% { transform: perspective(760px) rotateX(-1.6deg); }
+  72% { transform: perspective(760px) rotateX(3.4deg); }
+  88% { transform: perspective(760px) rotateX(0.4deg); }
+  100% { transform: perspective(760px) rotateX(1.1deg); }
+}
+
+/* Typing into a note should not have it bobbing under the caret. */
+.canvas-object .sticky-note:has(.text-block-editable) {
+  animation: none !important;
+  transform: perspective(760px) rotateX(0deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-object:not(.dragging):hover .sticky-note { animation: none; }
+  .sticky-note { transition: box-shadow 0.2s ease; }
 }
 
 /* Floating card */

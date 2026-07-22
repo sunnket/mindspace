@@ -179,6 +179,7 @@ export default function InfiniteCanvas() {
   const selectedId = useCanvasStore((s) => s.selectedId);
   const setSelectedId = useCanvasStore((s) => s.setSelectedId);
   const focusedId = useCanvasStore((s) => s.focusedId);
+  const spreadStackId = useCanvasStore((s) => s.spreadStackId);
   const setFocusedId = useCanvasStore((s) => s.setFocusedId);
   const editingId = useCanvasStore((s) => s.editingId);
   const setEditingId = useCanvasStore((s) => s.setEditingId);
@@ -526,6 +527,9 @@ export default function InfiniteCanvas() {
       // Deselect
       setSelectedId(null);
       setEditingId(null);
+      // …and an open pile gathers itself back up. Clicking away from a thing
+      // is how you're done with it everywhere else on this canvas.
+      useCanvasStore.getState().setSpreadStack(null);
     },
     [mode, camera, setSelectedId, setEditingId, plusMenuPos, setPlusMenuPos]
   );
@@ -820,9 +824,13 @@ export default function InfiniteCanvas() {
         return;
       }
 
-      // Escape = exit focus mode / deselect
+      // Escape = gather an open pile / exit focus mode / deselect
       if (e.key === 'Escape') {
-        if (focusedId) {
+        // Innermost thing first: a spread pile is the most recent thing you
+        // opened, so it's the first thing Escape should close.
+        if (useCanvasStore.getState().spreadStackId) {
+          useCanvasStore.getState().setSpreadStack(null);
+        } else if (focusedId) {
           setFocusedId(null);
         } else if (canvasStack.length > 0) {
           popCanvas();
@@ -1090,10 +1098,14 @@ export default function InfiniteCanvas() {
         o.id === selectedId ||
         o.id === editingId ||
         o.id === focusedId ||
+        /* An open pile blooms outward from a single shared x/y, so its far
+           cards can land well past the cull margin while the pile itself sits
+           comfortably on screen — and half the spread would simply not mount. */
+        (spreadStackId && o.style?.stackId === spreadStackId) ||
         o.style?.linkIsPlaying ||
         (o.x + o.width >= minX && o.x <= maxX && o.y + o.height >= minY && o.y <= maxY)
     );
-  }, [objects, camera, selectedId, editingId, focusedId]);
+  }, [objects, camera, selectedId, editingId, focusedId, spreadStackId]);
 
   // Grid background transform
   const gridStyle = {
