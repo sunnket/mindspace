@@ -99,6 +99,8 @@ const hslToHex = (h: number, s: number, l: number): string => {
 export default function FloatingToolbar() {
   const mode = useCanvasStore((s) => s.mode);
   const setMode = useCanvasStore((s) => s.setMode);
+  const viewLocked = useCanvasStore((s) => s.viewLocked);
+  const toggleViewLocked = useCanvasStore((s) => s.toggleViewLocked);
   const drawColor = useCanvasStore((s) => s.drawColor);
   const setDrawColor = useCanvasStore((s) => s.setDrawColor);
   const drawSize = useCanvasStore((s) => s.drawSize);
@@ -275,18 +277,6 @@ export default function FloatingToolbar() {
           <circle cx="19" cy="6" r="2.5" />
           <circle cx="12" cy="18" r="2.5" />
           <path d="M7 7.5L10.5 16M17 7.5L13.5 16" />
-        </svg>
-      ),
-    },
-    {
-      id: 'pan',
-      label: 'Pan (Space)',
-      icon: (
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M18 11V6a2 2 0 0 0-4 0v5" />
-          <path d="M14 10V4a2 2 0 0 0-4 0v6" />
-          <path d="M10 10.5V6a2 2 0 0 0-4 0v8" />
-          <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
         </svg>
       ),
     },
@@ -498,6 +488,40 @@ export default function FloatingToolbar() {
             </motion.button>
           );
         })}
+
+        {/* Lock-in mode — where Pan used to live. Freezes the viewport into the
+            user's own space (no scroll/pan, no stray block on empty canvas) while
+            zoom + editing stay live. A padlock that visibly opens/shuts. */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => { closeAllPanels(); toggleViewLocked(); }}
+          className={`relative w-9 h-9 rounded-lg flex items-center justify-center text-sm font-medium transition-all ${
+            viewLocked ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+          }`}
+          title={viewLocked ? 'Unlock the canvas view' : 'Lock the view — freeze this as your space'}
+        >
+          {viewLocked && (
+            <motion.span
+              layoutId="toolbar-active"
+              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+              className="absolute inset-0 rounded-lg clay-inset"
+            />
+          )}
+          <span className="relative flex items-center justify-center">
+            {viewLocked ? (
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4.5" y="11" width="15" height="9" rx="2" />
+                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+              </svg>
+            ) : (
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4.5" y="11" width="15" height="9" rx="2" />
+                <path d="M8 11V7a4 4 0 0 1 7.5-1.3" />
+              </svg>
+            )}
+          </span>
+        </motion.button>
 
         {/* Canvas background / color mode — sits right beside Frame */}
         <motion.button

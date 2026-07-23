@@ -17,6 +17,7 @@ const FEATURES: { key: Exclude<keyof FlowPrefs, 'progressStyle'>; title: string;
   { key: 'momentum', title: 'Momentum ember', blurb: 'A living ember that flares with your typing rhythm.' },
   { key: 'semanticWeather', title: 'Semantic weather', blurb: 'The room shifts to match the mood of your words.' },
   { key: 'livingProgress', title: 'Living progress', blurb: 'A candle, tree or cup that lives with your words. Drag it anywhere.' },
+  { key: 'typingInk', title: 'Typing as ink', blurb: 'Your speed is baked into the words — fast bursts bold & jagged, slow lines calm. Read back your energy.' },
 ];
 
 const MOOD_DOT: Record<FlowMood, string> = {

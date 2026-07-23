@@ -15,7 +15,10 @@ import FileBlock from './FileBlock';
 import MapBlock from './MapBlock';
 import WeatherBlock from './WeatherBlock';
 import RichText from './RichText';
+import InkText from './InkText';
 import AnimatedText from './AnimatedText';
+import { useFlowStore } from '@/store/flowStore';
+import { INK_FONT, intervalToIntensity, foldRhythm } from '@/lib/typingInk';
 import CodeSandboxBlock from './CodeSandboxBlock';
 import RepoExplorerBlock from './RepoExplorerBlock';
 import QuoteBlock from './QuoteBlock';
@@ -614,6 +617,14 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
   const showAuthorDot = collabActive && !!authorId && authorId !== myPeerId;
   
   const isEditing = editingId === obj.id && mode !== 'connector';
+
+  /* Typing-as-ink. A block "is ink" once its energy is baked in (style.inkType,
+     read back forever) OR while it's being typed with the Flow ink toggle on.
+     Only free text / headings get it — the expressive, hand-written surfaces. */
+  const inkFlowOn = useFlowStore((s) => s.enabled && s.prefs.typingInk);
+  const inkEligible = obj.type === 'text' || obj.type === 'heading';
+  const isInkBlock = inkEligible && (Boolean(obj.style?.inkType) || (isEditing && inkFlowOn));
+
   const dragStart = useRef({ x: 0, y: 0, objX: 0, objY: 0 });
   const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 });
   const contentRef = useRef<HTMLDivElement>(null);
@@ -622,6 +633,14 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
   const latestContent = useRef(obj.content || '');
   /** Where the click that opened edit mode landed, so the caret goes THERE. */
   const caretPoint = useRef<{ x: number; y: number } | null>(null);
+
+  /* Typing-as-ink capture state (only live while editing in ink mode): the
+     per-char intensity array we're building, plus the text + timestamp of the
+     previous keystroke so each new one's interval → intensity. */
+  const inkRhythmRef = useRef<number[]>((obj.style?.inkRhythm as number[] | undefined) || []);
+  const inkPrevTextRef = useRef<string>(obj.content || '');
+  const inkPrevTsRef = useRef<number>(0);
+  const inkActiveRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (isEditing) {
@@ -1346,9 +1365,21 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
   const saveContent = useCallback((finalContent: string) => {
     if (obj.style?.isCheckpoint) return;
     const live = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
-    if (!live || finalContent === live.content) return;
+    if (!live) return;
+
+    // Bake the typing rhythm into the block. This is the ONE write that can fire
+    // even when the text itself is unchanged (e.g. re-opening an ink note and
+    // stepping away) — but only when we actually captured something.
+    let inkUpdate: Record<string, unknown> | null = null;
+    if (inkActiveRef.current && inkRhythmRef.current.length > 0) {
+      const rhythm = inkRhythmRef.current.slice(0, finalContent.length);
+      inkUpdate = { ...live.style, inkType: true, inkRhythm: rhythm };
+    }
+
+    if (finalContent === live.content && !inkUpdate) return;
 
     const updates: any = { content: finalContent };
+    if (inkUpdate) updates.style = inkUpdate;
 
     // Auto-adjust height for text elements
     if (obj.type === 'text' || obj.type === 'heading' || obj.type === 'workflow-node') {
@@ -1483,6 +1514,16 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         target.innerText = obj.content || '';
       }
       latestContent.current = obj.content || '';
+
+      // Seed ink capture for this editing session. Capture is armed only if the
+      // Flow ink toggle is on OR this block was already an ink note (so adding
+      // to an old ink note keeps recording its energy).
+      const flow = useFlowStore.getState();
+      inkActiveRef.current = inkEligible && (flow.enabled && flow.prefs.typingInk || Boolean(obj.style?.inkType));
+      inkRhythmRef.current = ((obj.style?.inkRhythm as number[] | undefined) || []).slice();
+      inkPrevTextRef.current = obj.content || '';
+      inkPrevTsRef.current = 0;
+
       contentRef.current.focus();
 
       // A real <input> (the frame's title tab) has no DOM range to aim at —
@@ -1566,6 +1607,19 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       if (contentRef.current) {
         const target = contentRef.current as any;
         const text = 'value' in target ? target.value : target.innerText;
+
+        // TYPING AS INK — fold this keystroke's rhythm into the per-char array
+        // before latestContent moves on. The interval since the last keystroke
+        // becomes the intensity of whatever characters were just added.
+        if (inkActiveRef.current) {
+          const now = performance.now();
+          const dt = inkPrevTsRef.current ? now - inkPrevTsRef.current : 999;
+          const intensity = intervalToIntensity(dt);
+          inkRhythmRef.current = foldRhythm(inkRhythmRef.current, inkPrevTextRef.current, text, intensity);
+          inkPrevTextRef.current = text;
+          inkPrevTsRef.current = now;
+        }
+
         latestContent.current = text;
 
         // A frame's title is a NAME, not prose — "Q1/Q2" or "@team roadmap"
@@ -2504,7 +2558,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
             data-placeholder="Start typing..."
             style={{
               fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '15px',
-              fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+              fontFamily: isInkBlock ? INK_FONT : (obj.style?.fontFamily as string) || "'Inter', sans-serif",
               fontWeight: (obj.style?.fontWeight as number | undefined) ?? undefined,
               textAlign: (obj.style?.textAlign as any) || undefined,
               color: freeInk,
@@ -2522,7 +2576,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
             className="text-block-display break-words select-none"
             style={{
               fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '15px',
-              fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+              fontFamily: isInkBlock ? INK_FONT : (obj.style?.fontFamily as string) || "'Inter', sans-serif",
               fontWeight: (obj.style?.fontWeight as number | undefined) ?? undefined,
               textAlign: (obj.style?.textAlign as any) || undefined,
               color: freeInk,
@@ -2532,13 +2586,17 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
               ...(autoWidth ? { width: 'max-content', maxWidth: wrapWidth } : null),
             }}
           >
-            <AnimatedText content={obj.content || ''} anim={obj.style?.textAnim}>
-              <RichText
-                content={obj.content || ''}
-                persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
-                onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
-              />
-            </AnimatedText>
+            {isInkBlock ? (
+              <InkText content={obj.content || ''} rhythm={obj.style?.inkRhythm as number[] | undefined} />
+            ) : (
+              <AnimatedText content={obj.content || ''} anim={obj.style?.textAnim}>
+                <RichText
+                  content={obj.content || ''}
+                  persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
+                  onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
+                />
+              </AnimatedText>
+            )}
           </div>
         );
 
@@ -2554,7 +2612,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                 onBlur={handleBlur}
                 className="text-block-editable"
                 style={{
-                  fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+                  fontFamily: isInkBlock ? INK_FONT : (obj.style?.fontFamily as string) || "'Inter', sans-serif",
                   fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '2.2rem',
                   fontWeight: (obj.style?.fontWeight as number | undefined) ?? 500,
                   textAlign: (obj.style?.textAlign as any) || undefined,
@@ -2568,7 +2626,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                 ref={displayRef}
                 className="text-block-display select-none"
                 style={{
-                  fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+                  fontFamily: isInkBlock ? INK_FONT : (obj.style?.fontFamily as string) || "'Inter', sans-serif",
                   fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '2.2rem',
                   fontWeight: (obj.style?.fontWeight as number | undefined) ?? 500,
                   textAlign: (obj.style?.textAlign as any) || undefined,
@@ -2578,9 +2636,13 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                   wordBreak: 'break-word',
                 }}
               >
-                <AnimatedText content={obj.content || ''} anim={obj.style?.textAnim}>
-                  <RichText content={obj.content || ''} />
-                </AnimatedText>
+                {isInkBlock ? (
+                  <InkText content={obj.content || ''} rhythm={obj.style?.inkRhythm as number[] | undefined} />
+                ) : (
+                  <AnimatedText content={obj.content || ''} anim={obj.style?.textAnim}>
+                    <RichText content={obj.content || ''} />
+                  </AnimatedText>
+                )}
               </div>
             )}
             <div

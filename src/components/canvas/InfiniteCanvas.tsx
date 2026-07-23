@@ -176,6 +176,7 @@ export default function InfiniteCanvas() {
   const strokes = useCanvasStore((s) => s.strokes);
   const setStrokes = useCanvasStore((s) => s.setStrokes);
   const mode = useCanvasStore((s) => s.mode);
+  const viewLocked = useCanvasStore((s) => s.viewLocked);
   const relaxEffect = useCanvasStore((s) => s.relaxEffect);
   const brainstormTool = useCanvasStore((s) => s.brainstormTool);
   const threadAnchorId = useCanvasStore((s) => s.threadAnchorId);
@@ -482,7 +483,9 @@ export default function InfiniteCanvas() {
 
         setCamera({ x: newX, y: newY, zoom: newZoom });
       } else {
-        // Pan
+        // Pan — disabled while the view is locked (zoom above still works, so the
+        // user can lean into their fixed space like an image without it drifting).
+        if (useCanvasStore.getState().viewLocked) return;
         setCamera({
           x: camera.x - e.deltaX,
           y: camera.y - e.deltaY,
@@ -511,6 +514,18 @@ export default function InfiniteCanvas() {
       // Close plus menu
       if (plusMenuPos) {
         setPlusMenuPos(null);
+        return;
+      }
+
+      /* Locked view = the user's fixed space. Swallow every gesture that would
+         move the board or spawn a block on empty canvas (pan drag, middle-click
+         pan, and the tiny-drag/click-to-create below), while still letting the
+         click fall through to deselect. Editing existing blocks is untouched —
+         those are CanvasObject's own handlers. */
+      if (viewLocked) {
+        setSelectedId(null);
+        setEditingId(null);
+        useCanvasStore.getState().setSpreadStack(null);
         return;
       }
 
@@ -545,7 +560,7 @@ export default function InfiniteCanvas() {
       // is how you're done with it everywhere else on this canvas.
       useCanvasStore.getState().setSpreadStack(null);
     },
-    [mode, camera, setSelectedId, setEditingId, plusMenuPos, setPlusMenuPos]
+    [mode, viewLocked, camera, setSelectedId, setEditingId, plusMenuPos, setPlusMenuPos]
   );
 
   const handleMouseMove = useCallback(
@@ -1268,6 +1283,41 @@ export default function InfiniteCanvas() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Lock-in mode — a calm accent ring frames the viewport as "your space",
+          with a small pill that clicks to unlock. Pointer-events off on the ring
+          so it never eats a click meant for the board underneath. */}
+      <AnimatePresence>
+        {viewLocked && (
+          <>
+            <motion.div
+              key="lock-ring"
+              className="fixed inset-0 z-[95] pointer-events-none view-lock-ring"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.5 }}
+            />
+            <motion.button
+              key="lock-pill"
+              onClick={() => useCanvasStore.getState().setViewLocked(false)}
+              className="fixed top-16 left-1/2 -translate-x-1/2 z-[96] flex items-center gap-1.5 rounded-full clay-card cursor-pointer"
+              style={{ padding: '5px 12px 5px 10px' }}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ type: 'spring', damping: 22, stiffness: 260 }}
+              title="Your view is locked — click to unlock"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4.5" y="11" width="15" height="9" rx="2" />
+                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+              </svg>
+              <span className="text-[11px] font-bold text-[var(--text-secondary)]">Locked view</span>
+            </motion.button>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Breadcrumb for nested canvases */}
       <AnimatePresence>

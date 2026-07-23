@@ -42,6 +42,10 @@ export interface FlowPrefs {
   livingProgress: boolean;
   /** Which metaphor the living-progress card shows. */
   progressStyle: FlowProgressStyle;
+  /** Typing as ink — the speed & rhythm you type with is baked into the text:
+   *  fast bursts render jagged and bold, slow deliberate lines calm and even.
+   *  Re-reading shows you the ENERGY you wrote with, not just the words. */
+  typingInk: boolean;
 }
 
 export interface FlowSession {
@@ -84,6 +88,7 @@ const DEFAULT_PREFS: FlowPrefs = {
   semanticWeather: true,
   livingProgress: true,
   progressStyle: 'candle',
+  typingInk: false,
 };
 
 const freshSession = (): FlowSession => ({ words: 0, wpm: 0, startedAt: Date.now() });

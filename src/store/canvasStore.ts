@@ -237,6 +237,15 @@ interface CanvasStore {
   setMode: (mode: InteractionMode) => void;
   previousMode: InteractionMode;
   setPreviousMode: (mode: InteractionMode) => void;
+
+  /* Lock-in mode: the viewport becomes the user's fixed "space" — no panning,
+     no scrolling the board away, no stray click that spawns a block on empty
+     canvas. Zooming (like zooming into an image) and editing the blocks that
+     ARE there both still work, so it reads as a framed, protected workspace
+     rather than a read-only freeze. */
+  viewLocked: boolean;
+  setViewLocked: (v: boolean) => void;
+  toggleViewLocked: () => void;
   
   // Focus mode
   focusedId: string | null;
@@ -1336,6 +1345,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   setMode: (mode) => set({ mode }),
   previousMode: 'select',
   setPreviousMode: (mode) => set({ previousMode: mode }),
+
+  viewLocked: false,
+  setViewLocked: (v) => set({ viewLocked: v }),
+  toggleViewLocked: () => set((s) => ({ viewLocked: !s.viewLocked })),
   
   // Focus mode
   focusedId: null,
