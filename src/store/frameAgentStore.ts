@@ -20,6 +20,18 @@ import { collectRegion, buildRegionDigest, describeRegionImages, imagesInRegion 
 
 const BUILD_MARKER = '⟦BUILD⟧';
 
+/* A model sometimes emits a ⟦BUILD⟧ with a non-instruction — "None", "N/A",
+   "awaiting user input", a bare dash — usually when it's really asking a
+   question or offering options but bolts a directive on out of habit. Left
+   unguarded, that placeholder reaches the canvas agent as a real build prompt
+   and it dutifully renders garbage. Reject anything that isn't an actual
+   instruction so a question stays a question. */
+function isRealInstruction(instr: string): boolean {
+  const s = instr.trim();
+  if (s.length < 8) return false;
+  return !/^(none|n\/?a|tbd|todo|pending|await|awaiting|null|undefined|no build|no change|[-—.]+)\b/i.test(s);
+}
+
 export type FrameAgentStatus = 'idle' | 'reading' | 'looking' | 'thinking' | 'error';
 
 export interface FrameTurn {
@@ -66,7 +78,7 @@ function parseBuild(full: string): { visible: string; build: { instruction: stri
   if (end === -1) return { visible, build: null };
   try {
     const obj = JSON.parse(rest.slice(start, end + 1));
-    if (obj && typeof obj.instruction === 'string' && obj.instruction.trim()) {
+    if (obj && typeof obj.instruction === 'string' && isRealInstruction(obj.instruction)) {
       return {
         visible,
         build: { instruction: obj.instruction.trim(), mode: obj.mode === 'workflow' ? 'workflow' : 'default' },

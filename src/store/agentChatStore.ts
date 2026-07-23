@@ -26,6 +26,16 @@ export interface PendingAttachment {
 
 const BUILD_MARKER = '⟦BUILD⟧';
 
+/* Guard against a placeholder directive — "None", "awaiting user input", a bare
+   dash — that a model bolts on when it's really just answering or asking.
+   Without this the canvas agent gets the placeholder as a real build prompt and
+   renders garbage. A directive must carry an actual instruction to count. */
+function isRealInstruction(instr: string): boolean {
+  const s = instr.trim();
+  if (s.length < 8) return false;
+  return !/^(none|n\/?a|tbd|todo|pending|await|awaiting|null|undefined|no build|no change|[-—.]+)\b/i.test(s);
+}
+
 /** Split a finished assistant reply into the visible prose and an optional build. */
 function parseBuild(full: string): { visible: string; build: { instruction: string; mode: string } | null } {
   const idx = full.indexOf(BUILD_MARKER);
@@ -49,7 +59,7 @@ function parseBuild(full: string): { visible: string; build: { instruction: stri
   if (end === -1) return { visible, build: null };
   try {
     const obj = JSON.parse(rest.slice(start, end + 1));
-    if (obj && typeof obj.instruction === 'string' && obj.instruction.trim()) {
+    if (obj && typeof obj.instruction === 'string' && isRealInstruction(obj.instruction)) {
       return { visible, build: { instruction: obj.instruction.trim(), mode: obj.mode === 'workflow' ? 'workflow' : 'default' } };
     }
   } catch {
