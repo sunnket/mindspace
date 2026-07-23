@@ -20,6 +20,7 @@ export default function Minimap() {
   const objects = useCanvasStore((s) => s.objects);
   const camera = useCanvasStore((s) => s.camera);
   const setCamera = useCanvasStore((s) => s.setCamera);
+  const setConstellationOpen = useCanvasStore((s) => s.setConstellationOpen);
   const canvasStack = useCanvasStore((s) => s.canvasStack);
   const urlCanvasId = useCanvasStore((s) => s.urlCanvasId);
 
@@ -178,40 +179,60 @@ export default function Minimap() {
           </span>
 
           {expanded && (
-            <>
-              <span className="text-[10px] font-semibold text-[var(--text-tertiary)] tabular-nums">
-                {visible.length} block{visible.length === 1 ? '' : 's'}
-              </span>
+            <span className="text-[10px] font-semibold text-[var(--text-tertiary)] tabular-nums">
+              {visible.length} block{visible.length === 1 ? '' : 's'}
+            </span>
+          )}
+
+          {/* Right-aligned controls: Constellation View, fit, expand. The
+              constellation launcher lives here (not in the drawing toolbar) —
+              it's a way to survey the whole board, so it belongs with the map. */}
+          <div className="flex items-center gap-1" style={{ marginLeft: 'auto' }}>
+            <button
+              onClick={() => setConstellationOpen(true)}
+              title="Constellation View — a star map of this board you compose yourself"
+              aria-label="Open Constellation View"
+              className="w-5 h-5 rounded-md flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 14l5-6 5 4 6-7" opacity="0.5" />
+                <circle cx="4" cy="14" r="1.5" fill="currentColor" stroke="none" />
+                <circle cx="9" cy="8" r="1.5" fill="currentColor" stroke="none" />
+                <circle cx="14" cy="12" r="1.5" fill="currentColor" stroke="none" />
+                <circle cx="20" cy="5" r="1.5" fill="currentColor" stroke="none" />
+                <circle cx="7" cy="19" r="1" fill="currentColor" stroke="none" />
+              </svg>
+            </button>
+
+            {expanded && (
               <button
                 onClick={zoomToFit}
                 title="Zoom the canvas to fit everything (F)"
                 aria-label="Zoom to fit everything"
                 className="w-5 h-5 rounded-md flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
-                style={{ marginLeft: 'auto' }}
               >
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
                 </svg>
               </button>
-            </>
-          )}
+            )}
 
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            title={expanded ? 'Shrink the map' : 'Expand the map — drag it to sweep the whole board'}
-            aria-label={expanded ? 'Shrink minimap' : 'Expand minimap'}
-            aria-pressed={expanded}
-            className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
-              expanded ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)] hover:text-[var(--accent)]'
-            }`}
-            style={expanded ? undefined : { marginLeft: 'auto' }}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              {expanded
-                ? <><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /></>
-                : <><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /></>}
-            </svg>
-          </button>
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              title={expanded ? 'Shrink the map' : 'Expand the map — drag it to sweep the whole board'}
+              aria-label={expanded ? 'Shrink minimap' : 'Expand minimap'}
+              aria-pressed={expanded}
+              className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
+                expanded ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)] hover:text-[var(--accent)]'
+              }`}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {expanded
+                  ? <><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /></>
+                  : <><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /></>}
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* A plain <svg>, not motion.svg: framer's layout projection works by

@@ -83,6 +83,20 @@ export interface CommentThread {
   createdAt: number;
 }
 
+/**
+ * Constellation View state — the user-composed star map. Clusters are NOT
+ * derived here; the sky only holds what the user authored:
+ *   stars  — per-block position + name overrides (id → {x,y,name})
+ *   links  — the connections the user drew between stars
+ *   names  — constellation names, keyed by a connected component's anchor id
+ */
+export interface SkyStarOverride { x?: number; y?: number; name?: string }
+export interface SkyState {
+  stars?: Record<string, SkyStarOverride>;
+  links?: [string, string][];
+  names?: Record<string, string>;
+}
+
 export interface CanvasState {
   id: string;
   title?: string;
@@ -95,8 +109,8 @@ export interface CanvasState {
   threads?: CommentThread[];
   /** Per-canvas Skill Set — standing rules the AI agent obeys in this canvas. */
   skillset?: import('./skillset').CanvasSkillset;
-  /** Constellation View — custom names keyed by the naming block's id. */
-  constellations?: Record<string, string>;
+  /** Constellation View — the user-composed star map (positions, links, names). */
+  sky?: SkyState;
   lastModified: number;
   category?: string;
   isFavorite?: boolean;

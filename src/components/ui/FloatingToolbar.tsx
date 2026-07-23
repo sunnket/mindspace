@@ -140,7 +140,6 @@ export default function FloatingToolbar() {
   const setEditingId = useCanvasStore((s) => s.setEditingId);
   const selectedObject = objects.find(o => o.id === selectedId);
   const camera = useCanvasStore((s) => s.camera);
-  const enterConstellationView = useCanvasStore((s) => s.enterConstellationView);
   const checkpoint = useCanvasStore((s) => s.checkpoint);
   const setCheckpoint = useCanvasStore((s) => s.setCheckpoint);
   const setCommentMode = useCanvasStore((s) => s.setCommentMode);
@@ -502,34 +501,6 @@ export default function FloatingToolbar() {
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="9" />
               <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
-            </svg>
-          </span>
-        </motion.button>
-
-        {/* Constellation View — pull all the way out and the board becomes a
-            navigable night sky. A view, not a mode, so it never enters the
-            toolbar's active state; it just flies the camera up into the sky. */}
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => {
-            closeAllPanels();
-            setCommentMode(false);
-            setThreadsSidebarOpen(false);
-            enterConstellationView();
-          }}
-          className="relative w-9 h-9 rounded-lg flex items-center justify-center transition-all text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-          title="Constellation View — the galaxy at the top of the zoom"
-        >
-          <span className="relative flex items-center justify-center">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 14l5-6 5 4 6-7" opacity="0.45" />
-              <circle cx="4" cy="14" r="1.5" fill="currentColor" stroke="none" />
-              <circle cx="9" cy="8" r="1.5" fill="currentColor" stroke="none" />
-              <circle cx="14" cy="12" r="1.5" fill="currentColor" stroke="none" />
-              <circle cx="20" cy="5" r="1.5" fill="currentColor" stroke="none" />
-              <circle cx="16.5" cy="18.5" r="1" fill="currentColor" stroke="none" />
-              <circle cx="7" cy="19" r="1" fill="currentColor" stroke="none" />
             </svg>
           </span>
         </motion.button>
