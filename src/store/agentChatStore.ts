@@ -233,6 +233,7 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
 
     abortController = new AbortController();
     let full = '';
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
     try {
       const res = await fetch('/api/agent/chat', {
         method: 'POST',
@@ -253,14 +254,25 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      /* COALESCED streaming: NIM streams token-sized SSE chunks, and writing the
+         store on every one re-rendered the whole thread dozens of times a second
+         while the message (and its markdown/KaTeX parse) kept growing — that
+         O(n²) churn was the visible mid-reply stutter. Batch the tokens and
+         flush the bubble at most ~20x/sec; the text still reads as live typing,
+         but the main thread stays free to actually paint it. */
+      const flushAsst = () => {
+        flushTimer = null;
+        // Live display hides anything from the build marker onward.
+        const visibleNow = full.includes(BUILD_MARKER) ? full.slice(0, full.indexOf(BUILD_MARKER)).trimEnd() : full;
+        updateAsst({ content: visibleNow });
+      };
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         full += decoder.decode(value, { stream: true });
-        // Live display hides anything from the build marker onward.
-        const visibleNow = full.includes(BUILD_MARKER) ? full.slice(0, full.indexOf(BUILD_MARKER)).trimEnd() : full;
-        updateAsst({ content: visibleNow });
+        if (!flushTimer) flushTimer = setTimeout(flushAsst, 50);
       }
+      if (flushTimer) clearTimeout(flushTimer);
 
       const { visible, build } = parseBuild(full);
       const finalContent = visible || (build ? 'On it — building that on your canvas now.' : '…');
@@ -294,6 +306,7 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
         }));
       }
     } catch (err) {
+      if (flushTimer) clearTimeout(flushTimer);
       if ((err as Error)?.name === 'AbortError') {
         updateAsst({ content: (full && full.split(BUILD_MARKER)[0].trim()) || '(stopped)', streaming: false });
         set({ streaming: false });

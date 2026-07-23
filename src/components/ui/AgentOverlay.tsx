@@ -189,6 +189,7 @@ export default function AgentOverlay() {
   const handleStop = () => {
     runningRef.current = false;
     abortRef.current?.abort();
+    window.dispatchEvent(new Event('agent-cursor-hide'));
     // Resolve the chat chip of whatever was building so it doesn't spin forever.
     if (activeSourceIdRef.current && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('agent-build-state', { detail: { sourceId: activeSourceIdRef.current, state: 'error' } }));
@@ -231,6 +232,17 @@ export default function AgentOverlay() {
       setAgentState({ agentLogs: [...useCanvasStore.getState().agentLogs, `[${ts}] ${line}`] });
     };
     const live = () => useCanvasStore.getState();
+
+    /* The agent's visible hand (AgentCursor). Every block it touches sends the
+       pointer gliding there with a note of what it's doing — the run reads as a
+       live collaborator working the board instead of blocks silently popping in. */
+    const cursorTo = (cx: number, cy: number, note?: string) => {
+      window.dispatchEvent(new CustomEvent('agent-cursor', {
+        detail: { x: cx, y: cy, note: note?.replace(/\.{2,}$/, '').replace(/…$/, '') },
+      }));
+    };
+    const cursorHide = () => window.dispatchEvent(new Event('agent-cursor-hide'));
+    cursorTo(startX, startY, 'Thinking');
 
     // Snapshot the canvas level the user is looking at
     const activeParent = resolveParentId(store.canvasStack, store.urlCanvasId);
@@ -546,6 +558,11 @@ export default function AgentOverlay() {
               void resolveMap(spawned.id, (style.mapQuery as string).trim());
             }
             executed++;
+            cursorTo(
+              pos.x + Math.min(48, (Number(od.width) || 200) / 2),
+              pos.y + Math.min(36, (Number(od.height) || 100) / 2),
+              action.log,
+            );
             gentlePan({ x: pos.x, y: pos.y, width: Number(od.width) || 200, height: Number(od.height) || 100 });
             break;
           }
@@ -581,11 +598,14 @@ export default function AgentOverlay() {
             // Content or size changed → the block's real footprint changed too.
             if (!wantsMove) occupancy.set({ ...existing, ...merged });
             executed++;
+            cursorTo(Number(merged.x ?? existing.x) + 40, Number(merged.y ?? existing.y) + 28, action.log);
             break;
           }
           case 'DELETE_OBJECT': {
             const targetId = resolveId(action.id);
-            if (targetId && live().objects.some((o) => o.id === targetId)) {
+            const doomed = targetId ? live().objects.find((o) => o.id === targetId) : undefined;
+            if (doomed) {
+              cursorTo(doomed.x + 40, doomed.y + 28, action.log);
               live().removeObject(targetId);
               occupancy.remove(targetId); // its space is free again
               touched.delete(targetId);
@@ -597,9 +617,16 @@ export default function AgentOverlay() {
             const fromId = resolveId(action.fromId);
             const toId = resolveId(action.toId);
             const objs = live().objects;
-            if (fromId && toId && objs.some((o) => o.id === fromId) && objs.some((o) => o.id === toId)) {
+            const fromObj = objs.find((o) => o.id === fromId);
+            const toObj = objs.find((o) => o.id === toId);
+            if (fromObj && toObj) {
               live().addConnection(fromId, toId, action.style || {});
               executed++;
+              cursorTo(
+                (fromObj.x + fromObj.width / 2 + toObj.x + toObj.width / 2) / 2,
+                (fromObj.y + fromObj.height / 2 + toObj.y + toObj.height / 2) / 2,
+                action.log,
+              );
             }
             break;
           }
@@ -681,6 +708,7 @@ export default function AgentOverlay() {
 
     const finishSuccess = () => {
       settleLayout();
+      cursorHide();
       addLog('[Success] Done.');
       setAgentState({ agentStatus: 'success', agentRunning: false });
       runningRef.current = false;
@@ -696,6 +724,7 @@ export default function AgentOverlay() {
        spot (NOT the prompt-echo, which parroted their words back as content).
        This one is unmistakably a system message and it deletes nothing. */
     const failRun = (msg: string) => {
+      cursorHide();
       addLog(`[Failure] ${msg}`);
       try {
         live().addObject({
@@ -727,12 +756,23 @@ export default function AgentOverlay() {
          shared abort signal with a hard deadline: whatever answered in time
          ships with the prompt, the rest are cut loose mid-flight. The user's
          Stop button aborts through the same wire. */
+      /* Two tiers of deadline. PRIMARY sources (vision, the URLs the user
+         pasted, memory, verified YouTube results a video ask depends on) get the
+         full window — they ARE the material. GARNISH (search/wiki/news/quotes/…)
+         is nice-to-have seasoning, and its broad trigger regexes fire on tons of
+         prompts, so a slow garnish upstream was routinely holding the whole
+         build at "Gathering context…" for the full 8s. Garnish now gets cut
+         loose at 4.5s; a run with no primary sources starts that much sooner. */
       const CONTEXT_DEADLINE_MS = 8000;
+      const GARNISH_DEADLINE_MS = 4500;
       const ctxController = new AbortController();
-      const onMainAbort = () => ctxController.abort();
+      const garnishController = new AbortController();
+      const onMainAbort = () => { ctxController.abort(); garnishController.abort(); };
       controller.signal.addEventListener('abort', onMainAbort);
-      const ctxTimer = setTimeout(() => ctxController.abort(), CONTEXT_DEADLINE_MS);
+      const ctxTimer = setTimeout(() => { ctxController.abort(); garnishController.abort(); }, CONTEXT_DEADLINE_MS);
+      const garnishTimer = setTimeout(() => garnishController.abort(), GARNISH_DEADLINE_MS);
       const sig = ctxController.signal;
+      const gsig = garnishController.signal;
 
       let visionContext: string | undefined;
       let webContext: string | undefined;
@@ -826,7 +866,7 @@ export default function AgentOverlay() {
       if (wantsYouTube || /\b(search|find|google|look up|who is|what is|how to|best|top|compare|vs|versus|recommend|review|list of|examples of|alternatives|how much|price|cost|where can i|when did|why does|which is)\b/i.test(pLower)) {
         pre.push((async () => {
           try {
-            const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: sig });
+            const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: gsig });
             if (sRes.ok) {
               const sJson = await sRes.json();
               if (sJson.success && sJson.results?.length) {
@@ -842,7 +882,7 @@ export default function AgentOverlay() {
           try {
             const match = promptText.match(/(?:in|at|for) ([a-zA-Z\s,]+)/i);
             const q = match ? match[1].trim() : promptText;
-            const wRes = await fetch(`/api/weather?q=${encodeURIComponent(q)}`, { signal: sig });
+            const wRes = await fetch(`/api/weather?q=${encodeURIComponent(q)}`, { signal: gsig });
             if (wRes.ok) {
               const wJson = await wRes.json();
               if (!wJson.error) {
@@ -858,7 +898,7 @@ export default function AgentOverlay() {
           try {
             const match = promptText.match(/(?:define|meaning of|definition of|what does .* mean) ([a-zA-Z]+)/i);
             const w = match ? match[1].trim() : promptText.split(' ').pop() || '';
-            const dRes = await fetch(`/api/dictionary?word=${encodeURIComponent(w)}`, { signal: sig });
+            const dRes = await fetch(`/api/dictionary?word=${encodeURIComponent(w)}`, { signal: gsig });
             if (dRes.ok) {
               const dJson = await dRes.json();
               if (dJson.success && dJson.results?.length) dictContext = JSON.stringify(dJson.results, null, 2);
@@ -872,7 +912,7 @@ export default function AgentOverlay() {
           try {
             const match = promptText.match(/(?:who is|who was|what is|history of|biography of|about|wikipedia|origin of|explain) ([a-zA-Z0-9\s]+)/i);
             const q = match ? match[1].trim() : promptText;
-            const wikiRes = await fetch(`/api/wikipedia?q=${encodeURIComponent(q)}`, { signal: sig });
+            const wikiRes = await fetch(`/api/wikipedia?q=${encodeURIComponent(q)}`, { signal: gsig });
             if (wikiRes.ok) {
               const wikiJson = await wikiRes.json();
               if (wikiJson.success) wikiContext = `TITLE: ${wikiJson.title}\nSUMMARY: ${wikiJson.summary}\nURL: ${wikiJson.url}`;
@@ -886,7 +926,7 @@ export default function AgentOverlay() {
           try {
             const match = promptText.match(/(?:news about|latest on|headlines for|update on|trending) ([a-zA-Z0-9\s]+)/i);
             const q = match ? match[1].trim() : undefined;
-            const nRes = await fetch(`/api/news${q ? `?q=${encodeURIComponent(q)}` : ''}`, { signal: sig });
+            const nRes = await fetch(`/api/news${q ? `?q=${encodeURIComponent(q)}` : ''}`, { signal: gsig });
             if (nRes.ok) {
               const nJson = await nRes.json();
               if (nJson.success && nJson.results?.length) {
@@ -919,7 +959,7 @@ export default function AgentOverlay() {
       if (/\b(quote|quotes|inspire|inspiration|motivation|motivational|words of wisdom|famous saying|wise words)\b/i.test(pLower)) {
         pre.push((async () => {
           try {
-            const qRes = await fetch(`/api/quotes-search?limit=5`, { signal: sig });
+            const qRes = await fetch(`/api/quotes-search?limit=5`, { signal: gsig });
             if (qRes.ok) {
               const qJson = await qRes.json();
               if (qJson.success && qJson.results?.length) {
@@ -935,7 +975,7 @@ export default function AgentOverlay() {
           try {
             const match = promptText.match(/(?:about|country|capital of|population of|flag of|currency of|language of|languages in) ([a-zA-Z\s]+)/i);
             const q = match ? match[1].trim() : promptText;
-            const cRes = await fetch(`/api/country-info?q=${encodeURIComponent(q)}`, { signal: sig });
+            const cRes = await fetch(`/api/country-info?q=${encodeURIComponent(q)}`, { signal: gsig });
             if (cRes.ok) {
               const cJson = await cRes.json();
               if (cJson.success && cJson.results?.length) {
@@ -949,7 +989,7 @@ export default function AgentOverlay() {
       if (/\b(trivia|quiz|fun fact|random fact|did you know|brain teaser)\b/i.test(pLower)) {
         pre.push((async () => {
           try {
-            const tRes = await fetch(`/api/trivia?amount=5`, { signal: sig });
+            const tRes = await fetch(`/api/trivia?amount=5`, { signal: gsig });
             if (tRes.ok) {
               const tJson = await tRes.json();
               if (tJson.success && tJson.results?.length) {
@@ -962,6 +1002,7 @@ export default function AgentOverlay() {
 
       await Promise.all(pre);
       clearTimeout(ctxTimer);
+      clearTimeout(garnishTimer);
       controller.signal.removeEventListener('abort', onMainAbort);
       {
         const crawled = crawlSlots.filter((s): s is string => Boolean(s));

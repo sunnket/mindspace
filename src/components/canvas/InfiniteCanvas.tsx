@@ -57,6 +57,7 @@ import AgentChatPanel from '@/components/chat/AgentChatPanel';
 import CollabBar from '@/components/collab/CollabBar';
 import PluginsPanel from '@/components/ui/PluginsPanel';
 import CollabCursors from '@/components/collab/CollabCursors';
+import AgentCursor from '@/components/canvas/AgentCursor';
 import CollabModal from '@/components/collab/CollabModal';
 import PulseLayer from '@/components/collab/PulseLayer';
 import { useCollabStore } from '@/store/collabStore';
@@ -1573,6 +1574,8 @@ export default function InfiniteCanvas() {
         {/* Live collaboration */}
         <CollabBar />
         <CollabCursors />
+        {/* The AI agent's own live pointer while it builds (Miro-style) */}
+        <AgentCursor />
         <CollabModal />
         <PulseLayer />
 

@@ -83,9 +83,19 @@ export default function AgentChatPanel() {
     return () => el.removeEventListener('wheel', stopWheel);
   }, [panelOpen]);
 
-  // Autoscroll to the newest message / streaming tokens.
+  /* Autoscroll to the newest message / streaming tokens — but only while the
+     user is pinned near the bottom (scrolling up to reread must not be fought),
+     and with INSTANT scrolls: layering a fresh smooth-scroll animation on every
+     token flush was part of the mid-stream jank. */
+  const pinnedRef = useRef(true);
+  const onListScroll = () => {
+    const el = listRef.current;
+    if (!el) return;
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 90;
+  };
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
+    const el = listRef.current;
+    if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
   }, [messages, panelOpen]);
 
   // A canvas block dragged onto the panel (dispatched by CanvasObject).
@@ -234,7 +244,7 @@ export default function AgentChatPanel() {
             </div>
 
             {/* Messages */}
-            <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar" style={{ padding: '16px 14px' }}>
+            <div ref={listRef} onScroll={onListScroll} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar" style={{ padding: '16px 14px' }}>
               {loading ? (
                 <div className="h-full flex items-center justify-center text-[var(--text-tertiary)] text-[12px]">Loading conversation…</div>
               ) : messages.length === 0 ? (
@@ -257,60 +267,7 @@ export default function AgentChatPanel() {
               ) : (
                 <div className="flex flex-col gap-4">
                   {messages.map((m) => (
-                    <div key={m.id} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                      {m.attachments && m.attachments.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5" style={{ marginBottom: 6, justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                          {m.attachments.map((a, i) => (
-                            <span key={i} className="flex items-center gap-1 rounded-lg text-[10.5px] font-semibold text-[var(--text-secondary)]" style={{ padding: '3px 8px', background: 'var(--well)', border: '1px solid var(--border)' }}>
-                              {a.kind === 'block' ? '▦' : a.kind === 'image' ? '🖼' : '📎'} {a.name.slice(0, 28)}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {m.role === 'user' ? (
-                        <div className="rounded-2xl text-[13px] whitespace-pre-wrap break-words" style={{ padding: '10px 13px', maxWidth: '86%', background: 'var(--accent)', color: '#fff', borderBottomRightRadius: 6 }}>
-                          {m.content}
-                        </div>
-                      ) : (
-                        <div className="rounded-2xl text-[13px] w-full agent-msg" style={{ padding: '11px 14px', background: 'var(--well)', border: '1px solid var(--border)', color: 'var(--text-primary)', borderBottomLeftRadius: 6 }}>
-                          {m.content
-                            ? <div className="agent-md" style={{ fontSize: 13, lineHeight: 1.6 }}><RichText content={m.content} /></div>
-                            : <span className="inline-flex gap-1 items-center text-[var(--text-tertiary)]"><Dot /><Dot d={0.15} /><Dot d={0.3} /></span>}
-                          {(m.buildState || m.built) && (() => {
-                            const st = m.buildState ?? 'done'; // a reloaded built msg has no live state
-                            if (st === 'building') {
-                              return (
-                                <div className="flex items-center gap-1.5 text-[10.5px] font-semibold" style={{ marginTop: 8, color: 'var(--accent)' }}>
-                                  <Spark size={12} /> Building this on your canvas…
-                                </div>
-                              );
-                            }
-                            if (st === 'error') {
-                              return (
-                                <div className="flex items-center gap-1.5 text-[10.5px] font-semibold" style={{ marginTop: 8, color: '#D46A5B' }}>
-                                  <span style={{ fontSize: 12 }}>⚠</span> Couldn&apos;t finish that build — ask me to try again
-                                </div>
-                              );
-                            }
-                            return (
-                              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold" style={{ marginTop: 8, color: 'var(--accent)' }}>
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg> Built on your canvas
-                              </div>
-                            );
-                          })()}
-                          {!m.streaming && m.content && (
-                            <div className="flex items-center gap-2 opacity-0 agent-msg-actions transition-opacity" style={{ marginTop: 8 }}>
-                              <button onClick={() => addToCanvas(m.content)} title="Add this to the canvas" className="flex items-center gap-1 text-[10.5px] font-semibold text-[var(--text-tertiary)] hover:text-[var(--accent)] cursor-pointer">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg> Add to canvas
-                              </button>
-                              <button onClick={() => navigator.clipboard?.writeText(m.content)} title="Copy" className="flex items-center gap-1 text-[10.5px] font-semibold text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg> Copy
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    <MessageRow key={m.id} m={m} onAddToCanvas={addToCanvas} />
                   ))}
                 </div>
               )}
@@ -366,6 +323,70 @@ export default function AgentChatPanel() {
     </>
   );
 }
+
+/* One chat bubble, memoized. During streaming the thread re-renders ~20x/sec;
+   without the memo EVERY bubble re-parsed its full markdown (RichText + KaTeX)
+   on each flush, which is what made long threads stutter and "break down"
+   mid-reply. Now only the message whose object identity actually changed (the
+   streaming one) pays for a re-render. */
+const MessageRow = React.memo(function MessageRow({ m, onAddToCanvas }: { m: AgentChatMessage; onAddToCanvas: (content: string) => void }) {
+  return (
+    <div className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+      {m.attachments && m.attachments.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" style={{ marginBottom: 6, justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+          {m.attachments.map((a, i) => (
+            <span key={i} className="flex items-center gap-1 rounded-lg text-[10.5px] font-semibold text-[var(--text-secondary)]" style={{ padding: '3px 8px', background: 'var(--well)', border: '1px solid var(--border)' }}>
+              {a.kind === 'block' ? '▦' : a.kind === 'image' ? '🖼' : '📎'} {a.name.slice(0, 28)}
+            </span>
+          ))}
+        </div>
+      )}
+      {m.role === 'user' ? (
+        <div className="rounded-2xl text-[13px] whitespace-pre-wrap break-words" style={{ padding: '10px 13px', maxWidth: '86%', background: 'var(--accent)', color: '#fff', borderBottomRightRadius: 6 }}>
+          {m.content}
+        </div>
+      ) : (
+        <div className="rounded-2xl text-[13px] w-full agent-msg" style={{ padding: '11px 14px', background: 'var(--well)', border: '1px solid var(--border)', color: 'var(--text-primary)', borderBottomLeftRadius: 6 }}>
+          {m.content
+            ? <div className="agent-md" style={{ fontSize: 13, lineHeight: 1.6 }}><RichText content={m.content} /></div>
+            : <span className="inline-flex gap-1 items-center text-[var(--text-tertiary)]"><Dot /><Dot d={0.15} /><Dot d={0.3} /></span>}
+          {(m.buildState || m.built) && (() => {
+            const st = m.buildState ?? 'done'; // a reloaded built msg has no live state
+            if (st === 'building') {
+              return (
+                <div className="flex items-center gap-1.5 text-[10.5px] font-semibold" style={{ marginTop: 8, color: 'var(--accent)' }}>
+                  <Spark size={12} /> Building this on your canvas…
+                </div>
+              );
+            }
+            if (st === 'error') {
+              return (
+                <div className="flex items-center gap-1.5 text-[10.5px] font-semibold" style={{ marginTop: 8, color: '#D46A5B' }}>
+                  <span style={{ fontSize: 12 }}>⚠</span> Couldn&apos;t finish that build — ask me to try again
+                </div>
+              );
+            }
+            return (
+              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold" style={{ marginTop: 8, color: 'var(--accent)' }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg> Built on your canvas
+              </div>
+            );
+          })()}
+          {!m.streaming && m.content && (
+            <div className="flex items-center gap-2 opacity-0 agent-msg-actions transition-opacity" style={{ marginTop: 8 }}>
+              <button onClick={() => onAddToCanvas(m.content)} title="Add this to the canvas" className="flex items-center gap-1 text-[10.5px] font-semibold text-[var(--text-tertiary)] hover:text-[var(--accent)] cursor-pointer">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg> Add to canvas
+              </button>
+              <button onClick={() => navigator.clipboard?.writeText(m.content)} title="Copy" className="flex items-center gap-1 text-[10.5px] font-semibold text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg> Copy
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
 
 function Dot({ d = 0 }: { d?: number }) {
   return (

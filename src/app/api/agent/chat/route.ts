@@ -4,15 +4,19 @@ import { ChatMsg, HedgeSlot, nimApiKeys, openHedgedStream } from '@/lib/nim/hedg
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-/* Launch PLAN by MEASURED speed (probed 2026-07-19). Chat must feel INSTANT, so
-   it leads with nemotron-super-49b (~1s TTFT on 4/5 keys, fluent, smart — and
-   with no "detailed thinking on" directive it answers directly, no reasoning
-   trace), hedges the fastest 8B on a different key, then the frontier for depth,
-   then 8B again as a far-out rescue. mistral-medium (old lead) is OUT — it was
-   timing out 45-60s on this tier. */
+/* Launch PLAN by MEASURED speed. Chat must feel INSTANT, so it leads with
+   nemotron-super-49b (~1s TTFT when warm, fluent, smart — and with no "detailed
+   thinking on" directive it answers directly, no reasoning trace). But on this
+   free tier any single key can be cold (probed 2026-07-24: a bare-8B lead
+   stalled 15-21s), so a SECOND nemotron fires on a different key at 1.1s to
+   rescue an unlucky-cold lead before the user feels it — then the fast 8B, the
+   frontier for depth, and a far-out 8B backstop. First token anywhere wins;
+   losers abort instantly. mistral-medium (old lead) is OUT — it timed out
+   45-60s on this tier. */
 const PLAN: HedgeSlot[] = [
   { model: 'nvidia/llama-3.3-nemotron-super-49b-v1', delayMs: 0 },
-  { model: 'meta/llama-3.1-8b-instruct', delayMs: 2500 },
+  { model: 'nvidia/llama-3.3-nemotron-super-49b-v1', delayMs: 1100 },  // 2nd nemotron, different key — the fast rescue
+  { model: 'meta/llama-3.1-8b-instruct', delayMs: 2600 },
   { model: 'mistralai/mistral-large-3-675b-instruct-2512', delayMs: 6000 },
   { model: 'meta/llama-3.1-8b-instruct', delayMs: 14_000 },
 ];

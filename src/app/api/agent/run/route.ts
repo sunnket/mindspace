@@ -45,27 +45,40 @@ type Profile = 'heavy' | 'balanced' | 'quick';
    stealing a board the lead is about to win. */
 interface HedgeSlot { model: string; delayMs: number }
 
+/* TAIL LATENCY is the enemy, not average latency. Probed live 2026-07-24: a
+   nemotron lead landed a first block in ~4s, but a plan that LED with the 8B
+   (the old "quick" profile) hit a cold worker and took 15-21s TWICE in a row —
+   the "fast" profile was reliably the SLOWEST. The lesson: on this free tier
+   ANY single model can be cold on any given key, so never bet the whole run on
+   one lead. Every profile now leads with nemotron (the measured reliable+fast
+   lead) AND fires a SECOND nemotron on a DIFFERENT KEY within ~1s — so an
+   unlucky-cold lead is overtaken almost immediately instead of stalling to the
+   28s deadline. This is the "shuffle keys the instant one suffers" the user
+   asked for. Losing attempts abort the moment one wins, so the extra early
+   request only ever costs anything on a bad day — which is exactly when it
+   saves the run. */
 const PLANS: Record<Profile, HedgeSlot[]> = {
   // Long builds, workflows, dashboards, code, math, reorganising a whole board.
-  // Lead with nemotron (smart + valid JSON + ~1s TTFT); frontier for depth if it
-  // stalls; retry nemotron on another key; 8B only as a last-resort rescue.
   heavy: [
     { model: MODELS.smart, delayMs: 0 },
-    { model: MODELS.frontier, delayMs: 3500 },  // depth backstop, different key
-    { model: MODELS.smart, delayMs: 7000 },     // retry nemotron on another key
-    { model: MODELS.fast, delayMs: 14_000 },    // rescue: warm 8B beats a failure
+    { model: MODELS.smart, delayMs: 1200 },     // 2nd nemotron, different key — the fast rescue
+    { model: MODELS.frontier, delayMs: 4000 },  // depth backstop, different key
+    { model: MODELS.fast, delayMs: 11_000 },    // last resort: a warm 8B beats a failure
   ],
   // The everyday ask: explain this, add a few notes, pull some links.
   balanced: [
     { model: MODELS.smart, delayMs: 0 },
-    { model: MODELS.fast, delayMs: 2000 },      // fastest model, different key
+    { model: MODELS.smart, delayMs: 1000 },     // 2nd nemotron, different key — rescue a cold lead fast
+    { model: MODELS.fast, delayMs: 2600 },      // 8B hedge on a third key
     { model: MODELS.frontier, delayMs: 6000 },
-    { model: MODELS.fast, delayMs: 14_000 },
   ],
-  // "add a heading", "make this bigger" — latency IS the feature; 8B leads.
+  // "add a heading", "make this bigger" — latency IS the feature. Lead with the
+  // reliable nemotron (NOT the 8B: measured cold at 15-21s), and stack two more
+  // keys within 1.6s so the first token that lands anywhere wins.
   quick: [
-    { model: MODELS.fast, delayMs: 0 },         // 8B: ~0.5s TTFT, ample for an edit
-    { model: MODELS.smart, delayMs: 1800 },
+    { model: MODELS.smart, delayMs: 0 },
+    { model: MODELS.fast, delayMs: 800 },       // 8B on a different key — wins if IT'S the warm one
+    { model: MODELS.smart, delayMs: 1600 },     // a third key: nemotron again
   ],
 };
 
