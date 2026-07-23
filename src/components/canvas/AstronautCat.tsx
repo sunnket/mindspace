@@ -349,8 +349,7 @@ export default function AstronautCat({ active }: { active: boolean }) {
         zIndex: 6,
         pointerEvents: 'auto',
         cursor: 'grab',
-        // cool, faint rim so the cat sits IN the dark space, not on a warm blob
-        filter: 'drop-shadow(0 2px 7px rgba(0,0,0,0.7)) drop-shadow(0 0 7px rgba(150,185,235,0.28))',
+        filter: 'drop-shadow(0 0 10px rgba(217,123,46,0.35))',
       }}
     >
       <canvas
@@ -391,9 +390,9 @@ export default function AstronautCat({ active }: { active: boolean }) {
 
         {/* glass dome */}
         <g ref={domeRef}>
-          {/* faint cool halo — the glass catching the light of a cold sky */}
-          <circle cx={0} cy={0} r={R + 2.5} fill="none" stroke="rgba(150,185,235,0.32)" strokeWidth="2.5" />
-          <circle cx={0} cy={0} r={R} fill="url(#astro-glass)" stroke="#EAF1FF" strokeWidth="1.7" />
+          {/* faint warm halo, so the helmet belongs to a ginger cat in warm space */}
+          <circle cx={0} cy={0} r={R + 2.5} fill="none" stroke="rgba(217,123,46,0.30)" strokeWidth="2.5" />
+          <circle cx={0} cy={0} r={R} fill="url(#astro-glass)" stroke="#FFF4E4" strokeWidth="1.7" />
           {/* specular crescent */}
           <path
             d={`M ${-R * 0.55} ${-R * 0.35} A ${R * 0.7} ${R * 0.7} 0 0 1 ${-R * 0.05} ${-R * 0.72}`}

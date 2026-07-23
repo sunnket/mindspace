@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Constellation View — a real, dark night sky you compose yourself.
+ * Constellation View — a warm galaxy you compose yourself.
  *
  * Every block on the board is a star. There is NO auto-clustering and NO
  * auto-naming: the sky only holds the shapes you draw in it. You drag stars
@@ -13,11 +13,9 @@
  * you can zoom deep into a corner of the sky without ever falling back to the
  * board. It's opened from the minimap and closed with Land / Esc.
  *
- * The sky is drawn on one canvas for depth and detail: a parallax, tiling star
- * field (thousands of points across three depths), a soft Milky Way band, faint
- * deep-blue nebulae, twinkle, diffraction spikes on the bright ones, and bloom.
- * Stars are white with only a faint temperature tint — never saturated.
- * Interaction lives in a thin DOM layer on top.
+ * The look is the warm "galaxy" the user chose: a deep gradient, warm nebula
+ * haze, drifting parallax starlight and amber-cored constellations — not a cold
+ * observatory. Interaction lives in a thin DOM layer over one canvas.
  *
  * The whole sky is mounted only while open (a thin wrapper gates it), so the
  * inner component initialises its camera lazily at mount — no init effect, no
@@ -35,7 +33,6 @@ import {
   skyFit,
   projSky,
   unprojSky,
-  starRGB,
   SKY_MIN_ZOOM,
   SKY_MAX_ZOOM,
   type DataStar,
@@ -49,6 +46,11 @@ export default function ConstellationView() {
   return <ConstellationSky />;
 }
 
+/* Warm, brand-matched starlight — embers in deep space. */
+const AMBIENT_RGB = '255,246,232'; // warm-white ambient
+const CORE_RGB = '255,239,214';    // cream star core
+const GLOW_RGB = '242,169,80';     // amber / ginger bloom + constellation lines
+
 /* --------------------------------------------------------- backdrop model */
 
 interface BgStar { x: number; y: number; a: number; size: number; depth: number; phase: number; rgb: string; tw: number }
@@ -58,34 +60,34 @@ interface Shoot { x: number; y: number; vx: number; vy: number; life: number; ma
 function genBackdrop(w: number, h: number): { dust: BgStar[]; mid: BgStar[]; bright: BgStar[]; neb: Neb[] } {
   const area = w * h;
   const dust: BgStar[] = [];
-  const nDust = Math.min(1300, Math.max(500, Math.floor(area / 1700)));
+  const nDust = Math.min(1100, Math.max(420, Math.floor(area / 2100)));
   for (let i = 0; i < nDust; i++) {
     dust.push({
       x: Math.random(), y: Math.random(),
-      a: 0.12 + Math.random() * 0.4, size: 0.6 + Math.random() * 0.7,
-      depth: 0.08 + (i % 3) * 0.06, phase: Math.random() * 6.28, rgb: starRGB(Math.random()), tw: 0.1 + Math.random() * 0.2,
+      a: 0.14 + Math.random() * 0.42, size: 0.6 + Math.random() * 0.7,
+      depth: 0.08 + (i % 3) * 0.06, phase: Math.random() * 6.28, rgb: AMBIENT_RGB, tw: 0.12 + Math.random() * 0.22,
     });
   }
   const mid: BgStar[] = [];
-  for (let i = 0; i < 220; i++) {
+  for (let i = 0; i < 190; i++) {
     mid.push({
       x: Math.random(), y: Math.random(),
       a: 0.45 + Math.random() * 0.45, size: 0.9 + Math.random() * 1.1,
-      depth: 0.34 + Math.random() * 0.08, phase: Math.random() * 6.28, rgb: starRGB(Math.random()), tw: 0.25 + Math.random() * 0.3,
+      depth: 0.34 + Math.random() * 0.08, phase: Math.random() * 6.28, rgb: AMBIENT_RGB, tw: 0.28 + Math.random() * 0.3,
     });
   }
   const bright: BgStar[] = [];
-  for (let i = 0; i < 46; i++) {
+  for (let i = 0; i < 40; i++) {
     bright.push({
       x: Math.random(), y: Math.random(),
-      a: 0.7 + Math.random() * 0.3, size: 1.5 + Math.random() * 1.6,
-      depth: 0.5 + Math.random() * 0.12, phase: Math.random() * 6.28, rgb: starRGB(Math.random() * 0.9), tw: 0.35 + Math.random() * 0.4,
+      a: 0.7 + Math.random() * 0.3, size: 1.4 + Math.random() * 1.5,
+      depth: 0.5 + Math.random() * 0.12, phase: Math.random() * 6.28, rgb: CORE_RGB, tw: 0.35 + Math.random() * 0.4,
     });
   }
   const neb: Neb[] = [
-    { x: 0.22, y: 0.28, r: 0.5, rgb: '60,84,150', phase: 0 },
-    { x: 0.78, y: 0.66, r: 0.55, rgb: '78,58,120', phase: 2 },
-    { x: 0.6, y: 0.2, r: 0.4, rgb: '40,86,110', phase: 4 },
+    { x: 0.26, y: 0.32, r: 0.52, rgb: '214,126,60', phase: 0 },   // warm
+    { x: 0.74, y: 0.64, r: 0.55, rgb: '150,84,48', phase: 2 },    // dim warm
+    { x: 0.6, y: 0.2, r: 0.42, rgb: '70,96,168', phase: 4 },      // one cool for depth
   ];
   return { dust, mid, bright, neb };
 }
@@ -120,8 +122,6 @@ function ConstellationSky() {
   const components = useMemo(() => skyComponents(stars.map((s) => s.id), links, sky.names || {}), [stars, links, sky.names]);
   const starById = useMemo(() => new Map(stars.map((s) => [s.id, s])), [stars]);
 
-  // Lazy init at mount — the sky only mounts when opened, so this fits the
-  // stars once with no init effect.
   const [vp, setVp] = useState(() => ({
     w: typeof window !== 'undefined' ? window.innerWidth : 1440,
     h: typeof window !== 'undefined' ? window.innerHeight : 900,
@@ -189,40 +189,21 @@ function ConstellationSky() {
       const cam = skyCamRef.current;
       const zk = 0.75 + 0.4 * Math.min(2, cam.zoom);
 
-      // 1) nebulae — faint deep-blue/violet clouds, additive
+      // 1) nebulae — warm haze (+ one cool for depth), additive so they glow
       ctx.globalCompositeOperation = 'lighter';
       for (const n of bg.neb) {
         const cx = wrapMod(n.x * w - cam.x * 0.03, w);
         const cy = wrapMod(n.y * h - cam.y * 0.03, h);
         const r = n.r * Math.min(w, h) * (0.95 + 0.05 * Math.sin(t * 0.15 + n.phase));
         const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-        g.addColorStop(0, `rgba(${n.rgb},0.10)`);
-        g.addColorStop(0.5, `rgba(${n.rgb},0.035)`);
+        g.addColorStop(0, `rgba(${n.rgb},0.15)`);
+        g.addColorStop(0.5, `rgba(${n.rgb},0.05)`);
         g.addColorStop(1, `rgba(${n.rgb},0)`);
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
       }
 
-      // 2) Milky Way — a soft diagonal band of light
-      ctx.save();
-      ctx.translate(w * 0.5 - cam.x * 0.02, h * 0.44 - cam.y * 0.02);
-      ctx.rotate(-0.52);
-      const bandH = Math.max(w, h) * 0.42;
-      const bg1 = ctx.createLinearGradient(0, -bandH / 2, 0, bandH / 2);
-      bg1.addColorStop(0, 'rgba(70,92,150,0)');
-      bg1.addColorStop(0.5, 'rgba(120,140,205,0.05)');
-      bg1.addColorStop(1, 'rgba(70,92,150,0)');
-      ctx.fillStyle = bg1;
-      ctx.fillRect(-w, -bandH / 2, w * 2, bandH);
-      const core = ctx.createLinearGradient(0, -bandH * 0.18, 0, bandH * 0.18);
-      core.addColorStop(0, 'rgba(150,168,220,0)');
-      core.addColorStop(0.5, 'rgba(180,195,235,0.045)');
-      core.addColorStop(1, 'rgba(150,168,220,0)');
-      ctx.fillStyle = core;
-      ctx.fillRect(-w, -bandH * 0.18, w * 2, bandH * 0.36);
-      ctx.restore();
-
-      // 3) the tiling, parallax star field — three depths
+      // 2) the tiling, parallax star field — three depths
       const drawLayer = (arr: BgStar[], useArc: boolean) => {
         for (const st of arr) {
           const sx = wrapMod(st.x * w - cam.x * st.depth * 0.4 + t * st.depth * 3, w);
@@ -241,10 +222,10 @@ function ConstellationSky() {
         const sx = wrapMod(st.x * w - cam.x * st.depth * 0.4 + t * st.depth * 3, w);
         const sy = wrapMod(st.y * h - cam.y * st.depth * 0.4, h);
         const tw = 1 - st.tw + st.tw * (0.5 + 0.5 * Math.sin(t * (0.4 + st.size) + st.phase));
-        drawGlowStar(ctx, sx, sy, st.size * zk, st.rgb, st.a * tw, true, 0.5);
+        drawGlowStar(ctx, sx, sy, st.size * zk, st.rgb, st.a * tw);
       }
 
-      // 4) shooting star, occasionally
+      // 3) shooting star, occasionally
       if (now > lastShoot && shootRef.current.length < 2) {
         lastShoot = now + 5000 + Math.random() * 9000;
         const fromLeft = Math.random() < 0.5;
@@ -260,13 +241,13 @@ function ConstellationSky() {
         const fade = 1 - s.life / s.max;
         const tx = s.x - s.vx * 0.05, ty = s.y - s.vy * 0.05;
         const g = ctx.createLinearGradient(tx, ty, s.x, s.y);
-        g.addColorStop(0, 'rgba(255,255,255,0)');
-        g.addColorStop(1, `rgba(255,255,255,${(0.85 * fade).toFixed(3)})`);
+        g.addColorStop(0, `rgba(${CORE_RGB},0)`);
+        g.addColorStop(1, `rgba(${CORE_RGB},${(0.85 * fade).toFixed(3)})`);
         ctx.strokeStyle = g; ctx.lineWidth = 1.4;
         ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(s.x, s.y); ctx.stroke();
       }
 
-      // 5) YOUR constellations — links first, then the data stars
+      // 4) YOUR constellations — links first, then the amber stars
       const dstars = starsRef.current;
       const drag = dragStarRef.current;
       const posLive = (s: DataStar) => (drag && drag.id === s.id ? { x: drag.wx, y: drag.wy } : { x: s.wx, y: s.wy });
@@ -282,29 +263,32 @@ function ConstellationSky() {
         const pa = P(posLive(sa).x, posLive(sa).y);
         const pb = P(posLive(sb).x, posLive(sb).y);
         const on = hov === a || hov === b;
-        ctx.strokeStyle = on ? 'rgba(150,185,230,0.55)' : 'rgba(120,150,195,0.3)';
-        ctx.lineWidth = on ? 1.4 : 1;
+        ctx.strokeStyle = `rgba(${GLOW_RGB},${on ? 0.62 : 0.3})`;
+        ctx.lineWidth = on ? 1.5 : 1;
         ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
       }
 
       const tl = tempLinkRef.current;
       if (tl) {
         const pa = P(tl.fromWX, tl.fromWY);
-        ctx.strokeStyle = 'rgba(170,200,240,0.6)';
+        ctx.strokeStyle = `rgba(${CORE_RGB},0.65)`;
         ctx.lineWidth = 1.2; ctx.setLineDash([4, 4]);
         ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(tl.sx, tl.sy); ctx.stroke();
         ctx.setLineDash([]);
       }
 
+      ctx.globalCompositeOperation = 'lighter';
       for (const s of dstars) {
         const p = P(posLive(s).x, posLive(s).y);
         const on = hov === s.id;
         const tw = 0.72 + 0.28 * Math.sin(t * 1.4 + s.seed * 11);
-        const rad = (s.r + 0.6) * (0.9 + 0.1 * tw) * (on ? 1.35 : 1);
-        drawGlowStar(ctx, p.x, p.y, rad, s.name ? '255,255,255' : starRGB(s.seed), (on ? 1 : 0.7 + s.bright * 0.3) * tw, true, s.bright);
+        const rad = (s.r + 0.7) * (0.9 + 0.1 * tw) * (on ? 1.35 : 1);
+        drawGlowStar(ctx, p.x, p.y, rad, GLOW_RGB, (on ? 1 : 0.7 + s.bright * 0.3) * tw);
         if (on) {
-          ctx.strokeStyle = 'rgba(190,215,255,0.85)'; ctx.lineWidth = 1.2;
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.strokeStyle = 'rgba(255,214,150,0.85)'; ctx.lineWidth = 1.2;
           ctx.beginPath(); ctx.arc(p.x, p.y, rad * 2.6 + 4, 0, Math.PI * 2); ctx.stroke();
+          ctx.globalCompositeOperation = 'lighter';
         }
       }
       ctx.globalCompositeOperation = 'source-over';
@@ -389,7 +373,6 @@ function ConstellationSky() {
         return Math.hypot(p.x - ev.clientX, p.y - ev.clientY) < 26;
       });
       if (target) {
-        // toggle: dragging between two already-wired stars pulls the wire out
         const already = linksRef.current.some(
           (l) => (l[0] === s.id && l[1] === target.id) || (l[0] === target.id && l[1] === s.id),
         );
@@ -440,8 +423,8 @@ function ConstellationSky() {
       onPointerDown={beginPan}
       style={{
         position: 'fixed', inset: 0, zIndex: 400, overflow: 'hidden', userSelect: 'none', cursor: 'grab',
-        // deep, dark space — stays black whatever the board's paper colour is
-        background: 'radial-gradient(150% 130% at 50% 22%, #0b1122 0%, #060814 42%, #01020a 100%)',
+        // deep space that stays dark no matter the board's paper colour
+        background: 'radial-gradient(120% 90% at 50% 12%, #10131f 0%, #0a0c15 45%, #05060c 100%)',
       }}
     >
       <canvas
@@ -480,7 +463,7 @@ function ConstellationSky() {
               <button
                 onClick={() => { setEditing({ kind: 'const', id: c.anchor }); setDraft(c.name); }}
                 title="Rename constellation"
-                style={{ ...chipStyle, color: c.name ? '#EAF1FF' : 'rgba(200,215,245,0.55)', letterSpacing: '0.16em', fontSize: 12 }}
+                style={{ ...chipStyle, color: c.name ? '#FFEFD6' : 'rgba(255,239,214,0.55)', letterSpacing: '0.16em', fontSize: 12 }}
               >
                 {c.name || '＋ name'}
               </button>
@@ -527,7 +510,7 @@ function ConstellationSky() {
                   />
                 ) : (
                   <div style={{ ...chipStyle, cursor: 'default', gap: 6 }}>
-                    <span style={{ color: s.name ? '#EAF1FF' : 'rgba(200,215,245,0.6)', fontStyle: s.name ? 'normal' : 'italic', fontWeight: s.name ? 700 : 500 }}>
+                    <span style={{ color: s.name ? '#FFEFD6' : 'rgba(255,239,214,0.6)', fontStyle: s.name ? 'normal' : 'italic', fontWeight: s.name ? 700 : 500 }}>
                       {s.name || s.gist || 'unnamed'}
                     </span>
                     <button onClick={(e) => { e.stopPropagation(); setEditing({ kind: 'star', id: s.id }); setDraft(s.name); }} title="Name this star" style={miniBtn}>✎</button>
@@ -543,7 +526,7 @@ function ConstellationSky() {
                 title="Drag to another star to connect them"
                 style={{
                   position: 'absolute', left: 20, top: -20, width: 14, height: 14, borderRadius: '50%',
-                  border: '1.5px solid rgba(170,200,240,0.9)', background: 'rgba(30,44,80,0.6)', cursor: 'crosshair', pointerEvents: 'auto',
+                  border: '1.5px solid rgba(242,169,80,0.9)', background: 'rgba(40,28,14,0.7)', cursor: 'crosshair', pointerEvents: 'auto',
                 }}
               />
             )}
@@ -555,7 +538,7 @@ function ConstellationSky() {
 
       {stars.length === 0 && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-          <div style={{ textAlign: 'center', color: 'rgba(220,230,255,0.5)', fontFamily: "'Outfit', sans-serif" }}>
+          <div style={{ textAlign: 'center', color: 'rgba(255,239,214,0.5)', fontFamily: "'Outfit', sans-serif" }}>
             <div style={{ fontSize: 18, fontWeight: 300, marginBottom: 6 }}>An empty sky</div>
             <div style={{ fontSize: 13, opacity: 0.7 }}>Add blocks to your canvas and they&apos;ll rise as stars here.</div>
           </div>
@@ -563,13 +546,13 @@ function ConstellationSky() {
       )}
 
       <div style={{ position: 'absolute', top: 34, left: 40, pointerEvents: 'none' }}>
-        <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: '0.34em', textTransform: 'uppercase', color: 'rgba(150,180,230,0.8)', marginBottom: 6 }}>
+        <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: '0.34em', textTransform: 'uppercase', color: 'rgba(242,169,80,0.85)', marginBottom: 6 }}>
           Constellation View
         </div>
-        <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 30, fontWeight: 300, letterSpacing: '-0.01em', color: '#EEF3FF' }}>
+        <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 30, fontWeight: 300, letterSpacing: '-0.01em', color: '#F7EFE2', textShadow: '0 0 30px rgba(242,169,80,0.22)' }}>
           {workspaceTitle || 'Untitled'}
         </div>
-        <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 12, color: 'rgba(210,224,255,0.4)', marginTop: 6 }}>
+        <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 12, color: 'rgba(255,246,232,0.4)', marginTop: 6 }}>
           {stars.length} star{stars.length === 1 ? '' : 's'} · {components.length} constellation{components.length === 1 ? '' : 's'}
         </div>
       </div>
@@ -579,8 +562,8 @@ function ConstellationSky() {
         onClick={() => setConstellationOpen(false)}
         style={{
           position: 'absolute', top: 34, right: 40, display: 'flex', alignItems: 'center', gap: 8,
-          padding: '8px 16px', borderRadius: 999, border: '1px solid rgba(150,180,230,0.3)',
-          background: 'rgba(12,18,34,0.55)', color: '#EAF1FF', fontFamily: "'Outfit', sans-serif",
+          padding: '8px 16px', borderRadius: 999, border: '1px solid rgba(242,169,80,0.35)',
+          background: 'rgba(20,16,10,0.5)', color: '#FFEFD6', fontFamily: "'Outfit', sans-serif",
           fontSize: 12, fontWeight: 600, letterSpacing: '0.04em', cursor: 'pointer', backdropFilter: 'blur(4px)',
         }}
         title="Return to the board (Esc)"
@@ -591,7 +574,7 @@ function ConstellationSky() {
         Land
       </button>
 
-      <div style={{ position: 'absolute', bottom: 26, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none', fontFamily: "'Outfit', sans-serif", fontSize: 12, color: 'rgba(210,224,255,0.45)', letterSpacing: '0.02em', textAlign: 'center', whiteSpace: 'nowrap' }}>
+      <div style={{ position: 'absolute', bottom: 26, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none', fontFamily: "'Outfit', sans-serif", fontSize: 12, color: 'rgba(255,246,232,0.45)', letterSpacing: '0.02em', textAlign: 'center', whiteSpace: 'nowrap' }}>
         Tap a star to fly to it · drag to arrange · drag the ring to connect · scroll to zoom · Esc to leave
       </div>
     </div>,
@@ -601,36 +584,16 @@ function ConstellationSky() {
 
 /* ------------------------------------------------------------- draw helper */
 
-function drawGlowStar(
-  ctx: CanvasRenderingContext2D,
-  x: number, y: number, r: number, rgb: string, alpha: number, spike: boolean, bright: number,
-) {
+function drawGlowStar(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, rgb: string, alpha: number) {
   const a = Math.max(0, Math.min(1, alpha));
-  const glowR = r * 5;
+  const glowR = r * 4.4;
   const g = ctx.createRadialGradient(x, y, 0, x, y, glowR);
-  g.addColorStop(0, `rgba(${rgb},${(0.9 * a).toFixed(3)})`);
-  g.addColorStop(0.25, `rgba(${rgb},${(0.28 * a).toFixed(3)})`);
+  g.addColorStop(0, `rgba(${CORE_RGB},${(0.9 * a).toFixed(3)})`);
+  g.addColorStop(0.32, `rgba(${rgb},${(0.3 * a).toFixed(3)})`);
   g.addColorStop(1, `rgba(${rgb},0)`);
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.arc(x, y, glowR, 0, Math.PI * 2); ctx.fill();
-
-  if (spike && bright > 0.45) {
-    const len = r * (5 + bright * 6);
-    const sg = ctx.createLinearGradient(x - len, y, x + len, y);
-    sg.addColorStop(0, `rgba(${rgb},0)`);
-    sg.addColorStop(0.5, `rgba(${rgb},${(0.5 * a).toFixed(3)})`);
-    sg.addColorStop(1, `rgba(${rgb},0)`);
-    ctx.strokeStyle = sg; ctx.lineWidth = 0.8;
-    ctx.beginPath(); ctx.moveTo(x - len, y); ctx.lineTo(x + len, y); ctx.stroke();
-    const sv = ctx.createLinearGradient(x, y - len, x, y + len);
-    sv.addColorStop(0, `rgba(${rgb},0)`);
-    sv.addColorStop(0.5, `rgba(${rgb},${(0.5 * a).toFixed(3)})`);
-    sv.addColorStop(1, `rgba(${rgb},0)`);
-    ctx.strokeStyle = sv;
-    ctx.beginPath(); ctx.moveTo(x, y - len); ctx.lineTo(x, y + len); ctx.stroke();
-  }
-
-  ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
+  ctx.fillStyle = `rgba(${CORE_RGB},${a.toFixed(3)})`;
   ctx.beginPath(); ctx.arc(x, y, Math.max(0.6, r * 0.5), 0, Math.PI * 2); ctx.fill();
 }
 
@@ -638,19 +601,19 @@ function drawGlowStar(
 
 const chipStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, whiteSpace: 'nowrap',
-  background: 'rgba(10,16,32,0.55)', border: '1px solid rgba(150,180,230,0.22)', color: '#EAF1FF',
+  background: 'rgba(20,16,10,0.55)', border: '1px solid rgba(242,169,80,0.22)', color: '#FFEFD6',
   fontFamily: "'Outfit', sans-serif", fontWeight: 600, fontSize: 12, textTransform: 'uppercase',
   backdropFilter: 'blur(3px)', cursor: 'pointer',
 };
 
 const inputStyle: React.CSSProperties = {
-  background: 'rgba(8,12,26,0.92)', border: '1px solid rgba(150,180,230,0.6)', borderRadius: 8,
-  color: '#EAF1FF', font: "600 13px 'Outfit', sans-serif", letterSpacing: '0.05em', textAlign: 'center',
-  padding: '4px 10px', outline: 'none', width: 200, boxShadow: '0 0 22px rgba(120,160,230,0.25)',
+  background: 'rgba(16,12,6,0.92)', border: '1px solid rgba(242,169,80,0.6)', borderRadius: 8,
+  color: '#FFEFD6', font: "600 13px 'Outfit', sans-serif", letterSpacing: '0.05em', textAlign: 'center',
+  padding: '4px 10px', outline: 'none', width: 200, boxShadow: '0 0 22px rgba(242,169,80,0.25)',
 };
 
 const miniBtn: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18,
-  border: 'none', background: 'transparent', color: 'rgba(200,220,255,0.7)', cursor: 'pointer',
+  border: 'none', background: 'transparent', color: 'rgba(255,239,214,0.75)', cursor: 'pointer',
   fontSize: 11, padding: 0, borderRadius: 4,
 };
