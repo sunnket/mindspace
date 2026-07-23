@@ -20,7 +20,6 @@ const TYPE_GLYPH: Record<string, string> = {
 function typeLabel(t: string) { return TYPE_LABEL[t] || 'Block'; }
 function typeGlyph(t: string) { return TYPE_GLYPH[t] || '•'; }
 
-/** A clean one-line gist of a block, or its type name when it holds no prose. */
 function snippetOf(o: CanvasObjectData): string {
   const raw = (o.content || '')
     .replace(/```[\s\S]*?```/g, ' ')
@@ -35,13 +34,48 @@ function searchText(o: CanvasObjectData): string {
   return `${o.content || ''} ${o.type} ${typeLabel(o.type)}`.toLowerCase();
 }
 
-interface Match { obj: CanvasObjectData; canvasKey: string; canvasName: string; }
-interface Placed extends Match { x: number; y: number; angle: number; }
-interface GroupCluster { key: string; name: string; items: Match[]; x: number; y: number; }
+interface Item { obj: CanvasObjectData; canvasKey: string; canvasName: string; isCross: boolean; }
+interface PlacedItem extends Item { x: number; y: number; }
 
-/* ---------------------------------------------------------- outer / gate
-   The well only mounts while open, so every open starts fresh and closing it
-   tears the state down for free — no reset effects, no stale query. */
+/* Non-overlapping radial packing. Chips spiral outward from just past the core,
+   skipping the central search box and anything already placed — so the cluster
+   stays compact and nothing ever stacks on top of another note. */
+const CHIP = { cur: { w: 150, h: 34 }, cross: { w: 156, h: 50 } };
+function packItems(items: Item[], cx: number, cy: number, vw: number, vh: number) {
+  const placed: { x: number; y: number; w: number; h: number }[] = [];
+  const out: PlacedItem[] = [];
+  let overflow = 0;
+  const GAP = 10;
+  const searchBox = { x: cx - 176, y: cy - 42, w: 352, h: 84 };
+  const hit = (a: typeof searchBox, b: typeof searchBox) =>
+    a.x < b.x + b.w + GAP && a.x + a.w + GAP > b.x && a.y < b.y + b.h + GAP && a.y + a.h + GAP > b.y;
+  const inView = (b: typeof searchBox) => b.x >= 14 && b.y >= 70 && b.x + b.w <= vw - 14 && b.y + b.h <= vh - 82;
+
+  for (const it of items) {
+    const size = it.isCross ? CHIP.cross : CHIP.cur;
+    let done = false;
+    for (let ring = 0; ring < 60 && !done; ring++) {
+      const r = 118 + ring * 30;
+      const steps = Math.max(10, Math.round((2 * Math.PI * r) / (size.w * 0.55 + GAP)));
+      const rot = ring * 0.6 + (it.isCross ? 0.3 : 0);
+      for (let s = 0; s < steps; s++) {
+        const a = -Math.PI / 2 + (s / steps) * Math.PI * 2 + rot;
+        const x = cx + Math.cos(a) * r;
+        const y = cy + Math.sin(a) * r * 0.72;
+        const box = { x: x - size.w / 2, y: y - size.h / 2, w: size.w, h: size.h };
+        if (!inView(box) || hit(box, searchBox) || placed.some((p) => hit(box, p))) continue;
+        placed.push(box);
+        out.push({ ...it, x, y });
+        done = true;
+        break;
+      }
+    }
+    if (!done) overflow++;
+  }
+  return { placed: out, overflow };
+}
+
+/* ---------------------------------------------------------- outer / gate */
 export default function SingularitySearch() {
   const open = useCanvasStore((s) => s.singularityOpen);
   return (
@@ -69,16 +103,15 @@ function SingularityWell() {
   const [vp, setVp] = useState(() =>
     typeof window !== 'undefined' ? { w: window.innerWidth, h: window.innerHeight } : { w: 1440, h: 900 }
   );
-  const [pulling, setPulling] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [allObjects, setAllObjects] = useState<CanvasObjectData[]>([]);
   const [titles, setTitles] = useState<Record<string, string>>({});
 
   const currentKey = resolveParentId(canvasStack, urlCanvasId) ?? 'root';
 
-  // ---- lifecycle: focus, load every canvas' objects, track viewport/Esc ----
   useEffect(() => {
-    const t = setTimeout(() => inputRef.current?.focus(), 260);
+    const t = setTimeout(() => inputRef.current?.focus(), 220);
     const onResize = () => setVp({ w: window.innerWidth, h: window.innerHeight });
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     window.addEventListener('resize', onResize);
@@ -93,9 +126,7 @@ function SingularityWell() {
         states.forEach((s) => { map[s.id] = s.title || 'Untitled canvas'; });
         setAllObjects(objs);
         setTitles(map);
-      } catch {
-        /* offline / empty — current-canvas search still works from the store */
-      }
+      } catch { /* offline / empty — current-canvas search still works */ }
     })();
 
     return () => {
@@ -106,22 +137,20 @@ function SingularityWell() {
     };
   }, [setOpen, workspaceTitle]);
 
-  // ---- matching ----------------------------------------------------------
-  const { current, groups, otherTotal } = useMemo(() => {
+  // ---- matching (current first, then cross grouped-adjacent by canvas) ----
+  const { items, otherTotal } = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return { current: [] as Match[], groups: [] as Match[][], otherTotal: 0 };
-
+    if (!q) return { items: [] as Item[], otherTotal: 0 };
     const words = q.split(/\s+/).filter(Boolean);
-    const hit = (o: CanvasObjectData) => {
-      const hay = searchText(o);
-      return words.every((w) => hay.includes(w));
-    };
+    const hit = (o: CanvasObjectData) => { const hay = searchText(o); return words.every((w) => hay.includes(w)); };
+    const curName = titles[currentKey] || workspaceTitle || 'This canvas';
 
-    const cur: Match[] = objects
+    const current: Item[] = objects
       .filter((o) => o.type !== 'drawing' && hit(o))
-      .map((o) => ({ obj: o, canvasKey: currentKey, canvasName: titles[currentKey] || workspaceTitle || 'This canvas' }));
+      .slice(0, 14)
+      .map((o) => ({ obj: o, canvasKey: currentKey, canvasName: curName, isCross: false }));
 
-    const byCanvas = new Map<string, Match[]>();
+    const byCanvas = new Map<string, Item[]>();
     let otherCount = 0;
     for (const o of allObjects) {
       if (o.type === 'drawing') continue;
@@ -130,48 +159,26 @@ function SingularityWell() {
       if (!hit(o)) continue;
       otherCount++;
       const arr = byCanvas.get(key) || [];
-      if (arr.length < 4) arr.push({ obj: o, canvasKey: key, canvasName: titles[key] || 'Untitled canvas' });
+      if (arr.length < 5) arr.push({ obj: o, canvasKey: key, canvasName: titles[key] || 'Untitled canvas', isCross: true });
       byCanvas.set(key, arr);
     }
-    const grouped = [...byCanvas.entries()]
+    // Busiest canvases first; flatten so same-canvas chips pack next to each other.
+    const cross: Item[] = [...byCanvas.entries()]
       .sort((a, b) => b[1].length - a[1].length)
-      .slice(0, 6)
-      .map(([, items]) => items);
+      .flatMap(([, v]) => v)
+      .slice(0, 16);
 
-    return { current: cur.slice(0, 16), groups: grouped, otherTotal: otherCount };
+    return { items: [...current, ...cross], otherTotal: otherCount };
   }, [query, objects, allObjects, titles, currentKey, workspaceTitle]);
 
-  // ---- radial layout -----------------------------------------------------
   const cx = vp.w / 2;
   const cy = vp.h / 2;
+  const { placed, overflow } = useMemo(
+    () => packItems(items, cx, cy, vp.w, vp.h),
+    [items, cx, cy, vp.w, vp.h]
+  );
 
-  const placedCurrent: Placed[] = useMemo(() => {
-    const n = current.length;
-    if (n === 0) return [];
-    const rx = Math.min(vp.w * 0.32, 380);
-    const ry = Math.min(vp.h * 0.30, 260);
-    return current.map((m, i) => {
-      const angle = -Math.PI / 2 + (i / n) * Math.PI * 2 + (i % 2 ? 0.14 : -0.14);
-      return { ...m, angle, x: cx + Math.cos(angle) * rx, y: cy + Math.sin(angle) * ry };
-    });
-  }, [current, cx, cy, vp.w, vp.h]);
-
-  const clusters: GroupCluster[] = useMemo(() => {
-    const n = groups.length;
-    if (n === 0) return [];
-    const rx = Math.min(vp.w * 0.40, 560);
-    const ry = Math.min(vp.h * 0.40, 380);
-    return groups.map((items, i) => {
-      const angle = -Math.PI / 2 + ((i + 0.5) / n) * Math.PI * 2;
-      return {
-        key: items[0].canvasKey,
-        name: items[0].canvasName,
-        items,
-        x: cx + Math.cos(angle) * rx,
-        y: cy + Math.sin(angle) * ry,
-      };
-    });
-  }, [groups, cx, cy, vp.w, vp.h]);
+  const currentShown = placed.filter((p) => !p.isCross).length;
 
   // ---- actions -----------------------------------------------------------
   const flyToCurrent = useCallback((o: CanvasObjectData) => {
@@ -182,14 +189,11 @@ function SingularityWell() {
     setSelectedId(o.id);
     setTimeout(() => {
       const el = document.querySelector(`[data-object-id="${o.id}"]`);
-      if (el) {
-        el.classList.add('result-pulse');
-        setTimeout(() => el.classList.remove('result-pulse'), 4500);
-      }
+      if (el) { el.classList.add('result-pulse'); setTimeout(() => el.classList.remove('result-pulse'), 4500); }
     }, 780);
   }, [animateCamera, setSelectedId]);
 
-  const goToMatch = useCallback((m: Match) => {
+  const goToMatch = useCallback((m: Item) => {
     if (m.canvasKey === currentKey) {
       setOpen(false);
       flyToCurrent(m.obj);
@@ -200,18 +204,18 @@ function SingularityWell() {
     }
   }, [currentKey, flyToCurrent, router, setOpen, setPendingFocusId]);
 
-  const copyMatch = useCallback((m: Match) => {
+  const copyMatch = useCallback((m: Item) => {
     const text = (m.obj.content || '').trim() || snippetOf(m.obj);
     try { navigator.clipboard?.writeText(text); } catch { /* denied */ }
     setCopiedId(m.obj.id);
     setTimeout(() => setCopiedId((id) => (id === m.obj.id ? null : id)), 1100);
   }, []);
 
-  const onChipMouseDown = useCallback((e: React.MouseEvent, m: Match) => {
+  const onChipMouseDown = useCallback((e: React.MouseEvent, m: Item) => {
     if (e.altKey) { e.preventDefault(); e.stopPropagation(); copyMatch(m); }
   }, [copyMatch]);
 
-  const onChipDragStart = useCallback((e: React.DragEvent, m: Match) => {
+  const onChipDragStart = useCallback((e: React.DragEvent, m: Item) => {
     const payload = {
       type: m.obj.type, content: m.obj.content || '',
       width: m.obj.width, height: m.obj.height,
@@ -220,47 +224,43 @@ function SingularityWell() {
     e.dataTransfer.setData('application/x-mindspace-object', JSON.stringify(payload));
     e.dataTransfer.setData('text/plain', (m.obj.content || '').trim() || snippetOf(m.obj));
     e.dataTransfer.effectAllowed = 'copy';
-    setPulling(true); // get out of the way so the CANVAS is the drop target
+    setDragging(true);
   }, []);
 
   const onChipDragEnd = useCallback((e: React.DragEvent) => {
-    setPulling(false);
+    setDragging(false);
     if (e.dataTransfer.dropEffect && e.dataTransfer.dropEffect !== 'none') setOpen(false);
   }, [setOpen]);
 
   const statusLine = query.trim()
-    ? `${current.length} here${otherTotal ? ` · ${otherTotal} across ${clusters.length}${groups.length === 6 ? '+' : ''} other canvas${clusters.length === 1 ? '' : 'es'}` : ''}`
-    : 'Type to pull matching thoughts out of the void';
+    ? `${currentShown} here${otherTotal ? ` · ${otherTotal} on other canvases` : ''}`
+    : 'Search across every canvas — the board stays live behind';
 
   return (
     <motion.div
-      className="singularity-overlay"
+      className={`singularity-overlay${dragging ? ' dragging' : ''}`}
       initial={{ opacity: 0 }}
-      animate={{ opacity: pulling ? 0.08 : 1 }}
+      animate={{ opacity: dragging ? 0.35 : 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-      style={{ pointerEvents: pulling ? 'none' : 'auto' }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
+      transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
     >
       <div className="singularity-stars" aria-hidden />
 
-      {/* the core — accretion rings + event horizon */}
       <div className="singularity-core-wrap" style={{ left: cx, top: cy }} aria-hidden>
-        <motion.div className="singularity-ring r1" animate={{ rotate: 360 }} transition={{ duration: 26, repeat: Infinity, ease: 'linear' }} />
+        <motion.div className="singularity-ring r1" animate={{ rotate: 360 }} transition={{ duration: 24, repeat: Infinity, ease: 'linear' }} />
         <motion.div className="singularity-ring r2" animate={{ rotate: -360 }} transition={{ duration: 40, repeat: Infinity, ease: 'linear' }} />
         <motion.div className="singularity-ring r3" animate={{ rotate: 360 }} transition={{ duration: 60, repeat: Infinity, ease: 'linear' }} />
         <div className="singularity-core" />
         <motion.div
           className="singularity-pulse"
           key={query}
-          initial={{ scale: 0.2, opacity: 0.6 }}
-          animate={{ scale: 3.2, opacity: 0 }}
-          transition={{ duration: 1.1, ease: 'easeOut' }}
+          initial={{ scale: 0.3, opacity: 0.5 }}
+          animate={{ scale: 2.6, opacity: 0 }}
+          transition={{ duration: 1, ease: 'easeOut' }}
         />
       </div>
 
-      {/* search bar over the core */}
-      <div className="singularity-search-wrap" style={{ left: cx, top: cy }} onMouseDown={(e) => e.stopPropagation()}>
+      <div className="singularity-search-wrap" style={{ left: cx, top: cy }}>
         <div className="singularity-search">
           <span className="singularity-search-icon">◍</span>
           <input
@@ -276,54 +276,18 @@ function SingularityWell() {
         <div className="singularity-status">{statusLine}</div>
       </div>
 
-      {/* cross-canvas clusters */}
-      {clusters.map((g, gi) => (
+      {placed.map((m, i) => (
         <motion.div
-          key={g.key}
-          className="singularity-cluster"
-          style={{ left: g.x, top: g.y }}
-          initial={{ opacity: 0, scale: 0.7, x: (g.x - cx) * 1.6, y: (g.y - cy) * 1.6 }}
-          animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
-          exit={{ opacity: 0, scale: 0.7 }}
-          transition={{ type: 'spring', stiffness: 120, damping: 18, delay: 0.05 + gi * 0.05 }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <div className="singularity-cluster-name" title={g.name}>
-            <span className="singularity-cluster-dot" />
-            {g.name}
-          </div>
-          <div className="singularity-cluster-items">
-            {g.items.map((m) => (
-              <Chip
-                key={m.obj.id}
-                m={m}
-                faint
-                copied={copiedId === m.obj.id}
-                onGo={() => goToMatch(m)}
-                onCopy={() => copyMatch(m)}
-                onMouseDown={(e) => onChipMouseDown(e, m)}
-                onDragStart={(e) => onChipDragStart(e, m)}
-                onDragEnd={onChipDragEnd}
-              />
-            ))}
-          </div>
-        </motion.div>
-      ))}
-
-      {/* current-canvas matches orbiting the core */}
-      {placedCurrent.map((m, i) => (
-        <motion.div
-          key={m.obj.id}
-          className="singularity-orbit-chip"
+          key={`${m.obj.id}-${m.isCross ? 'x' : 'c'}`}
+          className="singularity-chip-wrap"
           style={{ left: m.x, top: m.y }}
-          initial={{ opacity: 0, scale: 0.5, x: Math.cos(m.angle) * 900, y: Math.sin(m.angle) * 900 }}
+          initial={{ opacity: 0, scale: 0.5, x: (m.x - cx) * 1.7, y: (m.y - cy) * 1.7 }}
           animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
           exit={{ opacity: 0, scale: 0.4 }}
-          transition={{ type: 'spring', stiffness: 140, damping: 16, delay: i * 0.03 }}
-          onMouseDown={(e) => e.stopPropagation()}
+          transition={{ type: 'spring', stiffness: 150, damping: 17, delay: Math.min(i * 0.022, 0.5) }}
         >
           <Chip
-            m={m}
+            item={m}
             copied={copiedId === m.obj.id}
             onGo={() => goToMatch(m)}
             onCopy={() => copyMatch(m)}
@@ -334,12 +298,18 @@ function SingularityWell() {
         </motion.div>
       ))}
 
-      {query.trim() && current.length === 0 && clusters.length === 0 && (
+      {overflow > 0 && (
+        <div className="singularity-more" style={{ left: cx, top: Math.min(cy + 300, vp.h - 60) }}>
+          +{overflow} more — refine your search
+        </div>
+      )}
+
+      {query.trim() && placed.length === 0 && (
         <div className="singularity-empty">Nothing orbits “{query.trim()}” yet</div>
       )}
 
       <div className="singularity-hint">
-        <b>Click</b> to fly there · <b>Drag</b> onto the board to copy it in · <b>Alt-click</b> or ⧉ to copy the text
+        <b>Click</b> to fly there · <b>Drag</b> onto the board to drop a copy · <b>Alt-click</b> or ⧉ to copy the text · <b>Esc</b> to close
       </div>
     </motion.div>
   );
@@ -347,35 +317,40 @@ function SingularityWell() {
 
 /* --------------------------------------------------------------- one chip */
 function Chip({
-  m, faint, copied, onGo, onCopy, onMouseDown, onDragStart, onDragEnd,
+  item, copied, onGo, onCopy, onMouseDown, onDragStart, onDragEnd,
 }: {
-  m: Match; faint?: boolean; copied: boolean;
+  item: Item; copied: boolean;
   onGo: () => void; onCopy: () => void;
   onMouseDown: (e: React.MouseEvent) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: (e: React.DragEvent) => void;
 }) {
-  const text = snippetOf(m.obj);
+  const text = snippetOf(item.obj);
   return (
     <div
-      className={`singularity-chip${faint ? ' faint' : ''}`}
+      className={`singularity-chip${item.isCross ? ' cross' : ''}`}
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onMouseDown={onMouseDown}
       onClick={(e) => { if (!e.altKey) onGo(); }}
-      title={text}
+      title={item.isCross ? `${item.canvasName} — ${text}` : text}
     >
-      <span className="singularity-chip-glyph">{typeGlyph(m.obj.type)}</span>
-      <span className="singularity-chip-text">{text}</span>
-      <button
-        className="singularity-chip-copy"
-        title="Copy text"
-        onClick={(e) => { e.stopPropagation(); onCopy(); }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {copied ? '✓' : '⧉'}
-      </button>
+      {item.isCross && (
+        <div className="sg-canvas" title={item.canvasName}><span className="dot" />{item.canvasName}</div>
+      )}
+      <div className="sg-row">
+        <span className="singularity-chip-glyph">{typeGlyph(item.obj.type)}</span>
+        <span className="singularity-chip-text">{text}</span>
+        <button
+          className="singularity-chip-copy"
+          title="Copy text"
+          onClick={(e) => { e.stopPropagation(); onCopy(); }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {copied ? '✓' : '⧉'}
+        </button>
+      </div>
     </div>
   );
 }
