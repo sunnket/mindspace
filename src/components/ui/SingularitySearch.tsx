@@ -37,42 +37,41 @@ function searchText(o: CanvasObjectData): string {
 interface Item { obj: CanvasObjectData; canvasKey: string; canvasName: string; isCross: boolean; }
 interface PlacedItem extends Item { x: number; y: number; }
 
-/* Non-overlapping radial packing. Chips spiral outward from just past the core,
-   skipping the central search box and anything already placed — so the cluster
-   stays compact and nothing ever stacks on top of another note. */
-const CHIP = { cur: { w: 150, h: 34 }, cross: { w: 156, h: 50 } };
-function packItems(items: Item[], cx: number, cy: number, vw: number, vh: number) {
+/* Non-overlapping spiral packing. Chips fan outward from just past the core,
+   skipping the central search box and any already-placed chip, so nothing ever
+   stacks. Positions can run past the viewport edge on purpose — scrolling to
+   zoom the field out brings the far ones into view. */
+const CHIP = { cur: { w: 158, h: 34 }, cross: { w: 168, h: 48 } };
+const MAX_ITEMS = 90;
+function packItems(items: Item[], cx: number, cy: number) {
   const placed: { x: number; y: number; w: number; h: number }[] = [];
   const out: PlacedItem[] = [];
-  let overflow = 0;
-  const GAP = 10;
-  const searchBox = { x: cx - 176, y: cy - 42, w: 352, h: 84 };
-  const hit = (a: typeof searchBox, b: typeof searchBox) =>
+  const GAP = 12;
+  const searchBox = { x: cx - 180, y: cy - 44, w: 360, h: 88 };
+  const overlap = (a: typeof searchBox, b: typeof searchBox) =>
     a.x < b.x + b.w + GAP && a.x + a.w + GAP > b.x && a.y < b.y + b.h + GAP && a.y + a.h + GAP > b.y;
-  const inView = (b: typeof searchBox) => b.x >= 14 && b.y >= 70 && b.x + b.w <= vw - 14 && b.y + b.h <= vh - 82;
 
-  for (const it of items) {
+  for (const it of items.slice(0, MAX_ITEMS)) {
     const size = it.isCross ? CHIP.cross : CHIP.cur;
     let done = false;
-    for (let ring = 0; ring < 60 && !done; ring++) {
-      const r = 118 + ring * 30;
-      const steps = Math.max(10, Math.round((2 * Math.PI * r) / (size.w * 0.55 + GAP)));
-      const rot = ring * 0.6 + (it.isCross ? 0.3 : 0);
+    for (let ring = 0; ring < 140 && !done; ring++) {
+      const r = 116 + ring * 28;
+      const steps = Math.max(9, Math.round((2 * Math.PI * r) / (size.w * 0.6 + GAP)));
+      const rot = ring * 0.5 + (it.isCross ? 0.28 : 0);
       for (let s = 0; s < steps; s++) {
         const a = -Math.PI / 2 + (s / steps) * Math.PI * 2 + rot;
         const x = cx + Math.cos(a) * r;
-        const y = cy + Math.sin(a) * r * 0.72;
+        const y = cy + Math.sin(a) * r * 0.74;
         const box = { x: x - size.w / 2, y: y - size.h / 2, w: size.w, h: size.h };
-        if (!inView(box) || hit(box, searchBox) || placed.some((p) => hit(box, p))) continue;
+        if (overlap(box, searchBox) || placed.some((p) => overlap(box, p))) continue;
         placed.push(box);
         out.push({ ...it, x, y });
         done = true;
         break;
       }
     }
-    if (!done) overflow++;
   }
-  return { placed: out, overflow };
+  return out;
 }
 
 /* ---------------------------------------------------------- outer / gate */
@@ -105,17 +104,34 @@ function SingularityWell() {
   );
   const [dragging, setDragging] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
   const [allObjects, setAllObjects] = useState<CanvasObjectData[]>([]);
   const [titles, setTitles] = useState<Record<string, string>>({});
 
   const currentKey = resolveParentId(canvasStack, urlCanvasId) ?? 'root';
 
   useEffect(() => {
-    const t = setTimeout(() => inputRef.current?.focus(), 220);
+    const t = setTimeout(() => inputRef.current?.focus(), 200);
     const onResize = () => setVp({ w: window.innerWidth, h: window.innerHeight });
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    // Scroll-to-zoom the whole result field so you can pull far matches in and
+    // read them all. Captured (capture phase + stopPropagation) so the wheel
+    // never reaches — and zooms — the canvas underneath while the well is open.
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setZoom((z) => Math.min(1.4, Math.max(0.38, z * (e.deltaY > 0 ? 0.9 : 1.11))));
+    };
+    // Touch anywhere that isn't the search or a chip → dismiss.
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.('.singularity-search-wrap') || el?.closest?.('.singularity-chip-wrap')) return;
+      setOpen(false);
+    };
     window.addEventListener('resize', onResize);
     window.addEventListener('keydown', onKey);
+    window.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    window.addEventListener('mousedown', onDown);
 
     let cancelled = false;
     (async () => {
@@ -126,28 +142,29 @@ function SingularityWell() {
         states.forEach((s) => { map[s.id] = s.title || 'Untitled canvas'; });
         setAllObjects(objs);
         setTitles(map);
-      } catch { /* offline / empty — current-canvas search still works */ }
+      } catch { /* offline — current-canvas search still works */ }
     })();
 
     return () => {
       cancelled = true;
       window.removeEventListener('resize', onResize);
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
+      window.removeEventListener('mousedown', onDown);
       clearTimeout(t);
     };
   }, [setOpen, workspaceTitle]);
 
-  // ---- matching (current first, then cross grouped-adjacent by canvas) ----
-  const { items, otherTotal } = useMemo(() => {
+  // ---- matching: EVERY match, current first, then cross grouped by canvas ---
+  const { items, currentCount, otherTotal } = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return { items: [] as Item[], otherTotal: 0 };
+    if (!q) return { items: [] as Item[], currentCount: 0, otherTotal: 0 };
     const words = q.split(/\s+/).filter(Boolean);
     const hit = (o: CanvasObjectData) => { const hay = searchText(o); return words.every((w) => hay.includes(w)); };
     const curName = titles[currentKey] || workspaceTitle || 'This canvas';
 
     const current: Item[] = objects
       .filter((o) => o.type !== 'drawing' && hit(o))
-      .slice(0, 14)
       .map((o) => ({ obj: o, canvasKey: currentKey, canvasName: curName, isCross: false }));
 
     const byCanvas = new Map<string, Item[]>();
@@ -159,33 +176,28 @@ function SingularityWell() {
       if (!hit(o)) continue;
       otherCount++;
       const arr = byCanvas.get(key) || [];
-      if (arr.length < 5) arr.push({ obj: o, canvasKey: key, canvasName: titles[key] || 'Untitled canvas', isCross: true });
+      arr.push({ obj: o, canvasKey: key, canvasName: titles[key] || 'Untitled canvas', isCross: true });
       byCanvas.set(key, arr);
     }
-    // Busiest canvases first; flatten so same-canvas chips pack next to each other.
+    // Busiest canvases first; flat so same-canvas chips sit next to each other.
     const cross: Item[] = [...byCanvas.entries()]
       .sort((a, b) => b[1].length - a[1].length)
-      .flatMap(([, v]) => v)
-      .slice(0, 16);
+      .flatMap(([, v]) => v);
 
-    return { items: [...current, ...cross], otherTotal: otherCount };
+    return { items: [...current, ...cross], currentCount: current.length, otherTotal: otherCount };
   }, [query, objects, allObjects, titles, currentKey, workspaceTitle]);
 
   const cx = vp.w / 2;
   const cy = vp.h / 2;
-  const { placed, overflow } = useMemo(
-    () => packItems(items, cx, cy, vp.w, vp.h),
-    [items, cx, cy, vp.w, vp.h]
-  );
-
-  const currentShown = placed.filter((p) => !p.isCross).length;
+  const placed = useMemo(() => packItems(items, cx, cy), [items, cx, cy]);
+  const hidden = Math.max(0, items.length - placed.length) + Math.max(0, (currentCount + otherTotal) - items.length);
 
   // ---- actions -----------------------------------------------------------
   const flyToCurrent = useCallback((o: CanvasObjectData) => {
-    const zoom = 1;
-    const tx = window.innerWidth / 2 - (o.x + o.width / 2) * zoom;
-    const ty = window.innerHeight / 2 - (o.y + o.height / 2) * zoom;
-    animateCamera({ x: tx, y: ty, zoom }, 750);
+    const zoomLvl = 1;
+    const tx = window.innerWidth / 2 - (o.x + o.width / 2) * zoomLvl;
+    const ty = window.innerHeight / 2 - (o.y + o.height / 2) * zoomLvl;
+    animateCamera({ x: tx, y: ty, zoom: zoomLvl }, 750);
     setSelectedId(o.id);
     setTimeout(() => {
       const el = document.querySelector(`[data-object-id="${o.id}"]`);
@@ -198,7 +210,7 @@ function SingularityWell() {
       setOpen(false);
       flyToCurrent(m.obj);
     } else {
-      setPendingFocusId(m.obj.id);
+      setPendingFocusId(m.obj.id);   // the destination board flies to it on load
       setOpen(false);
       router.push(`/canvas?id=${m.canvasKey}`);
     }
@@ -227,37 +239,60 @@ function SingularityWell() {
     setDragging(true);
   }, []);
 
-  const onChipDragEnd = useCallback((e: React.DragEvent) => {
-    setDragging(false);
-    if (e.dataTransfer.dropEffect && e.dataTransfer.dropEffect !== 'none') setOpen(false);
-  }, [setOpen]);
+  // handleDrop on the canvas closes the well itself, so a landed copy is never
+  // hidden behind the overlay. Here we just restore interactivity.
+  const onChipDragEnd = useCallback(() => setDragging(false), []);
 
   const statusLine = query.trim()
-    ? `${currentShown} here${otherTotal ? ` · ${otherTotal} on other canvases` : ''}`
+    ? `${currentCount} here${otherTotal ? ` · ${otherTotal} on other canvases` : ''}${hidden > 0 ? ' · scroll to zoom out' : ''}`
     : 'Search across every canvas — the board stays live behind';
 
   return (
     <motion.div
       className={`singularity-overlay${dragging ? ' dragging' : ''}`}
       initial={{ opacity: 0 }}
-      animate={{ opacity: dragging ? 0.35 : 1 }}
+      animate={{ opacity: dragging ? 0.3 : 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
     >
       <div className="singularity-stars" aria-hidden />
 
       <div className="singularity-core-wrap" style={{ left: cx, top: cy }} aria-hidden>
-        <motion.div className="singularity-ring r1" animate={{ rotate: 360 }} transition={{ duration: 24, repeat: Infinity, ease: 'linear' }} />
-        <motion.div className="singularity-ring r2" animate={{ rotate: -360 }} transition={{ duration: 40, repeat: Infinity, ease: 'linear' }} />
-        <motion.div className="singularity-ring r3" animate={{ rotate: 360 }} transition={{ duration: 60, repeat: Infinity, ease: 'linear' }} />
+        <motion.div className="singularity-ring r1" animate={{ rotate: 360 }} transition={{ duration: 30, repeat: Infinity, ease: 'linear' }} />
+        <motion.div className="singularity-ring r2" animate={{ rotate: -360 }} transition={{ duration: 50, repeat: Infinity, ease: 'linear' }} />
         <div className="singularity-core" />
         <motion.div
           className="singularity-pulse"
           key={query}
-          initial={{ scale: 0.3, opacity: 0.5 }}
-          animate={{ scale: 2.6, opacity: 0 }}
-          transition={{ duration: 1, ease: 'easeOut' }}
+          initial={{ scale: 0.4, opacity: 0.35 }}
+          animate={{ scale: 2.2, opacity: 0 }}
+          transition={{ duration: 0.9, ease: 'easeOut' }}
         />
+      </div>
+
+      {/* zoomable result field */}
+      <div className="singularity-field" style={{ transform: `scale(${zoom})` }}>
+        {placed.map((m, i) => (
+          <motion.div
+            key={`${m.obj.id}-${m.isCross ? 'x' : 'c'}`}
+            className="singularity-chip-wrap"
+            style={{ left: m.x, top: m.y }}
+            initial={{ opacity: 0, scale: 0.6, x: (m.x - cx) * 0.9, y: (m.y - cy) * 0.9 }}
+            animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
+            exit={{ opacity: 0, scale: 0.4 }}
+            transition={{ type: 'spring', stiffness: 160, damping: 18, delay: Math.min(i * 0.016, 0.45) }}
+          >
+            <Chip
+              item={m}
+              copied={copiedId === m.obj.id}
+              onGo={() => goToMatch(m)}
+              onCopy={() => copyMatch(m)}
+              onMouseDown={(e) => onChipMouseDown(e, m)}
+              onDragStart={(e) => onChipDragStart(e, m)}
+              onDragEnd={onChipDragEnd}
+            />
+          </motion.div>
+        ))}
       </div>
 
       <div className="singularity-search-wrap" style={{ left: cx, top: cy }}>
@@ -276,40 +311,12 @@ function SingularityWell() {
         <div className="singularity-status">{statusLine}</div>
       </div>
 
-      {placed.map((m, i) => (
-        <motion.div
-          key={`${m.obj.id}-${m.isCross ? 'x' : 'c'}`}
-          className="singularity-chip-wrap"
-          style={{ left: m.x, top: m.y }}
-          initial={{ opacity: 0, scale: 0.5, x: (m.x - cx) * 1.7, y: (m.y - cy) * 1.7 }}
-          animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
-          exit={{ opacity: 0, scale: 0.4 }}
-          transition={{ type: 'spring', stiffness: 150, damping: 17, delay: Math.min(i * 0.022, 0.5) }}
-        >
-          <Chip
-            item={m}
-            copied={copiedId === m.obj.id}
-            onGo={() => goToMatch(m)}
-            onCopy={() => copyMatch(m)}
-            onMouseDown={(e) => onChipMouseDown(e, m)}
-            onDragStart={(e) => onChipDragStart(e, m)}
-            onDragEnd={onChipDragEnd}
-          />
-        </motion.div>
-      ))}
-
-      {overflow > 0 && (
-        <div className="singularity-more" style={{ left: cx, top: Math.min(cy + 300, vp.h - 60) }}>
-          +{overflow} more — refine your search
-        </div>
-      )}
-
       {query.trim() && placed.length === 0 && (
-        <div className="singularity-empty">Nothing orbits “{query.trim()}” yet</div>
+        <div className="singularity-empty">Nothing matches “{query.trim()}” yet</div>
       )}
 
       <div className="singularity-hint">
-        <b>Click</b> to fly there · <b>Drag</b> onto the board to drop a copy · <b>Alt-click</b> or ⧉ to copy the text · <b>Esc</b> to close
+        <b>Click</b> to fly there · <b>Drag</b> onto the board to drop a copy · <b>Scroll</b> to zoom · <b>Esc</b> to close
       </div>
     </motion.div>
   );

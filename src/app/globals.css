@@ -611,13 +611,18 @@ html, body {
   inset: 0;
   z-index: 9998;
   overflow: hidden;
-  color: #EAE6FF;
-  /* Just enough dim to make the core read — the board shows straight through. */
-  background: radial-gradient(circle at 50% 50%, rgba(8,6,18,0.58) 0%, rgba(8,6,18,0.40) 42%, rgba(8,6,18,0.14) 100%);
-  backdrop-filter: blur(1.5px);
-  -webkit-backdrop-filter: blur(1.5px);
+  color: #E7E7EC;
+  /* A soft neutral dim — the board shows straight through, no colour cast. */
+  background: radial-gradient(circle at 50% 50%, rgba(10,11,15,0.50) 0%, rgba(10,11,15,0.34) 44%, rgba(10,11,15,0.10) 100%);
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
   user-select: none;
   pointer-events: none; /* never freeze the canvas — widgets opt back in below */
+}
+/* zoomable field holding the packed results (scroll to scale it) */
+.singularity-field {
+  position: fixed; inset: 0; z-index: 2;
+  pointer-events: none; transform-origin: 50% 50%; will-change: transform;
 }
 
 .singularity-stars {
@@ -645,37 +650,31 @@ html, body {
   transform: translate(-50%, -50%); left: 0; top: 0;
 }
 .singularity-ring.r1 {
-  width: 168px; height: 168px; margin: -84px 0 0 -84px;
-  border: 1px solid rgba(179, 148, 255, 0.28);
-  background: conic-gradient(from 0deg, transparent, rgba(170,130,255,0.16), transparent 42%, rgba(90,160,255,0.14), transparent 72%);
+  width: 132px; height: 132px; margin: -66px 0 0 -66px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
 }
 .singularity-ring.r2 {
-  width: 264px; height: 264px; margin: -132px 0 0 -132px;
-  border: 1px dashed rgba(120, 150, 255, 0.16);
-}
-.singularity-ring.r3 {
-  width: 372px; height: 372px; margin: -186px 0 0 -186px;
-  border: 1px solid rgba(120, 90, 200, 0.10);
+  width: 210px; height: 210px; margin: -105px 0 0 -105px;
+  border: 1px dashed rgba(255, 255, 255, 0.045);
 }
 .singularity-core {
   position: absolute; left: 0; top: 0;
-  width: 96px; height: 96px; margin: -48px 0 0 -48px;
+  width: 72px; height: 72px; margin: -36px 0 0 -36px;
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%, #000 0%, #000 42%, #1a1030 60%, transparent 74%);
+  background: radial-gradient(circle at 50% 50%, #000 0%, #000 44%, #14141c 62%, transparent 78%);
   box-shadow:
-    0 0 34px 6px rgba(150, 110, 255, 0.42),
-    0 0 70px 18px rgba(90, 120, 255, 0.22),
-    inset 0 0 24px 4px rgba(200, 170, 255, 0.5);
-  animation: singBreathe 4.5s ease-in-out infinite;
+    0 0 24px 3px rgba(120, 130, 165, 0.18),
+    inset 0 0 16px 3px rgba(180, 188, 210, 0.26);
+  animation: singBreathe 5s ease-in-out infinite;
 }
 @keyframes singBreathe {
-  0%, 100% { box-shadow: 0 0 34px 6px rgba(150,110,255,0.42), 0 0 70px 18px rgba(90,120,255,0.22), inset 0 0 24px 4px rgba(200,170,255,0.5); }
-  50%      { box-shadow: 0 0 46px 10px rgba(180,140,255,0.55), 0 0 92px 26px rgba(110,150,255,0.30), inset 0 0 30px 6px rgba(220,190,255,0.62); }
+  0%, 100% { box-shadow: 0 0 24px 3px rgba(120,130,165,0.18), inset 0 0 16px 3px rgba(180,188,210,0.26); }
+  50%      { box-shadow: 0 0 32px 6px rgba(140,150,185,0.24), inset 0 0 20px 4px rgba(200,208,228,0.34); }
 }
 .singularity-pulse {
   position: absolute; left: 0; top: 0;
-  width: 96px; height: 96px; margin: -48px 0 0 -48px;
-  border-radius: 50%; border: 2px solid rgba(190, 160, 255, 0.6);
+  width: 72px; height: 72px; margin: -36px 0 0 -36px;
+  border-radius: 50%; border: 1.5px solid rgba(200, 205, 225, 0.4);
 }
 
 .singularity-search-wrap {
@@ -687,32 +686,31 @@ html, body {
 .singularity-search {
   width: 100%;
   display: flex; align-items: center; gap: 8px;
-  padding: 8px 11px; border-radius: 13px;
-  background: rgba(16, 12, 30, 0.82);
-  border: 1px solid rgba(180, 150, 255, 0.45);
-  box-shadow: 0 0 0 1px rgba(150,110,255,0.12), 0 8px 30px rgba(0,0,0,0.45), 0 0 26px rgba(120, 90, 220, 0.35);
+  padding: 8px 11px; border-radius: 12px;
+  background: rgba(20, 21, 27, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
   backdrop-filter: blur(10px);
 }
-.singularity-search-icon { color: rgba(190,165,255,0.9); font-size: 13px; }
+.singularity-search-icon { color: rgba(180, 184, 198, 0.85); font-size: 12px; }
 .singularity-input {
   flex: 1; min-width: 0;
   background: transparent; border: none; outline: none;
-  color: #F3EFFF; font-size: 13.5px; letter-spacing: 0.01em;
+  color: #ECEDF1; font-size: 13.5px; letter-spacing: 0.01em;
   font-family: 'Outfit', sans-serif;
 }
-.singularity-input::placeholder { color: rgba(200, 190, 240, 0.5); }
+.singularity-input::placeholder { color: rgba(180, 184, 198, 0.5); }
 .singularity-close {
   flex-shrink: 0; width: 20px; height: 20px; border-radius: 7px;
   display: flex; align-items: center; justify-content: center;
-  color: rgba(210,200,245,0.7); font-size: 11px; cursor: pointer;
-  border: 1px solid rgba(180,160,255,0.25); background: rgba(255,255,255,0.04);
+  color: rgba(200, 204, 216, 0.7); font-size: 11px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.03);
   transition: all 0.15s;
 }
-.singularity-close:hover { color: #fff; background: rgba(180,150,255,0.25); }
+.singularity-close:hover { color: #fff; background: rgba(255,255,255,0.14); }
 .singularity-status {
   font-size: 10px; letter-spacing: 0.03em;
-  color: rgba(205, 195, 245, 0.7);
-  text-shadow: 0 0 10px rgba(120,90,220,0.6);
+  color: rgba(190, 194, 208, 0.65);
 }
 
 /* one packed result */
@@ -726,73 +724,63 @@ html, body {
 .singularity-overlay.dragging .singularity-chip-wrap,
 .singularity-overlay.dragging .singularity-search-wrap { pointer-events: none; }
 .singularity-chip {
-  width: 150px;
+  width: 158px;
   display: flex; flex-direction: column; gap: 3px;
-  padding: 6px 8px; border-radius: 11px; cursor: grab;
-  background: rgba(28, 22, 50, 0.86);
-  border: 1px solid rgba(160, 135, 240, 0.4);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4), 0 0 14px rgba(120, 90, 220, 0.18);
-  backdrop-filter: blur(8px);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s;
+  padding: 6px 8px; border-radius: 10px; cursor: grab;
+  background: rgba(26, 27, 33, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.42);
+  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease, background 0.14s;
 }
 .singularity-chip:active { cursor: grabbing; }
-.singularity-chip.cross { width: 156px; background: rgba(22, 18, 42, 0.82); }
+.singularity-chip.cross { width: 168px; background: rgba(22, 23, 29, 0.94); }
 .singularity-chip:hover {
-  transform: scale(1.05);
-  border-color: rgba(200, 175, 255, 0.85);
-  box-shadow: 0 6px 22px rgba(0,0,0,0.5), 0 0 26px rgba(150, 115, 255, 0.5);
-  background: rgba(42, 32, 74, 0.94);
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  background: rgba(36, 37, 44, 0.97);
   z-index: 5;
 }
 .singularity-chip .sg-canvas {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 8.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
-  color: rgba(200, 185, 255, 0.85);
+  color: rgba(178, 182, 196, 0.8);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .singularity-chip .sg-canvas .dot {
   width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
-  background: #b79bff; box-shadow: 0 0 6px 1px rgba(170,140,255,0.9);
+  background: rgba(150, 154, 172, 0.9);
 }
 .singularity-chip .sg-row { display: flex; align-items: center; gap: 7px; }
 .singularity-chip-glyph {
   flex-shrink: 0; width: 18px; height: 18px; border-radius: 5px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 11px; color: #cbb8ff; background: rgba(150, 115, 255, 0.16);
+  font-size: 11px; color: #b8bac6; background: rgba(255, 255, 255, 0.07);
 }
 .singularity-chip-text {
-  flex: 1; min-width: 0; font-size: 11.5px; color: #EFEAFF; line-height: 1.2;
+  flex: 1; min-width: 0; font-size: 11.5px; color: #E7E8ED; line-height: 1.2;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .singularity-chip-copy {
   flex-shrink: 0; width: 18px; height: 18px; border-radius: 5px;
   display: flex; align-items: center; justify-content: center;
   font-size: 10px; cursor: pointer;
-  color: rgba(210, 200, 245, 0.7); background: transparent; border: none;
+  color: rgba(200, 204, 216, 0.65); background: transparent; border: none;
   opacity: 0; transition: opacity 0.15s, color 0.15s, background 0.15s;
 }
 .singularity-chip:hover .singularity-chip-copy { opacity: 1; }
-.singularity-chip-copy:hover { color: #fff; background: rgba(180,150,255,0.28); }
-
-.singularity-more {
-  position: absolute; transform: translate(-50%, -50%);
-  z-index: 2; pointer-events: none;
-  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
-  color: rgba(200,190,240,0.6);
-  padding: 4px 9px; border-radius: 999px;
-  background: rgba(20,16,38,0.7); border: 1px solid rgba(150,130,220,0.3);
-}
+.singularity-chip-copy:hover { color: #fff; background: rgba(255,255,255,0.14); }
 
 .singularity-empty {
-  position: absolute; left: 50%; top: calc(50% + 96px); transform: translateX(-50%);
-  font-size: 12px; color: rgba(200,190,240,0.6); pointer-events: none;
+  position: absolute; left: 50%; top: calc(50% + 84px); transform: translateX(-50%);
+  font-size: 12px; color: rgba(185, 189, 202, 0.6); pointer-events: none;
 }
 .singularity-hint {
   position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
   font-size: 10.5px; letter-spacing: 0.02em; text-align: center;
-  color: rgba(200, 190, 240, 0.5); white-space: nowrap; pointer-events: none;
+  color: rgba(180, 184, 198, 0.45); white-space: nowrap; pointer-events: none;
 }
-.singularity-hint b { color: rgba(220, 210, 255, 0.8); font-weight: 700; }
+.singularity-hint b { color: rgba(210, 213, 224, 0.75); font-weight: 700; }
 
 @media (max-width: 640px) {
   .singularity-hint { white-space: normal; width: 90vw; }

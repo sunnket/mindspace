@@ -956,7 +956,7 @@ export default function InfiniteCanvas() {
           const p = JSON.parse(singPayload) as Partial<import('@/lib/db').CanvasObjectData>;
           const w = p.width || 300;
           const h = p.height || 180;
-          addObject({
+          const created = addObject({
             type: (p.type as import('@/lib/db').CanvasObjectData['type']) || 'text',
             x: origin.x - w / 2,
             y: origin.y - h / 2,
@@ -966,6 +966,10 @@ export default function InfiniteCanvas() {
             style: p.style ? { ...p.style } : undefined,
             rotation: p.rotation,
           });
+          // Close the search well and select the fresh copy so it's never left
+          // hidden behind the overlay after a drop.
+          useCanvasStore.getState().setSingularityOpen(false);
+          setSelectedId(created.id);
         } catch {
           /* malformed payload — ignore */
         }
@@ -1054,7 +1058,7 @@ export default function InfiniteCanvas() {
         });
       }
     },
-    [camera, addObject]
+    [camera, addObject, setSelectedId]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1164,26 +1168,33 @@ export default function InfiniteCanvas() {
 
   /* Singularity handoff — a cross-canvas result set `pendingFocusId` and then
      navigated here. The moment that object exists on the freshly loaded board,
-     fly to it and pulse it. Selecting it also forces it past the viewport cull,
-     so its DOM node is present for the pulse even if it started off-screen. */
+     fly to it and pulse it. Selecting it forces it past the viewport cull so its
+     DOM node is present for the pulse even if it started off-screen. The fly is
+     deferred a tick so the canvas-load's own camera restore can't override it,
+     and a stale id gives up after a while so it can't hijack a later load. */
   useEffect(() => {
     if (!pendingFocusId) return;
     const target = objects.find((o) => o.id === pendingFocusId);
-    if (!target) return; // board still loading — wait for the object to arrive
+    if (!target) {
+      const giveUp = setTimeout(() => setPendingFocusId(null), 8000);
+      return () => clearTimeout(giveUp);
+    }
+    setSelectedId(target.id);
+    setPendingFocusId(null);
     const zoom = 1;
     const tx = window.innerWidth / 2 - (target.x + target.width / 2) * zoom;
     const ty = window.innerHeight / 2 - (target.y + target.height / 2) * zoom;
-    useCanvasStore.getState().animateCamera({ x: tx, y: ty, zoom }, 850);
-    setSelectedId(target.id);
-    setPendingFocusId(null);
-    const timer = setTimeout(() => {
-      const el = document.querySelector(`[data-object-id="${target.id}"]`);
-      if (el) {
-        el.classList.add('result-pulse');
-        setTimeout(() => el.classList.remove('result-pulse'), 4500);
-      }
-    }, 900);
-    return () => clearTimeout(timer);
+    const flyT = setTimeout(() => {
+      useCanvasStore.getState().animateCamera({ x: tx, y: ty, zoom }, 850);
+      setTimeout(() => {
+        const el = document.querySelector(`[data-object-id="${target.id}"]`);
+        if (el) {
+          el.classList.add('result-pulse');
+          setTimeout(() => el.classList.remove('result-pulse'), 4500);
+        }
+      }, 900);
+    }, 90);
+    return () => clearTimeout(flyT);
   }, [pendingFocusId, objects, setSelectedId, setPendingFocusId]);
 
   // Grid background transform
