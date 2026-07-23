@@ -17,6 +17,19 @@ interface SlashItem {
 
 const ITEMS: SlashItem[] = [
   {
+    id: 'singularity',
+    label: 'Singularity Search',
+    sublabel: 'Pull matches from every canvas into a black hole',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2" /><ellipse cx="12" cy="12" rx="10" ry="4" /><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)" /><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)" /></svg>),
+    keywords: ['singularity', 'search', 'find', 'galaxy', 'universe', 'magnet', 'cluster', 'black hole', 'everything', 'across'],
+    action: (objectId) => {
+      // Not a block — it opens the full-screen search well. Clear the slash text
+      // block it was summoned from so it doesn't linger empty.
+      useCanvasStore.getState().removeObject(objectId);
+      useCanvasStore.getState().setSingularityOpen(true);
+    }
+  },
+  {
     id: 'countdown',
     label: 'Countdown',
     sublabel: 'Live timer to a date',

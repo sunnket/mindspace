@@ -264,6 +264,15 @@ interface CanvasStore {
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
 
+  /* Singularity Search — the cinematic black-hole search overlay. Matches from
+     this canvas and every other one are pulled in and clustered around a core.
+     `pendingFocusId` is set right before navigating to another canvas so the
+     board it lands on flies to (and pulses) that object once it has loaded. */
+  singularityOpen: boolean;
+  setSingularityOpen: (open: boolean) => void;
+  pendingFocusId: string | null;
+  setPendingFocusId: (id: string | null) => void;
+
   // AI Agent state
   agentRunning: boolean;
   agentLogs: string[];
@@ -1368,6 +1377,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Command palette
   commandPaletteOpen: false,
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+
+  // Singularity Search
+  singularityOpen: false,
+  setSingularityOpen: (open) => set({ singularityOpen: open }),
+  pendingFocusId: null,
+  setPendingFocusId: (id) => set({ pendingFocusId: id }),
 
   // AI Agent state
   agentRunning: false,

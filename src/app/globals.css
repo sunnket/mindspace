@@ -601,6 +601,235 @@ html, body {
   padding-top: 20vh;
 }
 
+/* ============================================================ Singularity
+   The cinematic cross-canvas search — a black hole you drop a word into and
+   watch matching thoughts get pulled in from every canvas like iron to a
+   magnet. Always dark/cosmic regardless of the app theme. */
+.singularity-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  overflow: hidden;
+  color: #EAE6FF;
+  background:
+    radial-gradient(1200px 900px at 50% 50%, rgba(88, 60, 160, 0.28) 0%, transparent 60%),
+    radial-gradient(900px 700px at 20% 80%, rgba(40, 90, 170, 0.22) 0%, transparent 55%),
+    radial-gradient(800px 800px at 82% 22%, rgba(150, 55, 120, 0.18) 0%, transparent 55%),
+    radial-gradient(circle at 50% 50%, #0b0a1a 0%, #05040c 70%, #030209 100%);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  user-select: none;
+}
+
+.singularity-stars {
+  position: absolute;
+  inset: -50%;
+  background-image:
+    radial-gradient(1.4px 1.4px at 20% 30%, rgba(255,255,255,0.9), transparent),
+    radial-gradient(1.2px 1.2px at 70% 60%, rgba(255,255,255,0.7), transparent),
+    radial-gradient(1px 1px at 40% 80%, rgba(210,220,255,0.8), transparent),
+    radial-gradient(1.6px 1.6px at 85% 20%, rgba(255,255,255,0.85), transparent),
+    radial-gradient(1px 1px at 10% 65%, rgba(255,255,255,0.6), transparent),
+    radial-gradient(1.3px 1.3px at 55% 15%, rgba(230,220,255,0.8), transparent),
+    radial-gradient(1px 1px at 92% 78%, rgba(255,255,255,0.7), transparent),
+    radial-gradient(1.1px 1.1px at 33% 48%, rgba(255,255,255,0.65), transparent);
+  background-size: 480px 480px, 620px 620px, 540px 540px, 700px 700px, 460px 460px, 580px 580px, 520px 520px, 640px 640px;
+  animation: singDrift 90s linear infinite, singTwinkle 5.5s ease-in-out infinite alternate;
+  opacity: 0.7;
+  pointer-events: none;
+}
+@keyframes singDrift {
+  from { transform: translate3d(0,0,0) rotate(0deg); }
+  to   { transform: translate3d(-60px,-40px,0) rotate(8deg); }
+}
+@keyframes singTwinkle { from { opacity: 0.45; } to { opacity: 0.85; } }
+
+.singularity-core-wrap {
+  position: absolute;
+  width: 0; height: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.singularity-ring {
+  position: absolute;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  left: 0; top: 0;
+}
+.singularity-ring.r1 {
+  width: 300px; height: 300px; margin: -150px 0 0 -150px;
+  border: 1px solid rgba(179, 148, 255, 0.35);
+  box-shadow: inset 0 0 40px rgba(150, 110, 255, 0.25);
+  background: conic-gradient(from 0deg, transparent, rgba(170,130,255,0.18), transparent 40%, rgba(90,160,255,0.16), transparent 70%);
+}
+.singularity-ring.r2 {
+  width: 460px; height: 460px; margin: -230px 0 0 -230px;
+  border: 1px dashed rgba(120, 150, 255, 0.22);
+}
+.singularity-ring.r3 {
+  width: 640px; height: 640px; margin: -320px 0 0 -320px;
+  border: 1px solid rgba(120, 90, 200, 0.14);
+}
+.singularity-core {
+  position: absolute; left: 0; top: 0;
+  width: 168px; height: 168px; margin: -84px 0 0 -84px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #000 0%, #000 40%, #1a1030 60%, transparent 72%);
+  box-shadow:
+    0 0 60px 10px rgba(150, 110, 255, 0.45),
+    0 0 120px 30px rgba(90, 120, 255, 0.28),
+    inset 0 0 40px 6px rgba(200, 170, 255, 0.55);
+  animation: singBreathe 4.5s ease-in-out infinite;
+}
+@keyframes singBreathe {
+  0%, 100% { box-shadow: 0 0 60px 10px rgba(150,110,255,0.45), 0 0 120px 30px rgba(90,120,255,0.28), inset 0 0 40px 6px rgba(200,170,255,0.55); }
+  50%      { box-shadow: 0 0 80px 16px rgba(180,140,255,0.6), 0 0 160px 44px rgba(110,150,255,0.36), inset 0 0 52px 10px rgba(220,190,255,0.7); }
+}
+.singularity-pulse {
+  position: absolute; left: 0; top: 0;
+  width: 168px; height: 168px; margin: -84px 0 0 -84px;
+  border-radius: 50%;
+  border: 2px solid rgba(190, 160, 255, 0.7);
+}
+
+.singularity-search-wrap {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: min(460px, 82vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  z-index: 3;
+}
+.singularity-search {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(18, 14, 34, 0.72);
+  border: 1px solid rgba(180, 150, 255, 0.45);
+  box-shadow: 0 0 0 1px rgba(150,110,255,0.15), 0 0 40px rgba(120, 90, 220, 0.4), inset 0 0 20px rgba(120,90,220,0.15);
+  backdrop-filter: blur(10px);
+}
+.singularity-search-icon { color: rgba(190,165,255,0.9); font-size: 16px; }
+.singularity-input {
+  flex: 1; min-width: 0;
+  background: transparent; border: none; outline: none;
+  color: #F3EFFF; font-size: 16px; letter-spacing: 0.01em;
+  font-family: 'Outfit', sans-serif;
+}
+.singularity-input::placeholder { color: rgba(200, 190, 240, 0.5); }
+.singularity-close {
+  flex-shrink: 0; width: 24px; height: 24px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(210,200,245,0.7); font-size: 12px; cursor: pointer;
+  border: 1px solid rgba(180,160,255,0.25); background: rgba(255,255,255,0.04);
+  transition: all 0.15s;
+}
+.singularity-close:hover { color: #fff; background: rgba(180,150,255,0.25); }
+.singularity-status {
+  font-size: 11px; letter-spacing: 0.03em;
+  color: rgba(200, 190, 240, 0.65);
+  text-shadow: 0 0 12px rgba(120,90,220,0.6);
+}
+
+.singularity-orbit-chip,
+.singularity-cluster {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+}
+.singularity-cluster {
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.singularity-cluster-name {
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 100%;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  color: #EBE4FF;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: rgba(40, 28, 70, 0.7);
+  border: 1px solid rgba(170, 140, 255, 0.4);
+  box-shadow: 0 0 20px rgba(120, 90, 220, 0.35);
+}
+.singularity-cluster-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  background: #b79bff; box-shadow: 0 0 8px 1px rgba(170,140,255,0.9);
+}
+.singularity-cluster-items { display: flex; flex-direction: column; gap: 5px; width: 100%; align-items: center; }
+
+.singularity-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  max-width: 240px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  background: rgba(30, 24, 54, 0.82);
+  border: 1px solid rgba(160, 135, 240, 0.4);
+  box-shadow: 0 4px 18px rgba(0,0,0,0.4), 0 0 18px rgba(120, 90, 220, 0.22);
+  backdrop-filter: blur(8px);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s;
+}
+.singularity-chip.faint {
+  max-width: 190px;
+  background: rgba(24, 20, 44, 0.72);
+  border-color: rgba(150, 130, 220, 0.3);
+  opacity: 0.92;
+}
+.singularity-chip:hover {
+  transform: scale(1.06);
+  border-color: rgba(200, 175, 255, 0.85);
+  box-shadow: 0 6px 26px rgba(0,0,0,0.5), 0 0 30px rgba(150, 115, 255, 0.5);
+  background: rgba(44, 34, 78, 0.92);
+}
+.singularity-chip-glyph {
+  flex-shrink: 0; width: 20px; height: 20px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: #cbb8ff;
+  background: rgba(150, 115, 255, 0.16);
+}
+.singularity-chip-text {
+  flex: 1; min-width: 0;
+  font-size: 12px; color: #EFEAFF; line-height: 1.25;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.singularity-chip-copy {
+  flex-shrink: 0; width: 20px; height: 20px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; cursor: pointer;
+  color: rgba(210, 200, 245, 0.7);
+  background: transparent; border: none;
+  opacity: 0; transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+.singularity-chip:hover .singularity-chip-copy { opacity: 1; }
+.singularity-chip-copy:hover { color: #fff; background: rgba(180,150,255,0.28); }
+
+.singularity-empty {
+  position: absolute; left: 50%; top: calc(50% + 120px); transform: translateX(-50%);
+  font-size: 13px; color: rgba(200,190,240,0.6);
+}
+.singularity-hint {
+  position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%);
+  font-size: 11px; letter-spacing: 0.02em; text-align: center;
+  color: rgba(200, 190, 240, 0.55);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.singularity-hint b { color: rgba(220, 210, 255, 0.85); font-weight: 700; }
+
+@media (max-width: 640px) {
+  .singularity-hint { white-space: normal; width: 90vw; }
+}
+
 /* Plus menu */
 .plus-menu {
   position: absolute;

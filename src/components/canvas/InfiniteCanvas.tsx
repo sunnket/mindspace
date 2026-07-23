@@ -31,6 +31,7 @@ import DrawingLayer from './DrawingLayer';
 import ConnectionsLayer from './ConnectionsLayer';
 import FloatingToolbar from '@/components/ui/FloatingToolbar';
 import SpatialSearch from '@/components/ui/SpatialSearch';
+import SingularitySearch from '@/components/ui/SingularitySearch';
 import CommandPalette from '@/components/ui/CommandPalette';
 import PlusMenu from '@/components/ui/PlusMenu';
 import SlashCommandMenu from '@/components/ui/SlashCommandMenu';
@@ -177,6 +178,8 @@ export default function InfiniteCanvas() {
   const relaxEffect = useCanvasStore((s) => s.relaxEffect);
   const brainstormTool = useCanvasStore((s) => s.brainstormTool);
   const threadAnchorId = useCanvasStore((s) => s.threadAnchorId);
+  const pendingFocusId = useCanvasStore((s) => s.pendingFocusId);
+  const setPendingFocusId = useCanvasStore((s) => s.setPendingFocusId);
   const setMode = useCanvasStore((s) => s.setMode);
   const previousMode = useCanvasStore((s) => s.previousMode);
   const setPreviousMode = useCanvasStore((s) => s.setPreviousMode);
@@ -945,6 +948,30 @@ export default function InfiniteCanvas() {
       const dt = e.dataTransfer;
       const origin = screenToCanvas(e.clientX, e.clientY, camera);
 
+      // 0a) A block pulled out of the Singularity search — recreate a fresh copy
+      //     of it (from this or any other canvas) right where it was dropped.
+      const singPayload = dt.getData('application/x-mindspace-object');
+      if (singPayload) {
+        try {
+          const p = JSON.parse(singPayload) as Partial<import('@/lib/db').CanvasObjectData>;
+          const w = p.width || 300;
+          const h = p.height || 180;
+          addObject({
+            type: (p.type as import('@/lib/db').CanvasObjectData['type']) || 'text',
+            x: origin.x - w / 2,
+            y: origin.y - h / 2,
+            width: w,
+            height: h,
+            content: p.content || '',
+            style: p.style ? { ...p.style } : undefined,
+            rotation: p.rotation,
+          });
+        } catch {
+          /* malformed payload — ignore */
+        }
+        return;
+      }
+
       // 0) A dragged folder → a Code Repo explorer (file tree + syntax
       //    highlighting). Entries must be read synchronously, before any await.
       const dropEntries = collectDropEntries(dt);
@@ -1134,6 +1161,30 @@ export default function InfiniteCanvas() {
       useCanvasStore.getState().setThreadAnchorId(null);
     }
   }, [mode, threadAnchorId]);
+
+  /* Singularity handoff — a cross-canvas result set `pendingFocusId` and then
+     navigated here. The moment that object exists on the freshly loaded board,
+     fly to it and pulse it. Selecting it also forces it past the viewport cull,
+     so its DOM node is present for the pulse even if it started off-screen. */
+  useEffect(() => {
+    if (!pendingFocusId) return;
+    const target = objects.find((o) => o.id === pendingFocusId);
+    if (!target) return; // board still loading — wait for the object to arrive
+    const zoom = 1;
+    const tx = window.innerWidth / 2 - (target.x + target.width / 2) * zoom;
+    const ty = window.innerHeight / 2 - (target.y + target.height / 2) * zoom;
+    useCanvasStore.getState().animateCamera({ x: tx, y: ty, zoom }, 850);
+    setSelectedId(target.id);
+    setPendingFocusId(null);
+    const timer = setTimeout(() => {
+      const el = document.querySelector(`[data-object-id="${target.id}"]`);
+      if (el) {
+        el.classList.add('result-pulse');
+        setTimeout(() => el.classList.remove('result-pulse'), 4500);
+      }
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [pendingFocusId, objects, setSelectedId, setPendingFocusId]);
 
   // Grid background transform
   const gridStyle = {
@@ -1490,6 +1541,7 @@ export default function InfiniteCanvas() {
       <div className="canvas-chrome">
         <FloatingToolbar />
         <SpatialSearch />
+        <SingularitySearch />
         <CommandPalette />
         <PlusMenu />
         <SlashCommandMenu />
