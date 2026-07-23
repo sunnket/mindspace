@@ -110,6 +110,10 @@ export default function AstronautCat({ active }: { active: boolean }) {
   const backingRef = useRef(0);
   const cursorRef = useRef({ x: -9999, y: -9999 });
   const recentRef = useRef('');
+  // pick-me-up: while active the sim is pinned under the pointer (see the loop)
+  const dragRef = useRef<{ active: boolean; offx: number; offy: number }>({ active: false, offx: 0, offy: 0 });
+  const dragPtrRef = useRef({ x: 0, y: 0 });
+  const dragMovedRef = useRef(false);
 
   useEffect(() => {
     if (!active) return;
@@ -217,43 +221,52 @@ export default function AstronautCat({ active }: { active: boolean }) {
       if (sim.earFlick <= 0 && rng() < persona.earTwitchiness * dt) sim.earFlick = 170;
       sim.earFlick = Math.max(0, sim.earFlick - dt * 1000);
 
-      // choose a new drifting behaviour
-      if (now >= sim.until) {
-        const roll = rng();
-        if (roll < 0.5) { sim.pose = 'stand'; pickTarget(now); }
-        else if (roll < 0.66) { sim.pose = 'roll'; sim.until = now + 3200; }
-        else if (roll < 0.8) { sim.pose = 'stretch'; sim.until = now + 2700; pickTarget(now); }
-        else if (roll < 0.9) { sim.pose = 'paw'; sim.until = now + 2600; }
-        else { sim.pose = 'sit'; sim.until = now + 4000 + rng() * 4000; }
-        sim.poseT = 0;
-      }
-
-      // drift toward the target — always gentle, this is zero-g
-      const dx = sim.targetX - sim.x;
-      const dy = sim.targetY - sim.y;
-      const dist = Math.hypot(dx, dy);
-      const drifting = sim.pose === 'stand' || sim.pose === 'stretch';
-      if (drifting && dist > 4) {
-        const sp = persona.walkSpeed * 0.42;
-        sim.vx += ((dx / dist) * sp - sim.vx) * Math.min(1, dt * 1.6);
-        sim.vy += ((dy / dist) * sp - sim.vy) * Math.min(1, dt * 1.6);
+      if (dragRef.current.active) {
+        // being carried by the pointer — sit exactly under the cursor, no
+        // physics, so the drag feels solid rather than "chased"
+        sim.x = dragPtrRef.current.x + dragRef.current.offx;
+        sim.y = dragPtrRef.current.y + dragRef.current.offy;
+        sim.vx = 0; sim.vy = 0;
+        sim.pose = 'stand';
       } else {
-        sim.vx += (0 - sim.vx) * Math.min(1, dt * 1.2);
-        sim.vy += (0 - sim.vy) * Math.min(1, dt * 1.2);
+        // choose a new drifting behaviour
+        if (now >= sim.until) {
+          const roll = rng();
+          if (roll < 0.5) { sim.pose = 'stand'; pickTarget(now); }
+          else if (roll < 0.66) { sim.pose = 'roll'; sim.until = now + 3200; }
+          else if (roll < 0.8) { sim.pose = 'stretch'; sim.until = now + 2700; pickTarget(now); }
+          else if (roll < 0.9) { sim.pose = 'paw'; sim.until = now + 2600; }
+          else { sim.pose = 'sit'; sim.until = now + 4000 + rng() * 4000; }
+          sim.poseT = 0;
+        }
+
+        // drift toward the target — always gentle, this is zero-g
+        const dx = sim.targetX - sim.x;
+        const dy = sim.targetY - sim.y;
+        const dist = Math.hypot(dx, dy);
+        const drifting = sim.pose === 'stand' || sim.pose === 'stretch';
+        if (drifting && dist > 4) {
+          const sp = persona.walkSpeed * 0.42;
+          sim.vx += ((dx / dist) * sp - sim.vx) * Math.min(1, dt * 1.6);
+          sim.vy += ((dy / dist) * sp - sim.vy) * Math.min(1, dt * 1.6);
+        } else {
+          sim.vx += (0 - sim.vx) * Math.min(1, dt * 1.2);
+          sim.vy += (0 - sim.vy) * Math.min(1, dt * 1.2);
+        }
+        sim.x += sim.vx * dt;
+        sim.y += sim.vy * dt;
+        sim.bob += dt * 1.4;
+        sim.y += Math.sin(sim.bob) * 6 * dt; // a slow buoyant bob
+
+        // soft walls — bounce back into the field rather than sticking to an edge
+        const wm = 60;
+        if (sim.x < wm) { sim.x = wm; sim.vx = Math.abs(sim.vx) * 0.5; sim.targetX = window.innerWidth * 0.5; }
+        if (sim.x > window.innerWidth - wm) { sim.x = window.innerWidth - wm; sim.vx = -Math.abs(sim.vx) * 0.5; sim.targetX = window.innerWidth * 0.5; }
+        if (sim.y < 110) { sim.y = 110; sim.vy = Math.abs(sim.vy) * 0.5; }
+        if (sim.y > window.innerHeight - 110) { sim.y = window.innerHeight - 110; sim.vy = -Math.abs(sim.vy) * 0.5; }
+
+        if (drifting && Math.abs(sim.vx) > 5) sim.facing = (sim.vx > 0 ? 1 : -1) as 1 | -1;
       }
-      sim.x += sim.vx * dt;
-      sim.y += sim.vy * dt;
-      sim.bob += dt * 1.4;
-      sim.y += Math.sin(sim.bob) * 6 * dt; // a slow buoyant bob
-
-      // soft walls — bounce back into the field rather than sticking to an edge
-      const wm = 60;
-      if (sim.x < wm) { sim.x = wm; sim.vx = Math.abs(sim.vx) * 0.5; sim.targetX = window.innerWidth * 0.5; }
-      if (sim.x > window.innerWidth - wm) { sim.x = window.innerWidth - wm; sim.vx = -Math.abs(sim.vx) * 0.5; sim.targetX = window.innerWidth * 0.5; }
-      if (sim.y < 110) { sim.y = 110; sim.vy = Math.abs(sim.vy) * 0.5; }
-      if (sim.y > window.innerHeight - 110) { sim.y = window.innerHeight - 110; sim.vy = -Math.abs(sim.vy) * 0.5; }
-
-      if (drifting && Math.abs(sim.vx) > 5) sim.facing = (sim.vx > 0 ? 1 : -1) as 1 | -1;
       sim.poseT += dt * 1000;
 
       if (rng() < dt * 0.06) speak(SPACE_LINES[Math.floor(rng() * SPACE_LINES.length)], now, 14_000);
@@ -331,16 +344,39 @@ export default function AstronautCat({ active }: { active: boolean }) {
     <div
       ref={wrapRef}
       onPointerDown={(e) => {
-        // a poke sends it tumbling — a tiny bit of joy, never a fly-in
+        // pick the cat up and carry it; a plain click (no drag) still pokes it
+        // into a tumble, so the old bit of joy survives
         e.stopPropagation();
         const s = simRef.current;
         if (!s) return;
-        s.pose = 'roll';
-        s.poseT = 0;
-        s.until = performance.now() + 2600;
-        s.bubble = 'wheee';
-        s.bubbleUntil = performance.now() + 2200;
-        s.lastBubble = performance.now();
+        const startX = e.clientX, startY = e.clientY;
+        dragRef.current = { active: true, offx: s.x - startX, offy: s.y - startY };
+        dragPtrRef.current = { x: startX, y: startY };
+        dragMovedRef.current = false;
+        try { (e.currentTarget as Element).setPointerCapture?.(e.pointerId); } catch { /* older browsers */ }
+
+        const onMove = (ev: PointerEvent) => {
+          dragPtrRef.current = { x: ev.clientX, y: ev.clientY };
+          if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > 4) dragMovedRef.current = true;
+        };
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
+          dragRef.current = { active: false, offx: 0, offy: 0 };
+          const sim = simRef.current;
+          if (!sim) return;
+          const t = performance.now();
+          if (!dragMovedRef.current) {
+            // a poke: send it tumbling — a tiny bit of joy, never a fly-in
+            sim.pose = 'roll'; sim.poseT = 0; sim.until = t + 2600;
+            sim.bubble = 'wheee'; sim.bubbleUntil = t + 2200; sim.lastBubble = t;
+          } else {
+            // dropped somewhere new — settle, then drift onward from here
+            sim.pose = 'stand'; sim.targetX = sim.x; sim.targetY = sim.y; sim.until = t + 1400;
+          }
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
       }}
       style={{
         position: 'fixed',

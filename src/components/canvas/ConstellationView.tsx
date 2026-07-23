@@ -30,6 +30,8 @@ import {
   buildStars,
   skyComponents,
   validLinks,
+  nearestLinks,
+  sameLink,
   skyFit,
   projSky,
   unprojSky,
@@ -59,28 +61,31 @@ interface Shoot { x: number; y: number; vx: number; vy: number; life: number; ma
 
 function genBackdrop(w: number, h: number): { dust: BgStar[]; mid: BgStar[]; bright: BgStar[]; neb: Neb[] } {
   const area = w * h;
+  // Far fewer, smaller and dimmer than before — this is deliberate. The only
+  // stars that should catch the eye are YOUR blocks (the amber ones); the
+  // background is just a faint dusting so those never get lost in the noise.
   const dust: BgStar[] = [];
-  const nDust = Math.min(1100, Math.max(420, Math.floor(area / 2100)));
+  const nDust = Math.min(360, Math.max(140, Math.floor(area / 5600)));
   for (let i = 0; i < nDust; i++) {
     dust.push({
       x: Math.random(), y: Math.random(),
-      a: 0.14 + Math.random() * 0.42, size: 0.6 + Math.random() * 0.7,
+      a: 0.05 + Math.random() * 0.14, size: 0.45 + Math.random() * 0.5,
       depth: 0.08 + (i % 3) * 0.06, phase: Math.random() * 6.28, rgb: AMBIENT_RGB, tw: 0.12 + Math.random() * 0.22,
     });
   }
   const mid: BgStar[] = [];
-  for (let i = 0; i < 190; i++) {
+  for (let i = 0; i < 64; i++) {
     mid.push({
       x: Math.random(), y: Math.random(),
-      a: 0.45 + Math.random() * 0.45, size: 0.9 + Math.random() * 1.1,
+      a: 0.16 + Math.random() * 0.22, size: 0.7 + Math.random() * 0.7,
       depth: 0.34 + Math.random() * 0.08, phase: Math.random() * 6.28, rgb: AMBIENT_RGB, tw: 0.28 + Math.random() * 0.3,
     });
   }
   const bright: BgStar[] = [];
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 12; i++) {
     bright.push({
       x: Math.random(), y: Math.random(),
-      a: 0.7 + Math.random() * 0.3, size: 1.4 + Math.random() * 1.5,
+      a: 0.34 + Math.random() * 0.26, size: 1.1 + Math.random() * 1.0,
       depth: 0.5 + Math.random() * 0.12, phase: Math.random() * 6.28, rgb: CORE_RGB, tw: 0.35 + Math.random() * 0.4,
     });
   }
@@ -119,6 +124,8 @@ function ConstellationSky() {
   const stars = useMemo(() => buildStars(levelObjects, sky), [levelObjects, sky]);
   const idSet = useMemo(() => new Set(stars.map((s) => s.id)), [stars]);
   const links = useMemo(() => validLinks(sky.links || [], idSet), [sky.links, idSet]);
+  // Gentle nearest-neighbour tethers so a fresh sky reads as a map, not confetti.
+  const autoLinks = useMemo(() => nearestLinks(stars, links), [stars, links]);
   const components = useMemo(() => skyComponents(stars.map((s) => s.id), links, sky.names || {}), [stars, links, sky.names]);
   const starById = useMemo(() => new Map(stars.map((s) => [s.id, s])), [stars]);
 
@@ -130,6 +137,8 @@ function ConstellationSky() {
     skyFit(stars, typeof window !== 'undefined' ? window.innerWidth : 1440, typeof window !== 'undefined' ? window.innerHeight : 900),
   );
   const [hovered, setHovered] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [linkFrom, setLinkFrom] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ kind: 'star' | 'const'; id: string } | null>(null);
   const [draft, setDraft] = useState('');
   const [dragStar, setDragStar] = useState<{ id: string; wx: number; wy: number } | null>(null);
@@ -140,7 +149,10 @@ function ConstellationSky() {
   const skyCamRef = useRef(skyCam);
   const starsRef = useRef<DataStar[]>(stars);
   const linksRef = useRef<[string, string][]>(links);
+  const autoLinksRef = useRef<[string, string][]>(autoLinks);
   const hoverRef = useRef<string | null>(null);
+  const selectedRef = useRef<string | null>(null);
+  const linkFromRef = useRef<string | null>(null);
   const dragStarRef = useRef<{ id: string; wx: number; wy: number } | null>(null);
   const tempLinkRef = useRef<{ fromId: string; fromWX: number; fromWY: number; sx: number; sy: number } | null>(null);
   const bgRef = useRef<ReturnType<typeof genBackdrop> | null>(null);
@@ -150,7 +162,10 @@ function ConstellationSky() {
   useEffect(() => { skyCamRef.current = skyCam; }, [skyCam]);
   useEffect(() => { starsRef.current = stars; }, [stars]);
   useEffect(() => { linksRef.current = links; }, [links]);
+  useEffect(() => { autoLinksRef.current = autoLinks; }, [autoLinks]);
   useEffect(() => { hoverRef.current = hovered; }, [hovered]);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
+  useEffect(() => { linkFromRef.current = linkFrom; }, [linkFrom]);
   useEffect(() => { dragStarRef.current = dragStar; }, [dragStar]);
 
   const posOf = (s: DataStar) => (dragStar && dragStar.id === s.id ? { x: dragStar.wx, y: dragStar.wy } : { x: s.wx, y: s.wy });
@@ -257,6 +272,22 @@ function ConstellationSky() {
 
       ctx.globalCompositeOperation = 'source-over';
       ctx.lineCap = 'round';
+
+      // faint nearest-neighbour tethers — a quiet sense of "what's near what".
+      // They're guide lines only: never named, never stored, always under your
+      // own wiring so the sky reads as a map even before you connect anything.
+      ctx.strokeStyle = `rgba(${GLOW_RGB},0.12)`;
+      ctx.lineWidth = 0.7;
+      ctx.setLineDash([2, 6]);
+      for (const [a, b] of autoLinksRef.current) {
+        const sa = byId.get(a), sb = byId.get(b);
+        if (!sa || !sb) continue;
+        const pa = P(posLive(sa).x, posLive(sa).y);
+        const pb = P(posLive(sb).x, posLive(sb).y);
+        ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
       for (const [a, b] of linksRef.current) {
         const sa = byId.get(a), sb = byId.get(b);
         if (!sa || !sb) continue;
@@ -269,25 +300,31 @@ function ConstellationSky() {
       }
 
       const tl = tempLinkRef.current;
-      if (tl) {
+      if (tl && tl.sx > -9000) {
         const pa = P(tl.fromWX, tl.fromWY);
-        ctx.strokeStyle = `rgba(${CORE_RGB},0.65)`;
-        ctx.lineWidth = 1.2; ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = `rgba(120,210,255,0.75)`;
+        ctx.lineWidth = 1.3; ctx.setLineDash([5, 5]);
         ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(tl.sx, tl.sy); ctx.stroke();
         ctx.setLineDash([]);
       }
 
+      const sel = selectedRef.current;
+      const lf = linkFromRef.current;
       ctx.globalCompositeOperation = 'lighter';
       for (const s of dstars) {
         const p = P(posLive(s).x, posLive(s).y);
-        const on = hov === s.id;
+        const active = hov === s.id || sel === s.id || lf === s.id;
         const tw = 0.72 + 0.28 * Math.sin(t * 1.4 + s.seed * 11);
-        const rad = (s.r + 0.7) * (0.9 + 0.1 * tw) * (on ? 1.35 : 1);
-        drawGlowStar(ctx, p.x, p.y, rad, GLOW_RGB, (on ? 1 : 0.7 + s.bright * 0.3) * tw);
-        if (on) {
+        // your blocks burn brighter and a touch bigger than before, so "which
+        // one is my star" is never a question against the dimmed backdrop.
+        const rad = (s.r + 1.1) * (0.9 + 0.1 * tw) * (active ? 1.4 : 1);
+        drawGlowStar(ctx, p.x, p.y, rad, GLOW_RGB, (active ? 1 : 0.82 + s.bright * 0.18) * tw);
+        if (active) {
           ctx.globalCompositeOperation = 'source-over';
-          ctx.strokeStyle = 'rgba(255,214,150,0.85)'; ctx.lineWidth = 1.2;
-          ctx.beginPath(); ctx.arc(p.x, p.y, rad * 2.6 + 4, 0, Math.PI * 2); ctx.stroke();
+          const ringOn = sel === s.id || lf === s.id;
+          ctx.strokeStyle = lf === s.id ? 'rgba(120,210,255,0.95)' : ringOn ? 'rgba(255,214,150,0.95)' : 'rgba(255,214,150,0.7)';
+          ctx.lineWidth = ringOn ? 1.6 : 1.2;
+          ctx.beginPath(); ctx.arc(p.x, p.y, rad * 2.6 + 5, 0, Math.PI * 2); ctx.stroke();
           ctx.globalCompositeOperation = 'lighter';
         }
       }
@@ -322,7 +359,13 @@ function ConstellationSky() {
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      if (!moved) setEditing(null);
+      // a click on empty sky clears everything: editing, selection, connect mode
+      if (!moved) {
+        setEditing(null);
+        setSelected(null);
+        setLinkFrom(null);
+        tempLinkRef.current = null;
+      }
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -348,8 +391,28 @@ function ConstellationSky() {
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      if (!moved) goTo(s);
-      else if (dragStarRef.current) moveSkyStar(s.id, dragStarRef.current.wx, dragStarRef.current.wy);
+      if (moved) {
+        if (dragStarRef.current) moveSkyStar(s.id, dragStarRef.current.wx, dragStarRef.current.wy);
+      } else {
+        // a tap, not a drag
+        const from = linkFromRef.current;
+        if (from && from !== s.id) {
+          // second star of a connection: toggle the link, then select the target
+          if (linksRef.current.some((l) => sameLink(l, from, s.id))) removeSkyLink(from, s.id);
+          else addSkyLink(from, s.id);
+          setLinkFrom(null);
+          tempLinkRef.current = null;
+          setSelected(s.id);
+        } else if (from && from === s.id) {
+          // tapped the source again — cancel connect mode
+          setLinkFrom(null);
+          tempLinkRef.current = null;
+        } else {
+          // plain tap: select this star and pin its controls (fly is a button now)
+          setSelected(s.id);
+          setEditing(null);
+        }
+      }
       dragStarRef.current = null;
       setDragStar(null);
     };
@@ -357,33 +420,20 @@ function ConstellationSky() {
     window.addEventListener('pointerup', onUp);
   };
 
-  const beginLink = (e: React.PointerEvent, s: DataStar) => {
-    e.stopPropagation();
-    if (e.button !== 0) return;
-    tempLinkRef.current = { fromId: s.id, fromWX: s.wx, fromWY: s.wy, sx: e.clientX, sy: e.clientY };
+  // Connect mode (opened from a star's "Connect" button): trail a dashed line
+  // from the source star to the cursor until you tap the second star.
+  useEffect(() => {
+    if (!linkFrom) { tempLinkRef.current = null; return; }
+    const s = starById.get(linkFrom);
+    if (!s) return;
+    const from = dragStar && dragStar.id === s.id ? { x: dragStar.wx, y: dragStar.wy } : { x: s.wx, y: s.wy };
+    tempLinkRef.current = { fromId: s.id, fromWX: from.x, fromWY: from.y, sx: -9999, sy: -9999 };
     const onMove = (ev: PointerEvent) => {
       if (tempLinkRef.current) { tempLinkRef.current.sx = ev.clientX; tempLinkRef.current.sy = ev.clientY; }
     };
-    const onUp = (ev: PointerEvent) => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      const target = starsRef.current.find((o) => {
-        if (o.id === s.id) return false;
-        const p = projSky(skyCamRef.current, o.wx, o.wy, vpRef.current.w, vpRef.current.h);
-        return Math.hypot(p.x - ev.clientX, p.y - ev.clientY) < 26;
-      });
-      if (target) {
-        const already = linksRef.current.some(
-          (l) => (l[0] === s.id && l[1] === target.id) || (l[0] === target.id && l[1] === s.id),
-        );
-        if (already) removeSkyLink(s.id, target.id);
-        else addSkyLink(s.id, target.id);
-      }
-      tempLinkRef.current = null;
-    };
     window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-  };
+    return () => window.removeEventListener('pointermove', onMove);
+  }, [linkFrom, starById, dragStar]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -407,12 +457,15 @@ function ConstellationSky() {
       if (e.key !== 'Escape') return;
       e.stopImmediatePropagation();
       e.preventDefault();
-      if (editing) setEditing(null);
+      // unwind one layer at a time: connect → edit → selection → leave
+      if (linkFrom) { setLinkFrom(null); tempLinkRef.current = null; }
+      else if (editing) setEditing(null);
+      else if (selected) setSelected(null);
       else setConstellationOpen(false);
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [editing, setConstellationOpen]);
+  }, [editing, linkFrom, selected, setConstellationOpen]);
 
   const commitStarName = (id: string) => { nameSkyStar(id, draft); setEditing(null); setDraft(''); };
   const commitConstName = (anchor: string) => { nameSkyConstellation(anchor, draft); setEditing(null); setDraft(''); };
@@ -476,23 +529,43 @@ function ConstellationSky() {
       {stars.map((s) => {
         const p = proj(posOf(s).x, posOf(s).y);
         const isHover = hovered === s.id;
+        const isSel = selected === s.id;
         const isEd = editing?.kind === 'star' && editing.id === s.id;
+        const isLinkSrc = linkFrom === s.id;
+        const isTarget = !!linkFrom && !isLinkSrc; // a candidate second star while connecting
+        const showPanel = isSel || isEd;
+        const hasLinks = links.some((l) => l[0] === s.id || l[1] === s.id);
+        const raised = isHover || isSel || isEd || isLinkSrc;
         return (
           <div
             key={s.id}
-            style={{ position: 'absolute', left: p.x, top: p.y, transform: 'translate(-50%,-50%)', zIndex: isHover || isEd ? 6 : 4 }}
+            style={{ position: 'absolute', left: p.x, top: p.y, transform: 'translate(-50%,-50%)', zIndex: showPanel ? 8 : raised ? 7 : 4 }}
             onMouseEnter={() => setHovered(s.id)}
             onMouseLeave={() => setHovered((h) => (h === s.id ? null : h))}
           >
+            {/* generous, easy-to-hit target */}
             <div
               onPointerDown={(e) => beginStarPress(e, s)}
-              title={s.name || s.gist || 'star'}
-              style={{ width: 30, height: 30, borderRadius: '50%', cursor: 'pointer', pointerEvents: 'auto' }}
+              title={isTarget ? 'Tap to connect' : s.name || s.gist || 'star'}
+              style={{ width: 44, height: 44, borderRadius: '50%', cursor: isTarget ? 'crosshair' : 'pointer', pointerEvents: 'auto' }}
             />
 
-            {(isHover || isEd) && (
+            {/* quick read-only name on hover (when its panel isn't already open) */}
+            {isHover && !showPanel && (s.name || s.gist) && (
               <div
-                style={{ position: 'absolute', left: '50%', bottom: 22, transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 6, pointerEvents: 'auto', whiteSpace: 'nowrap' }}
+                style={{ position: 'absolute', left: '50%', bottom: 30, transform: 'translateX(-50%)', pointerEvents: 'none', whiteSpace: 'nowrap' }}
+              >
+                <span style={{ ...chipStyle, cursor: 'default', textTransform: 'none', letterSpacing: '0.02em', color: s.name ? '#FFEFD6' : 'rgba(255,239,214,0.6)', fontStyle: s.name ? 'normal' : 'italic' }}>
+                  {s.name || s.gist}
+                </span>
+              </div>
+            )}
+
+            {/* pinned control panel — tap a star to open it, stays put so the
+                buttons are actually clickable (no fragile hover to hold) */}
+            {showPanel && (
+              <div
+                style={{ position: 'absolute', left: '50%', bottom: 28, transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, pointerEvents: 'auto', whiteSpace: 'nowrap' }}
                 onPointerDown={(e) => e.stopPropagation()}
               >
                 {isEd ? (
@@ -506,29 +579,39 @@ function ConstellationSky() {
                       else if (e.key === 'Escape') { e.preventDefault(); setEditing(null); setDraft(''); }
                     }}
                     placeholder="name this star"
-                    style={{ ...inputStyle, fontSize: 12, width: 150 }}
+                    style={{ ...inputStyle, fontSize: 12, width: 170 }}
                   />
                 ) : (
-                  <div style={{ ...chipStyle, cursor: 'default', gap: 6 }}>
-                    <span style={{ color: s.name ? '#FFEFD6' : 'rgba(255,239,214,0.6)', fontStyle: s.name ? 'normal' : 'italic', fontWeight: s.name ? 700 : 500 }}>
-                      {s.name || s.gist || 'unnamed'}
-                    </span>
-                    <button onClick={(e) => { e.stopPropagation(); setEditing({ kind: 'star', id: s.id }); setDraft(s.name); }} title="Name this star" style={miniBtn}>✎</button>
-                    <button onClick={(e) => { e.stopPropagation(); goTo(s); }} title="Fly to this spot on the canvas" style={miniBtn}>➤</button>
-                  </div>
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditing({ kind: 'star', id: s.id }); setDraft(s.name); }}
+                      title="Rename this star"
+                      style={{ ...chipStyle, textTransform: 'none', letterSpacing: '0.02em', gap: 6, color: s.name ? '#FFEFD6' : 'rgba(255,239,214,0.6)', fontStyle: s.name ? 'normal' : 'italic' }}
+                    >
+                      {s.name || s.gist || 'name this star'} <span style={{ opacity: 0.7, fontStyle: 'normal' }}>✎</span>
+                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setLinkFrom(isLinkSrc ? null : s.id); }}
+                        title={isLinkSrc ? 'Cancel connecting' : 'Connect a line to another star'}
+                        style={{ ...pillBtn, ...(isLinkSrc ? pillBtnActive : null) }}
+                      >
+                        {isLinkSrc ? 'Pick a star…' : '🔗 Connect'}
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); goTo(s); }} title="Fly to this block on the canvas" style={pillBtn}>➤ Fly</button>
+                      {hasLinks && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); links.filter((l) => l[0] === s.id || l[1] === s.id).forEach(([a, b]) => removeSkyLink(a, b)); }}
+                          title="Remove every line from this star"
+                          style={pillBtn}
+                        >
+                          ⤫ Unlink
+                        </button>
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
-            )}
-
-            {isHover && !isEd && (
-              <div
-                onPointerDown={(e) => beginLink(e, s)}
-                title="Drag to another star to connect them"
-                style={{
-                  position: 'absolute', left: 20, top: -20, width: 14, height: 14, borderRadius: '50%',
-                  border: '1.5px solid rgba(242,169,80,0.9)', background: 'rgba(40,28,14,0.7)', cursor: 'crosshair', pointerEvents: 'auto',
-                }}
-              />
             )}
           </div>
         );
@@ -574,8 +657,16 @@ function ConstellationSky() {
         Land
       </button>
 
+      {/* connect-mode banner — clear, top-centre, so wiring is never a mystery */}
+      {linkFrom && (
+        <div style={{ position: 'absolute', top: 34, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 16px', borderRadius: 999, background: 'rgba(24,40,54,0.8)', border: '1px solid rgba(120,210,255,0.5)', color: '#DBF1FF', fontFamily: "'Outfit', sans-serif", fontSize: 12.5, fontWeight: 600, backdropFilter: 'blur(4px)', boxShadow: '0 0 24px rgba(120,210,255,0.25)' }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#7AC8FF', boxShadow: '0 0 8px #7AC8FF' }} />
+          Tap another star to connect · Esc to cancel
+        </div>
+      )}
+
       <div style={{ position: 'absolute', bottom: 26, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none', fontFamily: "'Outfit', sans-serif", fontSize: 12, color: 'rgba(255,246,232,0.45)', letterSpacing: '0.02em', textAlign: 'center', whiteSpace: 'nowrap' }}>
-        Tap a star to fly to it · drag to arrange · drag the ring to connect · scroll to zoom · Esc to leave
+        Tap a star to open it · drag to arrange · Connect to wire a line · Fly to jump to the block · Esc to leave
       </div>
     </div>,
     document.body,
@@ -612,8 +703,14 @@ const inputStyle: React.CSSProperties = {
   padding: '4px 10px', outline: 'none', width: 200, boxShadow: '0 0 22px rgba(242,169,80,0.25)',
 };
 
-const miniBtn: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18,
-  border: 'none', background: 'transparent', color: 'rgba(255,239,214,0.75)', cursor: 'pointer',
-  fontSize: 11, padding: 0, borderRadius: 4,
+const pillBtn: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+  padding: '4px 10px', borderRadius: 999, border: '1px solid rgba(242,169,80,0.3)',
+  background: 'rgba(20,16,10,0.6)', color: '#FFEFD6', cursor: 'pointer',
+  fontFamily: "'Outfit', sans-serif", fontWeight: 600, fontSize: 11.5, whiteSpace: 'nowrap',
+  backdropFilter: 'blur(3px)',
+};
+
+const pillBtnActive: React.CSSProperties = {
+  border: '1px solid rgba(120,210,255,0.75)', background: 'rgba(24,40,54,0.75)', color: '#DBF1FF',
 };

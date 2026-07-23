@@ -149,6 +149,37 @@ export function validLinks(links: [string, string][], ids: Set<string>): [string
   return links.filter(([a, b]) => a !== b && ids.has(a) && ids.has(b));
 }
 
+/**
+ * Faint "what's near what" guide lines: each star tethered to its single
+ * nearest neighbour. These are NEVER constellations — they don't drive naming
+ * and aren't stored; they just give the empty sky a gentle sense of structure
+ * so a lone board doesn't read as random scattered dots. Any pair the user has
+ * already wired by hand is dropped so we never double-draw a link.
+ */
+export function nearestLinks(stars: DataStar[], userLinks: [string, string][] = []): [string, string][] {
+  if (stars.length < 2) return [];
+  const drawn = new Set(userLinks.map(([a, b]) => (a < b ? `${a}|${b}` : `${b}|${a}`)));
+  const out: [string, string][] = [];
+  for (let i = 0; i < stars.length; i++) {
+    const a = stars[i];
+    let best = -1;
+    let bestD = Infinity;
+    for (let j = 0; j < stars.length; j++) {
+      if (i === j) continue;
+      const b = stars[j];
+      const d = (a.wx - b.wx) ** 2 + (a.wy - b.wy) ** 2;
+      if (d < bestD) { bestD = d; best = j; }
+    }
+    if (best < 0) continue;
+    const b = stars[best];
+    const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
+    if (drawn.has(key)) continue;
+    drawn.add(key);
+    out.push([a.id, b.id]);
+  }
+  return out;
+}
+
 export function sameLink(l: [string, string], a: string, b: string): boolean {
   return (l[0] === a && l[1] === b) || (l[0] === b && l[1] === a);
 }
