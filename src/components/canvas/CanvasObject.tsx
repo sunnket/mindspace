@@ -35,6 +35,7 @@ import { stackSlots, stackTargetAt, membersOf, isStackable } from '@/lib/stacks'
 import { createPortal } from 'react-dom';
 import { ImageShape, imageShapeStyle, nextImageShape, IMAGE_SHAPE_LABEL } from '@/lib/imageShapes';
 import { getFrameKind, frameColorOf, frameKindMeta, objectsInFrame, type FrameKind } from '@/lib/frames';
+import { PIN_COLORS, pinShade, DEFAULT_PIN_COLOR } from '@/lib/brainstorm';
 
 /** The mark on a frame's title tab that says what kind of region it is. */
 function FrameKindGlyph({ kind }: { kind: FrameKind }) {
@@ -593,6 +594,16 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
   const setEditingCommentId = useCanvasStore((s) => s.setEditingCommentId);
   const connectorSelectedIds = useCanvasStore((s) => s.connectorSelectedIds);
   const toggleConnectorSelection = useCanvasStore((s) => s.toggleConnectorSelection);
+
+  // Brainstorm kit (pins / clips / threads). isPin means this object IS a
+  // push-pin and renders with no card chrome.
+  const isPin = obj.type === 'pin';
+  const brainstormTool = useCanvasStore((s) => s.brainstormTool);
+  const threadAnchorId = useCanvasStore((s) => s.threadAnchorId);
+  const setThreadAnchorId = useCanvasStore((s) => s.setThreadAnchorId);
+  const toggleClip = useCanvasStore((s) => s.toggleClip);
+  const linkThread = useCanvasStore((s) => s.linkThread);
+  const isThreadAnchor = threadAnchorId === obj.id;
 
   // Collaboration: mark objects authored by someone else with their colour dot.
   // Selectors return primitives, so frequent cursor updates never re-render this.
@@ -1252,6 +1263,39 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         return;
       }
 
+      /* Brainstorm kit routing. A tap in brainstorm mode means one of the three
+         tools, never "edit this block":
+           · clip   → fasten / unfasten a paper clip on this block
+           · thread → tap this pin, then tap another, to run string between them
+           · pin    → placing happens on empty canvas; a tap here just selects   */
+      if (mode === 'brainstorm') {
+        if (dragMovedRef.current) return;
+        if (brainstormTool === 'clip') {
+          toggleClip(obj.id);
+          return;
+        }
+        if (brainstormTool === 'thread') {
+          if (!threadAnchorId) {
+            setThreadAnchorId(obj.id);
+          } else if (threadAnchorId === obj.id) {
+            setThreadAnchorId(null); // tapped the anchor again → let it go
+          } else {
+            linkThread(threadAnchorId, obj.id);
+            setThreadAnchorId(null);
+          }
+          return;
+        }
+        // pin tool: just select what was tapped, don't type into it
+        setSelectedId(obj.id);
+        return;
+      }
+
+      // A push-pin never opens a text caret — it's named through its popover.
+      if (isPin) {
+        setSelectedId(obj.id);
+        return;
+      }
+
       // Instagram-story "tap to cycle shapes": a tap on an already-selected
       // image or camera-mirror advances it to the next mask (heart → star → …).
       // The first click just selects (via handleMouseDown); a drag never counts
@@ -1292,7 +1336,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         setEditingId(obj.id);
       }
     },
-    [mode, isEditing, isSelected, obj, setEditingId, updateObject, toggleConnectorSelection, readOnly, isTouring, stackSlot, setSpreadStack, setSelectedId]
+    [mode, isEditing, isSelected, obj, setEditingId, updateObject, toggleConnectorSelection, readOnly, isTouring, stackSlot, setSpreadStack, setSelectedId, isPin, brainstormTool, threadAnchorId, setThreadAnchorId, toggleClip, linkThread]
   );
 
   // Handle unified content saving. Compares against the LIVE stored content
@@ -1877,6 +1921,32 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
     const canvasPaper = paperColor(canvasBackground);
     const freeInk = ensureReadableInk(obj.style?.textColor as string | undefined, canvasPaper);
     switch (obj.type) {
+      case 'pin': {
+        // A push-pin: glossy dome head over a needle stuck into the board.
+        const head = (obj.style?.pinColor as string) || DEFAULT_PIN_COLOR;
+        const shade = pinShade(head);
+        return (
+          <div className="w-full h-full" style={{ pointerEvents: 'none' }}>
+            <svg
+              viewBox="0 0 40 40"
+              width="100%"
+              height="100%"
+              style={{ overflow: 'visible', filter: 'drop-shadow(0 3px 2.5px rgba(45,42,38,0.32))' }}
+            >
+              {/* needle into the cork */}
+              <path d="M20 21 L20 39" stroke="#8b9096" strokeWidth="2.4" strokeLinecap="round" />
+              <path d="M20 22 L20 36" stroke="#e6e9ec" strokeWidth="0.8" strokeLinecap="round" />
+              {/* collar under the head */}
+              <ellipse cx="20" cy="20.5" rx="4.8" ry="2.4" fill={shade} />
+              {/* dome head */}
+              <circle cx="20" cy="13" r="10.6" fill={head} />
+              <circle cx="20" cy="13" r="10.6" fill="none" stroke={shade} strokeWidth="1.3" />
+              {/* glossy highlight */}
+              <ellipse cx="16" cy="9.4" rx="4.1" ry="2.9" fill="#ffffff" opacity="0.5" />
+            </svg>
+          </div>
+        );
+      }
       case 'arrow': {
         const startX = obj.style?.startX as number || 0;
         const startY = obj.style?.startY as number || 0;
@@ -4051,7 +4121,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       data-object-id={obj.id}
       /* Drives the fade of the real text beneath the gist (globals.css). */
       data-semantic={semantic ? 'on' : undefined}
-      className={`canvas-object absolute group ${(isEditing || editingCommentId === obj.id) ? '' : 'select-none'} ${obj.type === 'arrow' ? '' : (isDragging ? 'dragging' : '')} ${obj.type === 'arrow' ? '' : (isSelected ? 'selected' : '')} ${connectorSelectedIds.includes(obj.id) ? 'connector-selected' : ''}`}
+      className={`canvas-object absolute group ${(isEditing || editingCommentId === obj.id) ? '' : 'select-none'} ${obj.type === 'arrow' ? '' : (isDragging ? 'dragging' : '')} ${(obj.type === 'arrow' || isPin) ? '' : (isSelected ? 'selected' : '')} ${connectorSelectedIds.includes(obj.id) ? 'connector-selected' : ''}`}
       style={{
         left: obj.x,
         top: obj.y,
@@ -4074,19 +4144,21 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         color: (obj.type === 'text' || obj.type === 'heading' || obj.type === 'card' || obj.type === 'sticky')
           ? ((obj.style?.textColor as string | undefined) ?? undefined)
           : undefined,
-        background: (mode === 'connector' || connectorSelectedIds.includes(obj.id))
+        background: isPin
+          ? 'rgba(0,0,0,0)'
+          : (mode === 'connector' || connectorSelectedIds.includes(obj.id))
           ? (obj.type === 'sticky' ? 'none' : 'var(--bg-card)')
           : ((obj.type === 'text' || obj.type === 'heading' || obj.type === 'card')
               ? ((obj.style?.bgColor as string | undefined) ?? 'rgba(0,0,0,0)')
               : 'rgba(0,0,0,0)'),
-        boxShadow: obj.type === 'arrow' ? 'none' : ((connectorSelectedIds.includes(obj.id) || mode === 'connector')
+        boxShadow: (obj.type === 'arrow' || isPin) ? 'none' : ((connectorSelectedIds.includes(obj.id) || mode === 'connector')
           ? (connectorSelectedIds.includes(obj.id)
             ? '0 0 50px rgba(var(--accent-rgb), 0.4), 0 8px 32px rgba(0,0,0,0.15)'
             : '0 0 40px rgba(var(--accent-rgb), 0.25), 0 8px 32px rgba(0,0,0,0.1)')
           : 'none'),
-        border: obj.type === 'arrow' ? 'none' : (connectorSelectedIds.includes(obj.id)
+        border: (obj.type === 'arrow' || isPin) ? 'none' : (connectorSelectedIds.includes(obj.id)
           ? '3px solid rgba(var(--accent-rgb), 0.8)'
-          : mode === 'connector' 
+          : mode === 'connector'
           ? '2px solid rgba(var(--accent-rgb), 0.5)'
           : 'none'),
         pointerEvents: (mode === 'draw' || mode === 'arrow') ? 'none' : 'auto',
@@ -4131,6 +4203,128 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       }}
     >
       {renderContent()}
+
+      {/* A paper clip fastened to this block (or the top of a pile). Decoration
+          only — pointer-events off so it never eats a click on the note. */}
+      {!isPin && obj.type !== 'arrow' && obj.type !== 'frame' && obj.style?.clip ? (
+        <div
+          className="absolute z-[15] pointer-events-none"
+          style={{ top: -13, left: '50%', transform: 'translateX(-50%) rotate(-7deg)' }}
+        >
+          <svg width="24" height="34" viewBox="0 0 26 36" style={{ filter: 'drop-shadow(0 2px 2px rgba(45,42,38,0.35))' }}>
+            <path
+              d="M8 32 V11 a5 5 0 0 1 10 0 v17 a3.2 3.2 0 0 1 -6.4 0 V13"
+              fill="none"
+              stroke={(obj.style.clip as { color?: string }).color || '#8C93A0'}
+              strokeWidth="2.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M8 32 V11 a5 5 0 0 1 10 0 v17 a3.2 3.2 0 0 1 -6.4 0 V13"
+              fill="none"
+              stroke="#ffffff"
+              strokeOpacity="0.4"
+              strokeWidth="0.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+      ) : null}
+
+      {/* The pin the thread tool is currently anchored to — a soft pulsing ring
+          telling you "tap another to tie the string here". */}
+      {isThreadAnchor && (
+        <motion.div
+          className="absolute pointer-events-none rounded-full"
+          style={{ inset: isPin ? -6 : -8, border: '2px dashed var(--accent)' }}
+          animate={{ opacity: [0.9, 0.35, 0.9], scale: [1, 1.06, 1] }}
+          transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      )}
+
+      {/* Pin name — shown on hover (and while dragging), a quiet pill above the
+          head. Only pins that have been named show it. */}
+      {isPin && !isSelected && (obj.content || '').trim() && (isHovered || isDragging) && (
+        <div
+          className="absolute left-1/2 -translate-x-1/2 z-[102] pointer-events-none whitespace-nowrap px-2.5 py-1 rounded-full bg-[var(--bg-secondary)]/95 backdrop-blur-sm border border-[var(--border)] text-[11px] font-semibold text-[var(--text-primary)] shadow-md"
+          style={{ top: -14, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}
+        >
+          {(obj.content || '').trim()}
+        </div>
+      )}
+
+      {/* Pin popover — name it, recolour its head, or pull it out. Appears while
+          the pin is selected. Stops propagation so clicks here don't deselect. */}
+      {isPin && isSelected && !isDragging && (
+        <motion.div
+          initial={{ opacity: 0, y: 6, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+          className="absolute left-1/2 -translate-x-1/2 z-[103] glass-panel"
+          style={{ bottom: 'calc(100% + 10px)', padding: 10, width: 208 }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            autoFocus
+            type="text"
+            value={obj.content || ''}
+            onChange={(e) => updateObject(obj.id, { content: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === 'Escape') {
+                (e.target as HTMLInputElement).blur();
+                setSelectedId(null);
+              }
+            }}
+            placeholder="Name this pin…"
+            className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg outline-none text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+            style={{ padding: '6px 9px' }}
+          />
+          <div className="flex items-center justify-between" style={{ marginTop: 9 }}>
+            <div className="flex items-center gap-1.5">
+              {PIN_COLORS.map((p) => {
+                const active = ((obj.style?.pinColor as string) || DEFAULT_PIN_COLOR).toLowerCase() === p.head.toLowerCase();
+                return (
+                  <button
+                    key={p.head}
+                    onClick={() => updateObject(obj.id, { style: { ...obj.style, pinColor: p.head } })}
+                    title={p.name}
+                    className="rounded-full transition-transform hover:scale-115 cursor-pointer"
+                    style={{
+                      width: 16,
+                      height: 16,
+                      background: p.head,
+                      boxShadow: active ? `0 0 0 2px var(--bg-secondary), 0 0 0 3.5px ${p.head}` : `inset 0 0 0 1px ${p.shade}`,
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <button
+              onClick={() => {
+                const rect = containerRef.current?.getBoundingClientRect();
+                addToTrash({
+                  id: obj.id,
+                  label: (obj.content || 'Pin').slice(0, 24),
+                  originX: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+                  originY: rect ? rect.top + rect.height / 2 : window.innerHeight / 2,
+                  objectData: obj,
+                  connectionsData: connections.filter((c) => c.fromId === obj.id || c.toId === obj.id),
+                });
+                removeObject(obj.id);
+              }}
+              title="Remove pin"
+              className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+              </svg>
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       {/* How deep the pile goes. Only the top card says it — the ones below
           are edges, and an edge with a badge on it reads as a separate note. */}
@@ -4305,7 +4499,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       )}
 
       {/* Mini Action Buttons */}
-      {!isDragging && obj.type !== 'workflow-node' && (
+      {!isDragging && obj.type !== 'workflow-node' && !isPin && (
         <div 
           className={`absolute -top-8 flex gap-1.5 z-[101] pb-2 px-2 transition-all duration-200 ${
             (isHovered && !isEditing) 
@@ -4479,7 +4673,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           ))}
         </>
       ) : (
-        isSelected && (
+        isSelected && !isPin && (
           <div
             className="resize-handle"
             style={{ bottom: -5, right: -5, opacity: 1 }}

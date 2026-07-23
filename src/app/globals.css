@@ -240,6 +240,15 @@ html, body {
   cursor: text;
 }
 
+/* Brainstorm kit cursors. The Pin tool drops push-pins, so a pin cursor over
+   the board; Clip/Thread act on objects, so a plain crosshair on empty canvas. */
+.canvas-container.mode-brainstorm {
+  cursor: crosshair;
+}
+.canvas-container.mode-brainstorm.tool-pin {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='34' height='34' viewBox='0 0 24 24'><g fill='none' stroke='%23000' stroke-opacity='0.35' stroke-width='4' stroke-linejoin='round'><path d='M9 4.5 15.5 11'/><path d='M8.2 10.6a4 4 0 0 0 5.2 5.2l4.2-1.6a1 1 0 0 0 .35-1.63l-6.5-6.5a1 1 0 0 0-1.63.35Z'/><path d='M10.5 13.5 5 19'/></g><g fill='none' stroke='%23fff' stroke-width='1.7' stroke-linejoin='round'><path d='M9 4.5 15.5 11'/><path d='M8.2 10.6a4 4 0 0 0 5.2 5.2l4.2-1.6a1 1 0 0 0 .35-1.63l-6.5-6.5a1 1 0 0 0-1.63.35Z'/><path d='M10.5 13.5 5 19'/></g></svg>") 4 20, crosshair;
+}
+
 /* Stress Reliefer cursors.
    Bound to the *chosen effect*, not to the mode — picking up the tool only opens
    the picker, so plain .mode-relax keeps the default cursor until an effect is

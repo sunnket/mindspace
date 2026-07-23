@@ -175,6 +175,8 @@ export default function InfiniteCanvas() {
   const setStrokes = useCanvasStore((s) => s.setStrokes);
   const mode = useCanvasStore((s) => s.mode);
   const relaxEffect = useCanvasStore((s) => s.relaxEffect);
+  const brainstormTool = useCanvasStore((s) => s.brainstormTool);
+  const threadAnchorId = useCanvasStore((s) => s.threadAnchorId);
   const setMode = useCanvasStore((s) => s.setMode);
   const previousMode = useCanvasStore((s) => s.previousMode);
   const setPreviousMode = useCanvasStore((s) => s.setPreviousMode);
@@ -521,7 +523,7 @@ export default function InfiniteCanvas() {
         return;
       }
 
-      if (mode === 'text' || mode === 'select' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax') {
+      if (mode === 'text' || mode === 'select' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax' || mode === 'brainstorm') {
         // If they click empty space, we record pan start just in case it's a tiny drag
         isPanningRef.current = true;
         panStartRef.current = {
@@ -580,7 +582,7 @@ export default function InfiniteCanvas() {
         // If we are in select/text mode, and drag is large enough, switch to panning the canvas optionally?
         // Wait, standard behavior: space to pan, or middle click. Left drag creates selection box (which we don't have yet), or just pans if empty canvas.
         // Let's implement empty canvas drag = pan for simplicity!
-        if (mode === 'select' || mode === 'text' || mode === 'pan' || mode === 'relax') {
+        if (mode === 'select' || mode === 'text' || mode === 'pan' || mode === 'relax' || mode === 'brainstorm') {
           const dx = e.clientX - panStartRef.current.x;
           const dy = e.clientY - panStartRef.current.y;
           setCamera({
@@ -602,7 +604,7 @@ export default function InfiniteCanvas() {
         // If it was a click (not a drag) on empty space in select/text/shape/arrow mode, create element!
         const target = e.target as HTMLElement;
         const isClickOnObject = target.closest('.canvas-object') || target.closest('.canvas-object-content');
-        if (!isClickOnObject && (mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax')) {
+        if (!isClickOnObject && (mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax' || mode === 'brainstorm')) {
           const dx = Math.abs(e.clientX - panStartRef.current.x);
           const dy = Math.abs(e.clientY - panStartRef.current.y);
           if (dx < 5 && dy < 5) {
@@ -683,6 +685,16 @@ export default function InfiniteCanvas() {
                 window.dispatchEvent(
                   new CustomEvent('spawn-relax-burst', { detail: { x: worldPos.x, y: worldPos.y } })
                 );
+              }
+            } else if (mode === 'brainstorm') {
+              // Only the Pin tool acts on empty board — it drops a push-pin and
+              // stays armed so you can pin several in a row. Clip works on notes,
+              // and a click on nothing while threading just lets the anchor go.
+              const store = useCanvasStore.getState();
+              if (store.brainstormTool === 'pin') {
+                store.addPin(worldPos.x, worldPos.y);
+              } else if (store.brainstormTool === 'thread') {
+                store.setThreadAnchorId(null);
               }
             } else {
               const ts = useCanvasStore.getState().textStyle;
@@ -1115,6 +1127,14 @@ export default function InfiniteCanvas() {
     );
   }, [objects, camera, selectedId, editingId, focusedId, spreadStackId]);
 
+  /* Leaving brainstorm mode drops any half-tied thread, so re-entering later
+     never starts you mid-connection against a pin you've forgotten about. */
+  useEffect(() => {
+    if (mode !== 'brainstorm' && threadAnchorId) {
+      useCanvasStore.getState().setThreadAnchorId(null);
+    }
+  }, [mode, threadAnchorId]);
+
   // Grid background transform
   const gridStyle = {
     backgroundPosition: `${camera.x % (24 * camera.zoom)}px ${camera.y % (24 * camera.zoom)}px`,
@@ -1129,7 +1149,7 @@ export default function InfiniteCanvas() {
         ref={containerRef}
         className={`canvas-container paper-texture mode-${mode}${
           mode === 'relax' && relaxEffect ? ` relax-${relaxEffect}` : ''
-        }`}
+        }${mode === 'brainstorm' ? ` tool-${brainstormTool}` : ''}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -1265,6 +1285,39 @@ export default function InfiniteCanvas() {
                 Exit Connector Mode
               </span>
             </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Brainstorm Mode HUD — names the active tool, guides the thread flow,
+          and offers a one-click exit. Mirrors the connector-mode banner. */}
+      <AnimatePresence>
+        {mode === 'brainstorm' && (
+          <motion.div
+            className="fixed top-12 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto"
+            initial={{ opacity: 0, y: -20, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.9 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+          >
+            <div className="glass-panel px-4 py-2 flex items-center gap-3">
+              <span className="text-xs font-medium tracking-wide text-[var(--text-primary)]">
+                {brainstormTool === 'pin'
+                  ? 'Click the board to drop a pin'
+                  : brainstormTool === 'clip'
+                  ? 'Click a note to clip it'
+                  : threadAnchorId
+                  ? 'Now tap another pin to tie the thread'
+                  : 'Tap a pin to start a thread'}
+              </span>
+              <button
+                onClick={() => setMode('select')}
+                className="flex items-center gap-1.5 pl-2.5 border-l border-[var(--border)] text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
+              >
+                <span className="w-4 h-4 rounded-full bg-[var(--accent-subtle)] flex items-center justify-center text-[var(--accent)] text-[10px]">✕</span>
+                Done
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

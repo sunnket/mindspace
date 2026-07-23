@@ -104,7 +104,74 @@ export default function ConnectionsLayer() {
 
             if (!rectA || !rectB) return null;
 
-            const isWorkflow = conn.style?.isWorkflowConnection || 
+            /* A brainstorm THREAD is drawn like real string on a cork wall:
+               centre-to-centre with a gravity sag, a soft drop shadow, and a
+               little knot tied at each pin. It skips the workflow/edge-clip
+               geometry entirely. */
+            if (conn.style?.thread) {
+              const isHovered = hoveredConnId === conn.id;
+              const ax = rectA.centerX, ay = rectA.centerY;
+              const bx = rectB.centerX, by = rectB.centerY;
+              const dist = Math.hypot(bx - ax, by - ay);
+              // Sag grows with span but is capped so long runs don't droop forever.
+              const sag = Math.min(90, dist * 0.18);
+              const midX = (ax + bx) / 2;
+              const midY = (ay + by) / 2 + sag;
+              const d = `M ${ax} ${ay} Q ${midX} ${midY} ${bx} ${by}`;
+              const threadColor = (conn.style?.color as string) || '#D64541';
+              return (
+                <g key={conn.id}>
+                  {/* fat invisible hit area */}
+                  <path
+                    d={d}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={20}
+                    style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+                    onMouseEnter={() => setHoveredConnId(conn.id)}
+                    onMouseLeave={() => setHoveredConnId(null)}
+                  />
+                  {/* shadow the string casts on the board */}
+                  <path d={d} fill="none" stroke="#000" strokeOpacity={0.14} strokeWidth={3.5} strokeLinecap="round" transform="translate(0.5 2.5)" />
+                  {/* the string itself */}
+                  <motion.path
+                    initial={{ pathLength: 0, opacity: 0 }}
+                    animate={{ pathLength: 1, opacity: 1 }}
+                    exit={{ pathLength: 0, opacity: 0 }}
+                    transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+                    d={d}
+                    fill="none"
+                    stroke={isHovered ? 'var(--accent)' : threadColor}
+                    strokeWidth={isHovered ? 3 : 2.2}
+                    strokeLinecap="round"
+                    style={{ filter: isHovered ? 'url(#line-glow)' : 'none', transition: 'stroke 0.25s, stroke-width 0.2s' }}
+                  />
+                  {/* knots where the thread ties off */}
+                  {[[ax, ay], [bx, by]].map(([kx, ky], i) => (
+                    <g key={i}>
+                      <circle cx={kx} cy={ky} r={4} fill={isHovered ? 'var(--accent)' : threadColor} />
+                      <circle cx={kx} cy={ky} r={4} fill="none" stroke="#000" strokeOpacity={0.18} strokeWidth={1} />
+                    </g>
+                  ))}
+                  {isHovered && (
+                    <foreignObject x={midX - 15} y={midY - 15} width={30} height={30} style={{ pointerEvents: 'auto' }}>
+                      <motion.button
+                        initial={{ scale: 0, rotate: -45 }}
+                        animate={{ scale: 1, rotate: 0 }}
+                        className="w-7 h-7 rounded-full bg-black text-white flex items-center justify-center shadow-xl border border-white/20 hover:bg-red-500 transition-colors"
+                        onClick={(e) => { e.stopPropagation(); removeConnection(conn.id); }}
+                        onMouseEnter={() => setHoveredConnId(conn.id)}
+                        title="Cut thread"
+                      >
+                        <span className="text-[12px] font-bold">✕</span>
+                      </motion.button>
+                    </foreignObject>
+                  )}
+                </g>
+              );
+            }
+
+            const isWorkflow = conn.style?.isWorkflowConnection ||
                                (objects.find(o => o.id === conn.fromId)?.type === 'workflow-node' && 
                                 objects.find(o => o.id === conn.toId)?.type === 'workflow-node');
             

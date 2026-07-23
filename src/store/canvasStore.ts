@@ -8,8 +8,15 @@ import { CanvasSkillset, emptySkillset, makeRule, getPreset, installPreset } fro
 import { cameraForRect, objectsInFrame, strokesInFrame, type FrameKind } from '@/lib/frames';
 import { isStackable, stackIdOf, membersOf, stackSlots } from '@/lib/stacks';
 import { sameLink } from '@/lib/constellations';
+import {
+  BrainstormTool,
+  DEFAULT_PIN_COLOR,
+  DEFAULT_CLIP_COLOR,
+  DEFAULT_THREAD_COLOR,
+  PIN_SIZE,
+} from '@/lib/brainstorm';
 
-export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax';
+export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax' | 'brainstorm';
 
 /* ------------------------------------------------------------------
    Collaboration bridge — inert unless a live session sets these.
@@ -336,7 +343,29 @@ interface CanvasStore {
   // Shape settings
   selectedShapeType: string;
   setSelectedShapeType: (type: string) => void;
-  
+
+  /* Brainstorm kit — the corkboard tools (pins, clips, threads). `mode` is
+     'brainstorm' while the kit is active; brainstormTool is which of the three
+     is armed. Pins are real objects; clips ride an object's style; threads are
+     connections with `style.thread`. */
+  brainstormTool: BrainstormTool;
+  setBrainstormTool: (tool: BrainstormTool) => void;
+  pinColor: string;
+  setPinColor: (color: string) => void;
+  clipColor: string;
+  setClipColor: (color: string) => void;
+  threadColor: string;
+  setThreadColor: (color: string) => void;
+  /** The first pin/block tapped while running a thread; the next tap ties to it. */
+  threadAnchorId: string | null;
+  setThreadAnchorId: (id: string | null) => void;
+  /** Drop a push-pin, centred on a world point, in the current pin colour. */
+  addPin: (worldX: number, worldY: number) => CanvasObjectData;
+  /** Fasten / remove a paper clip on any object (or the top of a pile). */
+  toggleClip: (objectId: string) => void;
+  /** Run a thread between two objects — a styled connection, deduped. */
+  linkThread: (fromId: string, toId: string) => void;
+
   // Arrow settings
   selectedArrowPointerType: 'line' | 'arrow' | 'dot' | 'diamond';
   setSelectedArrowPointerType: (type: 'line' | 'arrow' | 'dot' | 'diamond') => void;
@@ -1582,7 +1611,54 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Shape settings
   selectedShapeType: 'square' as any,
   setSelectedShapeType: (selectedShapeType) => set({ selectedShapeType }),
-  
+
+  // Brainstorm kit (pins / clips / threads)
+  brainstormTool: 'pin',
+  setBrainstormTool: (brainstormTool) => set({ brainstormTool, threadAnchorId: null }),
+  pinColor: DEFAULT_PIN_COLOR,
+  setPinColor: (pinColor) => set({ pinColor }),
+  clipColor: DEFAULT_CLIP_COLOR,
+  setClipColor: (clipColor) => set({ clipColor }),
+  threadColor: DEFAULT_THREAD_COLOR,
+  setThreadColor: (threadColor) => set({ threadColor }),
+  threadAnchorId: null,
+  setThreadAnchorId: (threadAnchorId) => set({ threadAnchorId }),
+
+  addPin: (worldX, worldY) => {
+    const pin = get().addObject({
+      type: 'pin',
+      // Centre the head on the drop point; the tip hangs just below.
+      x: worldX - PIN_SIZE / 2,
+      y: worldY - PIN_SIZE / 2,
+      width: PIN_SIZE,
+      height: PIN_SIZE,
+      content: '',
+      style: { pinColor: get().pinColor },
+    });
+    return pin;
+  },
+
+  toggleClip: (objectId) => {
+    const obj = get().objects.find((o) => o.id === objectId);
+    if (!obj || obj.type === 'pin' || obj.type === 'arrow' || obj.type === 'frame') return;
+    const hasClip = !!obj.style?.clip;
+    get().updateObject(objectId, {
+      style: { ...obj.style, clip: hasClip ? undefined : { color: get().clipColor } },
+    });
+  },
+
+  linkThread: (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    // A thread already tied between this pair is left alone — no doubling up.
+    const exists = get().connections.some(
+      (c) =>
+        c.style?.thread &&
+        ((c.fromId === fromId && c.toId === toId) || (c.fromId === toId && c.toId === fromId))
+    );
+    if (exists) return;
+    get().addConnection(fromId, toId, { thread: true, color: get().threadColor });
+  },
+
   // Arrow settings
   selectedArrowPointerType: 'line',
   setSelectedArrowPointerType: (selectedArrowPointerType) => set({ selectedArrowPointerType }),

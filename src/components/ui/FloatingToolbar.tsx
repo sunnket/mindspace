@@ -10,6 +10,7 @@ import WorkflowMenu from './WorkflowMenu';
 import FlowModePanel, { FlowIcon } from './FlowModePanel';
 import { useFlowStore } from '@/store/flowStore';
 import CanvasBackgroundPanel from './CanvasBackgroundPanel';
+import BrainstormPanel, { PinIcon } from './BrainstormPanel';
 import ShapePreview from '@/components/canvas/ShapePreview';
 import { RELAX_EFFECTS, RELAX_EFFECT_LIST } from '@/lib/relaxEffects';
 import RelaxIcon from './RelaxIcons';
@@ -156,6 +157,7 @@ export default function FloatingToolbar() {
   const [showShapeOptions, setShowShapeOptions] = useState(false);
   const [showArrowOptions, setShowArrowOptions] = useState(false);
   const [showFrameOptions, setShowFrameOptions] = useState(false);
+  const [showBrainstormOptions, setShowBrainstormOptions] = useState(false);
   const [showWorkflowMenu, setShowWorkflowMenu] = useState(false);
   const [showBgOptions, setShowBgOptions] = useState(false);
   const [showRelaxOptions, setShowRelaxOptions] = useState(false);
@@ -185,6 +187,7 @@ export default function FloatingToolbar() {
     setShowShapeOptions(false);
     setShowArrowOptions(false);
     setShowFrameOptions(false);
+    setShowBrainstormOptions(false);
     setShowBgOptions(false);
     setShowRelaxOptions(false);
     setShowWorkflowMenu(false);
@@ -204,6 +207,7 @@ export default function FloatingToolbar() {
     setShowDrawOptions(mode === 'draw');
     setShowShapeOptions(mode === 'shape');
     setShowFrameOptions(mode === 'frame');
+    setShowBrainstormOptions(mode === 'brainstorm');
     setShowRelaxOptions(mode === 'relax');
     setShowBgOptions(false);
     setShowWorkflowMenu(false);
@@ -324,6 +328,11 @@ export default function FloatingToolbar() {
       ),
     },
     {
+      id: 'brainstorm',
+      label: 'Brainstorm — pins, clips & thread',
+      icon: <PinIcon size={17} />,
+    },
+    {
       id: 'relax',
       label: 'Stress Reliefer',
       icon: (
@@ -354,6 +363,22 @@ export default function FloatingToolbar() {
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
           >
             <WorkflowMenu onClose={() => setShowWorkflowMenu(false)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Brainstorm panel — pins, clips & thread */}
+      <AnimatePresence>
+        {showBrainstormOptions && mode === 'brainstorm' && (
+          <motion.div
+            key="brainstorm-panel"
+            className="absolute bottom-16 left-1/2 -translate-x-1/2 z-[100]"
+            initial={{ opacity: 0, y: 15, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 15, scale: 0.95 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <BrainstormPanel />
           </motion.div>
         )}
       </AnimatePresence>
@@ -438,6 +463,7 @@ export default function FloatingToolbar() {
                   (tool.id === 'draw' && showDrawOptions) ||
                   (tool.id === 'shape' && showShapeOptions) ||
                   (tool.id === 'frame' && showFrameOptions) ||
+                  (tool.id === 'brainstorm' && showBrainstormOptions) ||
                   (tool.id === 'relax' && showRelaxOptions);
 
                 if (mode === (tool.id as InteractionMode) && panelOpen) {
@@ -451,6 +477,7 @@ export default function FloatingToolbar() {
                 if (tool.id === 'draw') setShowDrawOptions(true);
                 else if (tool.id === 'shape') setShowShapeOptions(true);
                 else if (tool.id === 'frame') setShowFrameOptions(true);
+                else if (tool.id === 'brainstorm') setShowBrainstormOptions(true);
                 else if (tool.id === 'relax') setShowRelaxOptions(true);
               }}
               className={`relative w-9 h-9 rounded-lg flex items-center justify-center text-sm font-medium transition-all ${
