@@ -4,7 +4,7 @@ import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
-import { screenToCanvas, clamp, fitImageBox } from '@/lib/utils';
+import { screenToCanvas, clamp, fitImageBox, dragState, endActiveDrag } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import { ingestFile } from '@/lib/fileIngest';
 import { collectDropEntries, hasDirectoryEntry, ingestDroppedFolder } from '@/lib/repoIngest';
@@ -166,6 +166,9 @@ export default function InfiniteCanvas() {
   const isPanningRef = useRef(false);
   const panStartRef = useRef({ x: 0, y: 0, camX: 0, camY: 0 });
   const [loaded, setLoaded] = useState(false);
+  /* Mirrors `loaded` for the unmount-save cleanup, which must read it at
+     teardown time rather than close over whatever it was at mount. */
+  const loadedRef = useRef(false);
 
   const camera = useCanvasStore((s) => s.camera);
   const setCamera = useCanvasStore((s) => s.setCamera);
@@ -269,6 +272,9 @@ export default function InfiniteCanvas() {
   // Load from IndexedDB
   useEffect(() => {
     async function load() {
+      // In flight, this canvas's store contents are not its own yet — nothing
+      // may be persisted under its id until the read below lands.
+      loadedRef.current = false;
       try {
         const parentId = canvasStack.length > 0 ? canvasStack[canvasStack.length - 1] : effectiveCanvasId;
         const [savedObjects, savedStrokes, savedCamera, savedConnections] = await Promise.all([
@@ -290,8 +296,8 @@ export default function InfiniteCanvas() {
               { id: uuidv4(), type: 'card', x: -100, y: 100, width: 220, height: 160, content: 'Nested Spaces\nDouble-click any heading to zoom into a sub-space.', zIndex: 6, createdAt: Date.now(), updatedAt: Date.now() },
               { id: uuidv4(), type: 'card', x: 150, y: 100, width: 220, height: 160, content: 'Offline First\nEverything saves automatically to your device.', zIndex: 7, createdAt: Date.now(), updatedAt: Date.now() },
             ];
-            // @ts-ignore
-            setObjects(defaultObjects);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            setObjects(defaultObjects as any);
           });
         } else {
           setObjects(savedObjects);
@@ -322,9 +328,11 @@ export default function InfiniteCanvas() {
         setSkillset(savedCamera?.skillset || null);
         // Load this canvas's Constellation View star map (positions, links, names).
         useCanvasStore.getState().setSky(savedCamera?.sky || {});
+        loadedRef.current = true;
         setLoaded(true);
       } catch (err) {
         console.error('Failed to load canvas data:', err);
+        loadedRef.current = true;
         setLoaded(true);
       }
     }
@@ -334,6 +342,16 @@ export default function InfiniteCanvas() {
   // Save on unmount to prevent losing last-second pans or edits
   useEffect(() => {
     return () => {
+      /* Never persist canvas state that the load hasn't filled in yet.
+         Before `load()` resolves every field here is still a store default —
+         "Untitled Canvas", camera 0/0/1, ink paper, no scenes, no skill set —
+         and writing those over a canvas that already has real ones silently
+         erases them. That is not hypothetical: this cleanup runs on every dep
+         change AND on React's dev-mode double-invoke, so a canvas created with
+         a title, camera, background, scenes and a skill set (a template) lost
+         all five within a second of being opened. */
+      if (!loadedRef.current) return;
+
       const state = useCanvasStore.getState();
       const parentId = state.canvasStack.length > 0 ? state.canvasStack[state.canvasStack.length - 1] : effectiveCanvasId;
       // A guest's live collab session is a synthetic, never-persisted view —
@@ -341,12 +359,14 @@ export default function InfiniteCanvas() {
       // skipping it here avoids the wasted work entirely).
       if (parentId.startsWith(COLLAB_SESSION_ID_PREFIX)) return;
 
-      // Always save camera position and canvas state locally on unmount
+      // Always save camera position and canvas state locally on unmount.
+      // Every field comes from the live store — a closure copy of the title
+      // goes stale the moment the load renames the canvas.
       saveCanvasState({
         id: parentId,
-        title: workspaceTitle,
+        title: state.workspaceTitle,
         camera: state.camera,
-        checkpoint: checkpoint || undefined,
+        checkpoint: state.checkpoint || undefined,
         background: state.canvasBackground,
         scenes: state.scenes,
         threads: state.threads,
@@ -368,9 +388,9 @@ export default function InfiniteCanvas() {
                 user.id,
                 {
                   id: parentId,
-                  title: workspaceTitle,
+                  title: state.workspaceTitle,
                   camera: state.camera,
-                  checkpoint: checkpoint || undefined,
+                  checkpoint: state.checkpoint || undefined,
                   background: state.canvasBackground,
                   scenes: state.scenes,
                   threads: state.threads,
@@ -388,7 +408,7 @@ export default function InfiniteCanvas() {
         });
       }
     };
-  }, [effectiveCanvasId, workspaceTitle, checkpoint]);
+  }, [effectiveCanvasId]);
 
   // Autosave
   useEffect(() => {
@@ -503,6 +523,37 @@ export default function InfiniteCanvas() {
     return () => container.removeEventListener('wheel', handleWheel);
   }, [handleWheel]);
 
+  /* A pan ends when the BUTTON comes up, wherever that happens to be — over
+     the toolbar, a panel, another window, or nowhere at all because the tab
+     lost focus mid-drag. The container's own onMouseUp only ever saw releases
+     that landed back on the board, so every other ending left the canvas
+     believing it was still being panned. These listeners are the safety net
+     that guarantees a gesture always finishes. */
+  useEffect(() => {
+    /* Bubble phase, NOT capture: React's own delegated onMouseUp on the board
+       runs first and still gets to see the flag, so a still tap on empty
+       canvas keeps creating a text box. We only clean up after it.
+
+       And deliberately NOT `pointerup`. Pointer events are dispatched BEFORE
+       their compatibility mouse events, so listening for it here cleared the
+       flag before React's onMouseUp could read it — which silently killed
+       tap-anywhere-to-write. `pointercancel` is safe: it means the gesture was
+       abandoned, and no mouseup follows it. */
+    const end = () => {
+      isPanningRef.current = false;
+      // Any block gesture still believing it's live ends here too.
+      endActiveDrag();
+    };
+    window.addEventListener('mouseup', end);
+    window.addEventListener('pointercancel', end);
+    window.addEventListener('blur', end);
+    return () => {
+      window.removeEventListener('mouseup', end);
+      window.removeEventListener('pointercancel', end);
+      window.removeEventListener('blur', end);
+    };
+  }, []);
+
   // Mouse down for panning
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -598,6 +649,23 @@ export default function InfiniteCanvas() {
           });
         }
       }
+
+      /* --- Never pan unless a button is genuinely still down ---------------
+         `isPanningRef` used to be cleared ONLY by the container's own
+         onMouseUp. Release the button anywhere that isn't the board — over the
+         toolbar, a panel, the minimap, or outside the window entirely — and
+         that handler never fired, so the flag stayed true forever. From then
+         on every ordinary mouse move panned the camera by the distance from a
+         long-dead press: blocks slid away from the cursor as you reached for
+         them ("it repels"), and touching one dragged it while the world
+         scrolled underneath, flinging it across the board.
+
+         `e.buttons` is the ground truth — 0 means nothing is held, whatever we
+         think we remember. Checking it makes a stale press impossible to act
+         on. `dragState.objectDrag` is the matching guard from the other side:
+         a block drag and a viewport pan must never run together. */
+      if (e.buttons === 0) isPanningRef.current = false;
+      if (dragState.objectDrag) return;
 
       if (isPanningRef.current && !useCanvasStore.getState().viewLocked) {
         // If we are in select/text mode, and drag is large enough, switch to panning the canvas optionally?

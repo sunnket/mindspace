@@ -4,6 +4,12 @@ import { useCanvasStore, setCollabEmitter, setCollabAuthor } from '@/store/canva
 import { CanvasObjectData } from '@/lib/db';
 import { WireMessage, CanvasOp, Transport } from './types';
 import { randomPeerColor } from './palette';
+import { setAudioTransport, handleAudioMessage, teardown as teardownAudio } from './audio';
+
+/** Wire messages that belong to the voice call, routed to lib/collab/audio.ts. */
+const AUDIO_MSG_TYPES = new Set([
+  'audio-join', 'audio-here', 'audio-leave', 'rtc-offer', 'rtc-answer', 'rtc-ice', 'audio-state', 'force-mute', 'kick',
+]);
 
 const CURSOR_THROTTLE_MS = 45;
 const UPDATE_FLUSH_MS = 55;
@@ -206,6 +212,11 @@ function sendSnapshot(toPeerId: string) {
 /* ---------------- incoming (peers -> canvas) ---------------- */
 
 function handleMessage(msg: WireMessage) {
+  // Voice-call signalling has its own mesh manager — hand it off and return.
+  if (AUDIO_MSG_TYPES.has(msg.t)) {
+    handleAudioMessage(msg);
+    return;
+  }
   const collab = useCollabStore.getState();
   switch (msg.t) {
     case 'join':
@@ -288,6 +299,9 @@ export async function startSession(opts: { code: string; isHost: boolean; name: 
   setCollabEmitter(outgoingOp);
   setCollabAuthor({ id: me.id, color: me.color });
 
+  // Wire the voice-call mesh: it sends SDP/ICE over this same transport.
+  setAudioTransport((m) => transport?.send(m), me.id);
+
   t.send({ t: 'join', peer: me });
   heartbeat = setInterval(() => transport?.send({ t: 'ping', id: myId }), HEARTBEAT_MS);
   pruneTimer = setInterval(() => useCollabStore.getState()._prunePeers(), PRUNE_MS);
@@ -295,6 +309,15 @@ export async function startSession(opts: { code: string; isHost: boolean; name: 
 }
 
 export function leaveSession() {
+  // End the voice call first so peers get an audio-leave while the transport
+  // is still open, then unwire it.
+  try {
+    teardownAudio();
+  } catch {
+    /* noop */
+  }
+  setAudioTransport(null, '');
+
   try {
     transport?.send({ t: 'leave', id: myId });
   } catch {

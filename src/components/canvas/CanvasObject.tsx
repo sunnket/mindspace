@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import { CanvasObjectData } from '@/lib/db';
-import { getSnapPoints, randomStickyColor } from '@/lib/utils';
+import { getSnapPoints, randomStickyColor, dragState, endActiveDrag } from '@/lib/utils';
 import { ensureReadableInk, readableInk, paperColor } from '@/lib/canvasTheme';
 import { reportMeasuredHeight, forgetMeasuredHeight } from '@/lib/canvasLayout';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
@@ -29,6 +29,7 @@ import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
 import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock, TimelineBlock, TableBlock } from './ExtensionBlocks';
+import RoadmapBlock from './RoadmapBlock';
 import WhiteboardBlock from './WhiteboardBlock';
 import BinderBlock from './BinderBlock';
 import MirrorBlock from './MirrorBlock';
@@ -313,9 +314,13 @@ function CommentBubble({ obj, isEditing, onStartEditing, onStopEditing }: Commen
 
     let moved = false;
     const onMove = (moveE: MouseEvent) => {
+      // No button held: the release happened out of sight. Same guard, same
+      // reason as the block drag — otherwise this comment follows the cursor
+      // around the board forever.
+      if (moveE.buttons === 0) { onUp(); return; }
       const dx = (moveE.clientX - startX) / camera.zoom;
       const dy = (moveE.clientY - startY) / camera.zoom;
-      
+
       if (!moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
       moved = true;
 
@@ -347,6 +352,7 @@ function CommentBubble({ obj, isEditing, onStartEditing, onStopEditing }: Commen
     const initialHeight = height;
 
     const onMove = (moveE: MouseEvent) => {
+      if (moveE.buttons === 0) { onUp(); return; }
       const dx = (moveE.clientX - startX) / camera.zoom;
       const dy = (moveE.clientY - startY) / camera.zoom;
       updateObject(obj.id, {
@@ -656,7 +662,12 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       // A tour takes the same deal: the presenter can still click a link or an
       // embed, but can't nudge a block out of place mid-slide.
       if (readOnly || isTouring) return;
-      if (mode === 'draw' || isEditing) return;
+      if (mode === 'draw') return;
+      /* Editing: no drag, but the press must still not reach the board, or
+         sweeping a selection across your own words panned the whole canvas
+         out from under the caret. stopPropagation only stops React's bubble —
+         native text selection is untouched. */
+      if (isEditing) { e.stopPropagation(); return; }
 
       // Clicks on embedded controls (poll options, settings inputs, checkpoint
       // name, todo checkboxes…) must keep their native behaviour — a
@@ -672,6 +683,10 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
 
       e.stopPropagation();
       e.preventDefault();
+
+      // Whatever was being dragged before this press is over, whether or not
+      // its mouseup ever arrived. Two live sessions must never overlap.
+      endActiveDrag();
 
       // Alt+drag clones the object in place and drags the clone, leaving the
       // original untouched — a fast way to duplicate cards, shapes, and frames.
@@ -709,17 +724,24 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         updateObject(dragObj.id, { zIndex: getNextZIndex() });
       }
 
-      /* Dragging a frame carries everything that SITS in it — every block whose
-         centre is inside the frame right now (objectsInFrame, the same rule the
-         canvas uses to decide grouping) UNION anything explicitly tagged to it.
-         So the frame becomes a real bulk-move handle: grab it and the whole
-         group travels, whether or not each piece was ever formally dropped in. */
-      const frameChildren = dragObj.type === 'frame'
+      /* Dragging a frame carries its contents ONLY when the frame has "Move
+         contents" switched on (style.carryContents, toggled from the frame
+         menu). It defaults OFF: when two frames overlap, grabbing one used to
+         sweep up everything sitting inside the other — and even one block you
+         tried to pull out — so the group move is now something you opt into per
+         frame. When on, it carries every block whose centre is inside the frame
+         right now (objectsInFrame, the same rule the canvas uses to group)
+         UNION anything explicitly tagged to it. */
+      const carryContents = dragObj.type === 'frame' && dragObj.style?.carryContents === true;
+      const frameChildren = carryContents
         ? (() => {
             const seen = new Set<string>([dragObj.id]);
             const out: { id: string; x: number; y: number }[] = [];
             const add = (o: CanvasObjectData) => {
               if (seen.has(o.id)) return;
+              // A frame never carries another frame — two group handles moving
+              // each other is the exact confusion this toggle exists to end.
+              if (o.type === 'frame') return;
               seen.add(o.id);
               out.push({ id: o.id, x: o.x, y: o.y });
             };
@@ -758,6 +780,9 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       } as any;
 
       setIsDragging(true);
+      // Tell the board a block is in hand, so nothing else can move the world
+      // while it is (see dragState in lib/utils).
+      dragState.objectDrag = true;
 
       // Top-left drop dock: the upper zone MINIMIZES the object into the shelf;
       // the zone below that WARPS it to another canvas; the zone below THAT
@@ -768,6 +793,14 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       let overChatZone = false;
       let overAgentChatZone = false;
       let draggedFar = false;
+      /* A DELIBERATE drag — moved well past the 8px that merely distinguishes a
+         drag from a tap. The destructive drops (minimize into the shelf, warp
+         to another canvas, send to chat, file into a binder, pile onto another
+         note) all wait for this, so a tiny shaky nudge on a block near the left
+         edge or beside another note can no longer make it vanish. That was the
+         "I touched it and it disappeared" bug. */
+      let committedDrag = false;
+      const COMMIT_DIST = 26;
       /** Set once a card has actually been pulled clear of an open pile. */
       let detached = false;
       const HOTZONE_W = 210;
@@ -780,13 +813,44 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
          the LIVE camera, so it stays glued under the cursor as the world scrolls
          beneath it — that camera-compensation term is zero whenever the camera
          isn't moving, so an ordinary drag behaves exactly as before. */
-      const dragStartCam = { x: camera.x, y: camera.y };
-      const zoom = camera.zoom;
+      /* Read the camera LIVE, never from the render closure.
+         This is the bug that made blocks leap clear off the screen. This
+         callback's dependency list carries `camera.zoom` but not `camera`, so
+         panning the board — which changes x/y and leaves zoom alone — does not
+         rebuild it. `camera.x/y` in scope here were therefore whatever they
+         were the last time something else happened to rebuild the callback,
+         and every pan since then silently widened the gap.
+
+         Harmless until edge auto-pan arrived, because nothing read the camera
+         at grab time. Now `positionAt` subtracts (liveCam − dragStartCam) to
+         hold the block under the cursor while the viewport scrolls: feed that
+         a stale origin and the term isn't zero at rest, it's your entire
+         accumulated pan. The block jumped by exactly that on the first
+         movement — hundreds or thousands of px, straight out of view. It
+         behaved for a moment after load, then got worse the more you moved
+         around the board, which is precisely how it was reported. */
+      const camAtGrab = useCanvasStore.getState().camera;
+      const dragStartCam = { x: camAtGrab.x, y: camAtGrab.y };
+      const zoom = camAtGrab.zoom;
       let lastCursor = { x: e.clientX, y: e.clientY };
       let edgeRAF: number | null = null;
       let overAnyHotzone = false;
+      /** False the instant this session is torn down, however that happens. */
+      let alive = true;
 
       const positionAt = (cursorX: number, cursorY: number) => {
+        /* A TAP MOVES NOTHING. Until the cursor has travelled past the 8px
+           that separates a tap from a drag, this block stays exactly where it
+           is — no snap, no nudge, no write to the store. Before, the first
+           pixel of hand-shake ran the full drag path, and alignment snapping
+           immediately yanked the block onto a neighbour's edge: touch a card
+           to select it and it slid out from under you.
+
+           Nothing jumps when the drag does start, because every position here
+           is computed absolutely from the grab point rather than accumulated
+           frame by frame — the block picks up exactly where the cursor is. */
+        if (!draggedFar) return;
+
         const liveCam = useCanvasStore.getState().camera;
         const dx = (cursorX - dragStart.current.x) / zoom - (liveCam.x - dragStartCam.x) / zoom;
         const dy = (cursorY - dragStart.current.y) / zoom - (liveCam.y - dragStartCam.y) / zoom;
@@ -794,7 +858,13 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         let newX = dragStart.current.objX + dx;
         let newY = dragStart.current.objY + dy;
 
-        if (mode !== 'connector') {
+        /* A frame does NOT snap. Its edges/centre would try to align to every
+           block it wraps (getSnapPoints scans all others and keeps the LAST
+           match), so a big frame full of cards jumped erratically as you
+           dragged it — the "frames scatter/go away randomly" bug. A frame is a
+           loose backdrop; it goes exactly where you drag it. Other blocks still
+           snap to each other as before. */
+        if (mode !== 'connector' && dragObj.type !== 'frame') {
           const others = objects
             .filter((o) => o.id !== dragObj.id)
             .map((o) => ({ x: o.x, y: o.y, width: o.width, height: o.height }));
@@ -806,7 +876,6 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         // The moment a grab on a spread card becomes a real drag it leaves the
         // pile, at the exact spot it was drawn, so it comes away without a jump.
         if (spreadGrab && !detached) {
-          if (!draggedFar) return;
           detached = true;
           useCanvasStore.getState().unstackObject(dragObj.id, newX, newY);
         }
@@ -830,19 +899,25 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         }
 
         // Carried group moves by the frame's REAL (post-snap) displacement, so
-        // it stays rigidly attached.
+        // it stays rigidly attached. One batched commit for the whole group —
+        // not a store write per child — so carrying a 60-block frame stays
+        // smooth instead of firing 60 renders per mousemove.
         if (carried.length > 0) {
           const effDx = newX - dragStart.current.objX;
           const effDy = newY - dragStart.current.objY;
-          carried.forEach((c) => {
-            useCanvasStore.getState().updateObject(c.id, { x: c.x + effDx, y: c.y + effDy });
-          });
+          useCanvasStore.getState().translateObjects(
+            carried.map((c) => ({ id: c.id, x: c.x + effDx, y: c.y + effDy }))
+          );
         }
       };
 
       const EDGE = 72;       // px band along each edge that triggers a scroll
       const EDGE_SPEED = 17; // px/frame at the very edge, eased in across the band
       const tickEdge = () => {
+        // Re-arm only while this session is genuinely still the live one. A
+        // loop that outlives its drag is a viewport that scrolls away on its
+        // own, forever, with nobody touching anything.
+        if (!alive) { edgeRAF = null; return; }
         edgeRAF = requestAnimationFrame(tickEdge);
         // Only auto-pan a real drag, and never while poised over a dock hotzone
         // (those live on the same left edge and must win).
@@ -862,11 +937,22 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       edgeRAF = requestAnimationFrame(tickEdge);
 
       const handleMouseMove = (moveE: MouseEvent) => {
+        /* A move with no button held proves the release already happened
+           somewhere we never saw it — off the window's edge, in another app,
+           behind a native menu. This is the guard that actually saves us,
+           because it needs no event the browser might withhold: the very next
+           twitch of the mouse ends the orphaned drag. Without it the block
+           stayed welded to the cursor and the board scrolled away by itself. */
+        if (moveE.buttons === 0) { endDrag(); return; }
+
         if (Math.abs(moveE.clientX - dragStart.current.x) > 8 || Math.abs(moveE.clientY - dragStart.current.y) > 8) {
           draggedFar = true;
           dragMovedRef.current = true;
         }
-        const inLeftCol = draggedFar && moveE.clientX < HOTZONE_W;
+        if (Math.hypot(moveE.clientX - dragStart.current.x, moveE.clientY - dragStart.current.y) > COMMIT_DIST) {
+          committedDrag = true;
+        }
+        const inLeftCol = committedDrag && moveE.clientX < HOTZONE_W;
         // Frames/arrows can't be warped/sent meaningfully — neither has a
         // standalone snapshot that makes sense outside its canvas context.
         const warpable = dragObj.type !== 'frame' && dragObj.type !== 'arrow';
@@ -880,7 +966,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
 
         // Dropping a block onto the AI agent chat adds it as context there.
         const agentPanel = document.getElementById('agent-chat-panel');
-        if (agentPanel && warpable && draggedFar) {
+        if (agentPanel && warpable && committedDrag) {
           const rect = agentPanel.getBoundingClientRect();
           overAgentChatZone = moveE.clientX >= rect.left && moveE.clientX <= rect.right &&
                               moveE.clientY >= rect.top && moveE.clientY <= rect.bottom;
@@ -890,7 +976,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         }
 
         const chatPanel = document.getElementById('chat-panel-container');
-        if (chatPanel && warpable && draggedFar) {
+        if (chatPanel && warpable && committedDrag) {
           const rect = chatPanel.getBoundingClientRect();
           overChatZone = moveE.clientX >= rect.left && moveE.clientX <= rect.right &&
                          moveE.clientY >= rect.top && moveE.clientY <= rect.bottom;
@@ -910,7 +996,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         const wzone = document.getElementById('warp-hotzone');
         const wlabel = document.getElementById('warp-hotzone-label');
         if (wzone) {
-          wzone.style.opacity = draggedFar && canWarp ? '1' : '0';
+          wzone.style.opacity = committedDrag && canWarp ? '1' : '0';
           wzone.style.borderColor = overWarpZone ? 'var(--accent)' : 'rgba(var(--accent-rgb),0.28)';
           wzone.style.background = overWarpZone ? 'rgba(var(--accent-rgb),0.12)' : 'transparent';
         }
@@ -924,28 +1010,52 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         positionAt(moveE.clientX, moveE.clientY);
       };
 
-      const handleMouseUp = () => {
+      /* Release every resource this drag holds. Idempotent, and deliberately
+         free of any drop behaviour: it is what runs when a gesture ends in a
+         way we can't interpret (focus lost, pointer cancelled, a stray move
+         with no button), where the only right answer is to stop cleanly and
+         leave the block exactly where the user last saw it. */
+      const teardown = () => {
+        if (!alive) return false;
+        alive = false;
+        if (dragState.endActive === endDrag) dragState.endActive = null;
+        dragState.objectDrag = false;
         setIsDragging(false);
         if (edgeRAF !== null) { cancelAnimationFrame(edgeRAF); edgeRAF = null; }
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp, END_DRAG);
-        // Let the click that follows this mouseup see that we dragged (so it
+        window.removeEventListener('pointercancel', endDrag, END_DRAG);
+        window.removeEventListener('blur', endDrag);
+        // Let the click that follows a real mouseup see that we dragged (so it
         // won't cycle the shape), then clear the flag for the next real tap.
         if (dragMovedRef.current) setTimeout(() => { dragMovedRef.current = false; }, 0);
+        // Any hover chrome the drag lit up has to go out with it.
+        for (const [id, reset] of [
+          ['minimize-hotzone', (el: HTMLElement) => { el.style.borderColor = 'transparent'; el.style.background = 'transparent'; }],
+          ['minimize-hotzone-label', (el: HTMLElement) => { el.style.opacity = '0'; }],
+          ['warp-hotzone', (el: HTMLElement) => { el.style.opacity = '0'; el.style.borderColor = 'rgba(var(--accent-rgb),0.28)'; el.style.background = 'transparent'; }],
+          ['warp-hotzone-label', (el: HTMLElement) => { el.style.opacity = '0.55'; }],
+          ['chat-panel-container', (el: HTMLElement) => { el.style.transform = 'scale(1)'; }],
+          ['agent-chat-panel', (el: HTMLElement) => { el.style.boxShadow = ''; }],
+        ] as [string, (el: HTMLElement) => void][]) {
+          const el = document.getElementById(id);
+          if (el) reset(el);
+        }
+        return true;
+      };
 
-        const zone = document.getElementById('minimize-hotzone');
-        const label = document.getElementById('minimize-hotzone-label');
-        if (zone) { zone.style.borderColor = 'transparent'; zone.style.background = 'transparent'; }
-        if (label) label.style.opacity = '0';
-        const wzone = document.getElementById('warp-hotzone');
-        const wlabel = document.getElementById('warp-hotzone-label');
-        if (wzone) { wzone.style.opacity = '0'; wzone.style.borderColor = 'rgba(var(--accent-rgb),0.28)'; wzone.style.background = 'transparent'; }
-        if (wlabel) wlabel.style.opacity = '0.55';
-        
-        const chatPanel = document.getElementById('chat-panel-container');
-        if (chatPanel) chatPanel.style.transform = 'scale(1)';
-        const agentPanelEl = document.getElementById('agent-chat-panel');
-        if (agentPanelEl) agentPanelEl.style.boxShadow = '';
+      /** Abnormal end: stop the drag, keep the block where it is, keep undo honest. */
+      const endDrag = () => {
+        if (!teardown()) return;
+        if (!dragMovedRef.current) return;
+        const settled = useCanvasStore.getState().objects.find((o) => o.id === dragObj.id);
+        if (settled) pushUndo({ type: 'move', objectId: dragObj.id, before, after: { x: settled.x, y: settled.y } });
+      };
+
+      // The real release: teardown first (it also puts the dock chrome back),
+      // then decide what the drop MEANT.
+      const handleMouseUp = () => {
+        if (!teardown()) return;
 
         if (overMinimizeZone) {
           useCanvasStore.getState().minimizeObject(dragObj.id);
@@ -995,7 +1105,10 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         // and lay it out on a tidy 3-column grid inside the binder's canvas.
         // (This used to require dragObj.id !== obj.id — true only when Alt-cloning
         // — so a plain drag never actually bound anything.)
-        if (dragObj.type !== 'arrow' && !dragObj.style?.isBinder) {
+        // Gated on a committed drag: without it, a mere tap on a block that
+        // happens to sit over a binder teleported it inside — content vanishing
+        // on touch.
+        if (committedDrag && dragObj.type !== 'arrow' && !dragObj.style?.isBinder) {
           const state = useCanvasStore.getState();
           const live = state.objects.find((o) => o.id === dragObj.id);
           if (live) {
@@ -1023,7 +1136,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
            watch while they drag. This sits after the binder and dock checks
            so those keep priority, and before frame grouping so a pile made
            inside a frame still joins the frame. */
-        if (draggedFar && isStackable(dragObj)) {
+        if (committedDrag && isStackable(dragObj)) {
           const state = useCanvasStore.getState();
           const live = state.objects.find((o) => o.id === dragObj.id);
           if (live) {
@@ -1067,18 +1180,37 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           }
         }
 
+        /* Nothing actually moved — a tap, or a drag that never crossed the
+           threshold. Recording it would put a no-op on the undo stack, so
+           Ctrl+Z would appear to do nothing at all. */
+        if (!dragMovedRef.current) return;
+
+        // Where it ENDED UP, read live: `dragObj` is the snapshot from
+        // mousedown and still holds the pre-drag coordinates, so redoing a
+        // move used to send the block back to where it started.
+        const settled = useCanvasStore.getState().objects.find((o) => o.id === dragObj.id);
+        if (!settled) return;
         pushUndo({
           type: 'move',
           objectId: dragObj.id,
           before,
-          after: { x: dragObj.x, y: dragObj.y },
+          after: { x: settled.x, y: settled.y },
         });
       };
 
+      /* Every way this gesture can end, wired to a teardown that survives all
+         of them. `mouseup` is the normal one; `pointercancel` fires when the
+         OS or the browser takes the pointer away (a touch turning into a
+         scroll, a native drag starting); `blur` covers alt-tab and anything
+         that steals focus mid-drag. The mousemove buttons check above catches
+         whatever still slips through. */
+      dragState.endActive = endDrag;
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp, END_DRAG);
+      window.addEventListener('pointercancel', endDrag, END_DRAG);
+      window.addEventListener('blur', endDrag);
     },
-    [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex, addObject, readOnly, isTouring, spreadStackId]
+    [mode, isEditing, obj, objects, setSelectedId, updateObject, pushUndo, getNextZIndex, addObject, readOnly, isTouring, spreadStackId]
   );
 
   const handleResizeStart = useCallback(
@@ -1086,6 +1218,13 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       e.stopPropagation();
       e.preventDefault();
       setIsResizing(true);
+      endActiveDrag();
+      dragState.objectDrag = true;
+      let alive = true;
+      // Zoom read live at grab time, not from the render closure — see the
+      // note on dragStartCam in handleMouseDown for what stale camera state
+      // costs. A gesture's scale must be the scale on screen when it started.
+      const zoom = useCanvasStore.getState().camera.zoom;
 
       resizeStart.current = {
         x: e.clientX,
@@ -1098,8 +1237,10 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       } as any;
 
       const handleMouseMove = (moveE: MouseEvent) => {
-        const dx = (moveE.clientX - resizeStart.current.x) / camera.zoom;
-        const dy = (moveE.clientY - resizeStart.current.y) / camera.zoom;
+        // No button held -> the release happened where we couldn't see it.
+        if (moveE.buttons === 0) { handleMouseUp(); return; }
+        const dx = (moveE.clientX - resizeStart.current.x) / zoom;
+        const dy = (moveE.clientY - resizeStart.current.y) / zoom;
         
         if (obj.type === 'arrow') {
           const initialStyle = obj.style || {};
@@ -1145,15 +1286,24 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       };
 
       const handleMouseUp = () => {
+        if (!alive) return;
+        alive = false;
+        if (dragState.endActive === handleMouseUp) dragState.endActive = null;
         setIsResizing(false);
+        dragState.objectDrag = false;
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp);
+        window.removeEventListener('pointercancel', handleMouseUp);
+        window.removeEventListener('blur', handleMouseUp);
       };
 
+      dragState.endActive = handleMouseUp;
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('pointercancel', handleMouseUp);
+      window.addEventListener('blur', handleMouseUp);
     },
-    [obj, camera.zoom, updateObject]
+    [obj, updateObject]
   );
 
   // Drag an arrow's start / end / bend control point. The bend point turns a
@@ -1172,10 +1322,15 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         : which === 'end' ? { x: ex, y: ey }
         : hasBend ? { x: s.bendX as number, y: s.bendY as number } : { x: (sx + ex) / 2, y: (sy + ey) / 2 };
       const origin = { x: e.clientX, y: e.clientY };
+      const zoom = useCanvasStore.getState().camera.zoom;
+      endActiveDrag();
+      dragState.objectDrag = true;
+      let alive = true;
 
       const move = (me: MouseEvent) => {
-        const dx = (me.clientX - origin.x) / camera.zoom;
-        const dy = (me.clientY - origin.y) / camera.zoom;
+        if (me.buttons === 0) { up(); return; }
+        const dx = (me.clientX - origin.x) / zoom;
+        const dy = (me.clientY - origin.y) / zoom;
         const ns: Record<string, unknown> = { ...s };
         if (which === 'start') { ns.startX = base.x + dx; ns.startY = base.y + dy; }
         else if (which === 'end') { ns.endX = base.x + dx; ns.endY = base.y + dy; }
@@ -1192,13 +1347,22 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         });
       };
       const up = () => {
+        if (!alive) return;
+        alive = false;
+        if (dragState.endActive === up) dragState.endActive = null;
+        dragState.objectDrag = false;
         window.removeEventListener('mousemove', move);
         window.removeEventListener('mouseup', up);
+        window.removeEventListener('pointercancel', up);
+        window.removeEventListener('blur', up);
       };
+      dragState.endActive = up;
       window.addEventListener('mousemove', move);
       window.addEventListener('mouseup', up);
+      window.addEventListener('pointercancel', up);
+      window.addEventListener('blur', up);
     },
-    [obj, camera.zoom, updateObject]
+    [obj, updateObject]
   );
 
   // Frames resize from any corner or edge, not just the bottom-right —
@@ -1208,14 +1372,19 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       e.stopPropagation();
       e.preventDefault();
       setIsResizing(true);
+      endActiveDrag();
+      dragState.objectDrag = true;
+      let alive = true;
 
       const startClientX = e.clientX;
       const startClientY = e.clientY;
       const start = { x: obj.x, y: obj.y, w: obj.width, h: obj.height };
+      const zoom = useCanvasStore.getState().camera.zoom;
 
       const handleMouseMove = (moveE: MouseEvent) => {
-        const dx = (moveE.clientX - startClientX) / camera.zoom;
-        const dy = (moveE.clientY - startClientY) / camera.zoom;
+        if (moveE.buttons === 0) { handleMouseUp(); return; }
+        const dx = (moveE.clientX - startClientX) / zoom;
+        const dy = (moveE.clientY - startClientY) / zoom;
 
         let { x, y, w, h } = start;
         const MIN_W = 160;
@@ -1236,15 +1405,24 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       };
 
       const handleMouseUp = () => {
+        if (!alive) return;
+        alive = false;
+        if (dragState.endActive === handleMouseUp) dragState.endActive = null;
         setIsResizing(false);
+        dragState.objectDrag = false;
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp);
+        window.removeEventListener('pointercancel', handleMouseUp);
+        window.removeEventListener('blur', handleMouseUp);
       };
 
+      dragState.endActive = handleMouseUp;
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('pointercancel', handleMouseUp);
+      window.addEventListener('blur', handleMouseUp);
     },
-    [obj, camera.zoom, updateObject]
+    [obj, updateObject]
   );
 
   const handleRotateStart = useCallback(
@@ -1260,8 +1438,12 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
 
       const initialRotation = obj.rotation || 0;
       const startAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+      endActiveDrag();
+      dragState.objectDrag = true;
+      let alive = true;
 
       const handleMouseMove = (moveE: MouseEvent) => {
+        if (moveE.buttons === 0) { handleMouseUp(); return; }
         const currentAngle = Math.atan2(moveE.clientY - centerY, moveE.clientX - centerX);
         const angleDiff = currentAngle - startAngle;
         let newRotation = initialRotation + (angleDiff * 180) / Math.PI;
@@ -1277,12 +1459,21 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       };
 
       const handleMouseUp = () => {
+        if (!alive) return;
+        alive = false;
+        if (dragState.endActive === handleMouseUp) dragState.endActive = null;
+        dragState.objectDrag = false;
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp);
+        window.removeEventListener('pointercancel', handleMouseUp);
+        window.removeEventListener('blur', handleMouseUp);
       };
 
+      dragState.endActive = handleMouseUp;
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('pointercancel', handleMouseUp);
+      window.addEventListener('blur', handleMouseUp);
     },
     [obj, updateObject]
   );
@@ -1531,6 +1722,11 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
   }, [growsToFit, isEditing, isResizing, obj.id, obj.content, obj.width, obj.height, obj.style?.fontSize, obj.style?.fontFamily, obj.style?.isCheckpoint, updateObject, syncWidth]);
 
   useEffect(() => () => forgetMeasuredHeight(obj.id), [obj.id]);
+
+  /* If this block goes away mid-gesture — viewport culling, a collab sync, a
+     canvas switch — the drag it was running has nothing left to drive it, but
+     its window listeners and rAF loop would keep going. End it on unmount. */
+  useEffect(() => () => { if (dragState.endActive) endActiveDrag(); }, []);
 
   /* ---- Semantic zoom ----------------------------------------------------
      Far enough out, this block stops printing its text and prints what it is
@@ -2900,6 +3096,13 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <QuickDataBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isRoadmap) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <RoadmapBlock obj={obj} />
             </div>
           );
         }

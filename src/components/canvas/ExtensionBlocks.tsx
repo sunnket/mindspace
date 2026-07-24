@@ -14,6 +14,9 @@ import {
   addDays,
   daysBetween,
 } from '@/lib/timeline';
+import DataToolbar from './DataToolbar';
+import { useDataView, requestAiFill } from '@/lib/useDataView';
+import { DataColumn, DataRow, applyView } from '@/lib/dataTools';
 
 /* ============================================================
    Shared bits — every block is a light "clay" tile that matches
@@ -53,22 +56,26 @@ function Seamless({
   );
 }
 
-function BlockShell({
+export function BlockShell({
   tint,
   icon,
   tag,
   badge,
+  toolbar,
   children,
 }: {
   tint: string;
   icon: React.ReactNode;
   tag: string;
   badge?: React.ReactNode;
+  /** The hover-revealed data tools. Lives in the header's left corner,
+   *  swapping places with the type label rather than crowding it. */
+  toolbar?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div
-      className="flex flex-col h-full w-full rounded-2xl pointer-events-auto bg-[#FFFDFA] dark:bg-[var(--bg-secondary)] border border-[rgba(var(--accent-rgb),0.16)] dark:border-white/10 shadow-[inset_0_1.5px_0_rgba(255,255,255,0.95),0_14px_28px_-14px_rgba(90,62,40,0.22),0_3px_8px_-4px_rgba(90,62,40,0.08)] dark:shadow-[0_14px_28px_-14px_rgba(0,0,0,0.6),0_3px_8px_-4px_rgba(0,0,0,0.5)]"
+      className={`relative flex flex-col h-full w-full rounded-2xl pointer-events-auto bg-[#FFFDFA] dark:bg-[var(--bg-secondary)] border border-[rgba(var(--accent-rgb),0.16)] dark:border-white/10 shadow-[inset_0_1.5px_0_rgba(255,255,255,0.95),0_14px_28px_-14px_rgba(90,62,40,0.22),0_3px_8px_-4px_rgba(90,62,40,0.08)] dark:shadow-[0_14px_28px_-14px_rgba(0,0,0,0.6),0_3px_8px_-4px_rgba(0,0,0,0.5)] ${toolbar ? 'has-data-toolbar' : ''}`}
       style={{
         color: 'var(--text-primary)',
         fontFamily: "'Outfit', sans-serif",
@@ -77,8 +84,9 @@ function BlockShell({
         padding: '14px 16px',
       }}
     >
-      <div className="flex items-center justify-between shrink-0" style={{ marginBottom: 8 }}>
-        <div className="flex items-center gap-1.5 min-w-0">
+      {toolbar}
+      <div className="block-head flex items-center justify-between shrink-0" style={{ marginBottom: 8 }}>
+        <div className="block-head-id flex items-center gap-1.5 min-w-0">
           <span
             className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
             style={{ background: `${tint}1E`, color: tint }}
@@ -361,15 +369,78 @@ export function LiveMetricBlock({ obj }: { obj: CanvasObjectData }) {
   const selectedId = useCanvasStore((s) => s.selectedId);
   const isSelected = selectedId === obj.id;
   const tint = '#2F9E6E';
+  const { view, setView } = useDataView(obj);
 
   const title = (obj.style?.metricTitle as string) || '';
   const value = (obj.style?.metricValue as string) || '';
   const trend = (obj.style?.metricTrend as string) || '';
-  const chartData = (obj.style?.metricChartData as number[]) || [60, 62, 61, 65, 68, 70, 71.3];
-  const [rawData, setRawData] = useState(chartData.join(', '));
+  /* Memoised because the fallback is a fresh array literal: without this it
+     is a new reference on every render, so every useMemo keyed on it below
+     recomputes forever and the sparkline never settles. */
+  const storedData = useMemo<number[]>(
+    () => (obj.style?.metricChartData as number[]) || [60, 62, 61, 65, 68, 70, 71.3],
+    [obj.style]
+  );
+  const [rawData, setRawData] = useState(() => storedData.join(', '));
+
+  /* ---- the data tools ----
+     A metric's rows are its readings. Sorting re-plots them ranked (a
+     distribution view) and filtering trims outliers — both are lenses over
+     `metricChartData`, which is never rewritten, so clearing the view puts
+     the series straight back in time order. Search and column-hiding have
+     nothing to act on here, so those two tools aren't offered rather than
+     sitting there doing nothing. */
+  const metricCols = useMemo<DataColumn[]>(() => ([
+    { id: 'value', name: 'Reading', kind: 'number' },
+  ]), []);
+  const metricRows = useMemo<DataRow[]>(
+    () => storedData.map((v, i) => ({ id: `m${i}`, cells: { value: String(v) } })),
+    [storedData]
+  );
+  const chartData = useMemo<number[]>(
+    () => applyView(metricRows, metricCols, view).map(({ index }) => storedData[index]).filter((n) => typeof n === 'number'),
+    [metricRows, metricCols, view, storedData]
+  );
 
   const patch = (kv: Record<string, unknown>) =>
     updateObject(obj.id, { style: { ...obj.style, ...kv } });
+
+  /** AI fill for a metric: complete a half-written card, or extend the series. */
+  const metricAiFill = async (mode: 'complete' | 'extend') => {
+    if (mode === 'extend') {
+      const made = await requestAiFill({
+        mode, subject: title.trim() || 'a business metric over time',
+        columns: metricCols, rows: metricRows, count: 6,
+      });
+      const nums = made.map((m) => parseFloat(m.value)).filter((n) => !isNaN(n));
+      if (!nums.length) throw new Error('The model returned no usable readings.');
+      const next = [...storedData, ...nums];
+      patch({ metricChartData: next });
+      setRawData(next.join(', '));
+      return;
+    }
+    // "Complete" fills the CARD, not the series — a metric with numbers but no
+    // name or trend is the actual half-finished state people leave these in.
+    const made = await requestAiFill({
+      mode: 'extend',
+      subject: `a metric card. Existing name: "${title || '(none)'}". Latest readings: ${storedData.slice(-8).join(', ')}`,
+      columns: [
+        { id: 'name', name: 'Metric name', kind: 'text' },
+        { id: 'headline', name: 'Headline value', kind: 'text' },
+        { id: 'trend', name: 'Trend, like +12% this week', kind: 'text' },
+      ],
+      rows: [],
+      count: 1,
+    });
+    const m = made[0];
+    if (!m) throw new Error('The model returned nothing.');
+    const kv: Record<string, unknown> = {};
+    if (!title.trim() && m.name) kv.metricTitle = m.name;
+    if (!value.trim() && m.headline) kv.metricValue = m.headline;
+    if (!trend.trim() && m.trend) kv.metricTrend = m.trend;
+    if (Object.keys(kv).length === 0) throw new Error('Nothing was blank to fill.');
+    patch(kv);
+  };
 
   // Data-entry first: a freshly inserted metric asks for its numbers before it
   // renders the sparkline. Existing/agent-made metrics (no metricSetup flag)
@@ -442,7 +513,17 @@ export function LiveMetricBlock({ obj }: { obj: CanvasObjectData }) {
       tint={tint}
       tag="live metric"
       icon={<MiniIcon><polyline points="3 17 9 11 13 15 21 7" /><polyline points="15 7 21 7 21 13" /></MiniIcon>}
-      badge={<Badge tint={tint}>live</Badge>}
+      badge={<Badge tint={tint}>{chartData.length < storedData.length ? `${chartData.length}/${storedData.length}` : 'live'}</Badge>}
+      toolbar={
+        <DataToolbar
+          columns={metricCols}
+          view={view}
+          onView={setView}
+          onAiFill={metricAiFill}
+          tools={['sort', 'filter', 'ai']}
+          aiHint={`${storedData.length} readings in this series.`}
+        />
+      }
     >
       <Seamless value={title} onChange={(v) => patch({ metricTitle: v })} placeholder="metric name" className="text-[11px] font-semibold text-[var(--text-secondary)]" />
 
@@ -1389,6 +1470,8 @@ function ChartLink({ onClick, children }: { onClick: () => void; children: React
 
 export function ChartBlock({ obj }: { obj: CanvasObjectData }) {
   const updateObject = useCanvasStore((s) => s.updateObject);
+  // Every hook runs before the phase early-returns below (Rules of Hooks).
+  const { view, setView } = useDataView(obj);
 
   const chartType = obj.style?.chartType as ChartType | undefined;
   const title = (obj.style?.chartTitle as string) || '';
@@ -1413,6 +1496,63 @@ export function ChartBlock({ obj }: { obj: CanvasObjectData }) {
 
   const patch = (kv: Record<string, unknown>) =>
     updateObject(obj.id, { style: { ...obj.style, ...kv } });
+
+  /* ---- the data tools ----
+     A chart's rows are its data points, so search / sort / filter act on the
+     SERIES: sort a bar chart by value to rank it, filter a pie to a subset,
+     search a long category list. Hiding columns is meaningless here (there
+     are only ever a label and a value), so that tool is left off. */
+  const chartCols = useMemo<DataColumn[]>(() => ([
+    { id: 'label', name: 'Label', kind: 'text' },
+    { id: 'value', name: 'Value', kind: 'number' },
+  ]), []);
+  const chartRows = useMemo<DataRow[]>(
+    () => savedData.map((r, i) => ({ id: `p${i}`, cells: { label: String(r.label ?? ''), value: String(r.value ?? '') } })),
+    [savedData]
+  );
+  const viewedData = useMemo<ChartRow[]>(
+    () => applyView(chartRows, chartCols, view).map(({ index }) => savedData[index]).filter(Boolean),
+    [chartRows, chartCols, view, savedData]
+  );
+
+  const chartAiFill = async (mode: 'complete' | 'extend') => {
+    const made = await requestAiFill({
+      mode,
+      subject: title.trim() || `a ${chartType || 'bar'} chart`,
+      columns: chartCols,
+      rows: chartRows,
+      count: 5,
+    });
+    if (mode === 'complete') {
+      patch({
+        chartData: savedData.map((r, i) => {
+          const add = made[i];
+          if (!add) return r;
+          const label = String(r.label ?? '').trim() === '' && add.label ? add.label : r.label;
+          const value = (r.value === undefined || r.value === null || isNaN(Number(r.value))) && add.value !== undefined
+            ? parseFloat(add.value) : r.value;
+          return { ...r, label, value };
+        }),
+      });
+    } else {
+      const rows: ChartRow[] = made
+        .map((m) => ({ label: String(m.label ?? '').trim(), value: parseFloat(m.value ?? '') }))
+        .filter((r) => r.label !== '' && !isNaN(r.value));
+      if (!rows.length) throw new Error('The model returned nothing usable.');
+      patch({ chartData: [...savedData, ...rows], chartReady: true });
+    }
+  };
+
+  const chartToolbar = (
+    <DataToolbar
+      columns={chartCols}
+      view={view}
+      onView={setView}
+      onAiFill={chartAiFill}
+      tools={['search', 'sort', 'filter', 'ai']}
+      aiHint={`${savedData.length} data point${savedData.length === 1 ? '' : 's'} in this series.`}
+    />
+  );
 
   const pickType = (t: ChartType) => {
     patch({ chartType: t });
@@ -1566,7 +1706,10 @@ export function ChartBlock({ obj }: { obj: CanvasObjectData }) {
   }
 
   /* ---- PHASE 3: render the chart ---- */
-  const data = savedData;
+  // Drawn through the view, so a sort or a filter reshapes the actual chart
+  // rather than some list beside it — which is the whole point of putting
+  // these tools on a chart at all.
+  const data = viewedData;
   const maxVal = Math.max(...data.map((d) => d.value), 0) || 1;
   const gridFracs = [0.25, 0.5, 0.75, 1];
   /** Room reserved above each bar for its value label — the gridlines use the
@@ -1755,7 +1898,8 @@ export function ChartBlock({ obj }: { obj: CanvasObjectData }) {
       tint={CHART_TINT}
       tag={typeLabel}
       icon={<MiniIcon><line x1="6" y1="20" x2="6" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="18" y1="20" x2="18" y2="14" /></MiniIcon>}
-      badge={<Badge tint={CHART_TINT}>{data.length} pts</Badge>}
+      badge={<Badge tint={CHART_TINT}>{data.length < savedData.length ? `${data.length}/${savedData.length} pts` : `${data.length} pts`}</Badge>}
+      toolbar={chartToolbar}
     >
       <Seamless value={title} onChange={(v) => patch({ chartTitle: v })} placeholder="Chart title…" className="text-[12px] font-bold" />
       {chart}
@@ -2014,6 +2158,7 @@ function looksNumeric(v: string): boolean {
 export function TableBlock({ obj }: { obj: CanvasObjectData }) {
   const updateObject = useCanvasStore((s) => s.updateObject);
   const rootRef = useRef<HTMLDivElement>(null);
+  const { view, setView } = useDataView(obj);
 
   const title = (obj.style?.tableTitle as string) || '';
   const cols = useMemo<string[]>(
@@ -2101,16 +2246,78 @@ export function TableBlock({ obj }: { obj: CanvasObjectData }) {
     patch({ tableCols: nextCols, tableRows: nextRows });
   };
 
-  const template = `repeat(${cols.length}, minmax(${CELL_MIN_W}px, 1fr)) 26px`;
-  const minW = cols.length * CELL_MIN_W + 26;
+  /* ---- the data tools -------------------------------------------------
+     This grid is a plain string[][] with no column identity of its own, so
+     the shared tooling gets a synthetic column per header ("c0", "c1", …)
+     and rows keyed the same way. Everything the toolbar does — sorting,
+     filtering, hiding, AI fill — then works on exactly the same footing as
+     the roadmap's typed columns, with no second implementation. */
+  const dataCols = useMemo<DataColumn[]>(
+    () => cols.map((h, i) => ({
+      id: `c${i}`,
+      name: h || `Column ${String.fromCharCode(65 + (i % 26))}`,
+      // A column of numbers should sort like numbers, so infer it from what
+      // is actually in the cells rather than making the user declare it.
+      kind: (rows.length > 0 && rows.every((r) => r[i] === undefined || r[i].trim() === '' || looksNumeric(r[i]))
+        && rows.some((r) => looksNumeric(r[i] ?? ''))) ? 'number' : 'text',
+    })),
+    [cols, rows]
+  );
+  const dataRows = useMemo<DataRow[]>(
+    () => rows.map((r, ri) => ({
+      id: `r${ri}`,
+      cells: Object.fromEntries(r.map((cell, ci) => [`c${ci}`, cell])),
+    })),
+    [rows]
+  );
+  const visibleColIdx = cols.map((_, i) => i).filter((i) => !view.hidden.includes(`c${i}`));
+  const visible = useMemo(() => applyView(dataRows, dataCols, view), [dataRows, dataCols, view]);
+
+  const aiFill = async (mode: 'complete' | 'extend') => {
+    const made = await requestAiFill({
+      mode,
+      subject: title.trim() || 'a spreadsheet table',
+      columns: dataCols,
+      rows: dataRows,
+      count: 5,
+    });
+    if (mode === 'complete') {
+      patch({
+        tableRows: rows.map((row, ri) => {
+          const add = made[ri];
+          if (!add) return row;
+          // Only ever fill a blank — never overwrite what the user typed.
+          return row.map((cell, ci) => (cell.trim() === '' ? (add[`c${ci}`] ?? cell) : cell));
+        }),
+      });
+    } else {
+      if (!made.length) throw new Error('The model returned nothing to add.');
+      patch({
+        tableRows: [...rows, ...made.map((cellMap) => cols.map((_, ci) => cellMap[`c${ci}`] ?? ''))],
+      });
+    }
+  };
+
+  const template = `repeat(${visibleColIdx.length}, minmax(${CELL_MIN_W}px, 1fr)) 26px`;
+  const minW = visibleColIdx.length * CELL_MIN_W + 26;
   const filled = rows.reduce((n, row) => n + (row.some((cell) => cell.trim() !== '') ? 1 : 0), 0);
+  const hiddenRows = rows.length - visible.length;
 
   return (
     <BlockShell
       tint={TABLE_TINT}
       tag="table"
       icon={<MiniIcon><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="3" y1="14" x2="21" y2="14" /><line x1="9" y1="4" x2="9" y2="20" /><line x1="15" y1="4" x2="15" y2="20" /></MiniIcon>}
-      badge={<Badge tint={TABLE_TINT}>{rows.length} × {cols.length}</Badge>}
+      badge={<Badge tint={TABLE_TINT}>{hiddenRows > 0 ? `${visible.length}/${rows.length}` : `${rows.length} × ${cols.length}`}</Badge>}
+      toolbar={
+        <DataToolbar
+          columns={dataCols}
+          view={view}
+          onView={setView}
+          onAiFill={aiFill}
+          aiHint={`${filled}/${rows.length} rows have content.`}
+        />
+      }
     >
       <Seamless
         value={title}
@@ -2133,11 +2340,11 @@ export function TableBlock({ obj }: { obj: CanvasObjectData }) {
             className="sticky top-0 z-10 grid bg-[#F5EFE7] dark:bg-[#26221E] border-b border-[var(--border-strong)]"
             style={{ gridTemplateColumns: template }}
           >
-            {cols.map((h, c) => (
+            {visibleColIdx.map((c) => (
               <div key={c} className="group/th relative flex items-center border-r border-[var(--border)] last:border-r-0">
                 <input
                   type="text"
-                  value={h}
+                  value={cols[c]}
                   data-tcell={`-1:${c}`}
                   placeholder={`Column ${String.fromCharCode(65 + (c % 26))}`}
                   onChange={(e) => setHeader(c, e.target.value)}
@@ -2148,6 +2355,28 @@ export function TableBlock({ obj }: { obj: CanvasObjectData }) {
                   className="w-full min-w-0 bg-transparent outline-none text-[10.5px] font-extrabold uppercase tracking-[0.08em] cursor-text placeholder:normal-case placeholder:tracking-normal placeholder:font-semibold placeholder:text-[var(--text-muted)]"
                   style={{ padding: '7px 9px', color: TABLE_TINT }}
                 />
+                {/* click-to-sort, quiet until you're over the header */}
+                <button
+                  onClick={(e) => {
+                    stop(e);
+                    const id = `c${c}`;
+                    setView({
+                      ...view,
+                      sort: view.sort?.columnId !== id ? { columnId: id, dir: 'asc' }
+                        : view.sort.dir === 'asc' ? { columnId: id, dir: 'desc' }
+                        : null,
+                    });
+                  }}
+                  onMouseDown={stop} onPointerDown={stop}
+                  title="Sort by this column"
+                  aria-label="Sort by this column"
+                  className={`absolute w-3.5 h-3.5 items-center justify-center cursor-pointer flex transition-opacity ${view.sort?.columnId === `c${c}` ? 'opacity-100' : 'opacity-0 group-hover/th:opacity-100'}`}
+                  style={{ right: cols.length > 1 ? 16 : 3, color: view.sort?.columnId === `c${c}` ? 'var(--accent)' : 'var(--text-muted)' }}
+                >
+                  {view.sort?.columnId === `c${c}` && view.sort.dir === 'desc'
+                    ? <MiniIcon size={9}><path d="M12 20V4" /><path d="M6 14l6 6 6-6" /></MiniIcon>
+                    : <MiniIcon size={9}><path d="M12 4v16" /><path d="M6 10l6-6 6 6" /></MiniIcon>}
+                </button>
                 {cols.length > 1 && (
                   <button
                     onClick={(e) => { stop(e); removeCol(c); }}
@@ -2172,39 +2401,50 @@ export function TableBlock({ obj }: { obj: CanvasObjectData }) {
             </button>
           </div>
 
-          {/* Body rows */}
-          {rows.map((row, r) => (
-            <div
-              key={r}
-              className="group/tr grid border-b border-[var(--border)] last:border-b-0 hover:bg-[rgba(139,95,191,0.045)] transition-colors"
-              style={{ gridTemplateColumns: template, background: r % 2 === 1 ? 'rgba(90,62,40,0.025)' : undefined }}
-            >
-              {row.map((cell, c) => (
-                <div key={c} className="flex items-center border-r border-[var(--border)] last:border-r-0 min-w-0">
-                  <input
-                    type="text"
-                    value={cell}
-                    data-tcell={`${r}:${c}`}
-                    onChange={(e) => setCell(r, c, e.target.value)}
-                    onKeyDown={(e) => onCellKeyDown(e, r, c)}
-                    onPaste={(e) => onCellPaste(e, r, c)}
-                    onMouseDown={stop} onPointerDown={stop} onClick={stop}
-                    className={`w-full min-w-0 bg-transparent outline-none text-[11.5px] font-medium text-[var(--text-primary)] cursor-text focus:bg-[rgba(139,95,191,0.07)] ${looksNumeric(cell) ? 'text-right tabular-nums' : ''}`}
-                    style={{ padding: '6px 9px' }}
-                  />
-                </div>
-              ))}
-              <button
-                onClick={(e) => { stop(e); removeRow(r); }}
-                onMouseDown={stop} onPointerDown={stop}
-                aria-label="Remove row"
-                title="Remove row"
-                className="items-center justify-center text-[var(--text-muted)] hover:text-red-500 hidden group-hover/tr:flex cursor-pointer"
+          {/* Body rows — rendered THROUGH the view (search / filter / sort),
+              but every edit writes back through `r`, the row's real index in
+              the stored array. A sorted view is a lens, never a reordering. */}
+          {visible.map(({ index: r }, n) => {
+            const row = rows[r];
+            return (
+              <div
+                key={r}
+                className="group/tr grid border-b border-[var(--border)] last:border-b-0 hover:bg-[rgba(139,95,191,0.045)] transition-colors"
+                style={{ gridTemplateColumns: template, background: n % 2 === 1 ? 'rgba(90,62,40,0.025)' : undefined }}
               >
-                <MiniIcon size={9}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></MiniIcon>
-              </button>
+                {visibleColIdx.map((c) => (
+                  <div key={c} className="flex items-center border-r border-[var(--border)] last:border-r-0 min-w-0">
+                    <input
+                      type="text"
+                      value={row[c] ?? ''}
+                      data-tcell={`${r}:${c}`}
+                      onChange={(e) => setCell(r, c, e.target.value)}
+                      onKeyDown={(e) => onCellKeyDown(e, r, c)}
+                      onPaste={(e) => onCellPaste(e, r, c)}
+                      onMouseDown={stop} onPointerDown={stop} onClick={stop}
+                      className={`w-full min-w-0 bg-transparent outline-none text-[11.5px] font-medium text-[var(--text-primary)] cursor-text focus:bg-[rgba(139,95,191,0.07)] ${looksNumeric(row[c] ?? '') ? 'text-right tabular-nums' : ''}`}
+                      style={{ padding: '6px 9px' }}
+                    />
+                  </div>
+                ))}
+                <button
+                  onClick={(e) => { stop(e); removeRow(r); }}
+                  onMouseDown={stop} onPointerDown={stop}
+                  aria-label="Remove row"
+                  title="Remove row"
+                  className="items-center justify-center text-[var(--text-muted)] hover:text-red-500 hidden group-hover/tr:flex cursor-pointer"
+                >
+                  <MiniIcon size={9}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></MiniIcon>
+                </button>
+              </div>
+            );
+          })}
+          {visible.length === 0 && rows.length > 0 && (
+            <div className="flex items-center justify-center text-[10.5px] font-semibold text-[var(--text-muted)]"
+              style={{ padding: '18px 10px' }}>
+              Nothing matches the current search or filters.
             </div>
-          ))}
+          )}
         </div>
       </div>
 

@@ -28,6 +28,10 @@
   
   --border: rgba(45, 42, 38, 0.08);
   --border-strong: rgba(45, 42, 38, 0.15);
+
+  /* Connector ink. Was hard-coded black in the SVG layer, which vanished
+     on the dark canvas — a link has to be equally readable in both themes. */
+  --connector-ink: rgba(45, 42, 38, 0.62);
   
   --shadow-sm: 0 1px 3px rgba(45, 42, 38, 0.04), 0 1px 2px rgba(45, 42, 38, 0.06);
   --shadow-md: 0 4px 12px rgba(45, 42, 38, 0.06), 0 2px 4px rgba(45, 42, 38, 0.04);
@@ -1013,6 +1017,7 @@ html, body {
   --well-inset: inset 0 1.5px 4px rgba(0, 0, 0, 0.45);
   --well-inset-deep: inset 0 2px 6px rgba(0, 0, 0, 0.55);
   --track: rgba(255, 255, 255, 0.14);
+  --connector-ink: rgba(233, 226, 218, 0.55);
 }
 :root[data-canvas-theme="dark"] .focus-overlay {
   background: rgba(10, 10, 12, 0.72);
@@ -1163,3 +1168,44 @@ html, body {
   overflow-x: auto;
 }
 [data-canvas-theme="dark"] .rich-text .rich-code-block { background: rgba(255, 255, 255, 0.07); }
+
+/* ------------------------------------------------------------------
+   Data-block toolbar (search / sort / filter / AI fill / hide).
+
+   These blocks were already finished and already look right, so the
+   bar has to cost them NOTHING at rest: fully transparent, no hit
+   area, no layout. It fades in when you're over the block — and stays
+   put whenever a tool is genuinely live ([data-live]), because a sort
+   or a filter you can't see is a trap rather than a clean UI.
+   ------------------------------------------------------------------ */
+.data-toolbar {
+  opacity: 0;
+  transform: translateY(-2px);
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+.canvas-object:hover .data-toolbar,
+.canvas-object.selected .data-toolbar,
+.data-toolbar:focus-within,
+.data-toolbar[data-live='on'] {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+/* The bar occupies the same corner as the block's own type label ("TABLE",
+   "CHART"). Rather than crowd them together or reflow the header, they SWAP:
+   the label — which is decoration you've already read — fades out exactly as
+   the tools fade in. Nothing moves, nothing is added, and at rest the block
+   is pixel-identical to how it looked before any of this existed. */
+.block-head-id {
+  transition: opacity 160ms ease;
+}
+.has-data-toolbar:hover .block-head-id,
+.has-data-toolbar.is-open .block-head-id {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .data-toolbar,
+  .block-head-id { transition: none; }
+}

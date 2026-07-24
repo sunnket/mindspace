@@ -8,6 +8,7 @@ import { screenToCanvas, randomStickyColor } from '@/lib/utils';
 import { ingestFile } from '@/lib/fileIngest';
 import { createRepoBlock, ingestFolderPickerIntoBlock } from '@/lib/repoIngest';
 import { newTimeline } from '@/lib/timeline';
+import { newRoadmapColumns, newRoadmapRows } from '@/lib/dataTools';
 import { pendingCameraStart } from '@/components/canvas/MirrorBlock';
 
 // NOTE ON SPACING: the app's global `* { margin:0; padding:0 }` reset is
@@ -362,6 +363,27 @@ export default function PlusMenu() {
                 isTable: true,
                 tableCols: ['Item', 'Owner', 'Status'],
                 tableRows: [['', '', ''], ['', '', ''], ['', '', '']],
+              },
+            });
+          },
+        },
+        {
+          icon: (<MenuIcon><path d="M4 6h7M4 12h13M4 18h9" /><circle cx="19" cy="6" r="1.7" /><circle cx="20" cy="18" r="1.7" /></MenuIcon>),
+          label: 'Roadmap',
+          desc: 'Status, assignee, priority — sortable',
+          keywords: 'database board tasks tracker backlog sprint project plan kanban notion linear status assignee priority',
+          action: () => {
+            addObject({
+              // Wide enough that all five columns land on screen without a
+              // horizontal scroll on first insert (30 + 270 + 130 + 120 + 150
+              // + 110 + 30 grid, plus the shell's 28px of padding).
+              type: 'card', x: canvasPos.x, y: canvasPos.y, width: 872, height: 400,
+              content: '',
+              style: {
+                isRoadmap: true,
+                roadmapTitle: '',
+                roadmapCols: newRoadmapColumns(),
+                roadmapRows: newRoadmapRows(),
               },
             });
           },

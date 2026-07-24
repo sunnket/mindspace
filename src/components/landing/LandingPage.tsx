@@ -8,7 +8,6 @@ import {
   CanvasState,
   CanvasObjectData,
   ConnectionData,
-  seedDatabaseIfEmpty,
   getAllObjects,
   getAllStrokes,
   getAllConnections,
@@ -26,6 +25,16 @@ import { useChatUnreadTotal } from '@/store/chatStore';
 import { exportBoardById } from '@/lib/boardIO';
 import { applyCanvasTheme, resetCanvasTheme, presetById, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 import { gistOf, rankForPreview, effectiveFontSize, textRole, isSemanticCandidate } from '@/lib/semanticZoom';
+import {
+  CANVAS_TEMPLATES,
+  TEMPLATE_CATEGORIES,
+  buildTemplate,
+  createCanvasFromTemplate,
+  seedStarterCanvasesIfEmpty,
+  removeLegacySeedCanvases,
+  type CanvasTemplate,
+  type TemplateCategory,
+} from '@/lib/canvasTemplates';
 import LandingResident from './LandingResident';
 
 /* ============================================================
@@ -40,7 +49,7 @@ type WorkspaceWithStats = CanvasState & {
   connections: ConnectionData[];
 };
 
-type SidebarTab = 'home' | 'favorites' | 'images' | 'checkpoints' | 'chat' | 'archive' | 'deleted';
+type SidebarTab = 'home' | 'templates' | 'favorites' | 'images' | 'checkpoints' | 'chat' | 'archive' | 'deleted';
 type SortMode = 'recent' | 'name' | 'cards';
 
 
@@ -134,6 +143,8 @@ const ICONS = {
   arrowRight: <Icon size={14}><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></Icon>,
   palette: <Icon size={14}><circle cx="12" cy="12" r="10" /><circle cx="8" cy="10" r="1" fill="currentColor" /><circle cx="12" cy="7.5" r="1" fill="currentColor" /><circle cx="16" cy="10" r="1" fill="currentColor" /></Icon>,
   tag: <Icon size={14}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z" /><line x1="7" y1="7" x2="7.01" y2="7" /></Icon>,
+  templates: <Icon><rect x="3" y="3" width="7.5" height="10" rx="1.6" /><rect x="13.5" y="3" width="7.5" height="6" rx="1.6" /><rect x="3" y="16" width="7.5" height="5" rx="1.6" /><rect x="13.5" y="12" width="7.5" height="9" rx="1.6" /></Icon>,
+  sparkle: <Icon size={14}><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z" /></Icon>,
   chat: (
     <Icon>
       <defs>
@@ -204,11 +215,14 @@ const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
   connections = [],
   width = 240,
   height = 140,
+  limit = PREVIEW_LIMIT,
 }: {
   objects?: CanvasObjectData[];
   connections?: ConnectionData[];
   width?: number;
   height?: number;
+  /** How many blocks the thumbnail may draw. Dense boards want more. */
+  limit?: number;
 }) {
   if (objects.length === 0) {
     return (
@@ -218,10 +232,15 @@ const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
     );
   }
 
-  let minX = Math.min(...objects.map((o) => o.x - o.width / 2));
-  let maxX = Math.max(...objects.map((o) => o.x + o.width / 2));
-  let minY = Math.min(...objects.map((o) => o.y - o.height / 2));
-  let maxY = Math.max(...objects.map((o) => o.y + o.height / 2));
+  /* A canvas object's x/y is its TOP-LEFT corner. This used to read them as a
+     centre, which shifts every block up-left by half its own size — invisible
+     on a 200px sticky, half a screen on a frame, so section frames floated off
+     the sections they wrap. Top-left in, top-left out; only connections work
+     from centres, because that is where a thread actually attaches. */
+  let minX = Math.min(...objects.map((o) => o.x));
+  let maxX = Math.max(...objects.map((o) => o.x + o.width));
+  let minY = Math.min(...objects.map((o) => o.y));
+  let maxY = Math.max(...objects.map((o) => o.y + o.height));
   const pad = 30;
   minX -= pad; maxX += pad; minY -= pad; maxY += pad;
 
@@ -239,8 +258,8 @@ const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
         const from = objects.find((o) => o.id === conn.fromId);
         const to = objects.find((o) => o.id === conn.toId);
         if (!from || !to) return null;
-        const fx = getX(from.x); const fy = getY(from.y);
-        const tx = getX(to.x); const ty = getY(to.y);
+        const fx = getX(from.x + from.width / 2); const fy = getY(from.y + from.height / 2);
+        const tx = getX(to.x + to.width / 2); const ty = getY(to.y + to.height / 2);
         return (
           <path
             key={conn.id}
@@ -253,14 +272,37 @@ const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
           />
         );
       })}
-      {rankForPreview(objects, PREVIEW_LIMIT).map((obj) => {
+      {/* Ranked to choose, z-order to draw. A frame is a backdrop on the board,
+          so it has to be a backdrop here too — drawn first and translucent.
+          Painted opaque in array order it hid the whole section it wraps. */}
+      {[...rankForPreview(objects, limit)].sort((a, b) => a.zIndex - b.zIndex).map((obj) => {
         const rw = obj.width * scale;
         const rh = obj.height * scale;
-        const rx = getX(obj.x) - rw / 2;
-        const ry = getY(obj.y) - rh / 2;
+        const rx = getX(obj.x);
+        const ry = getY(obj.y);
         let fill = '#FFFFFF';
         let stroke = 'rgba(45,42,38,0.08)';
         let radius = 4;
+        if (obj.type === 'frame') {
+          const frameColor = (obj.style?.frameColor as string) || 'var(--accent)';
+          return (
+            <rect
+              key={obj.id}
+              x={rx}
+              y={ry}
+              width={rw}
+              height={rh}
+              rx={6}
+              ry={6}
+              fill={frameColor}
+              fillOpacity={0.07}
+              stroke={frameColor}
+              strokeWidth="0.9"
+              strokeOpacity={0.45}
+              strokeDasharray="3 2"
+            />
+          );
+        }
         if (obj.type === 'shape') {
           fill = (obj.style?.color as string) || 'var(--accent-light)';
           stroke = (obj.style?.borderColor as string) || 'var(--accent)';
@@ -331,6 +373,10 @@ export default function LandingPage() {
   // Lazy-loaded gallery data for images / checkpoints tabs
   const [galleryObjects, setGalleryObjects] = useState<CanvasObjectData[] | null>(null);
 
+  // Templates
+  const [templateCategory, setTemplateCategory] = useState<TemplateCategory | 'All'>('All');
+  const [openingTemplate, setOpeningTemplate] = useState<string | null>(null);
+
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sortMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -374,7 +420,13 @@ export default function LandingPage() {
       }
     }
 
-    seedDatabaseIfEmpty().then(refresh).catch(console.error);
+    // Retire the old filler demo boards (only the untouched ones — see
+    // removeLegacySeedCanvases), then seed real template canvases if this is a
+    // first run. Either way the gallery refreshes once, at the end.
+    removeLegacySeedCanvases()
+      .then(seedStarterCanvasesIfEmpty)
+      .then(refresh)
+      .catch(console.error);
   }, [refresh]);
 
   // The gallery ships on true black. Restore the default palette on unmount so
@@ -434,6 +486,26 @@ export default function LandingPage() {
     };
     await saveCanvasState(newCanvas);
     router.push(`/canvas?id=${newId}`);
+  };
+
+  /**
+   * Instantiate a template into a brand new canvas and go there.
+   * The copy is fully independent — nothing is shared with the template
+   * definition, so editing a board can never damage the library.
+   */
+  const startFromTemplate = async (template: CanvasTemplate) => {
+    if (openingTemplate) return;
+    setOpeningTemplate(template.id);
+    try {
+      const newId = await createCanvasFromTemplate(template.id, {
+        category: activeCategory === 'all' ? categories[0] || 'personal' : activeCategory,
+      });
+      if (newId) router.push(`/canvas?id=${newId}`);
+      else setOpeningTemplate(null);
+    } catch (err) {
+      console.error('Failed to create canvas from template:', err);
+      setOpeningTemplate(null);
+    }
   };
 
   const saveCategories = (newCats: string[]) => {
@@ -621,6 +693,29 @@ export default function LandingPage() {
     return map;
   }, [workspaces]);
 
+  /*
+   * Template thumbnails are the real thing: each template is materialised once
+   * and drawn with the same CanvasMiniPreview the gallery uses for saved
+   * canvases. Nobody hand-draws a preview that can drift from the board it
+   * promises. ~60 objects × 6 templates is trivial, and it happens once.
+   */
+  const builtTemplates = useMemo(
+    () => CANVAS_TEMPLATES.map((t) => ({ template: t, build: buildTemplate(t, `preview-${t.id}`) })),
+    []
+  );
+
+  const visibleTemplates = useMemo(() => {
+    let list = builtTemplates;
+    if (templateCategory !== 'All') list = list.filter((t) => t.template.category === templateCategory);
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(({ template: t }) =>
+        `${t.name} ${t.tagline} ${t.blurb} ${t.category} ${t.highlights.join(' ')}`.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [builtTemplates, templateCategory, searchQuery]);
+
   const imageObjects = useMemo(
     () => (galleryObjects || []).filter((o) => o.type === 'image' && o.content?.startsWith('data:')),
     [galleryObjects]
@@ -632,9 +727,14 @@ export default function LandingPage() {
 
   if (!mounted) return null;
 
-  const isCollectionTab = activeSidebarTab !== 'images' && activeSidebarTab !== 'checkpoints' && activeSidebarTab !== 'chat';
+  const isCollectionTab =
+    activeSidebarTab !== 'images' &&
+    activeSidebarTab !== 'checkpoints' &&
+    activeSidebarTab !== 'chat' &&
+    activeSidebarTab !== 'templates';
   const sectionTitles: Record<SidebarTab, string> = {
     home: 'all canvases',
+    templates: 'templates',
     favorites: 'favorite canvases',
     images: 'image library',
     checkpoints: 'checkpoints',
@@ -682,6 +782,7 @@ export default function LandingPage() {
           className="clay-card rounded-[26px] py-5 px-2.5 flex flex-col items-center gap-1.5 max-h-[calc(100vh-48px)]"
         >
           <DockButton label="Home" active={activeSidebarTab === 'home'} onClick={() => setActiveSidebarTab('home')} icon={ICONS.home} />
+          <DockButton label="Templates" active={activeSidebarTab === 'templates'} onClick={() => setActiveSidebarTab('templates')} icon={ICONS.templates} />
           <DockButton label="Favorites" active={activeSidebarTab === 'favorites'} onClick={() => setActiveSidebarTab('favorites')} icon={ICONS.heart} />
           <DockButton label="Images" active={activeSidebarTab === 'images'} onClick={() => setActiveSidebarTab('images')} icon={ICONS.image} />
           <DockButton label="Checkpoints" active={activeSidebarTab === 'checkpoints'} onClick={() => setActiveSidebarTab('checkpoints')} icon={ICONS.flag} />
@@ -893,6 +994,117 @@ export default function LandingPage() {
                   </motion.div>
                 ))}
               </motion.div>
+            </section>
+          )}
+
+          {/* ---------- HOME: Start from a template ---------- */}
+          {!isLoading && activeSidebarTab === 'home' && !searchQuery && (
+            <section className="w-full flex flex-col gap-4">
+              <div className="flex justify-between items-baseline gap-4">
+                <SectionHeading title="start from a template" sub="finished canvases, not empty shapes" />
+                <button
+                  onClick={() => setActiveSidebarTab('templates')}
+                  className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-[var(--accent)] hover:opacity-70 transition-opacity cursor-pointer shrink-0"
+                >
+                  browse all {CANVAS_TEMPLATES.length} →
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 w-full">
+                {builtTemplates.slice(0, 3).map(({ template, build }) => (
+                  <TemplateCard
+                    key={template.id}
+                    template={template}
+                    build={build}
+                    busy={openingTemplate === template.id}
+                    disabled={openingTemplate !== null}
+                    onUse={() => startFromTemplate(template)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* ---------- TEMPLATES TAB ---------- */}
+          {!isLoading && activeSidebarTab === 'templates' && (
+            <section className="w-full flex flex-col gap-6">
+              <div className="clay-card rounded-[28px] relative overflow-hidden" style={CONTINUE_CARD_PAD}>
+                <div className="absolute -top-24 -right-20 w-72 h-72 rounded-full bg-[radial-gradient(circle,rgba(var(--accent-rgb),0.12),transparent_65%)] pointer-events-none" />
+                <div className="flex flex-col gap-3 max-w-[720px]">
+                  <span className="inline-flex items-center gap-2 text-[10px] text-[var(--accent)] uppercase font-extrabold tracking-[0.18em]">
+                    {ICONS.sparkle} Templates
+                  </span>
+                  <h2
+                    className="text-4xl md:text-5xl leading-[1.02] font-normal tracking-[0.01em] text-[var(--text-primary)]"
+                    style={{ fontFamily: "'Bebas Neue', sans-serif" }}
+                  >
+                    Whole canvases, already made
+                  </h2>
+                  <p className="text-[13px] text-[var(--text-secondary)] leading-relaxed">
+                    Each of these is a finished board — framed sections, live charts, timelines, tables, diagrams
+                    and real writing, arranged the way somebody would actually work. Open one, read it, then make it
+                    yours. Nothing is a placeholder.
+                  </p>
+                </div>
+              </div>
+
+              {/* Category filter */}
+              <div className="flex flex-wrap gap-2">
+                {(['All', ...TEMPLATE_CATEGORIES] as Array<TemplateCategory | 'All'>).map((cat) => {
+                  const active = templateCategory === cat;
+                  const n = cat === 'All'
+                    ? CANVAS_TEMPLATES.length
+                    : CANVAS_TEMPLATES.filter((t) => t.category === cat).length;
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => setTemplateCategory(cat)}
+                      style={CONTROL_PAD}
+                      className={`rounded-full text-[11px] font-extrabold tracking-wide transition-colors cursor-pointer flex items-center gap-2 ${
+                        active
+                          ? 'bg-[var(--accent)]/15 text-[var(--accent)] clay-inset'
+                          : 'clay-card text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      {cat.toLowerCase()}
+                      <span style={BADGE_PAD} className="rounded-full bg-black/10 dark:bg-white/10 text-[9px] tabular-nums">
+                        {n}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {visibleTemplates.length === 0 ? (
+                <EmptyState
+                  icon={ICONS.templates}
+                  title="Nothing matches that"
+                  body="Try another category, or clear the search to see every template."
+                  action={{ label: 'show all', onClick: () => { setTemplateCategory('All'); setSearchQuery(''); } }}
+                />
+              ) : (
+                <motion.div
+                  initial="hidden"
+                  animate="show"
+                  variants={{ hidden: {}, show: { transition: { staggerChildren: reducedMotion ? 0 : 0.05 } } }}
+                  className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6 w-full"
+                >
+                  {visibleTemplates.map(({ template, build }) => (
+                    <motion.div
+                      key={template.id}
+                      variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: spring } }}
+                    >
+                      <TemplateCard
+                        template={template}
+                        build={build}
+                        expanded
+                        busy={openingTemplate === template.id}
+                        disabled={openingTemplate !== null}
+                        onUse={() => startFromTemplate(template)}
+                      />
+                    </motion.div>
+                  ))}
+                </motion.div>
+              )}
             </section>
           )}
 
@@ -1475,6 +1687,127 @@ function DockButton({
         {label}
       </span>
     </button>
+  );
+}
+
+/* ============================================================
+   Template card
+   ============================================================ */
+
+/**
+ * A template card shows the board itself, not an illustration of one — the
+ * thumbnail is the real materialised template run through the same preview
+ * renderer the gallery uses for saved canvases, so what you see is literally
+ * what gets created.
+ */
+function TemplateCard({
+  template,
+  build,
+  onUse,
+  busy = false,
+  disabled = false,
+  expanded = false,
+}: {
+  template: CanvasTemplate;
+  build: { objects: CanvasObjectData[]; connections: ConnectionData[]; scenes: unknown[] };
+  onUse: () => void;
+  busy?: boolean;
+  disabled?: boolean;
+  expanded?: boolean;
+}) {
+  const frames = build.objects.filter((o) => o.type === 'frame').length;
+
+  return (
+    <motion.div
+      whileHover={disabled ? undefined : { y: -5 }}
+      transition={spring}
+      onClick={disabled ? undefined : onUse}
+      className={`clay-card rounded-3xl overflow-hidden flex flex-col group ${
+        disabled && !busy ? 'opacity-60 cursor-wait' : 'cursor-pointer'
+      }`}
+      style={{ padding: 12 }}
+    >
+      {/* Preview */}
+      <div
+        className="clay-inset rounded-2xl relative overflow-hidden shrink-0"
+        style={{
+          height: expanded ? 188 : 152,
+          background: `linear-gradient(150deg, ${template.accent}18, transparent 62%)`,
+        }}
+      >
+        <CanvasMiniPreview
+          objects={build.objects}
+          connections={build.connections}
+          width={expanded ? 420 : 340}
+          height={expanded ? 188 : 152}
+          limit={90}
+        />
+        <span
+          className="absolute top-2.5 left-2.5 rounded-full text-[9px] font-extrabold uppercase tracking-[0.14em] select-none"
+          style={{ padding: '4px 9px', background: `${template.accent}26`, color: template.accent }}
+        >
+          {template.category}
+        </span>
+        <span className="absolute top-2 right-2.5 text-[19px] select-none" aria-hidden="true">
+          {template.emoji}
+        </span>
+        <div
+          className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+          style={{ background: 'rgba(0,0,0,0.24)' }}
+        >
+          <span className="glass-bar rounded-full text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--text-primary)]" style={{ padding: '8px 16px' }}>
+            {busy ? 'building…' : 'use this template'}
+          </span>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="flex flex-col gap-2.5 min-w-0" style={{ padding: '14px 6px 4px' }}>
+        <div className="min-w-0">
+          <h4
+            className="text-[17px] font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent)] transition-colors tracking-tight"
+            style={{ fontFamily: "'Playfair Display', serif" }}
+          >
+            {template.name}
+          </h4>
+          <p className="text-[11px] text-[var(--text-secondary)] leading-snug" style={{ marginTop: 3 }}>
+            {template.tagline}
+          </p>
+        </div>
+
+        {expanded && (
+          <p className="text-[11.5px] text-[var(--text-tertiary)] leading-relaxed">{template.blurb}</p>
+        )}
+
+        <div className="flex flex-wrap gap-1.5">
+          {(expanded ? template.highlights : template.highlights.slice(0, 3)).map((h) => (
+            <span
+              key={h}
+              className="rounded-full text-[9.5px] font-bold text-[var(--text-secondary)] clay-inset select-none"
+              style={{ padding: '4px 9px' }}
+            >
+              {h}
+            </span>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between gap-3" style={{ paddingTop: 4 }}>
+          <span className="text-[10px] text-[var(--text-muted)] font-bold tabular-nums select-none">
+            {build.objects.length} blocks · {frames} frames · {build.scenes.length} slides
+          </span>
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full text-[10px] font-extrabold tracking-wide shrink-0 transition-colors"
+            style={{
+              padding: '7px 13px',
+              background: `${template.accent}1F`,
+              color: template.accent,
+            }}
+          >
+            {busy ? 'building…' : 'open'} {!busy && ICONS.arrowRight}
+          </span>
+        </div>
+      </div>
+    </motion.div>
   );
 }
 

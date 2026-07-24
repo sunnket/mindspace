@@ -91,49 +91,70 @@ export default function CollabModal() {
           />
 
           <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.96 }}
+            initial={{ opacity: 0, y: 16, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.96 }}
+            exit={{ opacity: 0, y: 16, scale: 0.95 }}
             transition={spring}
             role="dialog"
             aria-modal="true"
             aria-label="Live collaboration"
-            className="clay-card relative w-full max-w-md rounded-[28px] p-7 z-10"
+            className="clay-card relative w-full max-w-md rounded-[30px] z-10 overflow-hidden"
+            /* Same warm-accent world as the sign-in / profile cards, scoped so
+               the modal reads as part of that family instead of inheriting the
+               canvas's (often dark) accent. */
+            style={{
+              color: 'var(--text-primary)',
+              padding: '34px 32px 28px',
+              ['--accent' as string]: '#D89A6E',
+              ['--accent-rgb' as string]: '216, 154, 110',
+              ['--accent-light' as string]: '#E9BE9B',
+              ['--accent-subtle' as string]: 'rgba(216, 154, 110, 0.12)',
+            }}
           >
+            {/* soft accent bloom in the corner, like the sign-in card */}
+            <div className="absolute -top-24 -right-20 w-64 h-64 rounded-full pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(var(--accent-rgb),0.14), transparent 65%)' }} />
+
             {/* close */}
             <button
               onClick={closeModal}
               aria-label="Close"
-              className="absolute top-5 right-5 w-8 h-8 rounded-full flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-black/5 transition-colors cursor-pointer"
+              className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+              style={{ background: 'var(--well)' }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </button>
 
-            <div className="flex items-center gap-2.5 mb-1">
-              <span className="w-9 h-9 rounded-2xl bg-[var(--accent)] flex items-center justify-center text-white shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {/* Brand + header — centered, matching the sign-in card */}
+            <div className="relative flex flex-col items-center text-center gap-3.5 mb-6">
+              <div className="w-14 h-14 rounded-2xl clay-inset flex items-center justify-center text-[var(--accent)]" aria-hidden="true">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="18" cy="5" r="3" />
                   <circle cx="6" cy="12" r="3" />
                   <circle cx="18" cy="19" r="3" />
                   <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
                   <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
                 </svg>
-              </span>
-              <div>
-                <h2 className="text-lg font-bold text-[var(--text-primary)] leading-tight" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                  Collaborate live
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[13px] font-light tracking-tight leading-none text-[var(--text-tertiary)]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>
+                  canvabrains
+                </span>
+                <h2 className="text-[26px] font-normal tracking-tight leading-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
+                  {connected ? 'You’re live' : 'Collaborate live'}
                 </h2>
-                <p className="text-[11px] text-[var(--text-secondary)]">Edit this canvas together, in real time.</p>
+                <p className="text-[12px] text-[var(--text-tertiary)] font-normal leading-relaxed" style={{ maxWidth: 300 }}>
+                  {connected ? 'Share the code and start building together.' : 'Edit this canvas together, in real time.'}
+                </p>
               </div>
             </div>
 
             {connected ? (
               /* ------- Connected: show the code to share ------- */
-              <div className="mt-6 flex flex-col items-center text-center">
-                <p className="text-[11px] uppercase font-extrabold tracking-widest text-[var(--text-secondary)]">
+              <div className="relative flex flex-col items-center text-center">
+                <p className="text-[10px] uppercase font-extrabold tracking-[0.14em] text-[var(--text-muted)]">
                   Share this code
                 </p>
                 <button
@@ -172,8 +193,8 @@ export default function CollabModal() {
               </div>
             ) : (
               /* ------- Not connected: host / join ------- */
-              <>
-                <div className="clay-inset flex p-1 rounded-full mt-6" role="tablist" aria-label="Collaboration mode">
+              <div className="relative">
+                <div className="clay-inset flex p-1 rounded-full" role="tablist" aria-label="Collaboration mode">
                   {(['host', 'join'] as const).map((t) => (
                     <button
                       key={t}
@@ -193,8 +214,8 @@ export default function CollabModal() {
                 </div>
 
                 {/* name field (shared) */}
-                <div className="mt-5">
-                  <label htmlFor="collab-name" className="block text-[11px] font-bold text-[var(--text-secondary)] mb-1.5">
+                <div className="mt-5 flex flex-col gap-1.5">
+                  <label htmlFor="collab-name" className="text-[10px] uppercase tracking-[0.14em] font-bold text-[var(--text-muted)] px-1">
                     Your name
                   </label>
                   <input
@@ -204,7 +225,7 @@ export default function CollabModal() {
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Sanket"
                     maxLength={24}
-                    className="w-full px-4 py-2.5 rounded-xl clay-inset text-sm font-medium text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]/35 transition-shadow"
+                    className="w-full clay-inset rounded-2xl px-4 py-3 text-sm outline-none transition-shadow font-normal text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:ring-2 focus:ring-[var(--accent)]/40"
                   />
                 </div>
 
@@ -228,7 +249,7 @@ export default function CollabModal() {
                       You&apos;ll jump into their shared canvas — your own canvas stays untouched.
                       Select something and use &quot;Add to my canvas&quot; to bring it back with you.
                     </p>
-                    <label htmlFor="collab-code" className="block text-[11px] font-bold text-[var(--text-secondary)] mb-1.5">
+                    <label htmlFor="collab-code" className="block text-[10px] uppercase tracking-[0.14em] font-bold text-[var(--text-muted)] mb-1.5 px-1">
                       Invite code
                     </label>
                     <input
@@ -242,7 +263,7 @@ export default function CollabModal() {
                       onKeyDown={(e) => e.key === 'Enter' && doJoin()}
                       placeholder="ABC123"
                       maxLength={8}
-                      className="w-full px-4 py-2.5 rounded-xl clay-inset text-lg font-mono font-bold tracking-[0.25em] text-center text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]/35 transition-shadow uppercase"
+                      className="w-full clay-inset rounded-2xl px-4 py-3 text-lg font-mono font-bold tracking-[0.25em] text-center text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]/40 transition-shadow uppercase placeholder:text-[var(--text-muted)]"
                     />
                     {joinError && <p className="text-[11px] text-red-500 mt-2 font-medium">{joinError}</p>}
                     <button
@@ -254,7 +275,7 @@ export default function CollabModal() {
                     </button>
                   </div>
                 )}
-              </>
+              </div>
             )}
           </motion.div>
         </motion.div>

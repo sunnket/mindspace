@@ -140,7 +140,49 @@ export function isPointInRect(
 }
 
 /**
- * Smart alignment snapping
+ * The one drag gesture currently in flight, anywhere on the board.
+ *
+ * Module-level on purpose: `objectDrag` flips many times a second and must
+ * never cause a render. The canvas reads it to make sure a block drag and a
+ * viewport pan can never run at the same time — when they did, the camera
+ * scrolled under a block that was glued to the cursor and the block ended up
+ * flung to a completely different part of the board.
+ *
+ * `endActive` is the safety net that matters more. A drag holds real
+ * resources — window listeners, a requestAnimationFrame loop, these flags —
+ * and every one of them used to be released by a single `mouseup`. The
+ * browser does not promise to deliver that event: release the button outside
+ * the window, alt-tab mid-drag, let the OS take the pointer, and it simply
+ * never arrives. The drag then never ended. Its move handler kept dragging
+ * the block around with no button held, and its rAF loop kept auto-panning
+ * the viewport — a board that scrolled away by itself and blocks that fled
+ * the cursor. Nothing recovered, because nothing was left to notice.
+ *
+ * So a session publishes its own teardown here, and anything that learns the
+ * gesture is over can end it: the next mousedown, a pointercancel, the window
+ * losing focus, or simply a mousemove that arrives with no buttons pressed.
+ */
+export const dragState: {
+  objectDrag: boolean;
+  endActive: (() => void) | null;
+} = { objectDrag: false, endActive: null };
+
+/** End whatever drag is in flight. Idempotent, and safe to call from anywhere. */
+export function endActiveDrag(): void {
+  const end = dragState.endActive;
+  dragState.endActive = null;
+  dragState.objectDrag = false;
+  if (end) end();
+}
+
+/**
+ * Smart alignment snapping.
+ *
+ * Picks the CLOSEST alignment on each axis. It used to keep whichever match it
+ * happened to test LAST, so on a dense board (a template, a tidy column of
+ * cards) a block would flick between two far-apart neighbours as you dragged —
+ * the "it jumps somewhere else" bug. Nearest-wins is stable: the guide you can
+ * see is the one it snaps to.
  */
 export function getSnapPoints(
   dragX: number,
@@ -152,6 +194,8 @@ export function getSnapPoints(
 ): { x: number | null; y: number | null; guides: Array<{ axis: 'h' | 'v'; pos: number }> } {
   let snapX: number | null = null;
   let snapY: number | null = null;
+  let bestX = threshold;
+  let bestY = threshold;
   const guides: Array<{ axis: 'h' | 'v'; pos: number }> = [];
 
   const dragCenterX = dragX + dragW / 2;
@@ -159,35 +203,35 @@ export function getSnapPoints(
   const dragRight = dragX + dragW;
   const dragBottom = dragY + dragH;
 
+  /** Keep this candidate only if it's tighter than anything seen so far. */
+  const considerX = (dist: number, snapped: number, guide: number) => {
+    if (dist >= bestX) return;
+    bestX = dist;
+    snapX = snapped;
+    guides.push({ axis: 'v', pos: guide });
+  };
+  const considerY = (dist: number, snapped: number, guide: number) => {
+    if (dist >= bestY) return;
+    bestY = dist;
+    snapY = snapped;
+    guides.push({ axis: 'h', pos: guide });
+  };
+
   for (const other of others) {
     const otherCenterX = other.x + other.width / 2;
     const otherCenterY = other.y + other.height / 2;
     const otherRight = other.x + other.width;
     const otherBottom = other.y + other.height;
 
-    // Horizontal alignment
-    if (Math.abs(dragX - other.x) < threshold) {
-      snapX = other.x;
-      guides.push({ axis: 'v', pos: other.x });
-    } else if (Math.abs(dragRight - otherRight) < threshold) {
-      snapX = otherRight - dragW;
-      guides.push({ axis: 'v', pos: otherRight });
-    } else if (Math.abs(dragCenterX - otherCenterX) < threshold) {
-      snapX = otherCenterX - dragW / 2;
-      guides.push({ axis: 'v', pos: otherCenterX });
-    }
+    // Horizontal alignment — left edges, right edges, centres.
+    considerX(Math.abs(dragX - other.x), other.x, other.x);
+    considerX(Math.abs(dragRight - otherRight), otherRight - dragW, otherRight);
+    considerX(Math.abs(dragCenterX - otherCenterX), otherCenterX - dragW / 2, otherCenterX);
 
-    // Vertical alignment
-    if (Math.abs(dragY - other.y) < threshold) {
-      snapY = other.y;
-      guides.push({ axis: 'h', pos: other.y });
-    } else if (Math.abs(dragBottom - otherBottom) < threshold) {
-      snapY = otherBottom - dragH;
-      guides.push({ axis: 'h', pos: otherBottom });
-    } else if (Math.abs(dragCenterY - otherCenterY) < threshold) {
-      snapY = otherCenterY - dragH / 2;
-      guides.push({ axis: 'h', pos: otherCenterY });
-    }
+    // Vertical alignment — top edges, bottom edges, centres.
+    considerY(Math.abs(dragY - other.y), other.y, other.y);
+    considerY(Math.abs(dragBottom - otherBottom), otherBottom - dragH, otherBottom);
+    considerY(Math.abs(dragCenterY - otherCenterY), otherCenterY - dragH / 2, otherCenterY);
   }
 
   return { x: snapX, y: snapY, guides };

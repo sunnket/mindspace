@@ -39,7 +39,23 @@ export type WireMessage =
   | { t: 'presenter'; from: string; name: string; camera: { x: number; y: number; zoom: number } | null }
   // Live camera-mirror video: a downscaled JPEG frame for a mirror object,
   // keyed by that object's id. Ephemeral — never persisted or undoable.
-  | { t: 'mirror-frame'; from: string; id: string; frame: string };
+  | { t: 'mirror-frame'; from: string; id: string; frame: string }
+  // ---- Voice call (WebRTC mesh signalling over this same transport) ----
+  // A newcomer announces they've joined the call; existing members answer
+  // with `audio-here` so the newcomer learns who's already talking.
+  | { t: 'audio-join'; from: string }
+  | { t: 'audio-here'; from: string; to: string }
+  | { t: 'audio-leave'; from: string }
+  // Per-pair SDP / ICE. `to` scopes them so mesh peers ignore others' traffic.
+  | { t: 'rtc-offer'; from: string; to: string; sdp: RTCSessionDescriptionInit }
+  | { t: 'rtc-answer'; from: string; to: string; sdp: RTCSessionDescriptionInit }
+  | { t: 'rtc-ice'; from: string; to: string; candidate: RTCIceCandidateInit }
+  // Everyone broadcasts their own mute state so the roster stays in sync.
+  | { t: 'audio-state'; from: string; muted: boolean }
+  // Host-only moderation. `force-mute` asks a peer to mute themselves; `kick`
+  // ejects a peer from the whole session. Both carry the host id in `from`.
+  | { t: 'force-mute'; from: string; to: string }
+  | { t: 'kick'; from: string; to: string };
 
 export type TransportKind = 'supabase' | 'local';
 
