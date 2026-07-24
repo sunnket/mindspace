@@ -709,9 +709,24 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         updateObject(dragObj.id, { zIndex: getNextZIndex() });
       }
 
-      // Dragging a frame carries along whatever was grouped into it.
+      /* Dragging a frame carries everything that SITS in it — every block whose
+         centre is inside the frame right now (objectsInFrame, the same rule the
+         canvas uses to decide grouping) UNION anything explicitly tagged to it.
+         So the frame becomes a real bulk-move handle: grab it and the whole
+         group travels, whether or not each piece was ever formally dropped in. */
       const frameChildren = dragObj.type === 'frame'
-        ? objects.filter((o) => o.style?.frameParentId === dragObj.id).map((o) => ({ id: o.id, x: o.x, y: o.y }))
+        ? (() => {
+            const seen = new Set<string>([dragObj.id]);
+            const out: { id: string; x: number; y: number }[] = [];
+            const add = (o: CanvasObjectData) => {
+              if (seen.has(o.id)) return;
+              seen.add(o.id);
+              out.push({ id: o.id, x: o.x, y: o.y });
+            };
+            objectsInFrame(objects, dragObj).forEach(add);
+            objects.filter((o) => o.style?.frameParentId === dragObj.id).forEach(add);
+            return out;
+          })()
         : [];
 
       /* A CLOSED pile moves as one object, the way a real stack of paper does
@@ -756,6 +771,95 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       /** Set once a card has actually been pulled clear of an open pile. */
       let detached = false;
       const HOTZONE_W = 210;
+
+      /* --- Edge auto-pan while dragging -----------------------------------
+         The camera at grab time, the fixed zoom, and the latest cursor. When the
+         cursor rides a screen edge, a rAF loop scrolls the viewport that way so
+         you can shift a block (or a whole framed group) clear across the board
+         without letting go. `positionAt` recomputes the block's world spot from
+         the LIVE camera, so it stays glued under the cursor as the world scrolls
+         beneath it — that camera-compensation term is zero whenever the camera
+         isn't moving, so an ordinary drag behaves exactly as before. */
+      const dragStartCam = { x: camera.x, y: camera.y };
+      const zoom = camera.zoom;
+      let lastCursor = { x: e.clientX, y: e.clientY };
+      let edgeRAF: number | null = null;
+      let overAnyHotzone = false;
+
+      const positionAt = (cursorX: number, cursorY: number) => {
+        const liveCam = useCanvasStore.getState().camera;
+        const dx = (cursorX - dragStart.current.x) / zoom - (liveCam.x - dragStartCam.x) / zoom;
+        const dy = (cursorY - dragStart.current.y) / zoom - (liveCam.y - dragStartCam.y) / zoom;
+
+        let newX = dragStart.current.objX + dx;
+        let newY = dragStart.current.objY + dy;
+
+        if (mode !== 'connector') {
+          const others = objects
+            .filter((o) => o.id !== dragObj.id)
+            .map((o) => ({ x: o.x, y: o.y, width: o.width, height: o.height }));
+          const snap = getSnapPoints(newX, newY, dragObj.width, dragObj.height, others);
+          if (snap.x !== null) newX = snap.x;
+          if (snap.y !== null) newY = snap.y;
+        }
+
+        // The moment a grab on a spread card becomes a real drag it leaves the
+        // pile, at the exact spot it was drawn, so it comes away without a jump.
+        if (spreadGrab && !detached) {
+          if (!draggedFar) return;
+          detached = true;
+          useCanvasStore.getState().unstackObject(dragObj.id, newX, newY);
+        }
+
+        if (dragObj.type === 'arrow') {
+          const ds = dragStart.current as any;
+          updateObject(dragObj.id, {
+            x: newX,
+            y: newY,
+            style: {
+              ...dragObj.style,
+              startX: ds.objStartX + dx,
+              startY: ds.objStartY + dy,
+              endX: ds.objEndX + dx,
+              endY: ds.objEndY + dy,
+              ...(ds.objBendX !== undefined ? { bendX: ds.objBendX + dx, bendY: ds.objBendY + dy } : {}),
+            },
+          });
+        } else {
+          updateObject(dragObj.id, { x: newX, y: newY });
+        }
+
+        // Carried group moves by the frame's REAL (post-snap) displacement, so
+        // it stays rigidly attached.
+        if (carried.length > 0) {
+          const effDx = newX - dragStart.current.objX;
+          const effDy = newY - dragStart.current.objY;
+          carried.forEach((c) => {
+            useCanvasStore.getState().updateObject(c.id, { x: c.x + effDx, y: c.y + effDy });
+          });
+        }
+      };
+
+      const EDGE = 72;       // px band along each edge that triggers a scroll
+      const EDGE_SPEED = 17; // px/frame at the very edge, eased in across the band
+      const tickEdge = () => {
+        edgeRAF = requestAnimationFrame(tickEdge);
+        // Only auto-pan a real drag, and never while poised over a dock hotzone
+        // (those live on the same left edge and must win).
+        if (!draggedFar || overAnyHotzone) return;
+        const W = window.innerWidth, H = window.innerHeight;
+        const { x: cx, y: cy } = lastCursor;
+        let vx = 0, vy = 0;
+        if (cx < EDGE) vx = (EDGE - cx) / EDGE;
+        else if (cx > W - EDGE) vx = -(cx - (W - EDGE)) / EDGE;
+        if (cy < EDGE) vy = (EDGE - cy) / EDGE;
+        else if (cy > H - EDGE) vy = -(cy - (H - EDGE)) / EDGE;
+        if (vx === 0 && vy === 0) return;
+        const cam = useCanvasStore.getState().camera;
+        useCanvasStore.getState().setCamera({ x: cam.x + vx * EDGE_SPEED, y: cam.y + vy * EDGE_SPEED, zoom: cam.zoom });
+        positionAt(lastCursor.x, lastCursor.y); // keep the block glued under the cursor
+      };
+      edgeRAF = requestAnimationFrame(tickEdge);
 
       const handleMouseMove = (moveE: MouseEvent) => {
         if (Math.abs(moveE.clientX - dragStart.current.x) > 8 || Math.abs(moveE.clientY - dragStart.current.y) > 8) {
@@ -812,60 +916,17 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         }
         if (wlabel) wlabel.style.opacity = overWarpZone ? '1' : '0.55';
 
-        const dx = (moveE.clientX - dragStart.current.x) / camera.zoom;
-        const dy = (moveE.clientY - dragStart.current.y) / camera.zoom;
-
-        let newX = dragStart.current.objX + dx;
-        let newY = dragStart.current.objY + dy;
-
-        // Skip snapping in connector mode for a more fluid feel
-        if (mode !== 'connector') {
-          const others = objects
-            .filter((o) => o.id !== dragObj.id)
-            .map((o) => ({ x: o.x, y: o.y, width: o.width, height: o.height }));
-
-          const snap = getSnapPoints(newX, newY, dragObj.width, dragObj.height, others);
-          if (snap.x !== null) newX = snap.x;
-          if (snap.y !== null) newY = snap.y;
-        }
-
-        /* The moment a grab on a spread card becomes a real drag, that card
-           leaves the pile — at exactly the spot it was already drawn, so it
-           comes away under the cursor without a jump. Until then nothing has
-           moved and nothing has changed, so a click is still just a click. */
-        if (spreadGrab && !detached) {
-          if (!draggedFar) return;
-          detached = true;
-          useCanvasStore.getState().unstackObject(dragObj.id, newX, newY);
-        }
-
-        if (dragObj.type === 'arrow') {
-          const ds = dragStart.current as any;
-          updateObject(dragObj.id, {
-            x: newX,
-            y: newY,
-            style: {
-              ...dragObj.style,
-              startX: ds.objStartX + dx,
-              startY: ds.objStartY + dy,
-              endX: ds.objEndX + dx,
-              endY: ds.objEndY + dy,
-              ...(ds.objBendX !== undefined ? { bendX: ds.objBendX + dx, bendY: ds.objBendY + dy } : {}),
-            }
-          });
-        } else {
-          updateObject(dragObj.id, { x: newX, y: newY });
-        }
-
-        if (carried.length > 0) {
-          carried.forEach((c) => {
-            useCanvasStore.getState().updateObject(c.id, { x: c.x + dx, y: c.y + dy });
-          });
-        }
+        // Remember the cursor + whether a dock zone owns it, then place the
+        // block. The edge-pan loop reuses lastCursor to keep scrolling when the
+        // cursor is held still against an edge.
+        overAnyHotzone = overMinimizeZone || overWarpZone || overChatZone || overAgentChatZone;
+        lastCursor = { x: moveE.clientX, y: moveE.clientY };
+        positionAt(moveE.clientX, moveE.clientY);
       };
 
       const handleMouseUp = () => {
         setIsDragging(false);
+        if (edgeRAF !== null) { cancelAnimationFrame(edgeRAF); edgeRAF = null; }
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp, END_DRAG);
         // Let the click that follows this mouseup see that we dragged (so it
