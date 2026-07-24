@@ -72,6 +72,44 @@ function mapStroke(s: DrawingStroke, canvasId: string, userId: string) {
     parent_id: s.parentId || null,
     is_highlighter: s.isHighlighter || false,
     created_at: s.createdAt,
+    // The brush's whole character lives in these fields. Dropping them here is
+    // what made a chalk/watercolour stroke come back as a plain line after a
+    // cloud round-trip — "the texture changes on its own". Bundled into one
+    // jsonb `brush` column so no schema churn is needed when a new brush knob
+    // is added. Needs schema_stroke_brush.sql.
+    brush: {
+      opacity: s.opacity,
+      flow: s.flow,
+      hardness: s.hardness,
+      stabilization: s.stabilization,
+      pressure: s.pressure,
+      smoothing: s.smoothing,
+      texture: s.texture,
+      blendMode: s.blendMode,
+    },
+  };
+}
+
+/** Re-hydrate a cloud row back into a full DrawingStroke, restoring the brush
+ *  character from the `brush` jsonb (absent on rows written before the fix). */
+function cloudToStroke(s: Record<string, unknown>): DrawingStroke {
+  const brush = (s.brush as Partial<DrawingStroke> | null) || {};
+  return {
+    id: s.id as string,
+    parentId: (s.parent_id as string) || undefined,
+    points: s.points as number[][],
+    color: s.color as string,
+    size: s.size as number,
+    isHighlighter: (s.is_highlighter as boolean) || undefined,
+    createdAt: s.created_at as number,
+    opacity: brush.opacity,
+    flow: brush.flow,
+    hardness: brush.hardness,
+    stabilization: brush.stabilization,
+    pressure: brush.pressure,
+    smoothing: brush.smoothing,
+    texture: brush.texture,
+    blendMode: brush.blendMode,
   };
 }
 function mapConnection(c: ConnectionData, canvasId: string, userId: string) {
@@ -318,15 +356,7 @@ export async function pullCloudToLocal(userId: string): Promise<boolean> {
     const localStrokeIds = new Set((await getAbsoluteAllStrokes()).map((s) => s.id));
     const strokesToSave = (strokesRes.data || [])
       .filter((s) => !localStrokeIds.has(s.id))
-      .map((s) => ({
-        id: s.id,
-        parentId: s.parent_id || undefined,
-        points: s.points,
-        color: s.color,
-        size: s.size,
-        isHighlighter: s.is_highlighter,
-        createdAt: s.created_at,
-      }));
+      .map(cloudToStroke);
     if (strokesToSave.length) await saveStrokes(strokesToSave);
 
     // Connections — add cloud-only ones.

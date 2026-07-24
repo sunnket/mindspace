@@ -809,7 +809,13 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         let newX = dragStart.current.objX + dx;
         let newY = dragStart.current.objY + dy;
 
-        if (mode !== 'connector') {
+        /* A frame does NOT snap. Its edges/centre would try to align to every
+           block it wraps (getSnapPoints scans all others and keeps the LAST
+           match), so a big frame full of cards jumped erratically as you
+           dragged it — the "frames scatter/go away randomly" bug. A frame is a
+           loose backdrop; it goes exactly where you drag it. Other blocks still
+           snap to each other as before. */
+        if (mode !== 'connector' && dragObj.type !== 'frame') {
           const others = objects
             .filter((o) => o.id !== dragObj.id)
             .map((o) => ({ x: o.x, y: o.y, width: o.width, height: o.height }));

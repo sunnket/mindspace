@@ -51,6 +51,18 @@ interface CollabState {
   /** Latest received video frame per live camera-mirror object id (data URL). */
   mirrorFrames: Record<string, string>;
 
+  // ---- Voice call (WebRTC audio; see lib/collab/audio.ts) ----
+  /** True once I've joined the call and my mic is live. */
+  audioActive: boolean;
+  /** My mic muted (self or by the host). */
+  micMuted: boolean;
+  /** A one-line mic/permission error, shown then cleared. */
+  audioError: string | null;
+  /** Am I speaking right now (drives my own pulsing ring). */
+  selfSpeaking: boolean;
+  /** Other people in the call, by peer id → their live mute/speaking state. */
+  callParticipants: Record<string, { muted: boolean; speaking: boolean }>;
+
   /** Set by the collab service so the canvas can push cursor positions without a dynamic import per move. */
   _cursorSender: ((x: number, y: number) => void) | null;
   _pulse: PulseSenders | null;
@@ -67,6 +79,15 @@ interface CollabState {
    * channel entirely so nothing leaks into the host's canvas. No-ops for
    * the host or when nothing is selected. */
   addSelectionToOriginCanvas: () => Promise<void>;
+
+  // Voice call — public controls
+  joinAudio: () => Promise<void>;
+  leaveAudio: () => void;
+  toggleMic: () => void;
+  /** Host only: ask a peer to mute themselves. */
+  mutePeer: (peerId: string) => void;
+  /** Host only: eject a peer from the session. */
+  kickPeer: (peerId: string) => void;
 
   // internal — driven by the service
   _init: (p: { code: string; isHost: boolean; me: PeerIdentity }) => void;
@@ -86,6 +107,14 @@ interface CollabState {
   _setPresenter: (p: PresenterState | null) => void;
   _setMirrorFrame: (objectId: string, frame: string) => void;
   _clearMirrorFrame: (objectId: string) => void;
+  // Voice call — internal setters driven by lib/collab/audio.ts
+  _setAudioActive: (v: boolean) => void;
+  _setMicMuted: (v: boolean) => void;
+  _setAudioError: (v: string | null) => void;
+  _setSelfSpeaking: (v: boolean) => void;
+  _setCallParticipant: (id: string, patch: Partial<{ muted: boolean; speaking: boolean }>) => void;
+  _removeCallParticipant: (id: string) => void;
+  _resetCallParticipants: () => void;
   _reset: () => void;
 }
 
@@ -108,6 +137,11 @@ export const useCollabStore = create<CollabState>((set, get) => ({
   presenter: null,
   following: false,
   mirrorFrames: {},
+  audioActive: false,
+  micMuted: false,
+  audioError: null,
+  selfSpeaking: false,
+  callParticipants: {},
   _cursorSender: null,
   _pulse: null,
 
@@ -195,6 +229,23 @@ export const useCollabStore = create<CollabState>((set, get) => ({
     import('@/lib/collab/service').then(({ leaveSession }) => leaveSession());
   },
 
+  joinAudio: async () => {
+    const { joinAudioCall } = await import('@/lib/collab/audio');
+    await joinAudioCall();
+  },
+  leaveAudio: () => {
+    import('@/lib/collab/audio').then(({ leaveAudioCall }) => leaveAudioCall());
+  },
+  toggleMic: () => {
+    import('@/lib/collab/audio').then(({ toggleMic }) => toggleMic());
+  },
+  mutePeer: (peerId) => {
+    import('@/lib/collab/audio').then(({ adminMute }) => adminMute(peerId));
+  },
+  kickPeer: (peerId) => {
+    import('@/lib/collab/audio').then(({ adminKick }) => adminKick(peerId));
+  },
+
   _init: ({ code, isHost, me }) =>
     set({ code, isHost, me, peers: {}, cursors: {}, error: null, status: 'connecting' }),
 
@@ -234,6 +285,24 @@ export const useCollabStore = create<CollabState>((set, get) => ({
       };
     }),
 
+  _setAudioActive: (audioActive) => set({ audioActive }),
+  _setMicMuted: (micMuted) => set({ micMuted }),
+  _setAudioError: (audioError) => set({ audioError }),
+  _setSelfSpeaking: (selfSpeaking) => set({ selfSpeaking }),
+  _setCallParticipant: (id, patch) =>
+    set((state) => {
+      const prev = state.callParticipants[id] || { muted: false, speaking: false };
+      return { callParticipants: { ...state.callParticipants, [id]: { ...prev, ...patch } } };
+    }),
+  _removeCallParticipant: (id) =>
+    set((state) => {
+      if (!(id in state.callParticipants)) return {};
+      const callParticipants = { ...state.callParticipants };
+      delete callParticipants[id];
+      return { callParticipants };
+    }),
+  _resetCallParticipants: () => set({ callParticipants: {}, selfSpeaking: false }),
+
   _setMirrorFrame: (objectId, frame) =>
     set((state) => ({ mirrorFrames: { ...state.mirrorFrames, [objectId]: frame } })),
   _clearMirrorFrame: (objectId) =>
@@ -257,7 +326,9 @@ export const useCollabStore = create<CollabState>((set, get) => ({
       return { peers: { ...state.peers, [id]: { ...p, lastSeen: Date.now() } } };
     }),
 
-  _removePeer: (id) =>
+  _removePeer: (id) => {
+    // Tear down their voice connection too, if any.
+    import('@/lib/collab/audio').then(({ onPeerGone }) => onPeerGone(id)).catch(() => {});
     set((state) => {
       if (!state.peers[id]) return {};
       const peers = { ...state.peers };
@@ -268,7 +339,8 @@ export const useCollabStore = create<CollabState>((set, get) => ({
       delete lasers[id];
       const presenter = state.presenter?.id === id ? null : state.presenter;
       return { peers, cursors, lasers, presenter, following: presenter ? state.following : false };
-    }),
+    });
+  },
 
   _setCursor: (id, x, y) =>
     set((state) => {
@@ -287,6 +359,7 @@ export const useCollabStore = create<CollabState>((set, get) => ({
           delete peers[id];
           delete cursors[id];
           changed = true;
+          import('@/lib/collab/audio').then(({ onPeerGone }) => onPeerGone(id)).catch(() => {});
         }
       }
       return changed ? { peers, cursors } : {};
@@ -309,6 +382,11 @@ export const useCollabStore = create<CollabState>((set, get) => ({
       presenter: null,
       following: false,
       mirrorFrames: {},
+      audioActive: false,
+      micMuted: false,
+      audioError: null,
+      selfSpeaking: false,
+      callParticipants: {},
       _cursorSender: null,
       _pulse: null,
     }),
