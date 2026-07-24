@@ -95,6 +95,11 @@ function FrameHUDBody({ frame }: { frame: CanvasObjectData }) {
     updateObject(frame.id, { style: { ...(frame.style || {}), frameKind: next === 'normal' ? undefined : next } });
   };
 
+  const carryContents = frame.style?.carryContents === true;
+  const toggleCarryContents = () => {
+    updateObject(frame.id, { style: { ...(frame.style || {}), carryContents: !carryContents } });
+  };
+
   return (
     <>
       {/* A delete frame shows its blast radius the whole time it's selected —
@@ -147,6 +152,42 @@ function FrameHUDBody({ frame }: { frame: CanvasObjectData }) {
         </div>
 
         <p className="text-[10px] leading-snug text-[var(--text-tertiary)]">{meta.blurb}</p>
+
+        {/* Move-contents toggle — the frame's headline capability, made explicit.
+            OFF (default) the frame slides on its own, so two stacked frames stop
+            grabbing each other's blocks; ON, dragging the frame carries every
+            block sitting inside it. Available on every kind, since any frame can
+            act as a bulk-move handle. */}
+        <button
+          onClick={toggleCarryContents}
+          role="switch"
+          aria-checked={carryContents}
+          className="flex items-center gap-2.5 rounded-xl text-left transition-colors cursor-pointer"
+          style={{
+            padding: '8px 10px',
+            background: carryContents ? `${meta.color}14` : 'var(--well)',
+            boxShadow: carryContents ? `inset 0 0 0 1px ${meta.color}55` : 'inset 0 1px 2px rgba(90,62,40,0.06)',
+          }}
+        >
+          <span
+            className="relative shrink-0 rounded-full transition-colors"
+            style={{
+              width: 34, height: 19,
+              background: carryContents ? meta.color : 'var(--border-strong, rgba(120,110,100,0.35))',
+            }}
+          >
+            <span
+              className="absolute rounded-full bg-white transition-all"
+              style={{ width: 15, height: 15, top: 2, left: carryContents ? 17 : 2, boxShadow: '0 1px 2px rgba(0,0,0,0.25)' }}
+            />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[11px] font-bold text-[var(--text-primary)] leading-tight">Move contents with frame</span>
+            <span className="block text-[9.5px] text-[var(--text-tertiary)] leading-tight">
+              {carryContents ? 'Dragging this frame carries everything inside it.' : 'Frame slides on its own — contents stay put.'}
+            </span>
+          </span>
+        </button>
 
         {kind === 'delete' && (
           <DeleteZone

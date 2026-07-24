@@ -25,7 +25,10 @@ function attachmentKindOf(mime: string): 'image' | 'video' | 'file' {
 export interface ChatRoomSummary {
   id: string;
   otherUserId: string;
+  /** The other person's display name (their saved profile name, else handle). */
   otherUsername: string;
+  /** Their profile photo, or null → the initials-gradient avatar. */
+  otherAvatar: string | null;
   lastMessageAt: number | null;
   lastMessagePreview: string | null;
 }
@@ -38,7 +41,7 @@ interface ChatState {
   messagesLoading: Record<string, boolean>;
   unreadByRoom: Record<string, number>;
   searchQuery: string;
-  searchResults: { id: string; username: string }[];
+  searchResults: { id: string; username: string; displayName: string; avatarUrl: string | null }[];
   searchLoading: boolean;
   panelOpen: boolean;
   /** Set while a canvas object dragged into the "send to chat" hotzone is
@@ -48,7 +51,7 @@ interface ChatState {
 
   loadRooms: (myUserId: string) => Promise<void>;
   searchUsers: (query: string) => Promise<void>;
-  startDm: (myUserId: string, otherUserId: string, otherUsername: string) => Promise<string>;
+  startDm: (myUserId: string, otherUserId: string, otherUsername: string, otherAvatar?: string | null) => Promise<string>;
   setActiveRoom: (roomId: string | null) => Promise<void>;
   sendMessage: (roomId: string, senderId: string, body: string) => Promise<void>;
   sendAttachment: (roomId: string, senderId: string, file: File, caption?: string) => Promise<void>;
@@ -78,13 +81,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const roomRows = await fetchRooms(myUserId);
       const otherIds = roomRows.map((r) => (r.user_a === myUserId ? r.user_b : r.user_a));
-      const usernames = await fetchProfilesByIds(otherIds);
+      const identities = await fetchProfilesByIds(otherIds);
       const rooms: ChatRoomSummary[] = roomRows.map((r) => {
         const otherUserId = r.user_a === myUserId ? r.user_b : r.user_a;
+        const who = identities[otherUserId];
         return {
           id: r.id,
           otherUserId,
-          otherUsername: usernames[otherUserId] || 'Unknown',
+          otherUsername: who?.name || 'Unknown',
+          otherAvatar: who?.avatarUrl || null,
           lastMessageAt: r.last_message_at,
           lastMessagePreview: r.last_message_preview,
         };
@@ -109,13 +114,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ searchResults: results, searchLoading: false });
   },
 
-  startDm: async (myUserId, otherUserId, otherUsername) => {
+  startDm: async (myUserId, otherUserId, otherUsername, otherAvatar = null) => {
     const roomId = await openOrCreateDm(myUserId, otherUserId);
     set((state) => ({
       rooms: state.rooms.some((r) => r.id === roomId)
         ? state.rooms
         : [
-            { id: roomId, otherUserId, otherUsername, lastMessageAt: null, lastMessagePreview: null },
+            { id: roomId, otherUserId, otherUsername, otherAvatar, lastMessageAt: null, lastMessagePreview: null },
             ...state.rooms,
           ],
       searchQuery: '',

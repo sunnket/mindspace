@@ -7,7 +7,18 @@ export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024; // 25MB
 
 export interface ProfileResult {
   id: string;
+  /** The handle (unique) — kept for @-style disambiguation. */
   username: string;
+  /** The name the person set in their profile; falls back to the handle. */
+  displayName: string;
+  /** Their profile photo (data URL or remote URL), or null for the initials fallback. */
+  avatarUrl: string | null;
+}
+
+/** Everything the chat UI needs to render a person: their name and their face. */
+export interface ProfileIdentity {
+  name: string;
+  avatarUrl: string | null;
 }
 
 /** A minimal template of a canvas object — enough for `addObject` to recreate
@@ -118,6 +129,18 @@ export async function getAttachmentUrl(path: string): Promise<string | null> {
   return data?.signedUrl || null;
 }
 
+interface ProfileRow {
+  id: string;
+  username: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
+}
+
+/** display_name → username → 'Unknown'. One rule everywhere a person is named. */
+function nameOf(row: ProfileRow): string {
+  return (row.display_name || row.username || 'Unknown').trim() || 'Unknown';
+}
+
 export async function searchUsers(query: string): Promise<ProfileResult[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
@@ -126,18 +149,38 @@ export async function searchUsers(query: string): Promise<ProfileResult[]> {
     console.error('[chat] searchUsers failed:', error);
     return [];
   }
-  return (data || []) as ProfileResult[];
+  return ((data || []) as ProfileRow[]).map((row) => ({
+    id: row.id,
+    username: row.username || 'Unknown',
+    displayName: nameOf(row),
+    avatarUrl: row.avatar_url || null,
+  }));
 }
 
-export async function fetchProfilesByIds(ids: string[]): Promise<Record<string, string>> {
+/**
+ * Name + photo for a set of user ids.
+ *
+ * Selects display_name + avatar_url too — the columns schema_chat_profiles.sql
+ * adds. `select('id, username, display_name, avatar_url')` still works on a DB
+ * that predates that migration IF the columns exist; when they don't, PostgREST
+ * errors and we fall back to a username-only select so chat never goes blank.
+ */
+export async function fetchProfilesByIds(ids: string[]): Promise<Record<string, ProfileIdentity>> {
   if (ids.length === 0) return {};
-  const { data, error } = await supabase.from('profiles').select('id, username').in('id', ids);
-  if (error) {
-    console.error('[chat] fetchProfilesByIds failed:', error);
-    return {};
+  let rows: ProfileRow[] | null = null;
+  const rich = await supabase.from('profiles').select('id, username, display_name, avatar_url').in('id', ids);
+  if (rich.error) {
+    const fallback = await supabase.from('profiles').select('id, username').in('id', ids);
+    if (fallback.error) {
+      console.error('[chat] fetchProfilesByIds failed:', fallback.error);
+      return {};
+    }
+    rows = (fallback.data || []) as ProfileRow[];
+  } else {
+    rows = (rich.data || []) as ProfileRow[];
   }
-  const out: Record<string, string> = {};
-  for (const row of data || []) out[row.id as string] = (row.username as string) || 'Unknown';
+  const out: Record<string, ProfileIdentity> = {};
+  for (const row of rows) out[row.id] = { name: nameOf(row), avatarUrl: row.avatar_url || null };
   return out;
 }
 

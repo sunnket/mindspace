@@ -21,6 +21,38 @@ function timeAgo(ts: number) {
   return `${Math.floor(h / 24)}d`;
 }
 
+function sameDay(a: number, b: number): boolean {
+  const da = new Date(a), db = new Date(b);
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+}
+
+/** Clock time on a message, e.g. "3:47 PM". */
+function clockTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+/** A friendly day label for the thread divider. */
+function dayLabel(ts: number): string {
+  const now = new Date();
+  const d = new Date(ts);
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOf(now) - startOf(d)) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return d.toLocaleDateString([], { weekday: 'long' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: now.getFullYear() === d.getFullYear() ? undefined : 'numeric' });
+}
+
+function DayDivider({ ts }: { ts: number }) {
+  return (
+    <div className="flex items-center gap-3 self-stretch select-none" style={{ padding: '10px 4px 8px' }}>
+      <div className="flex-1 h-px bg-[var(--border)]" />
+      <span className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-[var(--text-muted)] shrink-0">{dayLabel(ts)}</span>
+      <div className="flex-1 h-px bg-[var(--border)]" />
+    </div>
+  );
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -135,6 +167,7 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
   }, [debouncedQuery]);
 
   const activeRoom = useMemo(() => rooms.find((r) => r.id === activeRoomId) || null, [rooms, activeRoomId]);
+  const otherAvatar = activeRoom?.otherAvatar || null;
   const messages = activeRoomId ? messagesByRoom[activeRoomId] || [] : [];
 
   useEffect(() => {
@@ -185,7 +218,7 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
     <ChatShell
       mode={mode}
       title={activeRoom ? activeRoom.otherUsername : 'Chat'}
-      avatar={activeRoom ? <Avatar name={activeRoom.otherUsername} /> : undefined}
+      avatar={activeRoom ? <Avatar name={activeRoom.otherUsername} src={otherAvatar} /> : undefined}
       onClose={onClose}
       onBack={mode === 'overlay' && activeRoomId ? () => setActiveRoom(null) : undefined}
     >
@@ -230,14 +263,19 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
                       key={r.id}
                       onClick={async () => {
                         setQuery('');
-                        const roomId = await startDm(userId, r.id, r.username);
+                        const roomId = await startDm(userId, r.id, r.displayName, r.avatarUrl);
                         await completePendingDrop(roomId);
                       }}
                       style={P_ROW}
                       className="w-full flex items-center gap-2.5 rounded-xl text-left hover:bg-[var(--well)] transition-colors cursor-pointer"
                     >
-                      <Avatar name={r.username} size={30} />
-                      <span className="text-[12px] font-semibold text-[var(--text-primary)] truncate">{r.username}</span>
+                      <Avatar name={r.displayName} src={r.avatarUrl} size={30} />
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-semibold text-[var(--text-primary)] truncate leading-tight">{r.displayName}</p>
+                        {r.displayName !== r.username && (
+                          <p className="text-[10px] text-[var(--text-tertiary)] truncate leading-tight">@{r.username}</p>
+                        )}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -263,7 +301,7 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
                         activeRoomId === r.id ? 'bg-[var(--well)]' : 'hover:bg-[var(--well)]'
                       }`}
                     >
-                      <Avatar name={r.otherUsername} size={38} />
+                      <Avatar name={r.otherUsername} src={r.otherAvatar} size={38} />
                       <div className="min-w-0 flex-1">
                         <p className="text-[12px] font-semibold text-[var(--text-primary)] truncate">{r.otherUsername}</p>
                         <p className="text-[10px] text-[var(--text-tertiary)] truncate">{r.lastMessagePreview || 'Say hi 👋'}</p>
@@ -298,18 +336,33 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
               </div>
             ) : (
               <>
-                <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-2.5" style={{ padding: 14 }}>
-                  {messages.map((m) => (
-                    <MessageBubble
-                      key={m.id}
-                      message={m}
-                      mine={m.senderId === userId}
-                      mode={mode}
-                      otherUsername={activeRoom?.otherUsername || 'User'}
-                      myName={myName}
-                      myAvatar={myAvatar}
-                    />
-                  ))}
+                <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 flex flex-col" style={{ padding: 14 }}>
+                  {messages.map((m, i) => {
+                    const prev = messages[i - 1];
+                    const next = messages[i + 1];
+                    // Group a run of messages from the same sender: only the last
+                    // in a run wears the avatar, only the first carries the top
+                    // margin, and a fresh day breaks the run open with a divider.
+                    const newDay = !prev || !sameDay(prev.createdAt, m.createdAt);
+                    const startRun = newDay || prev.senderId !== m.senderId;
+                    const endRun = !next || next.senderId !== m.senderId || !sameDay(m.createdAt, next.createdAt);
+                    return (
+                      <React.Fragment key={m.id}>
+                        {newDay && <DayDivider ts={m.createdAt} />}
+                        <MessageBubble
+                          message={m}
+                          mine={m.senderId === userId}
+                          mode={mode}
+                          otherUsername={activeRoom?.otherUsername || 'User'}
+                          otherAvatar={otherAvatar}
+                          myName={myName}
+                          myAvatar={myAvatar}
+                          startRun={startRun}
+                          endRun={endRun}
+                        />
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
                 {attachError && (
                   <p className="px-3 pb-1 text-[10px] font-semibold text-red-500 shrink-0">{attachError}</p>
@@ -376,28 +429,58 @@ function SignedInChat({ mode, onClose, userId }: { mode: 'overlay' | 'embedded';
   );
 }
 
-function MessageBubble({ message, mine, mode, otherUsername, myName, myAvatar }: { message: ChatMessage; mine: boolean; mode: 'overlay' | 'embedded'; otherUsername: string; myName: string; myAvatar: string | null }) {
+function MessageBubble({
+  message, mine, mode, otherUsername, otherAvatar, myName, myAvatar, startRun, endRun,
+}: {
+  message: ChatMessage; mine: boolean; mode: 'overlay' | 'embedded';
+  otherUsername: string; otherAvatar: string | null; myName: string; myAvatar: string | null;
+  startRun: boolean; endRun: boolean;
+}) {
   const attachments = message.attachments || [];
+  const name = mine ? myName : otherUsername;
+
+  // Corners hug within a run: only the run's ends get the fully-rounded outer
+  // corner, so a stack of messages reads as one speech group, not confetti.
+  const radius = mine
+    ? `16px ${startRun ? 16 : 6}px ${endRun ? 16 : 6}px 16px`
+    : `${startRun ? 16 : 6}px 16px 16px ${endRun ? 16 : 6}px`;
+
   return (
-    <div className={`flex gap-2 max-w-[85%] ${mine ? 'self-end flex-row-reverse' : 'self-start flex-row'}`}>
-      <div className="shrink-0" style={{ marginTop: 2 }}>
-        <Avatar name={mine ? myName : otherUsername} src={mine ? myAvatar : null} size={26} />
+    <div
+      className={`flex gap-2 max-w-[86%] ${mine ? 'self-end flex-row-reverse' : 'self-start flex-row'}`}
+      style={{ marginTop: startRun ? 10 : 2 }}
+    >
+      {/* Avatar rail — the face sits at the BOTTOM of a run, so it points at the
+          latest thing said. A spacer holds the lane on the other rows. */}
+      <div className="shrink-0 w-[26px] self-end">
+        {endRun ? <Avatar name={name} src={mine ? myAvatar : otherAvatar} size={26} /> : null}
       </div>
-      <div className={`flex flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
+      <div className={`flex flex-col gap-0.5 min-w-0 ${mine ? 'items-end' : 'items-start'}`}>
+        {startRun && (
+          <span className="text-[10px] font-bold text-[var(--text-tertiary)] px-1 leading-none" style={{ marginBottom: 2 }}>
+            {name}
+          </span>
+        )}
         {attachments.map((att, i) => (
           <AttachmentBubble key={i} attachment={att} mine={mine} mode={mode} />
         ))}
         {message.body && (
           <div
-            style={P_BUBBLE}
-            className={`text-[12px] leading-snug break-words ${
+            style={{ ...P_BUBBLE, borderRadius: radius }}
+            className={`group relative text-[12.5px] leading-relaxed break-words ${
               mine
-                ? 'rounded-[16px_16px_5px_16px] bg-[var(--accent)] text-white shadow-[0_4px_12px_-4px_rgba(var(--accent-rgb),0.5)]'
-                : 'rounded-[16px_16px_16px_5px] clay-inset text-[var(--text-primary)]'
+                ? 'bg-[var(--accent)] text-white shadow-[0_4px_12px_-4px_rgba(var(--accent-rgb),0.5)]'
+                : 'clay-inset text-[var(--text-primary)]'
             }`}
+            title={clockTime(message.createdAt)}
           >
             {message.body}
           </div>
+        )}
+        {endRun && (
+          <span className="text-[9px] text-[var(--text-muted)] tabular-nums px-1 leading-none" style={{ marginTop: 1 }}>
+            {clockTime(message.createdAt)}
+          </span>
         )}
       </div>
     </div>

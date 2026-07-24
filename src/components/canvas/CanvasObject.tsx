@@ -709,17 +709,24 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         updateObject(dragObj.id, { zIndex: getNextZIndex() });
       }
 
-      /* Dragging a frame carries everything that SITS in it — every block whose
-         centre is inside the frame right now (objectsInFrame, the same rule the
-         canvas uses to decide grouping) UNION anything explicitly tagged to it.
-         So the frame becomes a real bulk-move handle: grab it and the whole
-         group travels, whether or not each piece was ever formally dropped in. */
-      const frameChildren = dragObj.type === 'frame'
+      /* Dragging a frame carries its contents ONLY when the frame has "Move
+         contents" switched on (style.carryContents, toggled from the frame
+         menu). It defaults OFF: when two frames overlap, grabbing one used to
+         sweep up everything sitting inside the other — and even one block you
+         tried to pull out — so the group move is now something you opt into per
+         frame. When on, it carries every block whose centre is inside the frame
+         right now (objectsInFrame, the same rule the canvas uses to group)
+         UNION anything explicitly tagged to it. */
+      const carryContents = dragObj.type === 'frame' && dragObj.style?.carryContents === true;
+      const frameChildren = carryContents
         ? (() => {
             const seen = new Set<string>([dragObj.id]);
             const out: { id: string; x: number; y: number }[] = [];
             const add = (o: CanvasObjectData) => {
               if (seen.has(o.id)) return;
+              // A frame never carries another frame — two group handles moving
+              // each other is the exact confusion this toggle exists to end.
+              if (o.type === 'frame') return;
               seen.add(o.id);
               out.push({ id: o.id, x: o.x, y: o.y });
             };
@@ -768,6 +775,14 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       let overChatZone = false;
       let overAgentChatZone = false;
       let draggedFar = false;
+      /* A DELIBERATE drag — moved well past the 8px that merely distinguishes a
+         drag from a tap. The destructive drops (minimize into the shelf, warp
+         to another canvas, send to chat, file into a binder, pile onto another
+         note) all wait for this, so a tiny shaky nudge on a block near the left
+         edge or beside another note can no longer make it vanish. That was the
+         "I touched it and it disappeared" bug. */
+      let committedDrag = false;
+      const COMMIT_DIST = 26;
       /** Set once a card has actually been pulled clear of an open pile. */
       let detached = false;
       const HOTZONE_W = 210;
@@ -830,13 +845,15 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         }
 
         // Carried group moves by the frame's REAL (post-snap) displacement, so
-        // it stays rigidly attached.
+        // it stays rigidly attached. One batched commit for the whole group —
+        // not a store write per child — so carrying a 60-block frame stays
+        // smooth instead of firing 60 renders per mousemove.
         if (carried.length > 0) {
           const effDx = newX - dragStart.current.objX;
           const effDy = newY - dragStart.current.objY;
-          carried.forEach((c) => {
-            useCanvasStore.getState().updateObject(c.id, { x: c.x + effDx, y: c.y + effDy });
-          });
+          useCanvasStore.getState().translateObjects(
+            carried.map((c) => ({ id: c.id, x: c.x + effDx, y: c.y + effDy }))
+          );
         }
       };
 
@@ -866,7 +883,10 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           draggedFar = true;
           dragMovedRef.current = true;
         }
-        const inLeftCol = draggedFar && moveE.clientX < HOTZONE_W;
+        if (Math.hypot(moveE.clientX - dragStart.current.x, moveE.clientY - dragStart.current.y) > COMMIT_DIST) {
+          committedDrag = true;
+        }
+        const inLeftCol = committedDrag && moveE.clientX < HOTZONE_W;
         // Frames/arrows can't be warped/sent meaningfully — neither has a
         // standalone snapshot that makes sense outside its canvas context.
         const warpable = dragObj.type !== 'frame' && dragObj.type !== 'arrow';
@@ -880,7 +900,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
 
         // Dropping a block onto the AI agent chat adds it as context there.
         const agentPanel = document.getElementById('agent-chat-panel');
-        if (agentPanel && warpable && draggedFar) {
+        if (agentPanel && warpable && committedDrag) {
           const rect = agentPanel.getBoundingClientRect();
           overAgentChatZone = moveE.clientX >= rect.left && moveE.clientX <= rect.right &&
                               moveE.clientY >= rect.top && moveE.clientY <= rect.bottom;
@@ -890,7 +910,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         }
 
         const chatPanel = document.getElementById('chat-panel-container');
-        if (chatPanel && warpable && draggedFar) {
+        if (chatPanel && warpable && committedDrag) {
           const rect = chatPanel.getBoundingClientRect();
           overChatZone = moveE.clientX >= rect.left && moveE.clientX <= rect.right &&
                          moveE.clientY >= rect.top && moveE.clientY <= rect.bottom;
@@ -910,7 +930,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         const wzone = document.getElementById('warp-hotzone');
         const wlabel = document.getElementById('warp-hotzone-label');
         if (wzone) {
-          wzone.style.opacity = draggedFar && canWarp ? '1' : '0';
+          wzone.style.opacity = committedDrag && canWarp ? '1' : '0';
           wzone.style.borderColor = overWarpZone ? 'var(--accent)' : 'rgba(var(--accent-rgb),0.28)';
           wzone.style.background = overWarpZone ? 'rgba(var(--accent-rgb),0.12)' : 'transparent';
         }
@@ -995,7 +1015,10 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         // and lay it out on a tidy 3-column grid inside the binder's canvas.
         // (This used to require dragObj.id !== obj.id — true only when Alt-cloning
         // — so a plain drag never actually bound anything.)
-        if (dragObj.type !== 'arrow' && !dragObj.style?.isBinder) {
+        // Gated on a committed drag: without it, a mere tap on a block that
+        // happens to sit over a binder teleported it inside — content vanishing
+        // on touch.
+        if (committedDrag && dragObj.type !== 'arrow' && !dragObj.style?.isBinder) {
           const state = useCanvasStore.getState();
           const live = state.objects.find((o) => o.id === dragObj.id);
           if (live) {
@@ -1023,7 +1046,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
            watch while they drag. This sits after the binder and dock checks
            so those keep priority, and before frame grouping so a pile made
            inside a frame still joins the frame. */
-        if (draggedFar && isStackable(dragObj)) {
+        if (committedDrag && isStackable(dragObj)) {
           const state = useCanvasStore.getState();
           const live = state.objects.find((o) => o.id === dragObj.id);
           if (live) {

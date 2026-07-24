@@ -176,6 +176,11 @@ interface CanvasStore {
   setObjects: (objects: CanvasObjectData[]) => void;
   addObject: (obj: Partial<CanvasObjectData>) => CanvasObjectData;
   updateObject: (id: string, updates: Partial<CanvasObjectData>) => void;
+  /** Move many objects to absolute positions in ONE store commit. A frame that
+   *  carries its contents used to call updateObject once per child per
+   *  mousemove — O(children × objects) work and a render per child — which is
+   *  what made dragging a full frame lag. This maps the objects once. */
+  translateObjects: (moves: { id: string; x: number; y: number }[]) => void;
   removeObject: (id: string) => void;
   duplicateObject: (id: string) => CanvasObjectData | null;
   /** Sweep everything a delete-frame captures, minus anything the user tapped
@@ -914,6 +919,21 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       };
     });
     emitCollab({ kind: 'update', id, updates });
+  },
+  translateObjects: (moves) => {
+    if (moves.length === 0) return;
+    const byId = new Map(moves.map((m) => [m.id, m]));
+    const now = Date.now();
+    set((state) => ({
+      objects: state.objects.map((o) => {
+        const m = byId.get(o.id);
+        return m ? { ...o, x: m.x, y: m.y, updatedAt: now } : o;
+      }),
+      isDirty: true,
+    }));
+    // Still broadcast per object so a live collaborator sees the group move —
+    // this loop touches only the moved ids, not every object.
+    for (const m of moves) emitCollab({ kind: 'update', id: m.id, updates: { x: m.x, y: m.y } });
   },
   removeObject: (id) => {
     const obj = get().objects.find(o => o.id === id);

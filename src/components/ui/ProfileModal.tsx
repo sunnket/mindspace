@@ -84,9 +84,10 @@ export default function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
     setLoading(true);
 
     try {
+      const trimmedName = fullName.trim();
       const { error } = await supabase.auth.updateUser({
         data: {
-          full_name: fullName.trim(),
+          full_name: trimmedName,
           avatar_url: avatarUrl,
         },
       });
@@ -94,6 +95,19 @@ export default function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
       if (error) {
         setErrorMsg(error.message || 'Failed to update profile.');
       } else {
+        // Mirror the name + photo into the PUBLIC profiles table so other
+        // people see them in chat. Auth metadata is private to each user, so
+        // without this the DM chat only ever had the auto-generated handle to
+        // show — hence the "it shows my initials, not my photo" bug. Best-effort
+        // (the auth update already succeeded); needs schema_chat_profiles.sql.
+        supabase
+          .from('profiles')
+          .update({ display_name: trimmedName, avatar_url: avatarUrl })
+          .eq('id', user.id)
+          .then(({ error: profErr }) => {
+            if (profErr) console.error('[profile] failed to sync profiles row:', profErr);
+          });
+
         setSuccessMsg('Profile updated successfully!');
         setTimeout(() => {
           onClose();
