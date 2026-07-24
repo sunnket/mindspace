@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useCanvasStore } from '@/store/canvasStore';
 import AuthModal from './AuthModal';
 import ProfileModal from './ProfileModal';
+import { getMyAccessStatus } from '@/lib/access';
 
 interface AuthButtonProps {
   hideGuest?: boolean;
@@ -19,7 +20,26 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
   const [modalMode, setModalMode] = useState<'signin' | 'signup' | 'forgot' | 'update-password'>('signin');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  // Keyed by user id rather than a bare boolean so the answer invalidates
+  // itself when the account changes — no synchronous reset inside the effect,
+  // which React 19 flags as a cascading render.
+  const [ownerId, setOwnerId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Only the owner is offered the access desk; the DB refuses everyone else
+  // anyway, so this just keeps a dead link out of other people's menus.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    getMyAccessStatus().then((s) => {
+      if (!cancelled && s === 'owner') setOwnerId(user.id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  const isOwner = !!user && ownerId === user.id;
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -158,6 +178,24 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
                     </span>
                   </button>
 
+                  {isOwner && (
+                    <button
+                      onClick={() => {
+                        setDropdownOpen(false);
+                        window.location.href = '/admin';
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs font-light hover:bg-white/60 dark:hover:bg-white/10 hover:text-[var(--accent)] rounded-lg transition-colors flex items-center justify-between group cursor-pointer mt-0.5"
+                    >
+                      <span>Who gets in</span>
+                      <span className="text-[var(--text-muted)] group-hover:text-[var(--accent)] flex items-center">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <rect x="3" y="11" width="18" height="11" rx="2" />
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                        </svg>
+                      </span>
+                    </button>
+                  )}
+
                   <button
                     onClick={handleSignOut}
                     className="w-full text-left px-3 py-2 text-xs font-light hover:bg-red-50 text-red-500 hover:text-red-600 rounded-lg transition-colors flex items-center justify-between group mt-1 cursor-pointer"
@@ -195,7 +233,7 @@ export default function AuthButton({ hideGuest = false, isInline = false }: Auth
               style={{ padding: '8px 18px' }}
               className="bg-[var(--accent)]/15 text-[var(--accent)] hover:bg-[var(--accent)]/25 border border-[var(--accent)]/25 text-[12px] font-extrabold rounded-full transition-all shadow-[0_8px_20px_-8px_rgba(var(--accent-rgb),0.5)] focus:outline-none cursor-pointer"
             >
-              Sign Up
+              Get Access
             </button>
           </div>
         )}

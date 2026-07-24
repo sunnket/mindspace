@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
+import AccessGate from './AccessGate';
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   const initializeAuth = useAuthStore((s) => s.initializeAuth);
@@ -10,5 +11,5 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     initializeAuth();
   }, [initializeAuth]);
 
-  return <>{children}</>;
+  return <AccessGate>{children}</AccessGate>;
 }
