@@ -29,6 +29,7 @@ import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
 import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock, TimelineBlock, TableBlock } from './ExtensionBlocks';
+import RoadmapBlock from './RoadmapBlock';
 import WhiteboardBlock from './WhiteboardBlock';
 import BinderBlock from './BinderBlock';
 import MirrorBlock from './MirrorBlock';
@@ -3095,6 +3096,13 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           return (
             <div style={{ width: '100%', height: '100%' }}>
               <QuickDataBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isRoadmap) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <RoadmapBlock obj={obj} />
             </div>
           );
         }
