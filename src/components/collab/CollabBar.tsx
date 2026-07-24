@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCollabStore } from '@/store/collabStore';
 import { useCanvasStore } from '@/store/canvasStore';
@@ -21,14 +21,13 @@ export default function CollabBar() {
   const addSelectionToOriginCanvas = useCollabStore((s) => s.addSelectionToOriginCanvas);
   const selectedId = useCanvasStore((s) => s.selectedId);
 
-  // Voice call
+  // Voice — a mic, not a call.
   const audioActive = useCollabStore((s) => s.audioActive);
   const micMuted = useCollabStore((s) => s.micMuted);
   const audioError = useCollabStore((s) => s.audioError);
   const selfSpeaking = useCollabStore((s) => s.selfSpeaking);
   const callParticipants = useCollabStore((s) => s.callParticipants);
   const joinAudio = useCollabStore((s) => s.joinAudio);
-  const leaveAudio = useCollabStore((s) => s.leaveAudio);
   const toggleMic = useCollabStore((s) => s.toggleMic);
   const mutePeer = useCollabStore((s) => s.mutePeer);
   const kickPeer = useCollabStore((s) => s.kickPeer);
@@ -36,18 +35,46 @@ export default function CollabBar() {
   const [copied, setCopied] = useState(false);
   const [added, setAdded] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(false);
-  const [joining, setJoining] = useState(false);
+  const [opening, setOpening] = useState(false);
 
   const peerList = Object.values(peers);
   const active = status === 'connected' || status === 'connecting';
   const amPresenting = !!me && presenter?.id === me.id;
-  const inCallCount = Object.keys(callParticipants).length + (audioActive ? 1 : 0);
 
   useEffect(() => {
     if (!audioError) return;
     const t = setTimeout(() => useCollabStore.getState()._setAudioError(null), 4000);
     return () => clearTimeout(t);
   }, [audioError]);
+
+  /* Being in a session IS being in the room.
+     There used to be a "Call" button to press before anyone could hear anyone,
+     which meant a live session where nobody could speak until two people both
+     remembered to dial in. Now connecting opens the mic mesh for you, MUTED —
+     so everybody is already connected and the only thing left to do is unmute
+     and talk. Attempted once per session; if the mic is blocked the bar falls
+     back to a button that asks again. */
+  const autoJoinedRef = useRef(false);
+  useEffect(() => {
+    if (status !== 'connected') {
+      autoJoinedRef.current = false;
+      return;
+    }
+    if (autoJoinedRef.current || audioActive) return;
+    autoJoinedRef.current = true;
+    void joinAudio({ muted: true });
+  }, [status, audioActive, joinAudio]);
+
+  /** Open the mic for real: join the mesh if needed, then unmute. */
+  const openMic = async () => {
+    if (audioActive) { toggleMic(); return; }
+    setOpening(true);
+    try {
+      await joinAudio({ muted: false });
+    } finally {
+      setOpening(false);
+    }
+  };
 
   const addToMyCanvas = async () => {
     if (!selectedId) return;
@@ -69,11 +96,6 @@ export default function CollabBar() {
     }
   };
 
-  const handleJoinAudio = async () => {
-    setJoining(true);
-    try { await joinAudio(); } finally { setJoining(false); }
-  };
-
   const copyCode = () => {
     if (!code) return;
     navigator.clipboard?.writeText(code).then(
@@ -85,7 +107,11 @@ export default function CollabBar() {
   if (!active) return null;
 
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[120] pointer-events-none flex flex-col items-center gap-2">
+    /* Above the reactions/laser bar (PulseLayer, z-120, top-[68px]). Both used
+       to sit at z-120 and PulseLayer painted later, so opening Participants
+       drew the roster UNDER the emoji row — the names came out half-buried in
+       reaction buttons. A popover you just asked for wins over ambient chrome. */
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[124] pointer-events-none flex flex-col items-center gap-2">
       <AnimatePresence mode="wait">
         <motion.div
           key="session"
@@ -135,49 +161,41 @@ export default function CollabBar() {
             {peerList.length > 0 ? `${peerList.length + 1} here` : 'waiting…'}
           </span>
 
-          {/* --- voice call --- */}
-          {!audioActive ? (
-            <button
-              onClick={handleJoinAudio}
-              disabled={joining}
-              title="Join the voice call"
-              className="h-7 px-3 rounded-full flex items-center gap-1.5 text-[10px] font-bold shrink-0 transition-all cursor-pointer text-[var(--text-secondary)] hover:bg-white/60 disabled:opacity-60"
-            >
-              <PhoneIcon />
-              {joining ? 'Joining…' : 'Call'}
-            </button>
-          ) : (
-            <div className="flex items-center gap-1.5 shrink-0">
-              {/* mic mute toggle */}
-              <button
-                onClick={toggleMic}
-                title={micMuted ? 'Unmute' : 'Mute'}
-                aria-pressed={micMuted}
-                className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                  micMuted ? 'bg-red-500 text-white' : selfSpeaking ? 'bg-[#30A46C] text-white' : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                {micMuted ? <MicOffIcon /> : <MicIcon />}
-              </button>
-              {/* in-call count → roster */}
-              <button
-                onClick={() => setRosterOpen((v) => !v)}
-                title="In call"
-                className="h-7 px-2.5 rounded-full flex items-center gap-1 text-[10px] font-bold text-[#217A54] bg-[#30A46C]/12 hover:bg-[#30A46C]/20 transition-colors cursor-pointer"
-              >
-                <PhoneIcon size={11} />
-                {inCallCount}
-              </button>
-              {/* leave call (stays in the session) */}
-              <button
-                onClick={leaveAudio}
-                title="Leave the call"
-                className="w-7 h-7 rounded-full flex items-center justify-center bg-red-500 text-white hover:brightness-105 transition cursor-pointer"
-              >
-                <PhoneOffIcon />
-              </button>
-            </div>
-          )}
+          {/* --- the mic ---
+              One control, always the same shape: press to talk, press to stop.
+              Live it glows green and rings while you speak; muted it's a quiet
+              inset button, not an alarm — being muted is the resting state
+              here, so it shouldn't shout. */}
+          <button
+            onClick={openMic}
+            disabled={opening}
+            aria-pressed={audioActive && !micMuted}
+            title={
+              !audioActive
+                ? 'Turn on your mic'
+                : micMuted
+                ? 'Unmute — everyone in this session hears you'
+                : 'Mute your mic'
+            }
+            className={`relative w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-all cursor-pointer disabled:opacity-60 ${
+              audioActive && !micMuted
+                ? 'bg-[#30A46C] text-white shadow-[0_4px_10px_-4px_rgba(48,164,108,0.7)]'
+                : 'clay-inset text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            {/* a soft ring that breathes while your voice is actually carrying */}
+            {audioActive && !micMuted && selfSpeaking && (
+              <motion.span
+                className="absolute inset-0 rounded-full"
+                style={{ boxShadow: '0 0 0 3px rgba(48,164,108,0.35)' }}
+                animate={{ opacity: [0.35, 1, 0.35], scale: [1, 1.12, 1] }}
+                transition={{ duration: 1.1, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            )}
+            <span className="relative flex items-center justify-center">
+              {audioActive && !micMuted ? <MicIcon size={14} /> : <MicOffIcon size={14} />}
+            </span>
+          </button>
 
           <span className="w-px h-5 bg-[var(--border)] shrink-0" />
 
@@ -285,13 +303,16 @@ export default function CollabBar() {
               })}
             </div>
 
+            {/* Only shown when the mic never opened (blocked / no device) —
+                normally the session has already put you in the room. */}
             {!audioActive && (
               <button
-                onClick={handleJoinAudio}
-                disabled={joining}
-                className="w-full mt-2 py-2 rounded-full bg-[#30A46C] text-white text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer hover:brightness-105 transition disabled:opacity-60"
+                onClick={openMic}
+                disabled={opening}
+                style={{ marginTop: 8 }}
+                className="w-full py-2 rounded-full bg-[#30A46C] text-white text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer hover:brightness-105 transition disabled:opacity-60"
               >
-                <PhoneIcon size={12} /> {joining ? 'Joining…' : 'Join voice call'}
+                <MicIcon size={12} /> {opening ? 'Opening…' : 'Turn on my mic'}
               </button>
             )}
           </motion.div>
@@ -314,8 +335,8 @@ function RosterRow({
         <p className="text-[12px] font-semibold text-[var(--text-primary)] truncate leading-tight">
           {name}{you && <span className="text-[var(--text-tertiary)] font-normal"> (you)</span>}
         </p>
-        <p className="text-[9px] font-bold uppercase tracking-wide leading-tight" style={{ color: inCall ? (speaking ? '#30A46C' : 'var(--text-tertiary)') : 'var(--text-muted)' }}>
-          {inCall ? (muted ? 'Muted' : speaking ? 'Speaking' : 'In call') : 'Not in call'}
+        <p className="text-[9px] font-bold uppercase tracking-wide leading-tight" style={{ color: speaking ? '#30A46C' : inCall ? 'var(--text-tertiary)' : 'var(--text-muted)' }}>
+          {!inCall ? 'Mic off' : muted ? 'Muted' : speaking ? 'Speaking' : 'Mic live'}
         </p>
       </div>
       {inCall && (muted ? <MicOffIcon size={13} className="text-red-500 shrink-0" /> : <MicIcon size={13} className="text-[var(--text-tertiary)] shrink-0" />)}
@@ -379,21 +400,6 @@ function MicOffIcon({ size = 12, className = '' }: { size?: number; className?: 
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
       <line x1="2" y1="2" x2="22" y2="22" /><path d="M9 9v1a3 3 0 0 0 5.12 2.12M15 9.34V5a3 3 0 0 0-5.94-.6" /><path d="M17 10v1a5 5 0 0 1-.54 2.27M19 10v1a7 7 0 0 1-.11 1.23" /><line x1="12" y1="18" x2="12" y2="22" />
-    </svg>
-  );
-}
-function PhoneIcon({ size = 12, className = '' }: { size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13 1 .37 1.94.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.87.35 1.81.59 2.81.72A2 2 0 0 1 22 16.92z" />
-    </svg>
-  );
-}
-function PhoneOffIcon({ size = 12, className = '' }: { size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91" />
-      <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
   );
 }

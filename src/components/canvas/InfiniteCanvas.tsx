@@ -4,7 +4,7 @@ import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
-import { screenToCanvas, clamp, fitImageBox } from '@/lib/utils';
+import { screenToCanvas, clamp, fitImageBox, dragState } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import { ingestFile } from '@/lib/fileIngest';
 import { collectDropEntries, hasDirectoryEntry, ingestDroppedFolder } from '@/lib/repoIngest';
@@ -523,6 +523,34 @@ export default function InfiniteCanvas() {
     return () => container.removeEventListener('wheel', handleWheel);
   }, [handleWheel]);
 
+  /* A pan ends when the BUTTON comes up, wherever that happens to be — over
+     the toolbar, a panel, another window, or nowhere at all because the tab
+     lost focus mid-drag. The container's own onMouseUp only ever saw releases
+     that landed back on the board, so every other ending left the canvas
+     believing it was still being panned. These listeners are the safety net
+     that guarantees a gesture always finishes. */
+  useEffect(() => {
+    /* Bubble phase, NOT capture: React's own delegated onMouseUp on the board
+       runs first and still gets to see the flag, so a still tap on empty
+       canvas keeps creating a text box. We only clean up after it. */
+    const end = () => {
+      isPanningRef.current = false;
+      // The block-drag flag gets the same treatment for the same reason: a
+      // gesture that ends anywhere unusual must still end.
+      dragState.objectDrag = false;
+    };
+    window.addEventListener('mouseup', end);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    window.addEventListener('blur', end);
+    return () => {
+      window.removeEventListener('mouseup', end);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      window.removeEventListener('blur', end);
+    };
+  }, []);
+
   // Mouse down for panning
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -618,6 +646,23 @@ export default function InfiniteCanvas() {
           });
         }
       }
+
+      /* --- Never pan unless a button is genuinely still down ---------------
+         `isPanningRef` used to be cleared ONLY by the container's own
+         onMouseUp. Release the button anywhere that isn't the board — over the
+         toolbar, a panel, the minimap, or outside the window entirely — and
+         that handler never fired, so the flag stayed true forever. From then
+         on every ordinary mouse move panned the camera by the distance from a
+         long-dead press: blocks slid away from the cursor as you reached for
+         them ("it repels"), and touching one dragged it while the world
+         scrolled underneath, flinging it across the board.
+
+         `e.buttons` is the ground truth — 0 means nothing is held, whatever we
+         think we remember. Checking it makes a stale press impossible to act
+         on. `dragState.objectDrag` is the matching guard from the other side:
+         a block drag and a viewport pan must never run together. */
+      if (e.buttons === 0) isPanningRef.current = false;
+      if (dragState.objectDrag) return;
 
       if (isPanningRef.current && !useCanvasStore.getState().viewLocked) {
         // If we are in select/text mode, and drag is large enough, switch to panning the canvas optionally?

@@ -63,7 +63,17 @@ function store() {
 
 /* --------------------------- lifecycle ---------------------------- */
 
-export async function joinAudioCall(): Promise<void> {
+/**
+ * Open the mic and join the mesh.
+ *
+ * `muted` exists because there is no longer a "call" to place: joining a
+ * session puts you in the room straight away, mic OFF, and the only control is
+ * the mute toggle. Everyone is always connected, so unmuting is the whole
+ * gesture — you speak and you're heard, with nobody needing to dial anybody.
+ * The track is created disabled, so a muted join never captures a single
+ * sample; the browser's own recording indicator is the honest signal.
+ */
+export async function joinAudioCall(opts?: { muted?: boolean }): Promise<void> {
   if (inCall) return;
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
     store()._setAudioError('This browser can’t access the microphone.');
@@ -72,12 +82,15 @@ export async function joinAudioCall(): Promise<void> {
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
   } catch {
-    store()._setAudioError('Microphone permission denied.');
+    store()._setAudioError('Microphone blocked — allow it to talk here.');
     return;
   }
+  const muted = opts?.muted !== false;
+  localStream.getAudioTracks().forEach((t) => { t.enabled = !muted; });
+
   inCall = true;
   store()._setAudioActive(true);
-  store()._setMicMuted(false);
+  store()._setMicMuted(muted);
   store()._setAudioError(null);
 
   startVAD();
@@ -85,6 +98,12 @@ export async function joinAudioCall(): Promise<void> {
 
   // Announce and let existing members reach back with `audio-here`.
   send?.({ t: 'audio-join', from: myId });
+  send?.({ t: 'audio-state', from: myId, muted });
+}
+
+/** Am I already in the mesh? Lets the UI avoid a redundant join. */
+export function isInCall(): boolean {
+  return inCall;
 }
 
 export function leaveAudioCall(): void {
@@ -106,7 +125,7 @@ export function teardown(): void {
   if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
   const s = store();
   s._setAudioActive(false);
-  s._setMicMuted(false);
+  s._setMicMuted(true);
   s._resetCallParticipants();
   s._setSelfSpeaking(false);
 }
@@ -146,8 +165,11 @@ export function handleAudioMessage(msg: WireMessage): void {
     case 'audio-join':
       if (msg.from === myId) return;
       if (inCall) {
-        // Tell the newcomer we're here, then connect (if we're the initiator).
+        // Tell the newcomer we're here — including whether our mic is open, so
+        // their roster is right from the first frame instead of showing
+        // everyone live until the first toggle contradicts it.
         send?.({ t: 'audio-here', from: myId, to: msg.from });
+        send?.({ t: 'audio-state', from: myId, muted: store().micMuted });
         ensureConn(msg.from, true);
       }
       break;
@@ -202,7 +224,12 @@ function ensureConn(peerId: string, connectNow: boolean): PeerConn {
 
   entry = { pc, audioEl, pendingIce: [], remoteSet: false };
   conns.set(peerId, entry);
-  store()._setCallParticipant(peerId, { muted: false, speaking: false });
+  /* Seed the roster entry only if their real state hasn't already landed —
+     `audio-state` and the connection setup race, and the message is the
+     truth. Muted is the right guess: everyone joins with the mic closed. */
+  if (!store().callParticipants[peerId]) {
+    store()._setCallParticipant(peerId, { muted: true, speaking: false });
+  }
 
   // Publish my mic to this peer.
   if (localStream) localStream.getTracks().forEach((t) => pc.addTrack(t, localStream!));

@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import { CanvasObjectData } from '@/lib/db';
-import { getSnapPoints, randomStickyColor } from '@/lib/utils';
+import { getSnapPoints, randomStickyColor, dragState } from '@/lib/utils';
 import { ensureReadableInk, readableInk, paperColor } from '@/lib/canvasTheme';
 import { reportMeasuredHeight, forgetMeasuredHeight } from '@/lib/canvasLayout';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
@@ -656,7 +656,12 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       // A tour takes the same deal: the presenter can still click a link or an
       // embed, but can't nudge a block out of place mid-slide.
       if (readOnly || isTouring) return;
-      if (mode === 'draw' || isEditing) return;
+      if (mode === 'draw') return;
+      /* Editing: no drag, but the press must still not reach the board, or
+         sweeping a selection across your own words panned the whole canvas
+         out from under the caret. stopPropagation only stops React's bubble —
+         native text selection is untouched. */
+      if (isEditing) { e.stopPropagation(); return; }
 
       // Clicks on embedded controls (poll options, settings inputs, checkpoint
       // name, todo checkboxes…) must keep their native behaviour — a
@@ -765,6 +770,9 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       } as any;
 
       setIsDragging(true);
+      // Tell the board a block is in hand, so nothing else can move the world
+      // while it is (see dragState in lib/utils).
+      dragState.objectDrag = true;
 
       // Top-left drop dock: the upper zone MINIMIZES the object into the shelf;
       // the zone below that WARPS it to another canvas; the zone below THAT
@@ -802,6 +810,18 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       let overAnyHotzone = false;
 
       const positionAt = (cursorX: number, cursorY: number) => {
+        /* A TAP MOVES NOTHING. Until the cursor has travelled past the 8px
+           that separates a tap from a drag, this block stays exactly where it
+           is — no snap, no nudge, no write to the store. Before, the first
+           pixel of hand-shake ran the full drag path, and alignment snapping
+           immediately yanked the block onto a neighbour's edge: touch a card
+           to select it and it slid out from under you.
+
+           Nothing jumps when the drag does start, because every position here
+           is computed absolutely from the grab point rather than accumulated
+           frame by frame — the block picks up exactly where the cursor is. */
+        if (!draggedFar) return;
+
         const liveCam = useCanvasStore.getState().camera;
         const dx = (cursorX - dragStart.current.x) / zoom - (liveCam.x - dragStartCam.x) / zoom;
         const dy = (cursorY - dragStart.current.y) / zoom - (liveCam.y - dragStartCam.y) / zoom;
@@ -827,7 +847,6 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         // The moment a grab on a spread card becomes a real drag it leaves the
         // pile, at the exact spot it was drawn, so it comes away without a jump.
         if (spreadGrab && !detached) {
-          if (!draggedFar) return;
           detached = true;
           useCanvasStore.getState().unstackObject(dragObj.id, newX, newY);
         }
@@ -952,6 +971,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
 
       const handleMouseUp = () => {
         setIsDragging(false);
+        dragState.objectDrag = false;
         if (edgeRAF !== null) { cancelAnimationFrame(edgeRAF); edgeRAF = null; }
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp, END_DRAG);
@@ -1096,11 +1116,21 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           }
         }
 
+        /* Nothing actually moved — a tap, or a drag that never crossed the
+           threshold. Recording it would put a no-op on the undo stack, so
+           Ctrl+Z would appear to do nothing at all. */
+        if (!dragMovedRef.current) return;
+
+        // Where it ENDED UP, read live: `dragObj` is the snapshot from
+        // mousedown and still holds the pre-drag coordinates, so redoing a
+        // move used to send the block back to where it started.
+        const settled = useCanvasStore.getState().objects.find((o) => o.id === dragObj.id);
+        if (!settled) return;
         pushUndo({
           type: 'move',
           objectId: dragObj.id,
           before,
-          after: { x: dragObj.x, y: dragObj.y },
+          after: { x: settled.x, y: settled.y },
         });
       };
 
@@ -1115,6 +1145,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       e.stopPropagation();
       e.preventDefault();
       setIsResizing(true);
+      dragState.objectDrag = true;
 
       resizeStart.current = {
         x: e.clientX,
@@ -1175,6 +1206,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
 
       const handleMouseUp = () => {
         setIsResizing(false);
+        dragState.objectDrag = false;
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp);
       };
@@ -1201,6 +1233,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         : which === 'end' ? { x: ex, y: ey }
         : hasBend ? { x: s.bendX as number, y: s.bendY as number } : { x: (sx + ex) / 2, y: (sy + ey) / 2 };
       const origin = { x: e.clientX, y: e.clientY };
+      dragState.objectDrag = true;
 
       const move = (me: MouseEvent) => {
         const dx = (me.clientX - origin.x) / camera.zoom;
@@ -1221,6 +1254,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         });
       };
       const up = () => {
+        dragState.objectDrag = false;
         window.removeEventListener('mousemove', move);
         window.removeEventListener('mouseup', up);
       };
@@ -1237,6 +1271,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       e.stopPropagation();
       e.preventDefault();
       setIsResizing(true);
+      dragState.objectDrag = true;
 
       const startClientX = e.clientX;
       const startClientY = e.clientY;
@@ -1266,6 +1301,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
 
       const handleMouseUp = () => {
         setIsResizing(false);
+        dragState.objectDrag = false;
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp);
       };
@@ -1289,6 +1325,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
 
       const initialRotation = obj.rotation || 0;
       const startAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+      dragState.objectDrag = true;
 
       const handleMouseMove = (moveE: MouseEvent) => {
         const currentAngle = Math.atan2(moveE.clientY - centerY, moveE.clientX - centerX);
@@ -1306,6 +1343,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       };
 
       const handleMouseUp = () => {
+        dragState.objectDrag = false;
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp);
       };

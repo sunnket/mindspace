@@ -212,13 +212,19 @@ function MetaIcon({ style }: { style: FlowProgressStyle }) {
 }
 
 export function FlowIcon({ size = 18 }: { size?: number }) {
-  // An aperture / focus mark — the room narrowing to a point of light.
+  /* A current, with the caret riding it.
+     This was an aperture — a big open circle with a dot in the middle — which
+     put a second ring two buttons away from the canvas-background circle in
+     the toolbar. At 17px they read as the same button. Three flowing lines
+     read as nothing else on the bar, and they say the thing the mode is
+     actually about: the words moving, and the one lit point you're writing
+     at. Tapering the lines outward keeps the mark focused rather than turning
+     it into a weather-app wave. */
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 3.2 A8.8 8.8 0 0 1 19.6 7.6 L12 12 Z" opacity="0.55" />
-      <path d="M20.5 14.4 A8.8 8.8 0 0 1 12 20.8 L12 12 Z" opacity="0.35" />
-      <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5.4 6.6c2.2-2.3 4.4-2.3 6.6 0s4.4 2.3 6.6 0" opacity="0.5" />
+      <path d="M3 12c3-3.1 6-3.1 9 0s6 3.1 9 0" />
+      <path d="M5.4 17.4c2.2-2.3 4.4-2.3 6.6 0s4.4 2.3 6.6 0" opacity="0.5" />
     </svg>
   );
 }

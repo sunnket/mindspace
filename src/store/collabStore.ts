@@ -80,8 +80,12 @@ interface CollabState {
    * the host or when nothing is selected. */
   addSelectionToOriginCanvas: () => Promise<void>;
 
-  // Voice call — public controls
-  joinAudio: () => Promise<void>;
+  /* Voice — public controls.
+     There is no "call" to place any more: joining a session opens the mic
+     mesh straight away with the mic MUTED, and talking is just unmuting.
+     `joinAudio` is what the bar calls to (re)open the mic after a denied
+     permission, and what the session hands off to on connect. */
+  joinAudio: (opts?: { muted?: boolean }) => Promise<void>;
   leaveAudio: () => void;
   toggleMic: () => void;
   /** Host only: ask a peer to mute themselves. */
@@ -138,7 +142,8 @@ export const useCollabStore = create<CollabState>((set, get) => ({
   following: false,
   mirrorFrames: {},
   audioActive: false,
-  micMuted: false,
+  // Mic starts CLOSED: a session opens the mesh for you, unmuting is the act.
+  micMuted: true,
   audioError: null,
   selfSpeaking: false,
   callParticipants: {},
@@ -229,9 +234,9 @@ export const useCollabStore = create<CollabState>((set, get) => ({
     import('@/lib/collab/service').then(({ leaveSession }) => leaveSession());
   },
 
-  joinAudio: async () => {
+  joinAudio: async (opts) => {
     const { joinAudioCall } = await import('@/lib/collab/audio');
-    await joinAudioCall();
+    await joinAudioCall(opts);
   },
   leaveAudio: () => {
     import('@/lib/collab/audio').then(({ leaveAudioCall }) => leaveAudioCall());
@@ -383,7 +388,7 @@ export const useCollabStore = create<CollabState>((set, get) => ({
       following: false,
       mirrorFrames: {},
       audioActive: false,
-      micMuted: false,
+      micMuted: true,
       audioError: null,
       selfSpeaking: false,
       callParticipants: {},
