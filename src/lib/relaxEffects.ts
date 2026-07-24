@@ -88,6 +88,11 @@ export interface EffectApi {
   viewport: { w: number; h: number };
   /** live cursor position in SCREEN px — for effects the user pushes around */
   pointer: { x: number; y: number };
+  /** is the canvas currently on a DARK paper? Effects read this at create-time to
+   *  render legibly in both themes — bright glows against a light page wash out,
+   *  and white particles vanish on light paper, so each effect adapts its colours,
+   *  contrast and (where it helps) its own backdrop to the theme it lands in. */
+  readonly isDark: boolean;
 }
 
 export interface RelaxEffect {
@@ -498,54 +503,181 @@ const fireworks: RelaxEffect = {
   },
 };
 
-/* ------------------------------------------------------------------- galaxy */
+/* ------------------------------------------------------------------- galaxy
+   Rebuilt from flat coloured dots into an actual spiral galaxy: a glowing gold
+   core BULGE, two arms of stars whose colour runs from hot blue-white youngsters
+   to warm old suns with pink HII regions between them, faint blurred NEBULA gas
+   riding the arms, a scatter of DUST for depth, and — because a bright galaxy
+   vanishes on light paper — its own pocket of dark SPACE to glow against in
+   light mode. Every element is additive ('screen') so overlapping stars and gas
+   sum into real brightness the way light does. */
 
-const GALAXY_COLORS = ['#B892FF', '#8093F1', '#72DDF7', '#F7AEF8', '#FFD6A5', '#FFFFFF'];
+const GALAXY_BLUE = ['#EAF3FF', '#CFE4FF', '#FFFFFF', '#BFD8FF', '#A9CCFF'];
+const GALAXY_WARM = ['#FFF1D6', '#FFE0AE', '#FFE9C7', '#FFD9A0'];
+const GALAXY_HII = ['#FFB0D4', '#F09BFF', '#FF9EC6', '#E58AFF'];
+const GALAXY_TEAL = ['#BFF6FF', '#9FE9FF'];
+const GALAXY_NEBULA = ['#7A5CFF', '#FF6FB5', '#3FC7E6', '#B06CFF', '#FF8AA8'];
+
+const GX_STAR = 0;
+const GX_DUST = 1;
+const GX_NEBULA = 2;
+const GX_CORE = 3;
+const GX_SPACE = 4;
+
+/** Rate-limit the heavy blurred backdrop so hammering the canvas can't stack a
+ *  dozen of them. */
+let lastGalaxySpace = 0;
+
+/** Give a spiralling particle its arm + orbit state. */
+function galaxyOrbit(p: Particle, growthLo: number, growthHi: number, sweepLo: number, sweepHi: number) {
+  const arm = Math.random() < 0.5 ? 0 : Math.PI;
+  p.a = arm + rand(-0.22, 0.22);   // arm angle (tight jitter — wide washes it flat)
+  p.b = rand(4, 26);               // starting radius, rooted near the core
+  p.c = rand(growthLo, growthHi);  // radial growth per frame
+  p.d = rand(sweepLo, sweepHi);    // sweep rate (differential rotation in step)
+}
 
 const galaxy: RelaxEffect = {
   id: 'galaxy',
   label: 'Galaxy Swirl',
-  blurb: 'A spiral galaxy unwinds from your cursor — stars sweep out along its arms and fade into deep space.',
+  blurb: 'A whole spiral galaxy winds out of your cursor — a molten core, arms of blue-white and gold stars laced with glowing gas, turning in deep space.',
   space: 'world',
-  flash: 'rgba(184, 146, 255, 0.55)',
+  flash: 'rgba(150, 130, 255, 0.4)',
   burstMs: 10_000,
-  openingPop: 70,
-  spawnEveryMs: 55,
-  spawnPerTick: 4,
-  maxParticles: 900,
-  create(x, y, now) {
-    const color = pick(GALAXY_COLORS);
-    const size = rand(2.5, 7);
-    const el = document.createElement('div');
-    baseStyle(el, size, `border-radius:50%;background:${color};box-shadow:0 0 ${size * 2.5}px ${size / 2}px ${color}99;`);
+  openingPop: 80,
+  spawnEveryMs: 45,
+  spawnPerTick: 5,
+  maxParticles: 1100,
+  onBurst(x, y, api) {
+    playSparkle();
+    const now = performance.now();
+    // Dark space to glow against — only in light mode, and only occasionally.
+    if (!api.isDark && now - lastGalaxySpace > 2200) {
+      lastGalaxySpace = now;
+      api.spawn(x, y, 1, GX_SPACE);
+    }
+    api.spawn(x, y, 1, GX_CORE);         // the bulge
+    api.spawn(x, y, 3, GX_NEBULA);       // a few gas clouds along the arms
+    api.spawn(x, y, 26, GX_DUST);        // faint field stars for depth
+  },
+  create(x, y, now, api, kind = GX_STAR) {
+    /* ---- the dark space pocket (light mode only) ---- */
+    if (kind === GX_SPACE) {
+      const size = rand(580, 780);
+      const el = document.createElement('div');
+      baseStyle(
+        el, size,
+        'border-radius:50%;filter:blur(10px);' +
+          'background:radial-gradient(circle, rgba(6,8,22,0.86) 0%, rgba(10,14,32,0.62) 36%,' +
+          ' rgba(16,20,40,0.28) 60%, rgba(20,24,46,0) 76%);'
+      );
+      const p = particle(el, x, y, size, rand(7000, 9000), now);
+      p.kind = GX_SPACE;
+      return p;
+    }
 
-    const p = particle(el, x, y, size, rand(4000, 7000), now);
-    // Two arms. The jitter has to stay tight — widen it and the arms wash out
-    // into a featureless disc.
-    const arm = Math.random() < 0.5 ? 0 : Math.PI;
-    p.a = arm + rand(-0.2, 0.2); // angle
-    p.b = rand(4, 22); // radius — start near the core so the arms have a root
-    p.c = rand(0.3, 0.75); // radial growth
-    // Total sweep over a lifetime lands around 2 radians. Much more than that and
-    // each arm wraps the core several times and you're back to a disc.
-    p.d = rand(0.045, 0.085);
+    /* ---- the glowing core bulge ---- */
+    if (kind === GX_CORE) {
+      const size = rand(140, 200);
+      const el = document.createElement('div');
+      baseStyle(
+        el, size,
+        'border-radius:50%;mix-blend-mode:screen;' +
+          'background:radial-gradient(circle, rgba(255,248,232,0.98) 0%, rgba(255,224,168,0.72) 20%,' +
+          ' rgba(255,186,128,0.34) 44%, rgba(196,150,255,0.16) 66%, rgba(120,90,220,0) 80%);'
+      );
+      const p = particle(el, x, y, size, rand(3400, 4400), now);
+      p.kind = GX_CORE;
+      p.d = rand(0, Math.PI * 2); // pulse phase
+      return p;
+    }
+
+    /* ---- blurred nebula gas that rides an arm ---- */
+    if (kind === GX_NEBULA) {
+      const size = rand(80, 170);
+      const color = pick(GALAXY_NEBULA);
+      const el = document.createElement('div');
+      baseStyle(
+        el, size,
+        'border-radius:50%;filter:blur(18px);mix-blend-mode:screen;' +
+          `background:radial-gradient(circle, ${color}66 0%, ${color}2e 48%, ${color}00 72%);`
+      );
+      const p = particle(el, x, y, size, rand(4200, 6800), now);
+      p.kind = GX_NEBULA;
+      galaxyOrbit(p, 0.14, 0.34, 0.03, 0.055); // big, slow, drifts with the arm
+      p.maxScale = rand(0.85, 1.3);
+      return p;
+    }
+
+    /* ---- a star (or, when tiny & dim, a dust mote) ---- */
+    const dust = kind === GX_DUST;
+    const bright = !dust && Math.random() < 0.14;
+    const size = dust ? rand(0.8, 1.8) : bright ? rand(3.4, 6.5) : rand(1.4, 3.2);
+
+    // Colour by population: mostly hot blue-white, a good share of warm suns,
+    // a sprinkle of pink star-forming regions, a rare teal.
+    const r = Math.random();
+    const color =
+      r < 0.52 ? pick(GALAXY_BLUE)
+      : r < 0.76 ? pick(GALAXY_WARM)
+      : r < 0.9 ? pick(GALAXY_HII)
+      : pick(GALAXY_TEAL);
+
+    const el = document.createElement('div');
+    const glow = dust ? 0 : bright ? size * 3.2 : size * 2;
+    baseStyle(
+      el, size,
+      `border-radius:50%;background:${color};mix-blend-mode:screen;` +
+        (dust ? '' : `box-shadow:0 0 ${glow}px ${size * 0.5}px ${color}cc;`)
+    );
+
+    const p = particle(el, x, y, size, rand(4200, 7400), now);
+    p.kind = dust ? GX_DUST : GX_STAR;
+    p.tint = color;
+    galaxyOrbit(p, 0.3, 0.78, 0.045, 0.085);
+    p.maxScale = dust ? rand(0.6, 1) : 1;
+    p.vx = rand(1.4, 4.2);        // twinkle rate
+    p.vy = rand(0, Math.PI * 2);  // twinkle phase
+    p.b += dust ? rand(0, 40) : 0; // dust starts more scattered
     return p;
   },
-  step(p, t) {
-    p.b += p.c; // spiral outward
-    // Keplerian-ish: the further out, the slower the sweep. This differential is
-    // the whole trick — it's what bends straight radial spokes into arms.
-    // Direction is fixed, not per-particle: randomise it and half the stars
-    // counter-rotate and shred the arms.
+  step(p, t, now) {
+    if (p.kind === GX_SPACE) {
+      const fade = t < 0.08 ? t / 0.08 : t > 0.82 ? (1 - t) / 0.18 : 1;
+      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0)`;
+      p.el.style.opacity = String(fade * 0.9);
+      return;
+    }
+
+    if (p.kind === GX_CORE) {
+      const pulse = 1 + Math.sin(now / 1000 * 1.7 + p.d) * 0.05;
+      const scale = popIn(t, 0.14) * pulse;
+      const fade = t < 0.1 ? t / 0.1 : t > 0.58 ? 1 - (t - 0.58) / 0.42 : 1;
+      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${scale})`;
+      p.el.style.opacity = String(fade);
+      return;
+    }
+
+    // Stars, dust and nebula all spiral. Differential rotation (the sweep slows
+    // with radius) is what bends straight spokes into trailing arms.
+    p.b += p.c;
     p.a += p.d / Math.sqrt(p.b);
-
     const gx = p.x + Math.cos(p.a) * p.b;
-    // Squash the orbit vertically so the disc reads as tilted, not head-on.
-    const gy = p.y + Math.sin(p.a) * p.b * 0.45;
+    const gy = p.y + Math.sin(p.a) * p.b * 0.42; // vertical squash = a tilted disc
 
-    const scale = popIn(t, 0.1);
+    if (p.kind === GX_NEBULA) {
+      const fade = t < 0.12 ? t / 0.12 : t > 0.55 ? 1 - (t - 0.55) / 0.45 : 1;
+      p.el.style.transform = `translate3d(${gx - p.size / 2}px, ${gy - p.size / 2}px, 0) scale(${p.maxScale})`;
+      p.el.style.opacity = String(fade * 0.9);
+      return;
+    }
+
+    // Twinkle: stars shimmer as they turn; dust is steady and faint.
+    const twinkle = p.kind === GX_DUST ? 0.5 : 0.7 + 0.3 * Math.sin(now / 1000 * p.vx + p.vy);
+    const life = t < 0.08 ? t / 0.08 : t > 0.55 ? 1 - (t - 0.55) / 0.45 : 1;
+    const scale = popIn(t, 0.1) * p.maxScale;
     p.el.style.transform = `translate3d(${gx - p.size / 2}px, ${gy - p.size / 2}px, 0) scale(${scale})`;
-    p.el.style.opacity = String(t < 0.08 ? t / 0.08 : t > 0.55 ? 1 - (t - 0.55) / 0.45 : 1);
+    p.el.style.opacity = String(life * twinkle);
   },
 };
 
@@ -767,15 +899,15 @@ const ripples: RelaxEffect = {
   onBurst() {
     playChime();
   },
-  create(x, y, now) {
+  create(x, y, now, api) {
     const el = document.createElement('div');
     const size = 40;
-    baseStyle(
-      el,
-      size,
-      'border-radius:50%;border:2px solid rgba(160,215,255,0.85);' +
-        'box-shadow:0 0 18px rgba(150,210,255,0.35), inset 0 0 18px rgba(190,235,255,0.25);'
-    );
+    // Light paper needs a deeper, more saturated ring to read as water; dark keeps
+    // the airy pale-blue hoop.
+    const ring = api.isDark
+      ? 'border:2px solid rgba(160,215,255,0.85);box-shadow:0 0 18px rgba(150,210,255,0.35), inset 0 0 18px rgba(190,235,255,0.25);'
+      : 'border:2px solid rgba(56,138,196,0.8);box-shadow:0 0 16px rgba(70,150,205,0.3), inset 0 0 16px rgba(90,165,215,0.22);';
+    baseStyle(el, size, `border-radius:50%;${ring}`);
 
     const p = particle(el, x, y, size, rand(1800, 2600), now);
     // Staggered rings, so one tap reads as a spreading wave rather than a single
@@ -1142,12 +1274,12 @@ const snow: RelaxEffect = {
     const { w, h } = api.viewport;
     const size = rand(3, 9);
     const el = document.createElement('div');
-    baseStyle(
-      el,
-      size,
-      'border-radius:50%;background:rgba(255,255,255,0.92);' +
-        'box-shadow:0 0 6px rgba(255,255,255,0.7);'
-    );
+    // White-on-white vanishes: in light mode a flake gets a cool blue body and a
+    // soft blue shadow so it reads as snow against the paper, not a hole in it.
+    const flake = api.isDark
+      ? 'background:rgba(255,255,255,0.92);box-shadow:0 0 6px rgba(255,255,255,0.7);'
+      : 'background:rgba(238,247,255,0.96);box-shadow:0 0 5px rgba(120,155,205,0.6), 0 1px 2px rgba(60,95,150,0.4);';
+    baseStyle(el, size, `border-radius:50%;${flake}`);
 
     const p = particle(el, rand(-40, w + 40), rand(-h * 0.4, -20), size, rand(9000, 16000), now);
     // Big flakes are near, so they fall faster and are brighter; small ones hang
@@ -1179,6 +1311,8 @@ const snow: RelaxEffect = {
 /* --------------------------------------------------------------- fireflies */
 
 const FIREFLY_COLORS = ['#FFF3A0', '#D9FF9E', '#FFE68A', '#C8FFB0'];
+// On light paper the pale glow washes out — deeper amber/olive bodies read.
+const FIREFLY_COLORS_LIGHT = ['#F0A400', '#A7B800', '#E6A800', '#7BAE1E'];
 const GLOW = 1;
 
 const fireflies: RelaxEffect = {
@@ -1207,15 +1341,21 @@ const fireflies: RelaxEffect = {
       return p;
     }
 
-    const color = pick(FIREFLY_COLORS);
+    const color = pick(api.isDark ? FIREFLY_COLORS : FIREFLY_COLORS_LIGHT);
     const size = rand(9, 15);
     const el = document.createElement('div');
+    // Light mode: warmer core, stronger glow, and a hairline dark ring so each
+    // firefly keeps a crisp edge against the bright page instead of dissolving.
+    const coreColor = api.isDark ? '#ffffff' : '#fff2b0';
+    const glow = api.isDark
+      ? `box-shadow:0 0 16px 4px ${color}88;`
+      : `box-shadow:0 0 15px 4px ${color}aa, 0 0 0 1px rgba(55,42,0,0.28);`;
     baseStyle(
       el,
       size,
       'border-radius:50%;cursor:pointer;' +
-        `background:radial-gradient(circle at 50% 50%, #ffffff 0%, ${color} 40%, ${color}00 72%);` +
-        `box-shadow:0 0 16px 4px ${color}88;`
+        `background:radial-gradient(circle at 50% 50%, ${coreColor} 0%, ${color} 42%, ${color}00 72%);` +
+        glow
     );
 
     const p = particle(el, x + rand(-260, 260), y + rand(-200, 200), size, rand(14000, 22000), now);
@@ -1554,10 +1694,16 @@ const breathing: RelaxEffect = {
   },
   create(x, y, now, api, kind = 0) {
     const { w, h } = api.viewport;
+    // On light paper a pale-blue ring on a pale page is barely there — switch to
+    // a deep slate ink so the guide reads clearly in either theme.
+    const light = !api.isDark;
     if (kind === 1) {
       const size = rand(3, 7);
       const el = document.createElement('div');
-      baseStyle(el, size, 'border-radius:50%; background:rgba(215,235,255,0.7); box-shadow:0 0 8px rgba(200,225,255,0.5);');
+      const bub = light
+        ? 'background:rgba(90,120,165,0.55); box-shadow:0 0 8px rgba(90,120,165,0.4);'
+        : 'background:rgba(215,235,255,0.7); box-shadow:0 0 8px rgba(200,225,255,0.5);';
+      baseStyle(el, size, `border-radius:50%; ${bub}`);
       const p = particle(el, rand(w * 0.2, w * 0.8), h - rand(40, 120), size, rand(4000, 6000), now);
       p.kind = 1;
       p.vx = rand(-0.2, 0.2);
@@ -1567,14 +1713,18 @@ const breathing: RelaxEffect = {
 
     const size = 180;
     const el = document.createElement('div');
+    const ring = light ? '58, 78, 112' : '255, 255, 255';
     baseStyle(
       el,
       size,
-      'border-radius:50%; border: 1.5px solid rgba(255, 255, 255, 0.45);' +
-        'background: radial-gradient(circle, rgba(235,245,255,0.12) 0%, rgba(200,220,255,0.05) 70%, transparent 100%);' +
-        'box-shadow: 0 0 40px rgba(200, 220, 255, 0.2), inset 0 0 30px rgba(255, 255, 255, 0.1);' +
+      `border-radius:50%; border: 1.5px solid rgba(${ring}, ${light ? 0.5 : 0.45});` +
+        (light
+          ? 'background: radial-gradient(circle, rgba(120,150,195,0.14) 0%, rgba(120,150,195,0.05) 70%, transparent 100%);' +
+            'box-shadow: 0 0 40px rgba(90,120,170,0.18), inset 0 0 30px rgba(120,150,195,0.12);'
+          : 'background: radial-gradient(circle, rgba(235,245,255,0.12) 0%, rgba(200,220,255,0.05) 70%, transparent 100%);' +
+            'box-shadow: 0 0 40px rgba(200, 220, 255, 0.2), inset 0 0 30px rgba(255, 255, 255, 0.1);') +
         'display: flex; align-items: center; justify-content: center;' +
-        'color: rgba(255,255,255,0.9); font-family: "Outfit", sans-serif; font-size: 11px; font-weight: 700;' +
+        `color: rgba(${ring}, 0.92); font-family: "Outfit", sans-serif; font-size: 11px; font-weight: 700;` +
         'text-transform: uppercase; letter-spacing: 0.15em; text-align: center;'
     );
     el.innerHTML = '<span class="breath-text">Breathe</span>';

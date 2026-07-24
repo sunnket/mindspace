@@ -26,6 +26,16 @@ export interface PendingAttachment {
 
 const BUILD_MARKER = '⟦BUILD⟧';
 
+/* Guard against a placeholder directive — "None", "awaiting user input", a bare
+   dash — that a model bolts on when it's really just answering or asking.
+   Without this the canvas agent gets the placeholder as a real build prompt and
+   renders garbage. A directive must carry an actual instruction to count. */
+function isRealInstruction(instr: string): boolean {
+  const s = instr.trim();
+  if (s.length < 8) return false;
+  return !/^(none|n\/?a|tbd|todo|pending|await|awaiting|null|undefined|no build|no change|[-—.]+)\b/i.test(s);
+}
+
 /** Split a finished assistant reply into the visible prose and an optional build. */
 function parseBuild(full: string): { visible: string; build: { instruction: string; mode: string } | null } {
   const idx = full.indexOf(BUILD_MARKER);
@@ -47,9 +57,13 @@ function parseBuild(full: string): { visible: string; build: { instruction: stri
     else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
   }
   if (end === -1) return { visible, build: null };
+  // If the visible reply ends by asking the user something, the agent is
+  // clarifying (case 2) — honour that and DON'T fire a build it bolted on anyway.
+  // The user's rule: never implement without first asking what/how.
+  if (endsWithQuestion(visible)) return { visible, build: null };
   try {
     const obj = JSON.parse(rest.slice(start, end + 1));
-    if (obj && typeof obj.instruction === 'string' && obj.instruction.trim()) {
+    if (obj && typeof obj.instruction === 'string' && isRealInstruction(obj.instruction)) {
       return { visible, build: { instruction: obj.instruction.trim(), mode: obj.mode === 'workflow' ? 'workflow' : 'default' } };
     }
   } catch {
@@ -58,29 +72,26 @@ function parseBuild(full: string): { visible: string; build: { instruction: stri
   return { visible, build: null };
 }
 
-/** A compact text snapshot of the visible board so the chat model has awareness. */
-function buildCanvasContext(): string {
-  const store = useCanvasStore.getState();
-  const stack = store.canvasStack;
-  const activeParent = stack.length > 0 ? stack[stack.length - 1] : (store.urlCanvasId === 'root' ? undefined : store.urlCanvasId);
-  const objs = store.objects.filter((o) => o.parentId === activeParent && !o.style?.isMinimized);
-  if (objs.length === 0) return '';
-  const cam = store.camera;
-  const cx = (-cam.x + (typeof window !== 'undefined' ? window.innerWidth : 1200) / 2) / cam.zoom;
-  const cy = (-cam.y + (typeof window !== 'undefined' ? window.innerHeight : 800) / 2) / cam.zoom;
-  const near = [...objs].sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy)).slice(0, 60);
-  const rows = near.map((o) => {
-    const s = o.style || {};
-    let label = (o.content || '').replace(/\s+/g, ' ').slice(0, 160);
-    if (s.isRepo) label = `[code repo: ${(s.repoName as string) || 'repo'}]`;
-    else if (s.isTodo) label = `[todo: ${(s.todoTitle as string) || 'tasks'}]`;
-    else if (s.isChart) label = `[chart: ${(s.chartTitle as string) || o.type}]`;
-    else if (s.isCode) label = `[code] ${label}`;
-    else if (o.type === 'image') label = '[image]';
-    else if (s.isFile) label = `[file: ${(s.fileName as string) || 'file'}]`;
-    return { id: o.id, type: o.type, x: Math.round(o.x), y: Math.round(o.y), w: Math.round(o.width), h: Math.round(o.height), text: label };
-  });
-  return JSON.stringify(rows);
+/** Is the user's message a pure question — an interrogative that never asks for
+ *  anything on the canvas? Those must only ever be ANSWERED, never built. A real
+ *  build request either isn't interrogative ("build a…") or names the canvas. */
+function isPureQuestion(msg: string): boolean {
+  const t = (msg || '').trim();
+  if (!t) return false;
+  const startsQuestion = /^(what|how|why|when|who|where|which|whose|whom|is|are|am|was|were|do|does|did|can|could|would|should|will|explain|tell me|describe|define|difference|compare|whats|what's|hows|how's)\b/i;
+  const mentionsCanvas = /\b(canvas|board|on (?:my|the|this)|onto|put (?:it|this|that|them)|add (?:it|this|that|them)|draw|diagram|dashboard|timeline|checklist|chart|mind ?map|visuali[sz]e)\b/i;
+  return startsQuestion.test(t) && !mentionsCanvas.test(t);
+}
+
+/** Does this reply end by asking the user something? (trailing '?', ignoring
+ *  trailing whitespace / closing punctuation / a stray parenthetical). */
+function endsWithQuestion(text: string): boolean {
+  const t = (text || '').trim();
+  if (!t) return false;
+  // Look at the last non-empty line — a build reply is a statement, a clarify
+  // reply ends on a question.
+  const lastLine = t.split('\n').map((l) => l.trim()).filter(Boolean).pop() || '';
+  return /\?[)\]"'*_\s]*$/.test(lastLine);
 }
 
 function currentCanvasId(): string {
@@ -114,6 +125,9 @@ interface AgentChatState {
   send: (text: string) => Promise<void>;
   stop: () => void;
   clear: () => Promise<void>;
+  /** Update the live build status of the message that kicked off a canvas build.
+   *  Driven by `agent-build-state` events the canvas agent dispatches. */
+  setBuildState: (messageId: string, state: 'building' | 'done' | 'error') => void;
 }
 
 let abortController: AbortController | null = null;
@@ -231,13 +245,17 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
 
     abortController = new AbortController();
     let full = '';
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
     try {
       const res = await fetch('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          // Deliberately NO canvas snapshot: the chat agent answers/plans from the
+          // conversation, and only the BUILDER reads the live board (to place work
+          // in empty space). Feeding the chat the canvas made it narrate the board
+          // on plain queries, which the user doesn't want.
           messages: historyForApi,
-          canvasContext: buildCanvasContext(),
           filesContext: filesContext || undefined,
           skillsetContext: formatSkillsetForAgent(useCanvasStore.getState().skillset) || undefined,
         }),
@@ -251,18 +269,36 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      /* COALESCED streaming: NIM streams token-sized SSE chunks, and writing the
+         store on every one re-rendered the whole thread dozens of times a second
+         while the message (and its markdown/KaTeX parse) kept growing — that
+         O(n²) churn was the visible mid-reply stutter. Batch the tokens and
+         flush the bubble at most ~20x/sec; the text still reads as live typing,
+         but the main thread stays free to actually paint it. */
+      const flushAsst = () => {
+        flushTimer = null;
+        // Live display hides anything from the build marker onward.
+        const visibleNow = full.includes(BUILD_MARKER) ? full.slice(0, full.indexOf(BUILD_MARKER)).trimEnd() : full;
+        updateAsst({ content: visibleNow });
+      };
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         full += decoder.decode(value, { stream: true });
-        // Live display hides anything from the build marker onward.
-        const visibleNow = full.includes(BUILD_MARKER) ? full.slice(0, full.indexOf(BUILD_MARKER)).trimEnd() : full;
-        updateAsst({ content: visibleNow });
+        if (!flushTimer) flushTimer = setTimeout(flushAsst, 50);
       }
+      if (flushTimer) clearTimeout(flushTimer);
 
-      const { visible, build } = parseBuild(full);
+      const parsed = parseBuild(full);
+      const visible = parsed.visible;
+      /* Final backstop against the agent auto-implementing on a plain question.
+         The strongest signal is the USER's own message: if they asked a pure
+         question (interrogative opener, no mention of the canvas), never fire a
+         build the model bolted onto the answer — the user must be asked what /
+         how before anything lands on their board. */
+      const build = isPureQuestion(text) ? null : parsed.build;
       const finalContent = visible || (build ? 'On it — building that on your canvas now.' : '…');
-      updateAsst({ content: finalContent, streaming: false, built: !!build });
+      updateAsst({ content: finalContent, streaming: false, built: !!build, buildState: build ? 'building' : undefined });
 
       // Persist the finished assistant turn.
       const finalMsg: AgentChatMessage = { id: asstId, role: 'assistant', content: finalContent, createdAt: asstMsg.createdAt, built: !!build };
@@ -277,11 +313,22 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
         const cam = useCanvasStore.getState().camera;
         const x = (-cam.x + window.innerWidth / 2) / cam.zoom;
         const y = (-cam.y + window.innerHeight / 2) / cam.zoom;
+        // Ground the builder in the ACTUAL answer we just wrote. The builder never
+        // sees this chat, so a thin or referential instruction ("put the report
+        // above on the canvas") otherwise leaves it to invent a topic from the
+        // canvas snapshot — which is exactly how a media report turned into a
+        // "your canvas has 2 objects" meta-report. Hand over the real content as
+        // source material; the instruction just says how to lay it out.
+        const clean = (visible || '').replace(/\s+/g, ' ').trim();
+        const grounding = clean.length > 120 ? visible.slice(0, 14000) : undefined;
         window.dispatchEvent(new CustomEvent('run-agent', {
-          detail: { prompt: build.instruction, x, y, mode: build.mode, filesContext: filesContext || undefined },
+          // sourceId lets the canvas agent report this build's real progress back
+          // to THIS chat message, so the "Building…" chip resolves to done/error.
+          detail: { prompt: build.instruction, x, y, mode: build.mode, context: grounding, filesContext: filesContext || undefined, sourceId: asstId },
         }));
       }
     } catch (err) {
+      if (flushTimer) clearTimeout(flushTimer);
       if ((err as Error)?.name === 'AbortError') {
         updateAsst({ content: (full && full.split(BUILD_MARKER)[0].trim()) || '(stopped)', streaming: false });
         set({ streaming: false });
@@ -300,4 +347,18 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
     set((s) => ({ messagesByCanvas: { ...s.messagesByCanvas, [canvasId]: [] } }));
     await clearThreadService(canvasId, userId);
   },
+
+  setBuildState: (messageId, state) => set((s) => {
+    // The message could live under any canvas thread (the user may have switched
+    // boards while the build ran), so scan them all and patch the one match.
+    const next: Record<string, AgentChatMessage[]> = { ...s.messagesByCanvas };
+    let changed = false;
+    for (const cid of Object.keys(next)) {
+      const list = next[cid];
+      if (!list.some((m) => m.id === messageId)) continue;
+      next[cid] = list.map((m) => (m.id === messageId ? { ...m, buildState: state, built: true } : m));
+      changed = true;
+    }
+    return changed ? { messagesByCanvas: next } : {};
+  }),
 }));

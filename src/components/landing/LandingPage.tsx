@@ -25,6 +25,8 @@ import ChatPanel from '@/components/chat/ChatPanel';
 import { useChatUnreadTotal } from '@/store/chatStore';
 import { exportBoardById } from '@/lib/boardIO';
 import { applyCanvasTheme, resetCanvasTheme, presetById, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
+import { gistOf, rankForPreview, effectiveFontSize, textRole, isSemanticCandidate } from '@/lib/semanticZoom';
+import LandingResident from './LandingResident';
 
 /* ============================================================
    Types
@@ -160,6 +162,43 @@ const ICONS = {
    Canvas mini preview (memoized — renders tiny abstract map)
    ============================================================ */
 
+/*
+ * A thumbnail is the canvas at roughly 4% zoom, so it answers the same
+ * question the board answers when you pull the camera back: not what every
+ * block says, but what this canvas is ABOUT. It uses the same summariser the
+ * canvas does (lib/semanticZoom.ts), which is why a heading you can read on a
+ * gallery card is the heading you'll find when you open it.
+ */
+
+/** Blocks a preview will draw. Ranked, so headings survive the cut. */
+const PREVIEW_LIMIT = 18;
+
+/** Non-prose types that still carry a short label of their own. */
+const LABELLED_TYPES = new Set(['shape', 'workflow-node', 'frame']);
+
+/** The label a block shows at thumbnail scale, or '' when its box is too small. */
+function previewLabel(obj: CanvasObjectData, rectW: number): { text: string; size: number; lead: boolean } {
+  const blank = { text: '', size: 0, lead: false };
+  // Prose summarises; a shape, node or frame just wears its own short label.
+  // What never gets one is a functional card — a poll or a countdown keeps its
+  // data in `style`, so printing its `content` prints a stray fragment.
+  const prose = isSemanticCandidate(obj);
+  if (!prose && !(LABELLED_TYPES.has(obj.type) && (obj.content || '').trim())) return blank;
+
+  // Headings and display type are the canvas's landmarks: bigger, bolder, and
+  // worth showing in boxes too narrow to justify body copy.
+  const lead = obj.type === 'heading' || (prose && textRole(effectiveFontSize(obj)) === 'display');
+  if (rectW < (lead ? 16 : 24)) return blank;
+
+  const size = lead
+    ? Math.max(4.6, Math.min(8.5, rectW / 6.5))
+    : Math.max(3.2, Math.min(5.4, rectW / 9));
+  // SVG <text> never wraps, so the budget is one line's worth.
+  const budget = Math.max(4, Math.floor((rectW * 0.92) / (size * 0.52)));
+  const { text } = gistOf(obj, budget);
+  return text ? { text, size, lead } : blank;
+}
+
 const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
   objects = [],
   connections = [],
@@ -214,7 +253,7 @@ const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
           />
         );
       })}
-      {objects.slice(0, 15).map((obj) => {
+      {rankForPreview(objects, PREVIEW_LIMIT).map((obj) => {
         const rw = obj.width * scale;
         const rh = obj.height * scale;
         const rx = getX(obj.x) - rw / 2;
@@ -235,21 +274,26 @@ const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
           stroke = 'var(--accent)';
           radius = 8;
         }
+        const label = previewLabel(obj, rw);
         return (
           <g key={obj.id}>
             <rect x={rx} y={ry} width={rw} height={rh} rx={radius} ry={radius} fill={fill} stroke={stroke} strokeWidth="0.8" />
-            {rw > 35 && (
+            {label.text && (
               <text
                 x={rx + rw / 2}
-                y={ry + rh / 2 + 1.5}
-                fill={obj.type === 'shape' ? '#FFFFFF' : 'var(--text-primary)'}
-                fontWeight="500"
+                y={ry + rh / 2 + label.size * 0.34}
+                fill={
+                  obj.type === 'shape' ? '#FFFFFF'
+                  : label.lead ? 'var(--accent)'
+                  : 'var(--text-primary)'
+                }
+                fontWeight={label.lead ? 700 : 500}
                 textAnchor="middle"
-                opacity="0.7"
+                opacity={label.lead ? 0.95 : 0.7}
                 className="select-none pointer-events-none"
-                style={{ fontSize: Math.max(3, Math.min(5, rw / 9)) + 'px' }}
+                style={{ fontSize: label.size + 'px', letterSpacing: '-0.01em' }}
               >
-                {obj.content.split('\n')[0].substring(0, 10)}
+                {label.text}
               </text>
             )}
           </g>
@@ -333,10 +377,10 @@ export default function LandingPage() {
     seedDatabaseIfEmpty().then(refresh).catch(console.error);
   }, [refresh]);
 
-  // The canvas gallery ships in a warm dark theme by default. Restore the light
-  // default palette on unmount so an opened canvas starts from its own theme.
+  // The gallery ships on true black. Restore the default palette on unmount so
+  // an opened canvas starts from its own theme.
   useEffect(() => {
-    applyCanvasTheme(presetById('graphite') || DEFAULT_BACKGROUND);
+    applyCanvasTheme(presetById('ink') || DEFAULT_BACKGROUND);
     return () => resetCanvasTheme();
   }, []);
 
@@ -604,8 +648,23 @@ export default function LandingPage() {
      ============================================================ */
 
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex overflow-x-hidden relative paper-texture">
+    <div
+      className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex overflow-x-hidden relative paper-texture"
+      /* Soften the orange for the whole landing: the default terracotta read as
+         a heavy, dark orange on the cream — everything accent-tinted (text,
+         pills, hovers like the Continue card) inherits this lighter, airier tone
+         instead. Scoped here so the canvas keeps the deeper brand accent. */
+      style={{
+        ['--accent' as string]: '#D89A6E',
+        ['--accent-rgb' as string]: '216, 154, 110',
+        ['--accent-light' as string]: '#E9BE9B',
+        ['--accent-subtle' as string]: 'rgba(216, 154, 110, 0.12)',
+      }}
+    >
       <div className="noise-overlay" />
+
+      {/* the resident wanders the bottom of the page while you decide */}
+      <LandingResident />
 
       {/* ---------- Floating clay dock ---------- */}
       {/* The dock was rendering flush against x=0 — `ml-4` never did anything
@@ -733,8 +792,8 @@ export default function LandingPage() {
                     <div className="min-w-0">
                       <h2
                         onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
-                        className="text-3xl md:text-4xl leading-[1.05] font-semibold tracking-tight text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors truncate"
-                        style={{ fontFamily: "'Playfair Display', serif" }}
+                        className="text-4xl md:text-5xl leading-[1.02] font-normal tracking-[0.01em] text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors truncate"
+                        style={{ fontFamily: "'Bebas Neue', sans-serif" }}
                       >
                         {continueWorkspace.title || 'untitled canvas'}
                       </h2>

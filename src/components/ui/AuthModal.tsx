@@ -122,97 +122,123 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'signin' }: A
     }
   };
 
+  const title =
+    mode === 'signin' ? 'Welcome back'
+    : mode === 'signup' ? 'Make some space'
+    : mode === 'forgot' ? 'Reset your password'
+    : 'Set a new password';
+  const subtitle =
+    mode === 'signin' ? 'Pick up your canvases and notes on any device.'
+    : mode === 'signup' ? 'Sync your local work to a private cloud account.'
+    : mode === 'forgot' ? "Enter your email and we'll send a recovery link."
+    : 'Type your new password below.';
+
+  const inputCls =
+    'w-full clay-inset rounded-2xl px-4 py-3 text-sm outline-none transition-shadow font-normal ' +
+    'text-[var(--text-primary)] placeholder:text-[var(--text-muted)] ' +
+    'focus:ring-2 focus:ring-[var(--accent)]/40';
+
   return (
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center pointer-events-auto">
-          {/* Backdrop */}
+          {/* Warm blurred backdrop, matching the landing's paper mood */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-black/35 backdrop-blur-[4px]"
+            className="absolute inset-0 backdrop-blur-[5px]"
+            style={{ background: 'rgba(45, 42, 38, 0.42)' }}
           />
 
-          {/* Modal Content */}
+          {/* Clay card — same language as the landing gallery. Softer accent
+              scoped here so the modal reads as part of that world. */}
           <motion.div
-            initial={{ scale: 0.94, opacity: 0, y: 15 }}
+            initial={{ scale: 0.95, opacity: 0, y: 16 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.94, opacity: 0, y: 15 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-            className="relative w-full max-w-md mx-4 glass-panel border border-white/20 p-8 shadow-2xl rounded-2xl flex flex-col z-10"
+            exit={{ scale: 0.95, opacity: 0, y: 16 }}
+            transition={{ type: 'spring', damping: 24, stiffness: 320 }}
+            className="relative w-full max-w-md mx-4 clay-card rounded-[30px] flex flex-col z-10 overflow-hidden"
             style={{
-              background: 'var(--bg-secondary)',
               color: 'var(--text-primary)',
+              padding: '34px 32px 28px',
+              ['--accent' as string]: '#D89A6E',
+              ['--accent-rgb' as string]: '216, 154, 110',
+              ['--accent-light' as string]: '#E9BE9B',
+              ['--accent-subtle' as string]: 'rgba(216, 154, 110, 0.12)',
             }}
           >
-            {/* Close Button */}
+            {/* soft accent bloom in the corner, like the Continue card */}
+            <div className="absolute -top-24 -right-20 w-64 h-64 rounded-full pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(var(--accent-rgb),0.14), transparent 65%)' }} />
+
+            {/* Close */}
             <button
               onClick={onClose}
-              className="absolute top-5 right-5 text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors text-sm w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/50"
+              aria-label="Close"
+              className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+              style={{ background: 'var(--well)' }}
             >
-              ✕
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>
 
-            {/* Header */}
-            <div className="text-center mb-6">
-              <h2 className="text-2xl font-light tracking-tight mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                {mode === 'signin' && 'Welcome back'}
-                {mode === 'signup' && 'Create space'}
-                {mode === 'forgot' && 'Reset password'}
-                {mode === 'update-password' && 'Enter new password'}
-              </h2>
-              <p className="text-xs text-[var(--text-muted)] font-light">
-                {mode === 'signin' && 'Access your canvases and notes from any device'}
-                {mode === 'signup' && 'Sync your local canvas offline work to a secure cloud account'}
-                {mode === 'forgot' && "Enter your email and we'll send you a recovery link"}
-                {mode === 'update-password' && 'Please type your new password below'}
-              </p>
+            {/* Brand + header */}
+            <div className="relative flex flex-col items-center text-center gap-3.5 mb-6">
+              <div className="w-14 h-14 rounded-2xl clay-inset flex items-center justify-center" aria-hidden="true">
+                <span className="text-[var(--accent)] text-[30px] leading-none" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>c</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[13px] font-light tracking-tight leading-none text-[var(--text-tertiary)]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>
+                  canvabrains
+                </span>
+                <h2 className="text-[26px] font-normal tracking-tight leading-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
+                  {title}
+                </h2>
+                <p className="text-[12px] text-[var(--text-tertiary)] font-normal leading-relaxed" style={{ maxWidth: 300 }}>
+                  {subtitle}
+                </p>
+              </div>
             </div>
 
             {/* Form */}
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-              {/* Error & Success Messages */}
+            <form onSubmit={handleSubmit} className="relative flex flex-col gap-3.5">
               {errorMsg && (
-                <div className="p-3 text-xs bg-red-50 text-red-600 rounded-lg border border-red-100 font-light leading-relaxed">
+                <div className="px-3.5 py-2.5 text-xs rounded-2xl font-normal leading-relaxed" style={{ background: 'rgba(214, 106, 91, 0.12)', color: '#B4402F', border: '1px solid rgba(214,106,91,0.2)' }}>
                   {errorMsg}
                 </div>
               )}
               {successMsg && (
-                <div className="p-3 text-xs bg-emerald-50 text-emerald-600 rounded-lg border border-emerald-100 font-light leading-relaxed">
+                <div className="px-3.5 py-2.5 text-xs rounded-2xl font-normal leading-relaxed" style={{ background: 'rgba(47, 158, 110, 0.12)', color: '#217A54', border: '1px solid rgba(47,158,110,0.2)' }}>
                   {successMsg}
                 </div>
               )}
 
-              {/* Email Input */}
               {mode !== 'update-password' && (
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Email Address</label>
+                  <label className="text-[10px] uppercase tracking-[0.14em] font-bold text-[var(--text-muted)] px-1">Email</label>
                   <input
                     required
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@domain.com"
-                    className="w-full bg-white/70 dark:bg-white/10 border border-black/10 dark:border-white/15 focus:border-[var(--accent)] rounded-lg px-3 py-2 text-sm outline-none transition-all font-light"
+                    className={inputCls}
                     disabled={loading || successMsg.includes('Verification')}
                   />
                 </div>
               )}
 
-              {/* Password Input */}
               {mode !== 'forgot' && (
                 <div className="flex flex-col gap-1.5">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Password</label>
+                  <div className="flex justify-between items-center px-1">
+                    <label className="text-[10px] uppercase tracking-[0.14em] font-bold text-[var(--text-muted)]">Password</label>
                     {mode === 'signin' && (
                       <button
                         type="button"
                         onClick={() => setMode('forgot')}
-                        className="text-[10px] text-[var(--accent)] hover:underline"
+                        className="text-[10px] font-semibold text-[var(--accent)] hover:underline cursor-pointer"
                       >
-                        Forgot password?
+                        Forgot?
                       </button>
                     )}
                   </div>
@@ -222,71 +248,60 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'signin' }: A
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-white/70 dark:bg-white/10 border border-black/10 dark:border-white/15 focus:border-[var(--accent)] rounded-lg px-3 py-2 text-sm outline-none transition-all font-light"
+                    className={inputCls}
                     disabled={loading || successMsg.includes('Verification')}
                   />
                 </div>
               )}
 
-              {/* Confirm Password Input */}
               {(mode === 'signup' || mode === 'update-password') && (
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Confirm Password</label>
+                  <label className="text-[10px] uppercase tracking-[0.14em] font-bold text-[var(--text-muted)] px-1">Confirm password</label>
                   <input
                     required
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-white/70 dark:bg-white/10 border border-black/10 dark:border-white/15 focus:border-[var(--accent)] rounded-lg px-3 py-2 text-sm outline-none transition-all font-light"
+                    className={inputCls}
                     disabled={loading}
                   />
                 </div>
               )}
 
-              {/* Submit Button */}
               <button
                 type="submit"
                 disabled={loading || successMsg.includes('Verification')}
-                className="w-full bg-[var(--accent)] hover:bg-[var(--accent-subtle)] text-white hover:text-[var(--accent)] border border-transparent hover:border-[var(--accent)] font-medium rounded-lg py-2.5 text-sm transition-all mt-2 shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full bg-[var(--accent)] text-white font-bold rounded-full py-3 text-sm transition-all mt-2 shadow-sm flex items-center justify-center gap-2 cursor-pointer hover:brightness-105 active:scale-[0.99] disabled:opacity-60"
               >
                 {loading ? (
                   <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
-                    {mode === 'signin' && 'Sign In'}
-                    {mode === 'signup' && 'Create Account'}
-                    {mode === 'forgot' && 'Send Reset Link'}
-                    {mode === 'update-password' && 'Update Password'}
+                    {mode === 'signin' && 'Sign in'}
+                    {mode === 'signup' && 'Create account'}
+                    {mode === 'forgot' && 'Send reset link'}
+                    {mode === 'update-password' && 'Update password'}
                   </>
                 )}
               </button>
             </form>
 
-            {/* Mode Switch Footers */}
-            <div className="text-center mt-6 pt-4 border-t border-black/5 text-xs text-[var(--text-muted)] font-light">
+            {/* Mode switch */}
+            <div className="relative text-center mt-5 text-xs text-[var(--text-tertiary)] font-normal">
               {mode === 'signin' && (
-                <p>
-                  New to Canvabrains?{' '}
-                  <button onClick={() => setMode('signup')} className="text-[var(--accent)] hover:underline font-normal">
-                    Create an account
-                  </button>
+                <p>New here?{' '}
+                  <button onClick={() => setMode('signup')} className="text-[var(--accent)] hover:underline font-bold cursor-pointer">Create an account</button>
                 </p>
               )}
               {mode === 'signup' && (
-                <p>
-                  Already have an account?{' '}
-                  <button onClick={() => setMode('signin')} className="text-[var(--accent)] hover:underline font-normal">
-                    Sign in
-                  </button>
+                <p>Already have an account?{' '}
+                  <button onClick={() => setMode('signin')} className="text-[var(--accent)] hover:underline font-bold cursor-pointer">Sign in</button>
                 </p>
               )}
               {mode === 'forgot' && (
-                <p>
-                  Remember your password?{' '}
-                  <button onClick={() => setMode('signin')} className="text-[var(--accent)] hover:underline font-normal">
-                    Sign in
-                  </button>
+                <p>Remembered it?{' '}
+                  <button onClick={() => setMode('signin')} className="text-[var(--accent)] hover:underline font-bold cursor-pointer">Sign in</button>
                 </p>
               )}
             </div>

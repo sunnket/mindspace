@@ -33,13 +33,16 @@ export interface CanvasThemePreset extends CanvasBackground {
 const DEFAULT_ACCENT = '#C97B4B';
 
 /** Dark graphite default — matches the landing page's dark aesthetic. */
+/* True black is the app's base. Graphite (#1C1A17) was the old default and is
+   still in the picker, so boards that already chose it are untouched — they
+   store their own background, not a reference to this. */
 export const DEFAULT_BACKGROUND: CanvasBackground = {
-  presetId: 'graphite',
-  color: '#1C1A17',
+  presetId: 'ink',
+  color: '#000000',
   opacity: 1,
   dark: true,
-  accent: '#E8A97B',
-  name: 'Graphite',
+  accent: '#C97B4B',
+  name: 'Ink',
 };
 
 /* ---------------------------- color math ---------------------------- */
@@ -193,6 +196,7 @@ export const CANVAS_PRESETS: CanvasThemePreset[] = [
   { id: 'mint', presetId: 'mint', name: 'Mint', color: '#E6F2EA', opacity: 1, dark: false, accent: '#2F9E6E', swatch: ['#EFF8F1', '#D2E9DA'] },
   { id: 'sky', presetId: 'sky', name: 'Sky', color: '#E7F0FB', opacity: 1, dark: false, accent: '#3E63DD', swatch: ['#F0F6FE', '#D3E4F7'] },
   { id: 'lavender', presetId: 'lavender', name: 'Lilac', color: '#EEEAFA', opacity: 1, dark: false, accent: '#7C5CD6', swatch: ['#F4F1FD', '#DFD6F4'] },
+  { id: 'ink', presetId: 'ink', name: 'Ink', color: '#000000', opacity: 1, dark: true, accent: '#C97B4B', swatch: ['#141414', '#000000'] },
   { id: 'graphite', presetId: 'graphite', name: 'Graphite', color: '#1C1A17', opacity: 1, dark: true, accent: '#E8A97B', swatch: ['#2A2723', '#131210'] },
   { id: 'midnight', presetId: 'midnight', name: 'Midnight', color: '#0F1524', opacity: 1, dark: true, accent: '#5B8DEF', swatch: ['#1B2740', '#0A0E1A'] },
   { id: 'forest', presetId: 'forest', name: 'Forest', color: '#0F2019', opacity: 1, dark: true, accent: '#46C286', swatch: ['#193528', '#0A1710'] },

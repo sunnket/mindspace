@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useCanvasStore } from '@/store/canvasStore';
+import { useCanvasStore, resolveParentId } from '@/store/canvasStore';
 import { CanvasObjectData, Scene } from '@/lib/db';
 import TourPlayer from './TourPlayer';
 
@@ -13,10 +13,12 @@ function ScenePreview({ scene, objects, w = 148, h = 92 }: { scene: Scene; objec
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
   const cam = scene.camera;
-  const worldLeft = -cam.x / cam.zoom;
-  const worldTop = -cam.y / cam.zoom;
-  const worldW = vw / cam.zoom;
-  const worldH = vh / cam.zoom;
+  // A frame scene previews its RECTANGLE — that's the region it will present,
+  // regardless of what camera happened to be stored with it.
+  const worldLeft = scene.rect ? scene.rect.x : -cam.x / cam.zoom;
+  const worldTop = scene.rect ? scene.rect.y : -cam.y / cam.zoom;
+  const worldW = scene.rect ? scene.rect.width : vw / cam.zoom;
+  const worldH = scene.rect ? scene.rect.height : vh / cam.zoom;
   const sx = w / worldW;
   const sy = h / worldH;
 
@@ -58,6 +60,13 @@ export default function ScenesPanel() {
   const [tourFrom, setTourFrom] = useState<number | null>(null);
 
   const ordered = [...scenes].sort((a, b) => a.order - b.order);
+
+  // A scene frame's HUD can start the tour without the panel being open.
+  useEffect(() => {
+    const play = () => { setOpen(false); setTourFrom(0); };
+    window.addEventListener('play-scene-tour', play);
+    return () => window.removeEventListener('play-scene-tour', play);
+  }, []);
 
   return (
     <>
@@ -107,10 +116,17 @@ function SceneList({ onPlay }: { onPlay: () => void }) {
   const renameScene = useCanvasStore((s) => s.renameScene);
   const moveScene = useCanvasStore((s) => s.moveScene);
   const animateCamera = useCanvasStore((s) => s.animateCamera);
+  const syncSceneFrames = useCanvasStore((s) => s.syncSceneFrames);
+  const canvasStack = useCanvasStore((s) => s.canvasStack);
+  const urlCanvasId = useCanvasStore((s) => s.urlCanvasId);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
 
   const ordered = [...scenes].sort((a, b) => a.order - b.order);
+  const activeParent = resolveParentId(canvasStack, urlCanvasId);
+  const sceneFrameCount = objects.filter(
+    (o) => o.type === 'frame' && o.parentId === activeParent && o.style?.frameKind === 'scene',
+  ).length;
 
   return (
     <motion.div
@@ -134,6 +150,18 @@ function SceneList({ onPlay }: { onPlay: () => void }) {
         </button>
       </div>
 
+      {/* Pull every scene frame on this board into the tour, in reading order. */}
+      {sceneFrameCount > 0 && (
+        <button
+          onClick={() => syncSceneFrames()}
+          title="Create or refresh a slide for each scene frame"
+          className="shrink-0 w-full rounded-full text-[10px] font-bold bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+          style={{ padding: '6px 10px' }}
+        >
+          Sync {sceneFrameCount} scene frame{sceneFrameCount === 1 ? '' : 's'}
+        </button>
+      )}
+
       {ordered.length === 0 ? (
         <div className="text-center py-8 px-2">
           <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
@@ -147,6 +175,15 @@ function SceneList({ onPlay }: { onPlay: () => void }) {
               <div className="relative rounded-lg overflow-hidden cursor-pointer" onClick={() => animateCamera(scene.camera, 800)} title="Fly here">
                 <ScenePreview scene={scene} objects={objects} />
                 <span className="absolute top-1 left-1 w-4 h-4 rounded-full bg-[var(--accent)] text-white text-[9px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">{i + 1}</span>
+                {scene.rect && (
+                  <span
+                    className="absolute top-1 right-1 rounded-full text-white text-[8px] font-extrabold uppercase tracking-wider shadow-sm"
+                    style={{ background: '#3E63DD', padding: '2px 5px' }}
+                    title="Presents only this framed region"
+                  >
+                    Frame
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1">
                 {renamingId === scene.id ? (

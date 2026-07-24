@@ -78,6 +78,10 @@ export default function RelaxEffectsLayer() {
           get viewport() {
             return { w: window.innerWidth, h: window.innerHeight };
           },
+          // Read live so an effect that outlives a theme flip still adapts.
+          get isDark() {
+            return !!useCanvasStore.getState().canvasBackground.dark;
+          },
           spawn: (x, y, n, kind, tint) => spawn(fx, x, y, n, kind, tint),
           clear: () => {
             liveRef.current = liveRef.current.filter((l) => {

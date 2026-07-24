@@ -31,6 +31,9 @@ export interface AgentChatMessage {
   streaming?: boolean;
   /** Client-only: a canvas build this message kicked off (for the "Building…" chip). */
   built?: boolean;
+  /** Client-only: live status of the canvas build this message kicked off, so the
+   *  chip stops saying "Building…" forever and flips to done / error for real. */
+  buildState?: 'building' | 'done' | 'error';
 }
 
 const LOCAL_PREFIX = 'mindspace:agentchat:';
@@ -55,10 +58,13 @@ export function loadLocal(canvasId: string): AgentChatMessage[] {
 export function saveLocal(canvasId: string, messages: AgentChatMessage[]): void {
   if (typeof window === 'undefined') return;
   try {
-    // Strip client-only flags before persisting.
+    // Strip live-only flags before persisting. `buildState` is a session-only
+    // progress indicator — persisting "building" would make a reloaded message
+    // spin forever — so drop it; `built` is kept so a past build still reads as
+    // "Built on your canvas".
     const clean = messages
       .slice(-LOCAL_CAP)
-      .map(({ streaming, ...m }) => m); // eslint-disable-line @typescript-eslint/no-unused-vars
+      .map(({ streaming, buildState, ...m }) => m); // eslint-disable-line @typescript-eslint/no-unused-vars
     window.localStorage.setItem(localKey(canvasId), JSON.stringify(clean));
   } catch {
     /* quota / serialization — best effort */

@@ -4,14 +4,97 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import { Scene } from '@/lib/db';
+import { cameraForRect, rectToScreen } from '@/lib/frames';
 
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+/**
+ * Where a scene's camera should actually land.
+ *
+ * A scene born from a scene-FRAME stores its rectangle, so the camera is
+ * re-derived for the CURRENT viewport — the slide frames the same region on a
+ * laptop and on a 34" monitor instead of replaying a camera captured somewhere
+ * else. Plain "capture view" scenes keep their stored camera exactly as before.
+ */
+function targetCamera(scene: Scene): { x: number; y: number; zoom: number } {
+  if (!scene.rect) return scene.camera;
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+  return cameraForRect(scene.rect, vw, vh);
+}
 
 /**
  * Cinematic tour playback. Flies the camera scene→scene with eased motion and
  * a subtle "dolly" (zoom-out dip mid-flight) on long jumps so big leaps feel
  * filmic instead of teleporting. Space toggles play, arrows step, Esc exits.
  */
+/**
+ * Blacks out everything outside a world-space rectangle, so a frame scene
+ * presents ONLY what was framed.
+ *
+ * Four opaque panels rather than a box-shadow: the cut-out edge stays exact at
+ * any zoom, and the panels sit ABOVE the app chrome, so nothing from the canvas
+ * or the UI can bleed in around the slide. It re-projects on every camera change
+ * so it stays glued to the region while the player flies. No ring, no border —
+ * the slide should look like a slide, not like a framed region of a canvas.
+ */
+function RegionMask({
+  rect, title, index, total,
+}: {
+  rect: { x: number; y: number; width: number; height: number };
+  title: string;
+  index: number;
+  total: number;
+}) {
+  const camera = useCanvasStore((s) => s.camera);
+  const r = rectToScreen(rect, camera);
+  const shade = '#0B0A09';
+  const panel = (style: React.CSSProperties, key: string) => (
+    <div key={key} className="absolute" style={{ background: shade, ...style }} />
+  );
+
+  // The frame's name is the slide's heading, and it belongs in the black band
+  // ABOVE the slide. Positioning it off the same projection as the mask is what
+  // guarantees it can never land on top of the content it's titling.
+  const bandH = Math.max(0, r.y);
+  const showTitle = bandH > 46;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.45 }}
+      className="fixed inset-0 z-[242] pointer-events-none overflow-hidden"
+    >
+      {panel({ left: 0, top: 0, width: '100%', height: bandH }, 'top')}
+      {panel({ left: 0, top: r.y + r.height, width: '100%', bottom: 0 }, 'bottom')}
+      {panel({ left: 0, top: r.y, width: Math.max(0, r.x), height: r.height }, 'left')}
+      {panel({ left: r.x + r.width, top: r.y, right: 0, height: r.height }, 'right')}
+
+      {showTitle && (
+        <div
+          className="absolute flex flex-col items-center justify-center text-center"
+          style={{ left: 0, top: 0, width: '100%', height: bandH, padding: '0 24px' }}
+        >
+          <span className="text-[9px] font-extrabold uppercase tracking-[0.22em] text-white/45">
+            {index + 1} / {total}
+          </span>
+          <h2
+            className="text-white font-bold leading-tight truncate w-full"
+            style={{
+              fontFamily: "'Outfit', sans-serif",
+              fontSize: Math.max(16, Math.min(30, bandH * 0.34)),
+              marginTop: 4,
+            }}
+          >
+            {title}
+          </h2>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 export default function TourPlayer({
   scenes,
   startIndex,
@@ -94,7 +177,7 @@ export default function TourPlayer({
       for (let i = from; i < total; i++) {
         if (!playingRef.current) break;
         setIndex(i);
-        await flyTo(ordered[i].camera, ordered[i].durationMs || 1400);
+        await flyTo(targetCamera(ordered[i]), ordered[i].durationMs || 1400);
         if (!playingRef.current) break;
         if (i < total - 1) {
           // Linger longer on stops with notes so the caption can be read — but
@@ -123,7 +206,7 @@ export default function TourPlayer({
       const clamped = Math.max(0, Math.min(total - 1, i));
       pause();
       setIndex(clamped);
-      flyTo(ordered[clamped].camera, 900);
+      flyTo(targetCamera(ordered[clamped]), 900);
     },
     [flyTo, ordered, total, pause]
   );
@@ -169,8 +252,20 @@ export default function TourPlayer({
 
   return (
     <>
-      {/* soft cinematic vignette */}
-      <div className="fixed inset-0 z-[240] pointer-events-none" style={{ boxShadow: 'inset 0 0 220px 40px rgba(45,42,38,0.28)' }} />
+      {/* A scene FRAME presents ONLY its own region: everything outside the
+          rectangle is blacked out — canvas and app chrome alike — and the frame
+          name is the slide's heading. The mask tracks the camera, so it stays
+          locked to the region for the whole flight. */}
+      {current?.rect && (
+        <RegionMask rect={current.rect} title={current.name} index={index} total={total} />
+      )}
+
+      {/* Soft cinematic vignette — for camera scenes only. A frame scene is
+          already hard-edged by its mask, and layering a vignette under it just
+          muddied the slide. */}
+      {!current?.rect && (
+        <div className="fixed inset-0 z-[240] pointer-events-none" style={{ boxShadow: 'inset 0 0 220px 40px rgba(45,42,38,0.28)' }} />
+      )}
 
       {/* Hide native cursor when laser is active */}
       {laserActive && (

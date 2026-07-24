@@ -1,45 +1,85 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+/* A deep research board or a full workflow can legitimately take a couple of
+   minutes to GENERATE at the tier's token rate. At 120s the platform was killing
+   long generations mid-stream — the plan's JSON got chopped, actions after the
+   cut were lost, and the board "stopped after a heading and a few lines". Give
+   the big jobs room to actually LAND. */
+export const maxDuration = 300;
 
 const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
-/* Measured 2026-07-07 against NIM serverless: all of these stream a first token
-   in ~0.7-1.1s. Models that hang (llama-3.3-70b, qwen3.5-397b, glm-5.2,
-   deepseek-v4-pro) are deliberately excluded — re-test before adding. */
+/* Measured against NIM serverless. TTFT is WEATHER, not a constant: 2026-07-07
+   these all streamed a first token in ~0.7-1.1s; probed again 2026-07-19 under
+   load, mid and strong stalled 13-20s+ on the same trivial prompt. Design for
+   the bad day. Models that hang (llama-3.3-70b, qwen3.5-397b, glm-5.2,
+   deepseek-v4-pro) are excluded; kimi-k2.6 was removed from the NVIDIA catalog
+   (404s on every key) — do not re-add without probing first. */
+/* PICKED BY LIVE MEASUREMENT, not reputation (probed 2026-07-19 across all 5
+   keys — see the shootout). The whole "agent is slow on the canvas" saga was
+   ONE mistake: we led every task with mistral-medium, which is a cold/scarce
+   model on the NIM serverless free tier — 7-60s to first token and an outright
+   45-60s TIMEOUT on 3 of 5 keys. Meanwhile:
+     • nvidia/llama-3.3-nemotron-super-49b-v1 → TTFT ~1.1s on 4/5 keys, streams
+       VALID JSON, 49B reasoning-tuned. Fast AND smart. This is the new lead.
+     • meta/llama-3.1-8b-instruct → TTFT ~0.5s, 59 tok/s. Fastest; a touch less
+       precise but the client enforces layout, so it's a great hedge/rescue.
+     • mistral-large-3-675b (frontier) → variable but usable; kept as the depth
+       backstop for heavy builds.
+   BANNED here: mistral-medium (cold/timeouts), llama-3.1/3.3-70b (break the JSON
+   contract under load / time out), kimi-k2.6 (404, delisted). Re-probe before
+   re-adding ANY model — this tier's speed is weather. */
 const MODELS = {
   frontier: 'mistralai/mistral-large-3-675b-instruct-2512',
-  strong: 'meta/llama-3.1-70b-instruct',
-  reasoner: 'moonshotai/kimi-k2.6',
-  mid: 'mistralai/mistral-medium-3.5-128b',
+  smart: 'nvidia/llama-3.3-nemotron-super-49b-v1',
   fast: 'meta/llama-3.1-8b-instruct',
 } as const;
 
 type Profile = 'heavy' | 'balanced' | 'quick';
 
-/* The model is chosen for the JOB, not fixed for the app.
-   The single ranked chain this replaces is why the agent "acted dumb for no
-   reason": a frontier model that merely stalled past the TTFT deadline dropped
-   the request straight down the list, and a hard build could end up answered by
-   an 8B model — which cannot hold this system prompt's layout rules in its head.
-   Now each profile has its OWN chain, and 8B is only ever reachable for the
-   trivial one-liners it's actually good at. */
-/* SPEED IS A FEATURE. Measured on the live NIM serverless tier (2026-07-18):
-   the 675B frontier took 60–110s per board and formatted its JSON inconsistently
-   (bare fenced arrays that broke the parser); llama-70b was throttled to ~10
-   tok/s (110s for a research board); but mistral-medium-128b built a RICHER
-   board in ~53s and answered a trivial edit in ~7s. So EVERY chain now LEADS
-   with mistral-medium-128b — it's the fastest AND the richest here, and leading
-   every profile with the one model keeps it warm (fewer cold-start fail-overs).
-   The heavier models are only fall-backs for when it stalls. */
-const CHAINS: Record<Profile, string[]> = {
+/* Per-profile launch PLANS, ordered by measured speed. The lead is always a
+   sub-second-TTFT model so the first block hits the canvas almost immediately;
+   later slots enter ONLY if the lead hasn't produced a token yet (a fast lead
+   cancels them before they fire). Slot delays keep a weaker/slower model from
+   stealing a board the lead is about to win. */
+interface HedgeSlot { model: string; delayMs: number }
+
+/* TAIL LATENCY is the enemy, not average latency. Probed live 2026-07-24: a
+   nemotron lead landed a first block in ~4s, but a plan that LED with the 8B
+   (the old "quick" profile) hit a cold worker and took 15-21s TWICE in a row —
+   the "fast" profile was reliably the SLOWEST. The lesson: on this free tier
+   ANY single model can be cold on any given key, so never bet the whole run on
+   one lead. Every profile now leads with nemotron (the measured reliable+fast
+   lead) AND fires a SECOND nemotron on a DIFFERENT KEY within ~1s — so an
+   unlucky-cold lead is overtaken almost immediately instead of stalling to the
+   28s deadline. This is the "shuffle keys the instant one suffers" the user
+   asked for. Losing attempts abort the moment one wins, so the extra early
+   request only ever costs anything on a bad day — which is exactly when it
+   saves the run. */
+const PLANS: Record<Profile, HedgeSlot[]> = {
   // Long builds, workflows, dashboards, code, math, reorganising a whole board.
-  heavy: [MODELS.mid, MODELS.strong, MODELS.frontier],
+  heavy: [
+    { model: MODELS.smart, delayMs: 0 },
+    { model: MODELS.smart, delayMs: 1200 },     // 2nd nemotron, different key — the fast rescue
+    { model: MODELS.frontier, delayMs: 4000 },  // depth backstop, different key
+    { model: MODELS.fast, delayMs: 11_000 },    // last resort: a warm 8B beats a failure
+  ],
   // The everyday ask: explain this, add a few notes, pull some links.
-  balanced: [MODELS.mid, MODELS.strong],
-  // "add a heading", "make this bigger", "delete that" — latency is the feature.
-  quick: [MODELS.mid, MODELS.fast],
+  balanced: [
+    { model: MODELS.smart, delayMs: 0 },
+    { model: MODELS.smart, delayMs: 1000 },     // 2nd nemotron, different key — rescue a cold lead fast
+    { model: MODELS.fast, delayMs: 2600 },      // 8B hedge on a third key
+    { model: MODELS.frontier, delayMs: 6000 },
+  ],
+  // "add a heading", "make this bigger" — latency IS the feature. Lead with the
+  // reliable nemotron (NOT the 8B: measured cold at 15-21s), and stack two more
+  // keys within 1.6s so the first token that lands anywhere wins.
+  quick: [
+    { model: MODELS.smart, delayMs: 0 },
+    { model: MODELS.fast, delayMs: 800 },       // 8B on a different key — wins if IT'S the warm one
+    { model: MODELS.smart, delayMs: 1600 },     // a third key: nemotron again
+  ],
 };
 
 /** Signals that the task needs real reasoning, not a quick hand. */
@@ -50,6 +90,12 @@ const HEAVY_RE =
 const QUICK_RE =
   /^(?:\s*(?:please|pls|hey)\s*)?(?:add|make|set|change|rename|resize|recolor|colour|color|move|delete|remove|bigger|smaller|bold|italic)\b/i;
 
+/** A genuinely DEEP ask — it must be allowed to run long and land complete, so
+    it gets the biggest token budget of all. These are the boards that were
+    silently getting truncated at the old caps. */
+const RESEARCH_RE =
+  /\b(research|deep dive|deep-dive|comprehensive|in[\s-]?depth|thorough(?:ly)?|everything about|tell me everything|full report|detailed report|write[\s-]?up|literature review|state of the art|whitepaper|white paper|dossier|exhaustive|complete guide|ultimate guide|study (?:guide|plan)|curriculum|syllabus)\b/i;
+
 function pickProfile(prompt: string, mode?: string): Profile {
   if (mode === 'workflow') return 'heavy';
   const p = (prompt || '').trim();
@@ -59,11 +105,14 @@ function pickProfile(prompt: string, mode?: string): Profile {
   return 'balanced';
 }
 
-/* A model must emit its first token within this window or we abandon it and fail
-   over. 7s was too tight: a cold frontier worker regularly needs longer, and
-   every one of those was silently a downgrade. Give the strong models room, and
-   keep the impatient deadline for the small ones. */
-const TTFT_DEADLINE_MS = 12_000;
+/* A model must emit its first token within this window or its attempt is
+   abandoned. This is ONLY the give-up bound now — hedging owns perceived
+   latency (a stalled lead never makes the user wait; the next slot is already
+   racing). 12s was too tight: probed 2026-07-19 under tier congestion, healthy
+   models took 13-20s+ to their first token, so every attempt "failed", the
+   route 502'd, and the client echoed the user's prompt back as a fake board.
+   Congested-but-alive must stay in the race. */
+const TTFT_DEADLINE_MS = 28_000;
 
 const SYSTEM_PROMPT = `You are the Mindspace Canvas Agent — a genius creative partner with god-tier taste and instant hands, and the absolute master of THIS infinite spatial canvas. Think like the best designer, strategist, engineer and teacher in the world rolled into one. You can do ANYTHING on the canvas: create, rewrite, reorganize, connect, delete, fetch real links AND real photos from the web, write runnable code, draw live diagrams and maps, set timers and countdowns, show live weather, look up definitions, search the web for facts, pull Wikipedia knowledge, and bring in exactly what the user asks for — then go further and add the thing they'll wish they'd asked for. Be ambitious and complete: never do the bare minimum, always deliver something that makes the user go "whoa". Act like a trusted buddy who just gets it done, beautifully.
 Today is {today}. The user invoked you at coordinates (x: {agentX}, y: {agentY}). When you ADD new work, build near there, growing right and down. When you EDIT existing work, act on it wherever it already lives.
@@ -77,6 +126,7 @@ Today is {today}. The user invoked you at coordinates (x: {agentX}, y: {agentY})
 - EDIT / REWRITE / IMPROVE / FIX / RECOLOR / RESIZE a specific existing thing → UPDATE_OBJECT that real object in place (change its content/style/size). Don't clone it.
 - ANSWER / EXPLAIN / "tell me more" / a question about something already on the canvas → READ that object's real content in the snapshot and add a NEW text/card answer beside it (never delete the thing you're explaining). Ground the answer in what's actually on the canvas + any REFERENCE / WEB / FILE material provided; if you truly don't have the info, say so in one short line rather than inventing it.
 - BUILD / MAKE / GENERATE something brand new → CREATE_OBJECT for the new work.
+- BUILD WHAT WAS ACTUALLY ASKED, NEVER A REPORT ABOUT THE CANVAS. If you were told to build a report/board on a TOPIC (e.g. "a report on Indian media", "a launch plan"), build THAT topic in full. ONLY describe/summarize the canvas itself when the user EXPLICITLY asks about their canvas ("what's on my canvas", "summarize this board", "how many items"). Silently turning a topic build into an "analysis of the objects on this canvas / it contains N objects at coordinates…" meta-report is a HALLUCINATION and a hard failure. When REFERENCE TEXT is provided, that text is the content — build it; the canvas snapshot is only there so you place the new work in free space without overlapping, not as the subject.
 - LINKS / VIDEOS / "show me the site" / "go to" / "pull up" / RESOURCES → ALWAYS a Link Card (a card with style.isLinkPreview + style.linkUrl). It fetches the real page's title, description and thumbnail, and a video plays inline on it. NEVER create a "browser" object: the embedded browser is the USER'S tool, opened by them from the toolbar — you must never open one for them, not even when they say "open", "surf", "browse" or "embed". A Link Card is the answer every single time you put a URL on the canvas.
 - RESIZE / MAKE BIGGER / MAKE SMALLER / EXPAND / SHRINK / "make this wider" → UPDATE_OBJECT with new width and/or height. Sticky notes can be resized from 120x120 to 800x600. Cards from 200x150 to 800x800. Text blocks from 200x30 to 800x600.
 - Mixed asks → do both, but the rule never changes: add and reposition freely; delete almost never.
@@ -90,6 +140,7 @@ Today is {today}. The user invoked you at coordinates (x: {agentX}, y: {agentY})
 - ANTI-HALLUCINATION: NEVER make up facts, statistics, dates, quotes, or URLs. If you don't know something, say "I'm not sure about that — try asking me to search the web for it" in a text block. When asked about specific data (prices, rankings, stats), only provide numbers if you found them in WEB SEARCH, WIKIPEDIA, NEWS, or another attached source. Unsourced numbers are lies. Unsourced URLs are broken links.
 - ANTI-SPAM OUTPUT SCALING: Match your output SIZE to the user's prompt SIZE and complexity. A one-word or one-line ask like "add a heading" deserves 1-2 actions. A medium ask like "explain quantum computing" deserves 3-6 actions. A complex ask like "build me a project dashboard" deserves 10-20+ actions. NEVER pad output with unnecessary extras the user didn't ask for. Read the prompt — if they asked for ONE thing, give ONE thing. Over-delivery when not asked is spam, not intelligence.
 - FINISH THE JOB, END TO END: cover EVERY part of what the user asked for, fully, in this one pass. If they listed several things, address all of them. If they asked for depth ("research", "in detail", "comprehensive", "write about", "explain fully"), deliver real depth — never a thin outline, never a stub, never trailing off mid-thought. A half-done answer is a failure even if it looks pretty.
+- COMPLETION DISCIPLINE — always emit a COMPLETE, VALID JSON plan and always close it: the "actions" array MUST end with "]" and the object MUST end with "}". A plan that cuts off mid-action is worse than a shorter one, because the board is left half-built and the run looks stuck. So budget your ambition: choose the FEWEST high-value blocks that FULLY answer the ask (a tight 8–14 great actions beats 25 thin, half-finished ones), write each block's real content, and finish the whole plan. Never pad the plan so long that you risk not closing it. Front-load the most important blocks (title, frame, key sections) so even the earliest actions already stand on their own.
 - IMAGES & VISUALS — the rule is RELEVANCE, not abstinence (don't spam, don't starve). DO add real images (style.imageQuery, a vivid SPECIFIC phrase) when the subject is visual or benefits from being seen: a place, animal, plant, product, person, artwork, food, landmark, a space / nature / science topic, a mood or reference, or anything the user says "show me". A substantive board or REPORT on a visual subject (space, a country, an animal, a product, a historical event) SHOULD carry 2–4 relevant, specific images, plus a Map for any place and a diagram/chart where it fits — that visual richness is exactly what makes it feel real instead of a wall of text. What to AVOID is FILLER: never slap a generic stock photo on a trivial one-line answer, a plain checklist, a code snippet, or an abstract non-visual concept just to decorate. Rule of thumb: utility / one-liner → usually no image; a real board on a visual topic → yes, make it visual.
 - LINK SOURCING HIERARCHY: When placing links: 1) Use URLs from ### WEB SEARCH, ### YOUTUBE RESULTS, or ### NEWS — these are VERIFIED REAL and working. 2) Use canonical documentation URLs you are 100% certain exist (react.dev, nextjs.org, developer.mozilla.org, github.com/facebook/react, etc.). 3) If neither source is available, DO NOT GUESS. Instead create a text/card block with the information and suggest the user search for it. A working text block is infinitely better than a dead link card.
 - CONTEXT AWARENESS: Pay close attention to the user's exact words. Mirror the user's tone. If they ask you to crawl a website or link, use the WEB PAGE(S) context to write a comprehensive, defined output of exactly what they need.
@@ -120,7 +171,8 @@ Connections:
 - DASHBOARDS: when the user wants a dashboard, report, analytics, KPIs or "visualize my data", build a titled frame containing a Number chart for the headline figure, plus bar / line / donut Charts and Live Metrics laid out in a clean grid — fill them with real, plausible data.
 - VISUALIZE NUMBERS WHEN IT ACTUALLY HELPS: if the user asks for a dashboard, analytics, KPIs, "a chart", or to "visualize" data — OR the answer's whole point is a set of comparable data points — build a real Chart with the REAL numbers. Use "bar"/"hbar" for comparing categories, "line" for a trend over time, "donut" for parts of a whole (≤6 slices), and "number" for one headline KPI. Give each chart a clear title and 3–8 real data points. But when numbers are incidental to a written answer, keep them inline in the prose — do NOT force a chart onto an explanation or research piece just because a number appeared.
 - HONOR NAMED WIDGETS: if the user's prompt names a specific widget, use exactly that one — never substitute something close. "donut"/"pie chart" → Chart chartType:"donut". "bar chart"/"bar graph" → chartType:"bar". "horizontal bar" → chartType:"hbar". "line chart"/"trend line" → chartType:"line". "KPI"/"live metric"/"stat card"/"sparkline" → the Live Metric widget. "dashboard"/"analytics board"/"overview report" → a titled frame with a Number chart for the headline figure + 2–3 of (bar/line/donut Chart, Live Metric, Progress) in a clean grid, ALL with real data and "chartReady":true. "progress"/"goal tracker" → Progress. "table"/"data table" → Quick Data. "timeline"/"gantt"/"roadmap"/"schedule"/"project plan"/"sprint plan"/"itinerary" → the Timeline widget with real dates. Treat these names as an explicit, literal instruction, not a suggestion.
-- Group related clusters in frames (create the frame BEFORE its contents). Show relationships with connections. Compose like a designer: clear hierarchy, generous whitespace, a strong title.
+- Group related clusters in frames (create the frame BEFORE its contents). Compose like a designer: clear hierarchy, generous whitespace, a strong title.
+- CONNECTION DISCIPLINE — connectors are the agent's most OVERUSED tool; treat every line as expensive. A CREATE_CONNECTION is ONLY justified by a genuine DIRECTED relationship you can name in one word: flow/workflow step order ("then"), a dependency ("needs"), cause→effect ("causes"), a decision branch ("splits into"), or a mindmap hub→spoke. A report, an explanation, a set of notes, a dashboard, a list of sections, or any collection of stacked cards needs ZERO connectors — spacing and headings already show the structure. NEVER connect every block to every other, NEVER wire a heading to unrelated notes, NEVER add a connector just to look busy or "link things up". If you cannot state the relationship in one word, do not draw the line. Most boards should have no connections at all; only true flowcharts/workflows/mindmaps are wired.
 - FONTS: when the user names a font ("make it Playfair", "use a handwritten font", "bold display heading"), set style.fontFamily on the text/heading/sticky. Valid values (use the exact string): "'Inter', sans-serif", "'Outfit', sans-serif", "'Playfair Display', serif", "'Lora', serif", "'Merriweather', serif", "'JetBrains Mono', monospace", "'Caveat', cursive", "'Pacifico', cursive", "'Dancing Script', cursive", "'Bebas Neue', sans-serif", "'Anton', sans-serif", "'Lobster', cursive", "'Space Grotesk', sans-serif". You can also set style.fontSize (px number).
 
 ### LAYOUT — NON-NEGOTIABLE, this is where past attempts failed
@@ -205,6 +257,7 @@ This is the task you get wrong most often. Follow this procedure literally, in o
 
 ### MEMORY — you remember things about this user
 {memorySection}### OUTPUT — return ONLY this JSON, no prose, no markdown fences. Put "actions" FIRST so building can start instantly.
+COMPACT JSON ONLY: emit it as ONE dense line — no pretty-printing, no indentation, no newlines between keys. Every whitespace token you emit is time the user spends waiting; compact JSON makes the same board appear on their canvas 2-3x sooner.
 If you learn something worth remembering about the user (their name, preferences, projects, facts they share), include a "memories" array in your output alongside "actions". Each memory is { "key": "short label", "value": "what to remember", "category": "preference|fact|instruction|context" }. Only save genuinely useful, durable facts — not ephemeral task details. If the user says "forget X" or "don't remember that", include { "forget": "the key to forget" } in the memories array.
 { "actions": [ { "type":"CREATE_OBJECT", "tempId":"a1", "objData":{ "type":"heading", "x":0, "y":0, "width":400, "height":60, "content":"Title", "style":{} }, "log":"Adding title..." } ], "memories": [], "planDescription":"one short sentence" }
 The "actions" array is REQUIRED and must be non-empty. The "memories" array is optional. Order actions logically (frames first, then contents, then connections). Deliver a complete, polished result.`;
@@ -324,8 +377,9 @@ function compactSnapshot(objects: SnapshotObject[], agentX: number, agentY: numb
 async function openModelStream(
   apiKey: string, model: string, systemPrompt: string, userPrompt: string,
   opts?: { maxTokens?: number; temperature?: number },
+  external?: AbortController, // lets the hedged racer cancel a losing attempt
 ): Promise<ReadableStream<Uint8Array>> {
-  const controller = new AbortController();
+  const controller = external ?? new AbortController();
   const ttftTimer = setTimeout(() => controller.abort(), TTFT_DEADLINE_MS);
 
   const res = await fetch(NVIDIA_ENDPOINT, {
@@ -410,6 +464,60 @@ async function openModelStream(
   });
 }
 
+/* HEDGED RACING over a per-profile PLAN. Each slot has its own launch delay:
+   the lead fires at t=0 and every later slot enters the race only if nobody has
+   produced a first token yet (a fast lead cancels the pending timers before
+   they fire, so the extra requests usually never happen). First token wins;
+   losers are aborted; a hard failure pulls the next unlaunched slot forward
+   immediately. Per-slot delays are what let a same-quality hedge come in early
+   (2.5s) while the last-resort rescue stays far out (15s+) so a weak model can
+   never steal a board it shouldn't build. */
+function openHedgedStream(
+  plan: HedgeSlot[], apiKeys: string[], startKey: number,
+  systemPrompt: string, userPrompt: string,
+  opts?: { maxTokens?: number; temperature?: number },
+): Promise<{ stream: ReadableStream<Uint8Array>; model: string }> {
+  return new Promise((resolve, reject) => {
+    const controllers: (AbortController | undefined)[] = [];
+    const timers: (ReturnType<typeof setTimeout> | undefined)[] = [];
+    let launchedCount = 0;
+    let failed = 0;
+    let settled = false;
+    let lastError: Error = new Error('no models attempted');
+
+    const launch = (i: number) => {
+      if (settled || controllers[i]) return; // already raced this slot
+      if (timers[i] !== undefined) { clearTimeout(timers[i]); timers[i] = undefined; }
+      launchedCount++;
+      const controller = new AbortController();
+      controllers[i] = controller;
+      openModelStream(apiKeys[(startKey + i) % apiKeys.length], plan[i].model, systemPrompt, userPrompt, opts, controller)
+        .then((stream) => {
+          if (settled) { controller.abort(); return; } // lost the race — cancel
+          settled = true;
+          timers.forEach((t) => { if (t !== undefined) clearTimeout(t); });
+          controllers.forEach((c, j) => { if (j !== i) c?.abort(); });
+          resolve({ stream, model: plan[i].model });
+        })
+        .catch((err) => {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          if (!settled) console.warn(`Agent model ${plan[i].model} (slot ${i}) failed:`, lastError.message);
+          failed++;
+          if (settled) return;
+          // A failure frees a lane: pull the next unlaunched slot forward NOW.
+          const next = plan.findIndex((_, j) => !controllers[j]);
+          if (next !== -1) launch(next);
+          else if (failed >= launchedCount) reject(lastError); // everyone lost
+        });
+    };
+
+    plan.forEach((slot, i) => {
+      if (slot.delayMs <= 0) launch(i);
+      else timers[i] = setTimeout(() => launch(i), slot.delayMs);
+    });
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { prompt, apiKeyIndex, agentX, agentY, canvas, context, brief, visionContext, filesContext, webContext, memoriesContext, searchContext, wikiContext, weatherContext, dictContext, newsContext, youtubeContext, quotesContext, countryContext, triviaContext, skillsetContext, mode, modelProfile } = await req.json();
@@ -440,7 +548,7 @@ export async function POST(req: NextRequest) {
 
     const parts: string[] = [];
     if (typeof context === 'string' && context.trim()) {
-      parts.push(`### REFERENCE TEXT — the user invoked you directly on this text; it is your primary source material to complete, transform, or build from exactly as asked:\n"""${context.trim().slice(0, 2000)}"""`);
+      parts.push(`### REFERENCE TEXT — your PRIMARY source material and the actual CONTENT to render on the canvas. BUILD THIS: lay it out as a structured, beautiful board (title, sections, the right widgets/visuals), grounded word-for-word in what it says. Do NOT discard it, do NOT swap in a different topic, and do NOT turn it into a meta-report about the canvas — this text IS the report to build:\n"""${context.trim().slice(0, 14000)}"""`);
     }
     if (typeof filesContext === 'string' && filesContext.trim()) {
       parts.push(`### ATTACHED FILE(S) — the FULL extracted text of file(s) the user dropped on the canvas (pdf / doc / docx / rtf / odt / pptx / xlsx / zip / code / …). This is real source material and you have ALL of it: read it END TO END before you answer — do not skim the opening and stop. Answer questions or build from it using ONLY what it actually contains. Quote or cite specifics from throughout the document, not just the first page. Never invent facts, numbers, or links that aren't in it. If it contains formulas, reproduce them in proper LaTeX math:\n"""${filesContext.trim().slice(0, 125_000)}"""`);
@@ -502,15 +610,23 @@ export async function POST(req: NextRequest) {
 
     const isWorkflow = mode === 'workflow';
     const basePrompt = isWorkflow ? WORKFLOW_SYSTEM_PROMPT : SYSTEM_PROMPT;
+    /* FUNCTION-form replacements ONLY. With a plain string value, String.replace
+       interprets $-patterns INSIDE the value: "$'" splices the entire rest of the
+       template into the prompt (ballooning it until the model stalls or the
+       request dies), "$&" re-inserts the placeholder, and LaTeX "$$" silently
+       collapses to "$". Skill-set rules, memories, file text and the canvas
+       snapshot JSON all flow through here and all can contain $ — this was the
+       "agent hangs when a skill set / certain content is present" bug. A
+       function replacement is passed through verbatim, no interpretation. */
     const systemPrompt = basePrompt
-      .replace(/{agentX}/g, String(x))
-      .replace(/{agentY}/g, String(y))
-      .replace(/{today}/g, todayStr)
-      .replace(/{skillsetSection}/g, skillsetSection)
-      .replace('{assignmentSection}', assignmentSection)
-      .replace('{memorySection}', memorySection)
-      .replace('{canvasObjects}', snapObjects.length ? JSON.stringify(snapObjects) : '(empty)')
-      .replace('{canvasConnections}', snapConns.length ? JSON.stringify(snapConns) : '(none)');
+      .replace(/{agentX}/g, () => String(x))
+      .replace(/{agentY}/g, () => String(y))
+      .replace(/{today}/g, () => todayStr)
+      .replace(/{skillsetSection}/g, () => skillsetSection)
+      .replace('{assignmentSection}', () => assignmentSection)
+      .replace('{memorySection}', () => memorySection)
+      .replace('{canvasObjects}', () => snapObjects.length ? JSON.stringify(snapObjects) : '(empty)')
+      .replace('{canvasConnections}', () => snapConns.length ? JSON.stringify(snapConns) : '(none)');
 
     /* Match the model AND the budget to what was actually asked for. A caller may
        pin a profile explicitly (a "think harder" / "just be quick" affordance);
@@ -521,44 +637,44 @@ export async function POST(req: NextRequest) {
         ? (requested as Profile)
         : pickProfile(prompt, mode);
 
-    const chain = CHAINS[profile];
-    /* Token budgets are also a latency dial: at the tier's throughput every extra
-       1k tokens is real seconds. These cap the worst case without starving a
-       normal board (a rich research board measured ~2.9k output tokens). */
-    const modelOpts =
-      profile === 'quick'
-        ? { maxTokens: 1500, temperature: 0.4 }
-        : isWorkflow
-          ? { maxTokens: 7000, temperature: 0.55 }
-          : profile === 'heavy'
-            ? { maxTokens: 4500, temperature: 0.45 }
-            : { maxTokens: 5000, temperature: 0.5 };
+    const plan = PLANS[profile];
+    /* Token budgets are BOTH a latency dial AND a completeness floor. The old
+       caps (heavy 4500, workflow 7000) were low enough that a genuinely deep
+       research board or a rich workflow ran straight into the ceiling and got
+       CHOPPED OFF mid-JSON — that is the "it stops after a heading and a few
+       lines / still says building" bug. A truncated plan is the single worst
+       outcome, so give real work real room (maxDuration is now 300s so a long
+       generation has time to finish instead of being killed). This only raises
+       the CEILING — the system prompt still tells the model to stay focused, so
+       a one-liner ask still returns a couple of actions in a second or two. */
+    const isResearch = RESEARCH_RE.test(prompt || '');
+    const maxTokens =
+      profile === 'quick' ? 2500
+        : isWorkflow ? 10_000
+          : profile === 'heavy' ? (isResearch ? 10_000 : 8000)
+            : isResearch ? 8000 : 6000; // balanced
+    const temperature =
+      profile === 'quick' ? 0.4 : isWorkflow ? 0.55 : profile === 'heavy' ? 0.45 : 0.5;
+    const modelOpts = { maxTokens, temperature };
 
-    // Try models in order, rotating keys; stream the first that produces tokens.
-    let lastError: Error | null = null;
-    for (let m = 0; m < chain.length; m++) {
-      const model = chain[m];
-      const apiKey = apiKeys[(startKey + m) % apiKeys.length];
-      try {
-        const stream = await openModelStream(apiKey, model, systemPrompt, prompt, modelOpts);
-        return new NextResponse(stream, {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Cache-Control': 'no-cache, no-transform',
-            'X-Agent-Model': model,
-            'X-Agent-Profile': profile,
-          },
-        });
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        console.warn(`Agent model ${model} (${profile}) failed:`, lastError.message);
-      }
+    // Race the plan (hedged): first model to produce a token streams back.
+    try {
+      const { stream, model } = await openHedgedStream(plan, apiKeys, startKey, systemPrompt, prompt, modelOpts);
+      return new NextResponse(stream, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          'X-Agent-Model': model,
+          'X-Agent-Profile': profile,
+        },
+      });
+    } catch (err) {
+      const lastError = err instanceof Error ? err : new Error(String(err));
+      return NextResponse.json({
+        success: false,
+        error: `No model responded. Last error: ${lastError.message}`,
+      }, { status: 502 });
     }
-
-    return NextResponse.json({
-      success: false,
-      error: `No model responded. Last error: ${lastError?.message || 'unknown'}`,
-    }, { status: 502 });
 
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

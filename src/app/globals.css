@@ -1,5 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Anton&family=Bebas+Neue&family=Caveat:wght@400..700&family=Fira+Code:wght@300..700&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Lora:ital,wght@400..700;1,400..700&family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400;1,700;1,900&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Outfit:wght@100..900&family=Oswald:wght@200..700&family=Pacifico&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&family=Comfortaa:wght@300..700&family=Fredoka:wght@300..700&family=Quicksand:wght@300..700&family=Cinzel:wght@400..900&family=Sacramento&family=Shadows+Into+Light&family=Gloria+Hallelujah&family=Permanent+Marker&family=Spicy+Rice&family=Lobster&family=Abril+Fatface&family=Righteous&family=Press+Start+2P&family=Creepster&family=Architects+Daughter&family=Dancing+Script:wght@400..700&family=Amatic+SC:wght@400;700&family=Bangers&family=Chewy&family=Cinzel+Decorative:wght@400;700&family=Special+Elite&family=Monoton&family=Poiret+One&family=Shrikhand&family=Ultra&family=VT323&family=Bungee&family=Fredericka+the+Great&family=Luckiest+Guy&family=Pinyon+Script&family=Kelly+Slab&family=Kranky&family=Slackey&family=Rye&family=Pirata+One&family=Uncial+Antiqua&family=Nosifer&family=Eater&family=Monofett&family=Syne+Tactile&family=Butcherman&family=Codystar&family=Fascinate+Inline&family=Rubik+Beastly&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Anton&family=Bebas+Neue&family=Caveat:wght@400..700&family=Fira+Code:wght@300..700&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Lora:ital,wght@400..700;1,400..700&family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400;1,700;1,900&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Outfit:wght@100..900&family=Oswald:wght@200..700&family=Pacifico&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&family=Comfortaa:wght@300..700&family=Fredoka:wght@300..700&family=Quicksand:wght@300..700&family=Cinzel:wght@400..900&family=Sacramento&family=Shadows+Into+Light&family=Gloria+Hallelujah&family=Permanent+Marker&family=Spicy+Rice&family=Lobster&family=Abril+Fatface&family=Righteous&family=Press+Start+2P&family=Creepster&family=Architects+Daughter&family=Dancing+Script:wght@400..700&family=Amatic+SC:wght@400;700&family=Bangers&family=Chewy&family=Cinzel+Decorative:wght@400;700&family=Special+Elite&family=Monoton&family=Poiret+One&family=Shrikhand&family=Ultra&family=VT323&family=Bungee&family=Fredericka+the+Great&family=Luckiest+Guy&family=Pinyon+Script&family=Kelly+Slab&family=Kranky&family=Slackey&family=Rye&family=Pirata+One&family=Uncial+Antiqua&family=Nosifer&family=Eater&family=Monofett&family=Syne+Tactile&family=Butcherman&family=Codystar&family=Fascinate+Inline&family=Rubik+Beastly&family=Shantell+Sans:ital,wght@0,300..800;1,300..800&display=swap');
 @import "tailwindcss";
+@import "./text-anim.css";
+@import "./flow.css";
 
 /* Drive Tailwind's `dark:` variant from the canvas color mode (set by
    canvasTheme.ts on :root) instead of the OS preference, so every existing
@@ -68,8 +70,20 @@ html, body {
   overflow: hidden;
   position: fixed;
   font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: var(--bg-primary);
+  /* THE FIRST PAINT, and the reason the app no longer flashes white.
+     Both routes mount through `dynamic(..., { ssr: false })`, so the server
+     sends an empty shell and the browser paints `body` on its own for the ~0.5s
+     it takes the client chunk to arrive. That paint used to be the light
+     `--bg-primary` (#FAF6F1) while the app's actual default canvas is dark, so
+     every load — landing or canvas, cold or warm — opened with a full white
+     frame before the real UI faded in.
+     A literal #000 here (not a variable) is painted from the very first style
+     rule, before any JS decides on a theme. `color-scheme` does the same job for
+     the surfaces the page doesn't own: the scrollbars, the canvas overscroll
+     gutter, and the pre-CSS blank the browser draws on navigation. */
+  background: #000;
   color: var(--text-primary);
+  color-scheme: dark;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -123,16 +137,11 @@ html, body {
   .clay-skeleton { animation: none; }
 }
 
-/* Fathom semantic-zoom cross-fade: soft-in when a tier representation mounts */
+/* Semantic-zoom cross-fade: soft-in when a gist takes over from real text.
+   Used by .semantic-gist further down — see lib/semanticZoom.ts. */
 @keyframes semanticFade {
   from { opacity: 0; }
   to { opacity: 1; }
-}
-.semantic-fade {
-  animation: semanticFade 0.15s ease both;
-}
-@media (prefers-reduced-motion: reduce) {
-  .semantic-fade { animation: none; }
 }
 
 /* ============================================
@@ -155,6 +164,12 @@ html, body {
 .shape-rough-2 { filter: url(#ms-rough-2); }
 
 /* Scenes: distraction-free "tour mode" fades the canvas chrome out of the way */
+/* A tour is a presentation — the app gets out of the way. `.canvas-chrome`
+   wraps every overlay (toolbar, title, Share, collab bar, sign-in, chat, docks)
+   so this hides them wholesale; the individual classes stay listed for the
+   handful that render outside the wrapper. The tour's own controls live above
+   this and are unaffected. */
+.tour-mode .canvas-chrome,
 .tour-mode .floating-toolbar,
 .tour-mode .minimap-container,
 .tour-mode .scenes-launcher,
@@ -209,6 +224,19 @@ html, body {
   background: var(--bg-primary);
 }
 
+/* Lock-in mode: a soft accent frame around the viewport that reads as "your
+   space", breathing gently so it feels alive rather than like a disabled state. */
+.view-lock-ring {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
+              inset 0 0 34px color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 2px;
+  animation: view-lock-breathe 4.5s ease-in-out infinite;
+}
+@keyframes view-lock-breathe {
+  0%, 100% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent), inset 0 0 30px color-mix(in srgb, var(--accent) 12%, transparent); }
+  50%      { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 0 40px color-mix(in srgb, var(--accent) 22%, transparent); }
+}
+
 .canvas-container.mode-pan {
   cursor: grab;
 }
@@ -223,6 +251,15 @@ html, body {
 
 .canvas-container.mode-text {
   cursor: text;
+}
+
+/* Brainstorm kit cursors. The Pin tool drops push-pins, so a pin cursor over
+   the board; Clip/Thread act on objects, so a plain crosshair on empty canvas. */
+.canvas-container.mode-brainstorm {
+  cursor: crosshair;
+}
+.canvas-container.mode-brainstorm.tool-pin {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='34' height='34' viewBox='0 0 24 24'><g fill='none' stroke='%23000' stroke-opacity='0.35' stroke-width='4' stroke-linejoin='round'><path d='M9 4.5 15.5 11'/><path d='M8.2 10.6a4 4 0 0 0 5.2 5.2l4.2-1.6a1 1 0 0 0 .35-1.63l-6.5-6.5a1 1 0 0 0-1.63.35Z'/><path d='M10.5 13.5 5 19'/></g><g fill='none' stroke='%23fff' stroke-width='1.7' stroke-linejoin='round'><path d='M9 4.5 15.5 11'/><path d='M8.2 10.6a4 4 0 0 0 5.2 5.2l4.2-1.6a1 1 0 0 0 .35-1.63l-6.5-6.5a1 1 0 0 0-1.63.35Z'/><path d='M10.5 13.5 5 19'/></g></svg>") 4 20, crosshair;
 }
 
 /* Stress Reliefer cursors.
@@ -369,18 +406,96 @@ html, body {
 }
 
 /* Sticky note */
+/* ---- Sticky notes ---------------------------------------------------------
+   A real sticky note is glued along a strip at the TOP and nothing else. The
+   rest of it hangs, so the bottom edge always sits a little off the wall and
+   flutters when you brush past it.
+
+   That's the whole model here: the note is hinged at its top edge
+   (`transform-origin: 50% 0`) and rests at a slight positive rotateX, which —
+   with CSS's axes — tips the bottom toward the viewer. Hover flutters it up
+   and lets it settle in damped swings, the way paper actually does.
+
+   Only `transform` and `opacity` animate. The cast shadow is a pseudo-element
+   whose opacity rides along, rather than an animated box-shadow, which would
+   repaint the note on every frame. */
 .sticky-note {
+  position: relative;
   font-family: 'Inter', sans-serif;
   padding: 16px 20px;
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   min-width: 180px;
   min-height: 120px;
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  transform-origin: 50% 0%;
+  transform: perspective(760px) rotateX(1.1deg);
+  transition: box-shadow 0.2s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.sticky-note:hover {
+/* The paper curving away from the wall as it leaves the adhesive. */
+.sticky-note::before {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 26%;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0));
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+/* What the lifted bottom edge casts onto the canvas underneath it. */
+.sticky-note::after {
+  content: '';
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  bottom: -7px;
+  height: 15px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(45, 42, 38, 0.22), rgba(45, 42, 38, 0) 72%);
+  opacity: 0.45;
+  transition: opacity 0.22s ease;
+  pointer-events: none;
+}
+
+/* `:not(.dragging)` matters: without it, every note the cursor crosses while
+   you haul one across the board flutters in its wake. */
+.canvas-object:not(.dragging):hover .sticky-note {
   box-shadow: var(--shadow-lg);
+  will-change: transform;
+  animation: sticky-flutter 0.62s cubic-bezier(0.33, 1, 0.68, 1) both;
+}
+
+.canvas-object:not(.dragging):hover .sticky-note::after {
+  opacity: 0.95;
+}
+
+.canvas-object:not(.dragging):hover .sticky-note::before {
+  opacity: 1;
+}
+
+/* Swings that shrink — the note lifts, overshoots past its rest angle, and
+   settles. Ending ON the rest angle (not at 0) is what stops the snap-back. */
+@keyframes sticky-flutter {
+  0% { transform: perspective(760px) rotateX(1.1deg); }
+  26% { transform: perspective(760px) rotateX(8.4deg); }
+  50% { transform: perspective(760px) rotateX(-1.6deg); }
+  72% { transform: perspective(760px) rotateX(3.4deg); }
+  88% { transform: perspective(760px) rotateX(0.4deg); }
+  100% { transform: perspective(760px) rotateX(1.1deg); }
+}
+
+/* Typing into a note should not have it bobbing under the caret. */
+.canvas-object .sticky-note:has(.text-block-editable) {
+  animation: none !important;
+  transform: perspective(760px) rotateX(0deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-object:not(.dragging):hover .sticky-note { animation: none; }
+  .sticky-note { transition: box-shadow 0.2s ease; }
 }
 
 /* Floating card */
@@ -499,6 +614,191 @@ html, body {
   padding-top: 20vh;
 }
 
+/* ============================================================ Singularity
+   Compact cross-canvas search that sits OVER the live board — the canvas stays
+   visible and fully interactive behind it (the overlay itself never eats a
+   pointer event; only its widgets do). A small classy core + mini search bar;
+   matches get pulled in and packed collision-free around it. */
+.singularity-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  overflow: hidden;
+  color: #E7E7EC;
+  /* A soft neutral dim — the board shows straight through, no colour cast. */
+  background: radial-gradient(circle at 50% 50%, rgba(10,11,15,0.50) 0%, rgba(10,11,15,0.34) 44%, rgba(10,11,15,0.10) 100%);
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+  user-select: none;
+  pointer-events: none; /* never freeze the canvas — widgets opt back in below */
+}
+/* zoomable field holding the packed results (scroll to scale it) */
+.singularity-field {
+  position: fixed; inset: 0; z-index: 2;
+  pointer-events: none; transform-origin: 50% 50%; will-change: transform;
+}
+
+.singularity-stars {
+  position: absolute; inset: -30%;
+  background-image:
+    radial-gradient(1.2px 1.2px at 30% 40%, rgba(255,255,255,0.55), transparent),
+    radial-gradient(1px 1px at 70% 60%, rgba(220,225,255,0.45), transparent),
+    radial-gradient(1.3px 1.3px at 82% 26%, rgba(255,255,255,0.5), transparent),
+    radial-gradient(1px 1px at 18% 72%, rgba(255,255,255,0.4), transparent);
+  background-size: 520px 520px, 640px 640px, 560px 560px, 600px 600px;
+  animation: singDrift 120s linear infinite;
+  opacity: 0.5; pointer-events: none;
+}
+@keyframes singDrift {
+  from { transform: translate3d(0,0,0); }
+  to   { transform: translate3d(-40px,-28px,0); }
+}
+
+.singularity-core-wrap {
+  position: absolute; width: 0; height: 0;
+  transform: translate(-50%, -50%); pointer-events: none;
+}
+.singularity-ring {
+  position: absolute; border-radius: 50%;
+  transform: translate(-50%, -50%); left: 0; top: 0;
+}
+.singularity-ring.r1 {
+  width: 132px; height: 132px; margin: -66px 0 0 -66px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.singularity-ring.r2 {
+  width: 210px; height: 210px; margin: -105px 0 0 -105px;
+  border: 1px dashed rgba(255, 255, 255, 0.045);
+}
+.singularity-core {
+  position: absolute; left: 0; top: 0;
+  width: 72px; height: 72px; margin: -36px 0 0 -36px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #000 0%, #000 44%, #14141c 62%, transparent 78%);
+  box-shadow:
+    0 0 24px 3px rgba(120, 130, 165, 0.18),
+    inset 0 0 16px 3px rgba(180, 188, 210, 0.26);
+  animation: singBreathe 5s ease-in-out infinite;
+}
+@keyframes singBreathe {
+  0%, 100% { box-shadow: 0 0 24px 3px rgba(120,130,165,0.18), inset 0 0 16px 3px rgba(180,188,210,0.26); }
+  50%      { box-shadow: 0 0 32px 6px rgba(140,150,185,0.24), inset 0 0 20px 4px rgba(200,208,228,0.34); }
+}
+.singularity-pulse {
+  position: absolute; left: 0; top: 0;
+  width: 72px; height: 72px; margin: -36px 0 0 -36px;
+  border-radius: 50%; border: 1.5px solid rgba(200, 205, 225, 0.4);
+}
+
+.singularity-search-wrap {
+  position: absolute; transform: translate(-50%, -50%);
+  width: min(320px, 78vw);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  z-index: 4; pointer-events: auto;
+}
+.singularity-search {
+  width: 100%;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 11px; border-radius: 12px;
+  background: rgba(20, 21, 27, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  backdrop-filter: blur(10px);
+}
+.singularity-search-icon { color: rgba(180, 184, 198, 0.85); font-size: 12px; }
+.singularity-input {
+  flex: 1; min-width: 0;
+  background: transparent; border: none; outline: none;
+  color: #ECEDF1; font-size: 13.5px; letter-spacing: 0.01em;
+  font-family: 'Outfit', sans-serif;
+}
+.singularity-input::placeholder { color: rgba(180, 184, 198, 0.5); }
+.singularity-close {
+  flex-shrink: 0; width: 20px; height: 20px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(200, 204, 216, 0.7); font-size: 11px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.03);
+  transition: all 0.15s;
+}
+.singularity-close:hover { color: #fff; background: rgba(255,255,255,0.14); }
+.singularity-status {
+  font-size: 10px; letter-spacing: 0.03em;
+  color: rgba(190, 194, 208, 0.65);
+}
+
+/* one packed result */
+.singularity-chip-wrap {
+  position: absolute; transform: translate(-50%, -50%);
+  z-index: 2; pointer-events: auto;
+}
+/* While a chip is being dragged out, let the pointer fall through every widget
+   so the CANVAS underneath is the drop target (the overlay is already
+   pointer-events:none, so the board is live the whole time). */
+.singularity-overlay.dragging .singularity-chip-wrap,
+.singularity-overlay.dragging .singularity-search-wrap { pointer-events: none; }
+.singularity-chip {
+  width: 158px;
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 6px 8px; border-radius: 10px; cursor: grab;
+  background: rgba(26, 27, 33, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.42);
+  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease, background 0.14s;
+}
+.singularity-chip:active { cursor: grabbing; }
+.singularity-chip.cross { width: 168px; background: rgba(22, 23, 29, 0.94); }
+.singularity-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  background: rgba(36, 37, 44, 0.97);
+  z-index: 5;
+}
+.singularity-chip .sg-canvas {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 8.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: rgba(178, 182, 196, 0.8);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.singularity-chip .sg-canvas .dot {
+  width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(150, 154, 172, 0.9);
+}
+.singularity-chip .sg-row { display: flex; align-items: center; gap: 7px; }
+.singularity-chip-glyph {
+  flex-shrink: 0; width: 18px; height: 18px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: #b8bac6; background: rgba(255, 255, 255, 0.07);
+}
+.singularity-chip-text {
+  flex: 1; min-width: 0; font-size: 11.5px; color: #E7E8ED; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.singularity-chip-copy {
+  flex-shrink: 0; width: 18px; height: 18px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; cursor: pointer;
+  color: rgba(200, 204, 216, 0.65); background: transparent; border: none;
+  opacity: 0; transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+.singularity-chip:hover .singularity-chip-copy { opacity: 1; }
+.singularity-chip-copy:hover { color: #fff; background: rgba(255,255,255,0.14); }
+
+.singularity-empty {
+  position: absolute; left: 50%; top: calc(50% + 84px); transform: translateX(-50%);
+  font-size: 12px; color: rgba(185, 189, 202, 0.6); pointer-events: none;
+}
+.singularity-hint {
+  position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
+  font-size: 10.5px; letter-spacing: 0.02em; text-align: center;
+  color: rgba(180, 184, 198, 0.45); white-space: nowrap; pointer-events: none;
+}
+.singularity-hint b { color: rgba(210, 213, 224, 0.75); font-weight: 700; }
+
+@media (max-width: 640px) {
+  .singularity-hint { white-space: normal; width: 90vw; }
+}
+
 /* Plus menu */
 .plus-menu {
   position: absolute;
@@ -568,6 +868,47 @@ html, body {
 .canvas-object:hover .resize-handle,
 .canvas-object.selected .resize-handle {
   opacity: 1;
+}
+
+/* ---- Semantic zoom -------------------------------------------------------
+   Zoomed far enough out, a text block prints what it is ABOUT instead of what
+   it says (lib/semanticZoom.ts). The real text is faded, never unmounted: the
+   blocks that grow to fit their text measure this very node, so removing it
+   would have every block on screen resize itself to its own summary. Only the
+   words yield — a sticky keeps its paper, a card keeps its shell, and the
+   canvas stays the same map at every scale.
+
+   `[data-semantic]` is only ever set on prose blocks, so the fade can never
+   reach a shape label or a functional block's readout. */
+.canvas-object .text-block-display {
+  transition: opacity 0.16s ease;
+}
+
+.canvas-object[data-semantic='on'] .text-block-display {
+  opacity: 0;
+}
+
+.semantic-gist {
+  animation: semanticFade 0.18s ease both;
+}
+
+/* A PNG/PDF export rasterizes this very DOM at 1:1, so it must never inherit
+   the camera's summaries — see captureBoard() in lib/exportBoard.ts. */
+.canvas-world.exporting .semantic-gist {
+  display: none;
+}
+
+/* `transition: none` is load-bearing, not tidiness: html-to-image reads
+   computed style, and a 0.16s fade would still be reading ~0 at capture time.
+   Killing the transition makes the restore land on the very next recalc. */
+.canvas-world.exporting .canvas-object[data-semantic='on'] .text-block-display {
+  opacity: 1;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-object .text-block-display { transition: none; }
+  .semantic-gist { animation: none; }
 }
 
 /* Image block */
@@ -738,3 +1079,87 @@ html, body {
 .agent-md pre code { background: none; padding: 0; color: #e6e9ef; }
 .agent-md blockquote { margin: 8px 0; padding: 4px 12px; border-left: 3px solid var(--accent); opacity: 0.9; }
 .agent-md a { color: var(--accent); text-decoration: underline; }
+
+/* --- RichText writing marks & interactive chips --------------------------
+   Class selectors (not `*`) so they win over the unlayered global reset, same
+   trick as `.agent-md` above. Scoped under `.rich-text` (the renderer wrapper). */
+
+/* ==highlight== — a marker-pen stripe that stays legible in light and dark. */
+.rich-text .rich-highlight {
+  background: linear-gradient(transparent 8%, rgba(250, 204, 21, 0.42) 8%, rgba(250, 204, 21, 0.42) 92%, transparent 92%);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+[data-canvas-theme="dark"] .rich-text .rich-highlight {
+  background: linear-gradient(transparent 8%, rgba(250, 204, 21, 0.30) 8%, rgba(250, 204, 21, 0.30) 92%, transparent 92%);
+}
+
+/* @[label](ref:id) — inline chip that pans the camera to another block. */
+.rich-text .mention-chip {
+  display: inline;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  border-radius: 6px;
+  padding: 0 5px;
+  margin: 0 1px;
+  cursor: pointer;
+  white-space: normal;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.rich-text .mention-chip:hover {
+  background: rgba(var(--accent-rgb), 0.22);
+  border-color: rgba(var(--accent-rgb), 0.5);
+}
+.rich-text .mention-chip .mention-at { opacity: 0.6; margin-right: 1px; }
+
+/* Collapsible toggle chevron. */
+.rich-text .toggle-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  background: none;
+  border: none;
+  padding: 0;
+  width: 14px;
+  height: 14px;
+}
+.rich-text .toggle-chevron:hover { color: var(--accent); }
+
+/* ||spoiler|| — a redaction bar that clears when clicked. */
+.rich-text .spoiler {
+  background: var(--text-primary);
+  color: transparent;
+  border-radius: 4px;
+  padding: 0 3px;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.rich-text .spoiler.revealed {
+  background: var(--accent-subtle);
+  color: inherit;
+  user-select: text;
+}
+
+/* ```fenced``` code block — formatted, non-editable monospace. */
+.rich-text .rich-code-block {
+  display: block;
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 6px 0;
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 0.86em;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+}
+[data-canvas-theme="dark"] .rich-text .rich-code-block { background: rgba(255, 255, 255, 0.07); }

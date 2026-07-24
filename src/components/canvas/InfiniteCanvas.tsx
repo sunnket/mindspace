@@ -24,13 +24,18 @@ import {
 } from '@/lib/db';
 import CanvasObject from './CanvasObject';
 import RelaxEffectsLayer from './RelaxEffectsLayer';
+import CanvasResident from './CanvasResident';
+import ConstellationView from './ConstellationView';
+import FlowModeLayer from './FlowModeLayer';
 import DrawingLayer from './DrawingLayer';
 import ConnectionsLayer from './ConnectionsLayer';
 import FloatingToolbar from '@/components/ui/FloatingToolbar';
 import SpatialSearch from '@/components/ui/SpatialSearch';
+import SingularitySearch from '@/components/ui/SingularitySearch';
 import CommandPalette from '@/components/ui/CommandPalette';
 import PlusMenu from '@/components/ui/PlusMenu';
 import SlashCommandMenu from '@/components/ui/SlashCommandMenu';
+import AtMentionMenu from '@/components/ui/AtMentionMenu';
 import AgentOverlay from '@/components/ui/AgentOverlay';
 import SkillSetPanel from '@/components/ui/SkillSetPanel';
 import { isSkillsetActive, activeRuleCount } from '@/lib/skillset';
@@ -42,13 +47,17 @@ import TrashPile from '@/components/ui/TrashPile';
 import VoiceOrb from './VoiceOrb';
 import AuthButton from '@/components/ui/AuthButton';
 import ShortcutsOverlay from './ShortcutsOverlay';
+import ShareModal from '@/components/ui/ShareModal';
 import MinimizeDock from './MinimizeDock';
 import WarpPortal from './WarpPortal';
 import ScenesPanel from './ScenesPanel';
+import FrameHUD from './FrameHUD';
 import ChatLauncher from '@/components/chat/ChatLauncher';
 import AgentChatPanel from '@/components/chat/AgentChatPanel';
 import CollabBar from '@/components/collab/CollabBar';
+import PluginsPanel from '@/components/ui/PluginsPanel';
 import CollabCursors from '@/components/collab/CollabCursors';
+import AgentCursor from '@/components/canvas/AgentCursor';
 import CollabModal from '@/components/collab/CollabModal';
 import PulseLayer from '@/components/collab/PulseLayer';
 import { useCollabStore } from '@/store/collabStore';
@@ -84,6 +93,65 @@ function GlowCursor({ isDrawMode }: { isDrawMode: boolean }) {
   );
 }
 
+/**
+ * One pill, four board actions — Share, Skill Set, Plugins, Collaborate.
+ *
+ * These used to be three different components in three different places (an
+ * always-on Share button, a hover-revealed Skill Set, a toolbar icon, and a
+ * top-centre Collaborate bar), each with its own background, padding and
+ * border. Sharing the surface here is what makes the row read as one control
+ * cluster instead of four unrelated buttons that happen to sit near each other.
+ *
+ * Hidden until the canvas name is hovered, unless `active` — a pill reporting
+ * live state (a skill set is applied, a panel is open) must stay visible, or
+ * the user loses track of something they turned on.
+ */
+function HeaderPill({
+  onClick, title, label, children, active = false, badge, ...rest
+}: {
+  onClick: () => void;
+  title: string;
+  label: string;
+  children: React.ReactNode;
+  active?: boolean;
+  badge?: number;
+} & React.HTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-pressed={active}
+      className={`flex items-center gap-1.5 rounded-full border shadow-sm backdrop-blur-md transition-all duration-200 cursor-pointer ${
+        active
+          ? 'opacity-100 translate-x-0'
+          : 'opacity-0 -translate-x-1 pointer-events-none group-hover/head:opacity-100 group-hover/head:translate-x-0 group-hover/head:pointer-events-auto'
+      }`}
+      style={{
+        padding: '5px 11px',
+        background: active ? 'var(--accent-subtle)' : 'var(--bg-glass)',
+        borderColor: active ? 'rgba(var(--accent-rgb),0.4)' : 'var(--border)',
+        color: active ? 'var(--accent)' : 'var(--text-secondary)',
+      }}
+      {...rest}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {children}
+      </svg>
+      <span className="text-[11px] font-semibold whitespace-nowrap" style={{ fontFamily: "'Outfit', sans-serif" }}>
+        {label}
+      </span>
+      {badge !== undefined && (
+        <span
+          className="flex items-center justify-center text-[9px] font-bold text-white rounded-full"
+          style={{ minWidth: 15, height: 15, padding: '0 4px', background: 'var(--accent)' }}
+        >
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export default function InfiniteCanvas() {
   const searchParams = useSearchParams();
   const urlId = searchParams?.get('id') || 'root';
@@ -108,13 +176,19 @@ export default function InfiniteCanvas() {
   const strokes = useCanvasStore((s) => s.strokes);
   const setStrokes = useCanvasStore((s) => s.setStrokes);
   const mode = useCanvasStore((s) => s.mode);
+  const viewLocked = useCanvasStore((s) => s.viewLocked);
   const relaxEffect = useCanvasStore((s) => s.relaxEffect);
+  const brainstormTool = useCanvasStore((s) => s.brainstormTool);
+  const threadAnchorId = useCanvasStore((s) => s.threadAnchorId);
+  const pendingFocusId = useCanvasStore((s) => s.pendingFocusId);
+  const setPendingFocusId = useCanvasStore((s) => s.setPendingFocusId);
   const setMode = useCanvasStore((s) => s.setMode);
   const previousMode = useCanvasStore((s) => s.previousMode);
   const setPreviousMode = useCanvasStore((s) => s.setPreviousMode);
   const selectedId = useCanvasStore((s) => s.selectedId);
   const setSelectedId = useCanvasStore((s) => s.setSelectedId);
   const focusedId = useCanvasStore((s) => s.focusedId);
+  const spreadStackId = useCanvasStore((s) => s.spreadStackId);
   const setFocusedId = useCanvasStore((s) => s.setFocusedId);
   const editingId = useCanvasStore((s) => s.editingId);
   const setEditingId = useCanvasStore((s) => s.setEditingId);
@@ -137,6 +211,13 @@ export default function InfiniteCanvas() {
   const skillset = useCanvasStore((s) => s.skillset);
   const setSkillset = useCanvasStore((s) => s.setSkillset);
   const setSkillSetPanelOpen = useCanvasStore((s) => s.setSkillSetPanelOpen);
+  const pluginsPanelOpen = useCanvasStore((s) => s.pluginsPanelOpen);
+  const setPluginsPanelOpen = useCanvasStore((s) => s.setPluginsPanelOpen);
+  // Collab lives in its own store; the header only needs "is a session running"
+  // (to hide the idle entry point) and the way to start one.
+  const collabStatus = useCollabStore((s) => s.status);
+  const openCollabModal = useCollabStore((s) => s.openModal);
+  const collabActive = collabStatus === 'connected' || collabStatus === 'connecting';
   const checkpoint = useCanvasStore((s) => s.checkpoint);
   const setCheckpoint = useCanvasStore((s) => s.setCheckpoint);
   const addToTrash = useCanvasStore((s) => s.addToTrash);
@@ -146,6 +227,7 @@ export default function InfiniteCanvas() {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [activeArrowId, setActiveArrowId] = useState<string | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showShare, setShowShare] = useState(false);
 
   // Leave any live collaboration session when the canvas unmounts.
   useEffect(() => {
@@ -238,6 +320,8 @@ export default function InfiniteCanvas() {
         useCanvasStore.getState().setThreads(savedCamera?.threads || []);
         // Load this canvas's Skill Set (per-canvas agent rules); null when none.
         setSkillset(savedCamera?.skillset || null);
+        // Load this canvas's Constellation View star map (positions, links, names).
+        useCanvasStore.getState().setSky(savedCamera?.sky || {});
         setLoaded(true);
       } catch (err) {
         console.error('Failed to load canvas data:', err);
@@ -267,6 +351,7 @@ export default function InfiniteCanvas() {
         scenes: state.scenes,
         threads: state.threads,
         skillset: state.skillset || undefined,
+        sky: state.sky,
         lastModified: Date.now(),
       }).catch(err => console.error('Failed to save canvas state on unmount:', err));
 
@@ -290,6 +375,7 @@ export default function InfiniteCanvas() {
                   scenes: state.scenes,
                   threads: state.threads,
                   skillset: state.skillset || undefined,
+                  sky: state.sky,
                   lastModified: Date.now(),
                 },
                 state.objects,
@@ -327,6 +413,7 @@ export default function InfiniteCanvas() {
             scenes: useCanvasStore.getState().scenes,
             threads: useCanvasStore.getState().threads,
             skillset: useCanvasStore.getState().skillset || undefined,
+            sky: useCanvasStore.getState().sky,
             lastModified: Date.now(),
           }),
         ]);
@@ -348,6 +435,7 @@ export default function InfiniteCanvas() {
               scenes: useCanvasStore.getState().scenes,
               threads: useCanvasStore.getState().threads,
               skillset: useCanvasStore.getState().skillset || undefined,
+              sky: useCanvasStore.getState().sky,
               lastModified: Date.now(),
             },
             objects,
@@ -372,6 +460,12 @@ export default function InfiniteCanvas() {
     (e: WheelEvent) => {
       e.preventDefault();
 
+      /* A tour is a slideshow, not a canvas. Scrolling during one dragged the
+         board out from under the slide — and for a frame scene, whose mask is
+         pinned to a region, that just scrolled the content out of its own
+         frame. Playback owns the camera; the arrows and Esc own navigation. */
+      if (useCanvasStore.getState().isTouring) return;
+
       if (e.ctrlKey || e.metaKey) {
         // Smooth exponential zoom for trackpads and mouse wheels
         const zoomFactor = Math.exp(-e.deltaY * 0.005);
@@ -389,7 +483,9 @@ export default function InfiniteCanvas() {
 
         setCamera({ x: newX, y: newY, zoom: newZoom });
       } else {
-        // Pan
+        // Pan — disabled while the view is locked (zoom above still works, so the
+        // user can lean into their fixed space like an image without it drifting).
+        if (useCanvasStore.getState().viewLocked) return;
         setCamera({
           x: camera.x - e.deltaX,
           y: camera.y - e.deltaY,
@@ -412,10 +508,26 @@ export default function InfiniteCanvas() {
     (e: React.MouseEvent) => {
       if (e.button === 2) return; // Ignore right click
       if (mode === 'draw') return;
+      // Playback owns the camera — see handleWheel.
+      if (useCanvasStore.getState().isTouring) return;
 
       // Close plus menu
       if (plusMenuPos) {
         setPlusMenuPos(null);
+        return;
+      }
+
+      /* Locked view = the user's fixed space. The board can't move — no pan
+         drag, no scroll (handleWheel), no middle-click pan — but a TAP still
+         drops a text box, so the frozen frame stays a place you write in.
+         Record the press so the tap check in handleMouseUp fires; handleMouseMove
+         refuses to pan while locked, so only a still tap (not a drag) creates. */
+      if (viewLocked) {
+        isPanningRef.current = true;
+        panStartRef.current = { x: e.clientX, y: e.clientY, camX: camera.x, camY: camera.y };
+        setSelectedId(null);
+        setEditingId(null);
+        useCanvasStore.getState().setSpreadStack(null);
         return;
       }
 
@@ -432,7 +544,7 @@ export default function InfiniteCanvas() {
         return;
       }
 
-      if (mode === 'text' || mode === 'select' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax') {
+      if (mode === 'text' || mode === 'select' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax' || mode === 'brainstorm') {
         // If they click empty space, we record pan start just in case it's a tiny drag
         isPanningRef.current = true;
         panStartRef.current = {
@@ -446,8 +558,11 @@ export default function InfiniteCanvas() {
       // Deselect
       setSelectedId(null);
       setEditingId(null);
+      // …and an open pile gathers itself back up. Clicking away from a thing
+      // is how you're done with it everywhere else on this canvas.
+      useCanvasStore.getState().setSpreadStack(null);
     },
-    [mode, camera, setSelectedId, setEditingId, plusMenuPos, setPlusMenuPos]
+    [mode, viewLocked, camera, setSelectedId, setEditingId, plusMenuPos, setPlusMenuPos]
   );
 
   const handleMouseMove = useCallback(
@@ -484,11 +599,11 @@ export default function InfiniteCanvas() {
         }
       }
 
-      if (isPanningRef.current) {
+      if (isPanningRef.current && !useCanvasStore.getState().viewLocked) {
         // If we are in select/text mode, and drag is large enough, switch to panning the canvas optionally?
         // Wait, standard behavior: space to pan, or middle click. Left drag creates selection box (which we don't have yet), or just pans if empty canvas.
-        // Let's implement empty canvas drag = pan for simplicity!
-        if (mode === 'select' || mode === 'text' || mode === 'pan' || mode === 'relax') {
+        // Let's implement empty canvas drag = pan for simplicity! (Locked view never pans.)
+        if (mode === 'select' || mode === 'text' || mode === 'pan' || mode === 'relax' || mode === 'brainstorm') {
           const dx = e.clientX - panStartRef.current.x;
           const dy = e.clientY - panStartRef.current.y;
           setCamera({
@@ -510,14 +625,28 @@ export default function InfiniteCanvas() {
         // If it was a click (not a drag) on empty space in select/text/shape/arrow mode, create element!
         const target = e.target as HTMLElement;
         const isClickOnObject = target.closest('.canvas-object') || target.closest('.canvas-object-content');
-        if (!isClickOnObject && (mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax')) {
+        const locked = useCanvasStore.getState().viewLocked;
+        if (!isClickOnObject && (locked || mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax' || mode === 'brainstorm')) {
           const dx = Math.abs(e.clientX - panStartRef.current.x);
           const dy = Math.abs(e.clientY - panStartRef.current.y);
           if (dx < 5 && dy < 5) {
             // It was a click
             const worldPos = screenToCanvas(e.clientX, e.clientY, camera);
-            
-            if (mode === 'arrow') {
+
+            if (locked) {
+              // Locked view: a tap always drops a writable text box, whatever
+              // tool happens to be held — the whole point of the frozen space.
+              const ts = useCanvasStore.getState().textStyle;
+              const obj = addObject({
+                type: 'text', x: worldPos.x, y: worldPos.y, width: 160, height: 44, content: '',
+                style: {
+                  fontSize: ts.fontSize, fontFamily: ts.fontFamily, fontWeight: ts.fontWeight,
+                  textColor: ts.textColor, bgColor: ts.bgColor, textAlign: ts.textAlign, headingLevel: ts.headingLevel,
+                },
+              });
+              setSelectedId(obj.id);
+              setEditingId(obj.id);
+            } else if (mode === 'arrow') {
               const aStyle = useCanvasStore.getState().arrowStyle;
               if (!activeArrowId) {
                 // First click: Create the arrow with the current tool defaults
@@ -567,6 +696,7 @@ export default function InfiniteCanvas() {
               setEditingId(obj.id);
               setMode('select');
             } else if (mode === 'frame') {
+              const draftKind = useCanvasStore.getState().frameDraftKind;
               const obj = addObject({
                 type: 'frame',
                 x: worldPos.x - 240,
@@ -575,7 +705,10 @@ export default function InfiniteCanvas() {
                 height: 320,
                 content: '',
                 zIndex: 0,
-                style: { frameColor: '#C97B4B' },
+                style: {
+                  frameColor: '#C97B4B',
+                  ...(draftKind !== 'normal' ? { frameKind: draftKind } : {}),
+                },
               });
               setSelectedId(obj.id);
               setEditingId(obj.id);
@@ -587,6 +720,16 @@ export default function InfiniteCanvas() {
                 window.dispatchEvent(
                   new CustomEvent('spawn-relax-burst', { detail: { x: worldPos.x, y: worldPos.y } })
                 );
+              }
+            } else if (mode === 'brainstorm') {
+              // Only the Pin tool acts on empty board — it drops a push-pin and
+              // stays armed so you can pin several in a row. Clip works on notes,
+              // and a click on nothing while threading just lets the anchor go.
+              const store = useCanvasStore.getState();
+              if (store.brainstormTool === 'pin') {
+                store.addPin(worldPos.x, worldPos.y);
+              } else if (store.brainstormTool === 'thread') {
+                store.setThreadAnchorId(null);
               }
             } else {
               const ts = useCanvasStore.getState().textStyle;
@@ -620,6 +763,22 @@ export default function InfiniteCanvas() {
     [mode, camera, addObject, setSelectedId, setEditingId, setMode, activeArrowId, setActiveArrowId]
   );
 
+  /* Dismiss the Plugins dropdown on an outside click — same contract as the
+     insert menu: a listener rather than a full-screen backdrop, so the canvas
+     stays scrollable and zoomable underneath while it's open. The pill itself
+     is excluded so its own click toggles the menu shut instead of this closing
+     it and the click immediately reopening it. */
+  useEffect(() => {
+    if (!pluginsPanelOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.('.plugins-menu') || el?.closest?.('[data-plugins-button]')) return;
+      setPluginsPanelOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [pluginsPanelOpen, setPluginsPanelOpen]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -637,6 +796,18 @@ export default function InfiniteCanvas() {
       if (e.key === '?') {
         e.preventDefault();
         setShowShortcuts((s) => !s);
+        return;
+      }
+
+      // F2 = rename the selected frame (the conventional rename key, and a
+      // keyboard route to the title tab that doesn't depend on hitting it).
+      if (e.key === 'F2') {
+        const sel = useCanvasStore.getState().selectedId;
+        const selObj = sel ? useCanvasStore.getState().objects.find((o) => o.id === sel) : null;
+        if (selObj?.type === 'frame') {
+          e.preventDefault();
+          setEditingId(selObj.id);
+        }
         return;
       }
 
@@ -708,9 +879,13 @@ export default function InfiniteCanvas() {
         return;
       }
 
-      // Escape = exit focus mode / deselect
+      // Escape = gather an open pile / exit focus mode / deselect
       if (e.key === 'Escape') {
-        if (focusedId) {
+        // Innermost thing first: a spread pile is the most recent thing you
+        // opened, so it's the first thing Escape should close.
+        if (useCanvasStore.getState().spreadStackId) {
+          useCanvasStore.getState().setSpreadStack(null);
+        } else if (focusedId) {
           setFocusedId(null);
         } else if (canvasStack.length > 0) {
           popCanvas();
@@ -805,6 +980,34 @@ export default function InfiniteCanvas() {
       const dt = e.dataTransfer;
       const origin = screenToCanvas(e.clientX, e.clientY, camera);
 
+      // 0a) A block pulled out of the Singularity search — recreate a fresh copy
+      //     of it (from this or any other canvas) right where it was dropped.
+      const singPayload = dt.getData('application/x-mindspace-object');
+      if (singPayload) {
+        try {
+          const p = JSON.parse(singPayload) as Partial<import('@/lib/db').CanvasObjectData>;
+          const w = p.width || 300;
+          const h = p.height || 180;
+          const created = addObject({
+            type: (p.type as import('@/lib/db').CanvasObjectData['type']) || 'text',
+            x: origin.x - w / 2,
+            y: origin.y - h / 2,
+            width: w,
+            height: h,
+            content: p.content || '',
+            style: p.style ? { ...p.style } : undefined,
+            rotation: p.rotation,
+          });
+          // Close the search well and select the fresh copy so it's never left
+          // hidden behind the overlay after a drop.
+          useCanvasStore.getState().setSingularityOpen(false);
+          setSelectedId(created.id);
+        } catch {
+          /* malformed payload — ignore */
+        }
+        return;
+      }
+
       // 0) A dragged folder → a Code Repo explorer (file tree + syntax
       //    highlighting). Entries must be read synchronously, before any await.
       const dropEntries = collectDropEntries(dt);
@@ -887,7 +1090,7 @@ export default function InfiniteCanvas() {
         });
       }
     },
-    [camera, addObject]
+    [camera, addObject, setSelectedId]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -978,10 +1181,53 @@ export default function InfiniteCanvas() {
         o.id === selectedId ||
         o.id === editingId ||
         o.id === focusedId ||
+        /* An open pile blooms outward from a single shared x/y, so its far
+           cards can land well past the cull margin while the pile itself sits
+           comfortably on screen — and half the spread would simply not mount. */
+        (spreadStackId && o.style?.stackId === spreadStackId) ||
         o.style?.linkIsPlaying ||
         (o.x + o.width >= minX && o.x <= maxX && o.y + o.height >= minY && o.y <= maxY)
     );
-  }, [objects, camera, selectedId, editingId, focusedId]);
+  }, [objects, camera, selectedId, editingId, focusedId, spreadStackId]);
+
+  /* Leaving brainstorm mode drops any half-tied thread, so re-entering later
+     never starts you mid-connection against a pin you've forgotten about. */
+  useEffect(() => {
+    if (mode !== 'brainstorm' && threadAnchorId) {
+      useCanvasStore.getState().setThreadAnchorId(null);
+    }
+  }, [mode, threadAnchorId]);
+
+  /* Singularity handoff — a cross-canvas result set `pendingFocusId` and then
+     navigated here. The moment that object exists on the freshly loaded board,
+     fly to it and pulse it. Selecting it forces it past the viewport cull so its
+     DOM node is present for the pulse even if it started off-screen. The fly is
+     deferred a tick so the canvas-load's own camera restore can't override it,
+     and a stale id gives up after a while so it can't hijack a later load. */
+  useEffect(() => {
+    if (!pendingFocusId) return;
+    const target = objects.find((o) => o.id === pendingFocusId);
+    if (!target) {
+      const giveUp = setTimeout(() => setPendingFocusId(null), 8000);
+      return () => clearTimeout(giveUp);
+    }
+    setSelectedId(target.id);
+    setPendingFocusId(null);
+    const zoom = 1;
+    const tx = window.innerWidth / 2 - (target.x + target.width / 2) * zoom;
+    const ty = window.innerHeight / 2 - (target.y + target.height / 2) * zoom;
+    const flyT = setTimeout(() => {
+      useCanvasStore.getState().animateCamera({ x: tx, y: ty, zoom }, 850);
+      setTimeout(() => {
+        const el = document.querySelector(`[data-object-id="${target.id}"]`);
+        if (el) {
+          el.classList.add('result-pulse');
+          setTimeout(() => el.classList.remove('result-pulse'), 4500);
+        }
+      }, 900);
+    }, 90);
+    return () => clearTimeout(flyT);
+  }, [pendingFocusId, objects, setSelectedId, setPendingFocusId]);
 
   // Grid background transform
   const gridStyle = {
@@ -997,7 +1243,7 @@ export default function InfiniteCanvas() {
         ref={containerRef}
         className={`canvas-container paper-texture mode-${mode}${
           mode === 'relax' && relaxEffect ? ` relax-${relaxEffect}` : ''
-        }`}
+        }${mode === 'brainstorm' ? ` tool-${brainstormTool}` : ''}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -1031,6 +1277,9 @@ export default function InfiniteCanvas() {
 
           {/* Cinematic Stress Reliefer particles */}
           <RelaxEffectsLayer />
+
+          {/* The Canvas Resident — a pixel cat that lives in world space */}
+          <CanvasResident />
         </div>
 
         {/* Drawing layer (SVG overlay) */}
@@ -1050,6 +1299,41 @@ export default function InfiniteCanvas() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Lock-in mode — a calm accent ring frames the viewport as "your space",
+          with a small pill that clicks to unlock. Pointer-events off on the ring
+          so it never eats a click meant for the board underneath. */}
+      <AnimatePresence>
+        {viewLocked && (
+          <>
+            <motion.div
+              key="lock-ring"
+              className="fixed inset-0 z-[95] pointer-events-none view-lock-ring"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.5 }}
+            />
+            <motion.button
+              key="lock-pill"
+              onClick={() => useCanvasStore.getState().setViewLocked(false)}
+              className="fixed top-16 left-1/2 -translate-x-1/2 z-[96] flex items-center gap-1.5 rounded-full clay-card cursor-pointer"
+              style={{ padding: '5px 12px 5px 10px' }}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ type: 'spring', damping: 22, stiffness: 260 }}
+              title="Your view is locked — click to unlock"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4.5" y="11" width="15" height="9" rx="2" />
+                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+              </svg>
+              <span className="text-[11px] font-bold text-[var(--text-secondary)]">Locked view</span>
+            </motion.button>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Breadcrumb for nested canvases */}
       <AnimatePresence>
@@ -1134,6 +1418,39 @@ export default function InfiniteCanvas() {
         )}
       </AnimatePresence>
 
+      {/* Brainstorm Mode HUD — names the active tool, guides the thread flow,
+          and offers a one-click exit. Mirrors the connector-mode banner. */}
+      <AnimatePresence>
+        {mode === 'brainstorm' && (
+          <motion.div
+            className="fixed top-12 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto"
+            initial={{ opacity: 0, y: -20, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.9 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+          >
+            <div className="glass-panel px-4 py-2 flex items-center gap-3">
+              <span className="text-xs font-medium tracking-wide text-[var(--text-primary)]">
+                {brainstormTool === 'pin'
+                  ? 'Click the board to drop a pin'
+                  : brainstormTool === 'clip'
+                  ? 'Click a note to clip it'
+                  : threadAnchorId
+                  ? 'Now tap another pin to tie the thread'
+                  : 'Tap a pin to start a thread'}
+              </span>
+              <button
+                onClick={() => setMode('select')}
+                className="flex items-center gap-1.5 pl-2.5 border-l border-[var(--border)] text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
+              >
+                <span className="w-4 h-4 rounded-full bg-[var(--accent-subtle)] flex items-center justify-center text-[var(--accent)] text-[10px]">✕</span>
+                Done
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Noise overlay */}
       <div className="noise-overlay" />
 
@@ -1168,7 +1485,11 @@ export default function InfiniteCanvas() {
       </svg>
 
       {/* UI overlays */}
-      <div className="fixed top-12 left-10 z-50 pointer-events-auto flex flex-col items-start">
+      {/* No `relative` here on purpose — it and `fixed` are the same Tailwind
+          property group, so which one won would come down to stylesheet order,
+          not the order they're written in. A fixed element is already a
+          containing block, so the Plugins dropdown's `absolute` anchors to it. */}
+      <div className="canvas-chrome fixed top-12 left-10 z-50 pointer-events-auto flex flex-col items-start">
         <div className="group/head flex items-center gap-2.5">
           {isEditingTitle ? (
             <input
@@ -1197,94 +1518,156 @@ export default function InfiniteCanvas() {
             </button>
           )}
 
-          {/* Skill Set — hover the heading to reveal it; stays pinned while a
-              skill set is active so the user always knows one is applied. */}
+          {/* Board actions. All four live here, all reveal together on hovering
+              the canvas name, and all share one pill so the row reads as a set
+              rather than four separately-designed buttons. A pill only stays
+              pinned when it's reporting live state the user must not lose track
+              of — an applied skill set, an open panel. */}
           {!isEditingTitle && (() => {
             const skillActive = isSkillsetActive(skillset);
             const ruleCount = activeRuleCount(skillset);
             return (
-              <button
-                onClick={() => setSkillSetPanelOpen(true)}
-                title="Skill Set — rules the agent follows in this canvas"
-                className={`flex items-center gap-1.5 rounded-full border shadow-sm backdrop-blur-md transition-all duration-200 ${
-                  skillActive
-                    ? 'opacity-100 translate-x-0'
-                    : 'opacity-0 -translate-x-1 pointer-events-none group-hover/head:opacity-100 group-hover/head:translate-x-0 group-hover/head:pointer-events-auto'
-                }`}
-                style={{
-                  padding: '5px 11px',
-                  background: skillActive ? 'var(--accent-subtle)' : 'var(--bg-glass)',
-                  borderColor: skillActive ? 'rgba(var(--accent-rgb),0.4)' : 'var(--border)',
-                  color: skillActive ? 'var(--accent)' : 'var(--text-secondary)',
-                }}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <>
+                <HeaderPill onClick={() => setShowShare(true)} title="Share a view-only link or export as image / PDF" label="Share">
+                  <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                </HeaderPill>
+
+                <HeaderPill
+                  onClick={() => setSkillSetPanelOpen(true)}
+                  title="Skill Set — rules the agent follows in this canvas"
+                  label="Skill Set"
+                  active={skillActive}
+                  badge={skillActive && ruleCount > 0 ? ruleCount : undefined}
+                >
                   <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
                   <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
                   <path d="M9 7h7M9 11h5" />
-                </svg>
-                <span className="text-[11px] font-semibold whitespace-nowrap" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                  Skill Set
-                </span>
-                {skillActive && ruleCount > 0 && (
-                  <span
-                    className="flex items-center justify-center text-[9px] font-bold text-white rounded-full"
-                    style={{ minWidth: 15, height: 15, padding: '0 4px', background: 'var(--accent)' }}
-                  >
-                    {ruleCount}
-                  </span>
+                </HeaderPill>
+
+                <HeaderPill
+                  onClick={() => setPluginsPanelOpen(!pluginsPanelOpen)}
+                  title="Plugins — embeds, GitHub & more"
+                  label="Plugins"
+                  active={pluginsPanelOpen}
+                  data-plugins-button
+                >
+                  <path d="m19 5 2.5-2.5" /><path d="m2.5 21.5 2.5-2.5" />
+                  <path d="M6.8 20.4a2.4 2.4 0 0 0 3.4 0l2.3-2.3-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z" />
+                  <path d="m7.5 13.5 2-2" /><path d="m10.5 16.5 2-2" />
+                  <path d="M12 6l6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z" />
+                </HeaderPill>
+
+                {/* Only the idle entry point lives here. Once a session is live,
+                    CollabBar takes over with its own top-centre status bar —
+                    that one must stay visible, not hide behind a hover. */}
+                {!collabActive && (
+                  <HeaderPill onClick={() => openCollabModal()} title="Collaborate live on this canvas" label="Collaborate">
+                    <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  </HeaderPill>
                 )}
-              </button>
+              </>
             );
           })()}
         </div>
         {canvasStack.length > 0 && (
-          <button 
+          <button
             onClick={() => popCanvas()}
             className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent)] mt-2 transition-colors flex items-center gap-1"
           >
             <span className="text-xs">←</span> Parent Space
           </button>
         )}
+
+        {/* Plugins, as a dropdown hanging off its own pill — the same shape and
+            dismissal contract as the insert (+) menu, rather than a panel
+            floating up out of the toolbar. */}
+        <AnimatePresence>
+          {pluginsPanelOpen && (
+            <motion.div
+              key="plugins-dropdown"
+              className="plugins-menu absolute left-0 top-full z-[120]"
+              style={{ marginTop: 12 }}
+              initial={{ opacity: 0, y: -8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.97 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <PluginsPanel onClose={() => setPluginsPanelOpen(false)} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
       
-      <FloatingToolbar />
-      <SpatialSearch />
-      <CommandPalette />
-      <PlusMenu />
-      <SlashCommandMenu />
-      <AgentOverlay />
-      <SkillSetPanel />
-      <SelectionPanel />
-      <Minimap />
-      <CheckpointIndex />
-      <SaveIndicator />
-      <TrashPile />
-      <VoiceOrb />
-      <AuthButton hideGuest={true} />
+      {/* Flow Mode: cinematic focus-writing overlay (spotlight, weather, progress) */}
+      <FlowModeLayer />
 
-      {/* Live collaboration */}
-      <CollabBar />
-      <CollabCursors />
-      <CollabModal />
-      <PulseLayer />
+      {/* Constellation View: a dark, user-composed star map of the board.
+          Opened from the minimap; portals itself to <body>; renders only when
+          `constellationOpen`. */}
+      <ConstellationView />
 
-      {/* Keyboard shortcuts help (press ?) */}
-      <ShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      {/* Every piece of app chrome, in ONE wrapper.
+          A tour is a presentation, and `.tour-mode` used to hide only four of
+          these by class — so the title, Share, collab bar, sign-in and chat
+          launcher all stayed on screen over the slide. Grouping them means the
+          tour hides the chrome wholesale instead of by enumeration, and nothing
+          new has to remember to opt in. The wrapper is an unstyled, unpositioned
+          div, so it creates no stacking context and every `fixed` child keeps
+          the exact position and z-index it had. */}
+      <div className="canvas-chrome">
+        <FloatingToolbar />
+        <SpatialSearch />
+        <SingularitySearch />
+        <CommandPalette />
+        <PlusMenu />
+        <SlashCommandMenu />
+        <AtMentionMenu />
+        <AgentOverlay />
+        <SkillSetPanel />
+        <SelectionPanel />
+        {/* Controls for whichever frame is selected — kind picker, bulk delete,
+            slide capture, and the Ask-AI box for agent frames. */}
+        <FrameHUD />
+        <Minimap />
+        <CheckpointIndex />
+        <SaveIndicator />
+        <TrashPile />
+        <VoiceOrb />
+        <AuthButton hideGuest={true} />
 
-      {/* Minimize shelf: drag any object into the top-left corner to dock it */}
-      <MinimizeDock />
+        {/* Live collaboration */}
+        <CollabBar />
+        <CollabCursors />
+        {/* The AI agent's own live pointer while it builds (Miro-style) */}
+        <AgentCursor />
+        <CollabModal />
+        <PulseLayer />
 
-      {/* Warp: teleport objects to other canvases via portals */}
-      <WarpPortal />
+        {/* Keyboard shortcuts help (press ?) */}
+        <ShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
 
-      {/* Scenes: cinematic camera tours */}
+        {/* Share & export */}
+        {showShare && <ShareModal onClose={() => setShowShare(false)} />}
+
+        {/* Minimize shelf: drag any object into the top-left corner to dock it */}
+        <MinimizeDock />
+
+        {/* Warp: teleport objects to other canvases via portals */}
+        <WarpPortal />
+
+        {/* Human↔human DM chat (launched from the toolbar's Messages button) */}
+        <ChatLauncher />
+        {/* AI agent chat — corner launcher + resizable right-side panel */}
+        <AgentChatPanel />
+      </div>
+
+      {/* Scenes: cinematic camera tours. Deliberately OUTSIDE .canvas-chrome —
+          it renders the tour player itself, which must survive the very rule
+          that hides the chrome. Its launcher pill opts in separately via the
+          .scenes-launcher class. */}
       <ScenesPanel />
-
-      {/* Human↔human DM chat (launched from the toolbar's Messages button) */}
-      <ChatLauncher />
-      {/* AI agent chat — corner launcher + resizable right-side panel */}
-      <AgentChatPanel />
     </>
   );
 }

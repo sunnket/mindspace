@@ -1,12 +1,22 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { CanvasObjectData, DrawingStroke, ConnectionData, Scene, CommentThread } from '@/lib/db';
+import { CanvasObjectData, DrawingStroke, ConnectionData, Scene, CommentThread, SkyState } from '@/lib/db';
 import type { CanvasOp } from '@/lib/collab/types';
 import { CanvasBackground, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 import type { RelaxEffectId } from '@/lib/relaxEffects';
 import { CanvasSkillset, emptySkillset, makeRule, getPreset, installPreset } from '@/lib/skillset';
+import { cameraForRect, objectsInFrame, strokesInFrame, type FrameKind } from '@/lib/frames';
+import { isStackable, stackIdOf, membersOf, stackSlots } from '@/lib/stacks';
+import { sameLink } from '@/lib/constellations';
+import {
+  BrainstormTool,
+  DEFAULT_PIN_COLOR,
+  DEFAULT_CLIP_COLOR,
+  DEFAULT_THREAD_COLOR,
+  PIN_SIZE,
+} from '@/lib/brainstorm';
 
-export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax';
+export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax' | 'brainstorm';
 
 /* ------------------------------------------------------------------
    Collaboration bridge — inert unless a live session sets these.
@@ -24,6 +34,22 @@ export function setCollabAuthor(a: { id: string; color: string } | null) {
 }
 function emitCollab(op: CanvasOp) {
   if (collabEmitter) collabEmitter(op);
+}
+
+/**
+ * The canvas level the user is currently looking at — the `parentId` that its
+ * objects carry.
+ *
+ * Two things decide it and BOTH matter: a nested space pushes onto canvasStack,
+ * and the board itself is identified by urlCanvasId. Only the root board has
+ * objects with no parent, so deriving this from the stack alone silently
+ * reports "root" for every real canvas — and any filter built on it returns
+ * nothing at all. That is exactly how the minimap ended up drawing an empty
+ * board. One definition, so the two halves can't drift apart again.
+ */
+export function resolveParentId(canvasStack: string[], urlCanvasId: string): string | undefined {
+  if (canvasStack.length > 0) return canvasStack[canvasStack.length - 1];
+  return urlCanvasId === 'root' ? undefined : urlCanvasId;
 }
 
 /**
@@ -48,13 +74,17 @@ export function isAutoCleanable(o: CanvasObjectData): boolean {
 }
 
 export interface UndoAction {
-  type: 'add' | 'delete' | 'move' | 'edit' | 'stroke-add' | 'stroke-delete';
+  type: 'add' | 'delete' | 'move' | 'edit' | 'stroke-add' | 'stroke-delete' | 'bulk-delete';
   objectId?: string;
   strokeId?: string;
   before?: Partial<CanvasObjectData> | null;
   after?: Partial<CanvasObjectData> | null;
   strokeData?: DrawingStroke;
   objectData?: CanvasObjectData;
+  /** bulk-delete: everything a delete frame swept, restored as one undo. */
+  objectsData?: CanvasObjectData[];
+  strokesData?: DrawingStroke[];
+  connectionsData?: ConnectionData[];
 }
 
 interface CanvasStore {
@@ -75,11 +105,32 @@ interface CanvasStore {
   checkpoint: { x: number; y: number; zoom: number } | null;
   setCheckpoint: (checkpoint: { x: number; y: number; zoom: number } | null) => void;
 
+  // Constellation View — a user-composed star map (see lib/constellations +
+  // SkyState). Open/closed is view state; the star arrangement itself persists.
+  constellationOpen: boolean;
+  setConstellationOpen: (v: boolean) => void;
+  sky: SkyState;
+  /** Replace the sky without marking dirty — used when loading a canvas. */
+  setSky: (sky: SkyState) => void;
+  /** Move a star to a new spot in the sky (your arrangement). */
+  moveSkyStar: (id: string, x: number, y: number) => void;
+  /** Name (or clear the name of) a single star. */
+  nameSkyStar: (id: string, name: string) => void;
+  /** Wire two stars together / pull the wire out. */
+  addSkyLink: (a: string, b: string) => void;
+  removeSkyLink: (a: string, b: string) => void;
+  /** Name a constellation, keyed by its connected-component anchor id. */
+  nameSkyConstellation: (anchor: string, name: string) => void;
+
   // Scenes (cinematic tours)
   scenes: Scene[];
   setScenes: (scenes: Scene[]) => void;
   addScene: (name?: string) => void;
   addSceneWithCamera: (name: string, camera: { x: number; y: number; zoom: number }, durationMs?: number, notes?: string) => void;
+  /** Turn a `scene`-kind frame into a slide (or refresh the one it already owns). */
+  addSceneFromFrame: (frameId: string) => void;
+  /** Create/refresh a slide for every scene frame on this canvas, in reading order. */
+  syncSceneFrames: () => number;
   removeScene: (id: string) => void;
   renameScene: (id: string, name: string) => void;
   moveScene: (id: string, dir: -1 | 1) => void;
@@ -115,6 +166,9 @@ interface CanvasStore {
   installSkillPreset: (presetId: string) => void;
   clearSkillset: () => void;
   skillSetPanelOpen: boolean;
+  /** The Plugins dropdown, opened from the canvas-title header. */
+  pluginsPanelOpen: boolean;
+  setPluginsPanelOpen: (v: boolean) => void;
   setSkillSetPanelOpen: (v: boolean) => void;
 
   // Objects
@@ -124,6 +178,12 @@ interface CanvasStore {
   updateObject: (id: string, updates: Partial<CanvasObjectData>) => void;
   removeObject: (id: string) => void;
   duplicateObject: (id: string) => CanvasObjectData | null;
+  /** Sweep everything a delete-frame captures, minus anything the user tapped
+   *  to spare. One undo entry puts it all back. */
+  deleteRegion: (frameId: string, opts?: { keepFrame?: boolean; spare?: string[] }) => number;
+  /** Which kind of frame the frame tool will place next. */
+  frameDraftKind: FrameKind;
+  setFrameDraftKind: (kind: FrameKind) => void;
 
   // Layer ordering (z-index)
   bringToFront: (id: string) => void;
@@ -156,12 +216,36 @@ interface CanvasStore {
   // Selection
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
-  
+
+  /* Stacks — piles you make by dropping a note onto another note.
+     `spreadStackId` is the one pile currently bloomed open. It is VIEW state,
+     not board state: it never persists, never syncs to collaborators, and
+     never reaches an export, because which pile you happen to have open is
+     about you, not about the board. */
+  spreadStackId: string | null;
+  setSpreadStack: (stackId: string | null) => void;
+  /** Drop `dragId` onto `targetId` and pile them (joining an existing pile). */
+  stackObjects: (dragId: string, targetId: string) => void;
+  /** Pull one card out of its pile and drop it at `x`/`y` as its own block. */
+  unstackObject: (id: string, x: number, y: number) => void;
+  /** Deal an entire pile back out onto the board as loose cards. */
+  scatterStack: (stackId: string) => void;
+
+
   // Interaction mode
   mode: InteractionMode;
   setMode: (mode: InteractionMode) => void;
   previousMode: InteractionMode;
   setPreviousMode: (mode: InteractionMode) => void;
+
+  /* Lock-in mode: the viewport becomes the user's fixed "space" — no panning,
+     no scrolling the board away, no stray click that spawns a block on empty
+     canvas. Zooming (like zooming into an image) and editing the blocks that
+     ARE there both still work, so it reads as a framed, protected workspace
+     rather than a read-only freeze. */
+  viewLocked: boolean;
+  setViewLocked: (v: boolean) => void;
+  toggleViewLocked: () => void;
   
   // Focus mode
   focusedId: string | null;
@@ -188,6 +272,15 @@ interface CanvasStore {
   // Command palette
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
+
+  /* Singularity Search — the cinematic black-hole search overlay. Matches from
+     this canvas and every other one are pulled in and clustered around a core.
+     `pendingFocusId` is set right before navigating to another canvas so the
+     board it lands on flies to (and pulses) that object once it has loaded. */
+  singularityOpen: boolean;
+  setSingularityOpen: (open: boolean) => void;
+  pendingFocusId: string | null;
+  setPendingFocusId: (id: string | null) => void;
 
   // AI Agent state
   agentRunning: boolean;
@@ -243,11 +336,23 @@ interface CanvasStore {
   // Plus menu
   plusMenuPos: { x: number; y: number; isToolbar?: boolean } | null;
   setPlusMenuPos: (pos: { x: number; y: number; isToolbar?: boolean } | null) => void;
+
+  // Canvas Resident — the pixel cat that lives on the board
+  residentEnabled: boolean;
+  setResidentEnabled: (v: boolean) => void;
   
   // Slash menu
   slashMenu: { objectId: string; query: string; x: number; y: number } | null;
   setSlashMenu: (menu: { objectId: string; query: string; x: number; y: number } | null) => void;
-  
+
+  // @-mention menu — picks another block/heading to link to as an inline chip.
+  atMenu: { objectId: string; query: string; x: number; y: number } | null;
+  setAtMenu: (menu: { objectId: string; query: string; x: number; y: number } | null) => void;
+
+  // Read-only mode — the public share viewer renders the board but blocks every edit.
+  readOnly: boolean;
+  setReadOnly: (v: boolean) => void;
+
   // Stress Reliefer. Null until the user actually picks an effect — entering
   // relax mode alone must not arm the canvas or swap the cursor.
   relaxEffect: RelaxEffectId | null;
@@ -256,7 +361,29 @@ interface CanvasStore {
   // Shape settings
   selectedShapeType: string;
   setSelectedShapeType: (type: string) => void;
-  
+
+  /* Brainstorm kit — the corkboard tools (pins, clips, threads). `mode` is
+     'brainstorm' while the kit is active; brainstormTool is which of the three
+     is armed. Pins are real objects; clips ride an object's style; threads are
+     connections with `style.thread`. */
+  brainstormTool: BrainstormTool;
+  setBrainstormTool: (tool: BrainstormTool) => void;
+  pinColor: string;
+  setPinColor: (color: string) => void;
+  clipColor: string;
+  setClipColor: (color: string) => void;
+  threadColor: string;
+  setThreadColor: (color: string) => void;
+  /** The first pin/block tapped while running a thread; the next tap ties to it. */
+  threadAnchorId: string | null;
+  setThreadAnchorId: (id: string | null) => void;
+  /** Drop a push-pin, centred on a world point, in the current pin colour. */
+  addPin: (worldX: number, worldY: number) => CanvasObjectData;
+  /** Fasten / remove a paper clip on any object (or the top of a pile). */
+  toggleClip: (objectId: string) => void;
+  /** Run a thread between two objects — a styled connection, deduped. */
+  linkThread: (fromId: string, toId: string) => void;
+
   // Arrow settings
   selectedArrowPointerType: 'line' | 'arrow' | 'dot' | 'diamond';
   setSelectedArrowPointerType: (type: 'line' | 'arrow' | 'dot' | 'diamond') => void;
@@ -368,6 +495,55 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   checkpoint: null,
   setCheckpoint: (checkpoint) => set({ checkpoint, isDirty: true }),
 
+  // Constellation View — the user-composed star map. Open/closed is view
+  // state; the arrangement (positions, links, names) persists in `sky`.
+  constellationOpen: false,
+  setConstellationOpen: (v) => set({ constellationOpen: v }),
+  sky: {},
+  setSky: (sky) => set({ sky: sky || {} }),
+  moveSkyStar: (id, x, y) =>
+    set((s) => {
+      const stars = { ...(s.sky.stars || {}) };
+      stars[id] = { ...stars[id], x, y };
+      return { sky: { ...s.sky, stars }, isDirty: true };
+    }),
+  nameSkyStar: (id, name) =>
+    set((s) => {
+      const stars = { ...(s.sky.stars || {}) };
+      const cur = { ...(stars[id] || {}) };
+      const v = (name || '').trim();
+      if (v) {
+        cur.name = v;
+        stars[id] = cur;
+      } else {
+        delete cur.name;
+        // keep the record only if it still carries a position override
+        if (cur.x !== undefined || cur.y !== undefined) stars[id] = cur;
+        else delete stars[id];
+      }
+      return { sky: { ...s.sky, stars }, isDirty: true };
+    }),
+  addSkyLink: (a, b) =>
+    set((s) => {
+      if (a === b) return {};
+      const links = s.sky.links || [];
+      if (links.some((l) => sameLink(l, a, b))) return {};
+      return { sky: { ...s.sky, links: [...links, [a, b] as [string, string]] }, isDirty: true };
+    }),
+  removeSkyLink: (a, b) =>
+    set((s) => ({
+      sky: { ...s.sky, links: (s.sky.links || []).filter((l) => !sameLink(l, a, b)) },
+      isDirty: true,
+    })),
+  nameSkyConstellation: (anchor, name) =>
+    set((s) => {
+      const names = { ...(s.sky.names || {}) };
+      const v = (name || '').trim();
+      if (v) names[anchor] = v;
+      else delete names[anchor];
+      return { sky: { ...s.sky, names }, isDirty: true };
+    }),
+
   // Scenes (cinematic tours) — persisted with the canvas state, sync via cloud
   scenes: [],
   setScenes: (scenes) => set({ scenes }),
@@ -394,16 +570,64 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     };
     set({ scenes: [...scenes, scene], isDirty: true });
   },
+  /* A scene FRAME stores its rectangle, not a camera. The camera is re-derived
+     at playback for the current viewport, so the slide frames the same region
+     on any screen — and the player can dim everything outside it. */
+  addSceneFromFrame: (frameId) => {
+    const state = get();
+    const frame = state.objects.find((o) => o.id === frameId && o.type === 'frame');
+    if (!frame) return;
+    const rect = { x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+    const name = (frame.content || '').trim() || `Scene ${state.scenes.length + 1}`;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+    const camera = cameraForRect(rect, vw, vh);
+
+    const existing = state.scenes.find((s) => s.frameId === frameId);
+    if (existing) {
+      set((s) => ({
+        scenes: s.scenes.map((sc) => (sc.frameId === frameId ? { ...sc, name, rect, camera } : sc)),
+        isDirty: true,
+      }));
+      return;
+    }
+    const scene: Scene = {
+      id: uuidv4(), name, camera, rect, frameId,
+      order: state.scenes.length, durationMs: 1400,
+    };
+    set((s) => ({ scenes: [...s.scenes, scene], isDirty: true }));
+  },
+
+  syncSceneFrames: () => {
+    const state = get();
+    const activeParent = resolveParentId(state.canvasStack, state.urlCanvasId);
+    const frames = state.objects
+      .filter((o) => o.type === 'frame' && o.parentId === activeParent && o.style?.frameKind === 'scene')
+      .sort((a, b) => (Math.abs(a.y - b.y) > 40 ? a.y - b.y : a.x - b.x));
+    frames.forEach((f) => get().addSceneFromFrame(f.id));
+    return frames.length;
+  },
+
   removeScene: (id) =>
     set((state) => ({
       scenes: state.scenes.filter((s) => s.id !== id).map((s, i) => ({ ...s, order: i })),
       isDirty: true,
     })),
   renameScene: (id, name) =>
-    set((state) => ({
-      scenes: state.scenes.map((s) => (s.id === id ? { ...s, name } : s)),
-      isDirty: true,
-    })),
+    set((state) => {
+      const scene = state.scenes.find((s) => s.id === id);
+      const scenes = state.scenes.map((s) => (s.id === id ? { ...s, name } : s));
+      // Renaming a frame scene renames its FRAME too, or the next frame edit
+      // would push the old title straight back over this one.
+      if (scene?.frameId) {
+        return {
+          scenes,
+          objects: state.objects.map((o) => (o.id === scene.frameId ? { ...o, content: name, updatedAt: Date.now() } : o)),
+          isDirty: true,
+        };
+      }
+      return { scenes, isDirty: true };
+    }),
   moveScene: (id, dir) =>
     set((state) => {
       const ordered = [...state.scenes].sort((a, b) => a.order - b.order);
@@ -539,6 +763,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   clearSkillset: () => set({ skillset: null, isDirty: true }),
   skillSetPanelOpen: false,
   setSkillSetPanelOpen: (skillSetPanelOpen) => set({ skillSetPanelOpen }),
+  pluginsPanelOpen: false,
+  setPluginsPanelOpen: (pluginsPanelOpen) => set({ pluginsPanelOpen }),
 
   // Objects
   objects: [],
@@ -657,6 +883,29 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         };
       }
 
+      /* A scene frame IS its slide: rename or resize the frame and the slide it
+         owns follows, so the tour never drifts out of sync with the board. */
+      const sceneFrame = obj.type === 'frame'
+        && obj.style?.frameKind === 'scene'
+        && state.scenes.some((s) => s.frameId === id);
+      if (sceneFrame) {
+        const next = { ...obj, ...updates };
+        const rect = { x: next.x, y: next.y, width: next.width, height: next.height };
+        const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+        const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+        return {
+          objects: state.objects.map((o) =>
+            o.id === id ? { ...o, ...updates, updatedAt: Date.now() } : o
+          ),
+          scenes: state.scenes.map((s) =>
+            s.frameId === id
+              ? { ...s, name: (next.content || '').trim() || s.name, rect, camera: cameraForRect(rect, vw, vh) }
+              : s
+          ),
+          isDirty: true,
+        };
+      }
+
       return {
         objects: state.objects.map((o) =>
           o.id === id ? { ...o, ...updates, updatedAt: Date.now() } : o
@@ -688,6 +937,72 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       }
     });
   },
+
+  /**
+   * Sweep a delete-frame's region: every block whose centre sits inside, the
+   * ink drawn there, and the connections that touched any of it — gone in one
+   * move, and back in one Ctrl+Z.
+   *
+   * Doing this as N separate removeObject calls would have cost the user N
+   * undos to recover from a misplaced frame, which makes a bulk eraser far too
+   * dangerous to use. So it pushes ONE `bulk-delete` entry carrying everything
+   * it took.
+   */
+  deleteRegion: (frameId, opts) => {
+    const state = get();
+    const frame = state.objects.find((o) => o.id === frameId && o.type === 'frame');
+    if (!frame) return 0;
+
+    /* Anything the user tapped to keep is lifted out before the sweep, so a
+       delete frame doesn't have to be positioned perfectly — you can throw it
+       over a whole cluster and then rescue the two things worth keeping. */
+    const spare = new Set(opts?.spare || []);
+    const doomedObjects = objectsInFrame(state.objects, frame).filter((o) => !spare.has(o.id));
+    const doomedStrokes = strokesInFrame(state.strokes, frame);
+
+    /* Counted BEFORE the frame joins the pile: the frame is the tool, not
+       content, so reporting "swept 8" for 7 blocks and the eraser you drew
+       around them would just look like an off-by-one. */
+    const sweptCount = doomedObjects.length + doomedStrokes.length;
+    if (sweptCount === 0) return 0;
+    if (!opts?.keepFrame) doomedObjects.push(frame);
+
+    const objIds = new Set(doomedObjects.map((o) => o.id));
+    const strokeIds = new Set(doomedStrokes.map((s) => s.id));
+    const doomedConns = state.connections.filter((c) => objIds.has(c.fromId) || objIds.has(c.toId));
+    const connIds = new Set(doomedConns.map((c) => c.id));
+
+    set((s) => ({
+      objects: s.objects.filter((o) => !objIds.has(o.id)),
+      strokes: s.strokes.filter((st) => !strokeIds.has(st.id)),
+      connections: s.connections.filter((c) => !connIds.has(c.id)),
+      selectedId: s.selectedId && objIds.has(s.selectedId) ? null : s.selectedId,
+      editingId: s.editingId && objIds.has(s.editingId) ? null : s.editingId,
+      focusedId: s.focusedId && objIds.has(s.focusedId) ? null : s.focusedId,
+      isDirty: true,
+      undoStack: [...s.undoStack, {
+        type: 'bulk-delete' as const,
+        objectsData: doomedObjects,
+        strokesData: doomedStrokes,
+        connectionsData: doomedConns,
+      }],
+      redoStack: [],
+    }));
+
+    // Tell collaborators, then clear local storage. Both are per-item; only the
+    // UNDO needs to be atomic, and that's held in the single stack entry above.
+    doomedObjects.forEach((o) => emitCollab({ kind: 'remove', id: o.id }));
+    void import('@/lib/db').then(({ deleteObject, deleteConnection, deleteStroke }) => {
+      doomedObjects.forEach((o) => deleteObject(o.id).catch(() => {}));
+      doomedConns.forEach((c) => deleteConnection(c.id).catch(() => {}));
+      doomedStrokes.forEach((s) => deleteStroke(s.id).catch(() => {}));
+    });
+
+    return sweptCount;
+  },
+
+  frameDraftKind: 'normal',
+  setFrameDraftKind: (frameDraftKind) => set({ frameDraftKind }),
 
   // Clone an object (offset a little so it's visible), give it a fresh id and the
   // top z-index, and select it. Arrows clone their start/end/bend geometry too.
@@ -947,12 +1262,93 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     blankObjects.forEach(o => state.removeObject(o.id));
     set({ selectedId: id });
   },
-  
+
+  /* ---- Stacks ---------------------------------------------------------
+     Piling is only ever a write to `style` — stackId and stackOrder — which
+     means it rides the existing updateObject path and so gets persistence,
+     collab broadcast and undo for free, and cannot introduce a second way for
+     a board to change. */
+  spreadStackId: null,
+  setSpreadStack: (stackId) => set({ spreadStackId: stackId }),
+
+  stackObjects: (dragId, targetId) => {
+    const state = get();
+    const drag = state.objects.find((o) => o.id === dragId);
+    const target = state.objects.find((o) => o.id === targetId);
+    if (!drag || !target || dragId === targetId) return;
+    if (!isStackable(drag) || !isStackable(target)) return;
+
+    // Land on the pile the target already belongs to, or start one on it.
+    const stackId = stackIdOf(target) || `stk-${uuidv4()}`;
+    const existing = membersOf(state.objects, stackId);
+    const onTop = existing.length
+      ? Math.max(...existing.map((m) => (m.style?.stackOrder as number) ?? 0)) + 1
+      : 1;
+
+    // Everything a pile is made of comes along: the whole run when the dragged
+    // card was itself carrying a pile, so dropping one pile on another merges
+    // them instead of stranding the cards underneath.
+    const dragStack = stackIdOf(drag);
+    const moving = dragStack ? membersOf(state.objects, dragStack) : [drag];
+
+    // Seed the pile onto the target if it wasn't in one yet.
+    if (!stackIdOf(target)) {
+      state.updateObject(target.id, { style: { ...target.style, stackId, stackOrder: 0 } });
+    }
+
+    moving.forEach((m, i) => {
+      const live = get().objects.find((o) => o.id === m.id);
+      if (!live) return;
+      state.updateObject(m.id, {
+        // Members share the pile's spot; the fan is drawn, never stored.
+        x: target.x,
+        y: target.y,
+        style: { ...live.style, stackId, stackOrder: onTop + i },
+      });
+    });
+  },
+
+  unstackObject: (id, x, y) => {
+    const state = get();
+    const obj = state.objects.find((o) => o.id === id);
+    if (!obj) return;
+    const style = { ...(obj.style || {}) };
+    delete style.stackId;
+    delete style.stackOrder;
+    state.updateObject(id, { x, y, style, zIndex: state.getNextZIndex() });
+  },
+
+  scatterStack: (stackId) => {
+    const state = get();
+    const members = membersOf(state.objects, stackId);
+    if (members.length < 2) return;
+
+    // Deal them onto the same grid the pile was showing when open, so cards
+    // land exactly where they already appear to be rather than jumping.
+    const slots = stackSlots(state.objects, stackId);
+    members.forEach((m) => {
+      const slot = slots.get(m.id);
+      const style = { ...(m.style || {}) };
+      delete style.stackId;
+      delete style.stackOrder;
+      state.updateObject(m.id, {
+        x: m.x + (slot?.dx ?? 0),
+        y: m.y + (slot?.dy ?? 0),
+        style,
+      });
+    });
+    set({ spreadStackId: null });
+  },
+
   // Interaction mode
   mode: 'select',
   setMode: (mode) => set({ mode }),
   previousMode: 'select',
   setPreviousMode: (mode) => set({ previousMode: mode }),
+
+  viewLocked: false,
+  setViewLocked: (v) => set({ viewLocked: v }),
+  toggleViewLocked: () => set((s) => ({ viewLocked: !s.viewLocked })),
   
   // Focus mode
   focusedId: null,
@@ -994,6 +1390,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Command palette
   commandPaletteOpen: false,
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+
+  // Singularity Search
+  singularityOpen: false,
+  setSingularityOpen: (open) => set({ singularityOpen: open }),
+  pendingFocusId: null,
+  setPendingFocusId: (id) => set({ pendingFocusId: id }),
 
   // AI Agent state
   agentRunning: false,
@@ -1100,6 +1502,25 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           });
         }
         break;
+      case 'bulk-delete': {
+        // A delete frame's whole sweep comes back at once — blocks, ink and the
+        // connections between them — so one Ctrl+Z fully reverses it.
+        const objs = action.objectsData || [];
+        const strs = action.strokesData || [];
+        const conns = action.connectionsData || [];
+        const objIds = new Set(objs.map((o) => o.id));
+        const strIds = new Set(strs.map((s) => s.id));
+        const connIds = new Set(conns.map((c) => c.id));
+        set({
+          objects: [...state.objects.filter((o) => !objIds.has(o.id)), ...objs],
+          strokes: [...state.strokes.filter((s) => !strIds.has(s.id)), ...strs],
+          connections: [...state.connections.filter((c) => !connIds.has(c.id)), ...conns],
+          undoStack: newUndoStack,
+          redoStack: [...state.redoStack, action],
+          isDirty: true,
+        });
+        break;
+      }
     }
   },
   redo: () => {
@@ -1163,9 +1584,23 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           });
         }
         break;
+      case 'bulk-delete': {
+        const objIds = new Set((action.objectsData || []).map((o) => o.id));
+        const strIds = new Set((action.strokesData || []).map((s) => s.id));
+        const connIds = new Set((action.connectionsData || []).map((c) => c.id));
+        set({
+          objects: state.objects.filter((o) => !objIds.has(o.id)),
+          strokes: state.strokes.filter((s) => !strIds.has(s.id)),
+          connections: state.connections.filter((c) => !connIds.has(c.id)),
+          undoStack: [...state.undoStack, action],
+          redoStack: newRedoStack,
+          isDirty: true,
+        });
+        break;
+      }
     }
   },
-  
+
   // Save status
   isDirty: false,
   setDirty: (dirty) => set({ isDirty: dirty }),
@@ -1175,11 +1610,28 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Plus menu
   plusMenuPos: null,
   setPlusMenuPos: (pos) => set({ plusMenuPos: pos }),
+
+  // Canvas Resident — on by default; the choice is remembered
+  residentEnabled: typeof window !== 'undefined'
+    ? localStorage.getItem('mindspace-resident-enabled') !== 'false'
+    : true,
+  setResidentEnabled: (v) => {
+    try { localStorage.setItem('mindspace-resident-enabled', String(v)); } catch { /* private mode */ }
+    set({ residentEnabled: v });
+  },
   
   // Slash menu
   slashMenu: null,
   setSlashMenu: (menu) => set({ slashMenu: menu }),
-  
+
+  // @-mention menu
+  atMenu: null,
+  setAtMenu: (menu) => set({ atMenu: menu }),
+
+  // Read-only mode (public share viewer)
+  readOnly: false,
+  setReadOnly: (v) => set({ readOnly: v }),
+
   // Stress Reliefer
   relaxEffect: null,
   setRelaxEffect: (relaxEffect) => set({ relaxEffect }),
@@ -1187,7 +1639,54 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   // Shape settings
   selectedShapeType: 'square' as any,
   setSelectedShapeType: (selectedShapeType) => set({ selectedShapeType }),
-  
+
+  // Brainstorm kit (pins / clips / threads)
+  brainstormTool: 'pin',
+  setBrainstormTool: (brainstormTool) => set({ brainstormTool, threadAnchorId: null }),
+  pinColor: DEFAULT_PIN_COLOR,
+  setPinColor: (pinColor) => set({ pinColor }),
+  clipColor: DEFAULT_CLIP_COLOR,
+  setClipColor: (clipColor) => set({ clipColor }),
+  threadColor: DEFAULT_THREAD_COLOR,
+  setThreadColor: (threadColor) => set({ threadColor }),
+  threadAnchorId: null,
+  setThreadAnchorId: (threadAnchorId) => set({ threadAnchorId }),
+
+  addPin: (worldX, worldY) => {
+    const pin = get().addObject({
+      type: 'pin',
+      // Centre the head on the drop point; the tip hangs just below.
+      x: worldX - PIN_SIZE / 2,
+      y: worldY - PIN_SIZE / 2,
+      width: PIN_SIZE,
+      height: PIN_SIZE,
+      content: '',
+      style: { pinColor: get().pinColor },
+    });
+    return pin;
+  },
+
+  toggleClip: (objectId) => {
+    const obj = get().objects.find((o) => o.id === objectId);
+    if (!obj || obj.type === 'pin' || obj.type === 'arrow' || obj.type === 'frame') return;
+    const hasClip = !!obj.style?.clip;
+    get().updateObject(objectId, {
+      style: { ...obj.style, clip: hasClip ? undefined : { color: get().clipColor } },
+    });
+  },
+
+  linkThread: (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    // A thread already tied between this pair is left alone — no doubling up.
+    const exists = get().connections.some(
+      (c) =>
+        c.style?.thread &&
+        ((c.fromId === fromId && c.toId === toId) || (c.fromId === toId && c.toId === fromId))
+    );
+    if (exists) return;
+    get().addConnection(fromId, toId, { thread: true, color: get().threadColor });
+  },
+
   // Arrow settings
   selectedArrowPointerType: 'line',
   setSelectedArrowPointerType: (selectedArrowPointerType) => set({ selectedArrowPointerType }),

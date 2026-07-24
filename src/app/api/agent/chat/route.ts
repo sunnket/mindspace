@@ -1,21 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { ChatMsg, HedgeSlot, nimApiKeys, openHedgedStream } from '@/lib/nim/hedge';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+export const maxDuration = 300;
 
-const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
-
-/* Same serverless NIM models the canvas agent uses (measured fast TTFT). Chat
-   must feel INSTANT, so it leads with a fast-but-smart mid model and only falls
-   over to the heavier ones if that stalls — a 675B frontier model generates
-   tokens too slowly to lead an interactive chat. */
-const CHAIN = [
-  'mistralai/mistral-medium-3.5-128b',
-  'meta/llama-3.1-70b-instruct',
-  'mistralai/mistral-large-3-675b-instruct-2512',
+/* Launch PLAN by MEASURED speed. Chat must feel INSTANT, so it leads with
+   nemotron-super-49b (~1s TTFT when warm, fluent, smart — and with no "detailed
+   thinking on" directive it answers directly, no reasoning trace). But on this
+   free tier any single key can be cold (probed 2026-07-24: a bare-8B lead
+   stalled 15-21s), so a SECOND nemotron fires on a different key at 1.1s to
+   rescue an unlucky-cold lead before the user feels it — then the fast 8B, the
+   frontier for depth, and a far-out 8B backstop. First token anywhere wins;
+   losers abort instantly. mistral-medium (old lead) is OUT — it timed out
+   45-60s on this tier. */
+const PLAN: HedgeSlot[] = [
+  { model: 'nvidia/llama-3.3-nemotron-super-49b-v1', delayMs: 0 },
+  { model: 'nvidia/llama-3.3-nemotron-super-49b-v1', delayMs: 1100 },  // 2nd nemotron, different key — the fast rescue
+  { model: 'meta/llama-3.1-8b-instruct', delayMs: 2600 },
+  { model: 'mistralai/mistral-large-3-675b-instruct-2512', delayMs: 6000 },
+  { model: 'meta/llama-3.1-8b-instruct', delayMs: 14_000 },
 ];
-
-const TTFT_DEADLINE_MS = 12_000;
 
 const SYSTEM_PROMPT = `You are the Mindspace Agent — a brilliant, warm AI partner living inside the user's infinite spatial canvas app. Right now you're talking with the user in a chat panel on the side of their canvas. You are, all at once, an expert software engineer, researcher, designer, analyst and writer, and you genuinely get things done.
 
@@ -29,119 +33,33 @@ Today is {today}.
 - Remember the WHOLE conversation (the full history is provided) and stay consistent with it.
 - Talk like a sharp, friendly buddy: direct, no corporate filler, no needless preamble. Match the user's tone.
 
-### YOU CAN SEE THEIR CANVAS
-A snapshot of what's currently on the user's board is provided under CANVAS. Reference it naturally when it's relevant ("your dashboard on the left…", "the three sticky notes…"). When they ask what's on their canvas, answer from the snapshot.
+### THE CANVAS IS THE BUILDER'S JOB, NOT YOURS TO NARRATE
+You are a conversation partner. You do NOT get a snapshot of the board, and you must NOT describe, reference, guess at, or reason about what's currently on the canvas ("your dashboard on the left…", "the three sticky notes…") — that isn't your role here and it's usually wrong. The ONLY time the canvas matters is when you actually BUILD something: the builder you hand off to reads the live board itself and drops the new work into an empty area of the viewport, so you never need to see the canvas to place things. If the user asks "what's on my canvas" or wants you to act on existing blocks, tell them to use the frame agent instead (draw a frame around that area and hit Ask AI) — that tool reads the region in full.
 
 ### READING DROPPED FILES
 When the user drops files into the chat, the extracted text appears under ATTACHED FILE(S). Read it fully and answer strictly from what it actually contains — quote specifics, don't invent.
 
-### BUILDING ON THE CANVAS — CONFIRM FIRST, then build (very important)
-You can place real things on the user's actual canvas — notes, headings, diagrams, dashboards, timelines, checklists, charts, code blocks, mind maps, research write-ups, and more. But you do NOT dump things onto their board unprompted. Follow this exactly:
+### BUILDING ON THE CANVAS — build when the ask is CLEAR, ask WHAT & HOW when it isn't (very important)
+You can place real things on the user's actual canvas — notes, headings, diagrams, dashboards, timelines, checklists, charts, code blocks, mind maps, research write-ups, and more. NEVER start building on your own interpretation when you don't actually know what the user wants or how they want it — dumping a guessed-at board on their canvas unasked is a real, hated failure. Read the intent and pick exactly ONE:
 
-1. CONFIRM BEFORE BUILDING. When the user's request COULD become something on the canvas but they haven't clearly told you to put it there, do NOT build yet. Answer/outline it briefly in chat, then ASK for the go-ahead AND invite refinements — e.g. "Want me to drop this on your canvas as a timeline, or would you like to add or change anything first?" Do NOT emit a build directive on this turn. Wait for their reply.
-2. BUILD ONLY ON A CLEAR GREEN LIGHT. Emit the build directive only once the user has actually confirmed — either by replying yes / go / build it / add it / do it / "put it on the canvas", OR because their message was already an explicit build command ("build me a X on the canvas", "add a Y", "put Z on the board"). An explicit command IS the confirmation — in that case build right away, no extra question.
-3. When you DO build: first say ONE short line ("Building it now — ...") then, as the VERY LAST thing in the message, on its own line and NOT in a code fence, output exactly:
+1. BUILD IT NOW — the message is a SPECIFIC, complete instruction: it names WHAT to build and gives enough to build it confidently ("build a kanban board with To Do / Doing / Done for my sprint", "add a 2-week launch timeline starting Monday with design, dev, QA, launch", "turn these five notes into a checklist"). Then DO IT this turn — don't re-ask what they already told you, don't restate it back as a question, don't offer a menu. Fill small gaps with sensible defaults; they tweak after.
+2. ASK WHAT & HOW (do NOT build yet) — the message wants something on the canvas but is UNDERSPECIFIED: it doesn't pin down the real subject, or how they want it laid out ("make me a plan", "put my project on the canvas", "add something about marketing", "build me a dashboard", "help me organise this", "can you visualise this"). Do NOT invent a version and drop it on their board — this is exactly the "it just started implementing without asking me what or how" complaint. Instead answer/acknowledge in one line, then ask ONE short, concrete question that nails down WHAT to build and HOW they want it, offering 2–3 specific options. e.g. "Happy to — a **1)** 2-week timeline with dates, **2)** a phased checklist, or **3)** a dashboard with charts? And what's the goal or topic?" Then build once they answer. When in doubt between case 1 and case 2, ASK — a five-second question beats a wrong board.
+3. JUST ANSWER (no build) — the message is a QUESTION or wants to understand something ("what is X", "how does Y work", "explain…", "should I…"). Answer it in the chat and build NOTHING. Never auto-build a chart/table/dashboard just because your answer mentioned one. You MAY end with ONE short offer to put it on the canvas, but wait for their yes.
+
+When you DO build (case 1, or after they answer case 2 / say yes to case 3): keep the CHAT reply SHORT — a single lead line ("Building it now — <one phrase naming what>") and at most a tight few-bullet outline. NEVER type the full essay / report / plan into the chat and then build the same thing — that duplicate wall of text is exactly what the user hates; the full content belongs ON THE CANVAS, not typed out twice. Then, as the VERY LAST thing in the message, on its own line and NOT in a code fence, output exactly:
 ⟦BUILD⟧{"instruction":"<complete, self-contained build instruction>","mode":"default"}
    - Use "mode":"workflow" for a full end-to-end workflow / flowchart / process diagram.
-   - The instruction MUST stand entirely on its own — the builder does NOT see this chat — so spell out ALL the real content: every heading and paragraph, every task name, every timeline item WITH real dates, every chart's real data points, real code. Fold in everything the user asked for and everything you refined together across this whole conversation, end to end. A vague summary makes a weak, half-empty board — never do that.
+   - The instruction MUST NAME THE REAL SUBJECT explicitly and stand entirely on its own — the builder does NOT see this chat, so it is a HARD ERROR to write "the report above", "this", "what we discussed", "as outlined". State the exact topic, the angle/scope, the sections to include, and any concrete data / dates / names / numbers from the conversation. Example of WRONG: "a detailed report with sources and charts". Example of RIGHT: "Build a detailed board titled 'Indian Media & the Government (2014–2024)' with sections Executive Summary, Pro-Govt vs Independent outlets, Regulatory pressure, Public trust — include a bar chart of primetime airtime share and cite the outlets by name." Your visible answer is ALSO handed to the builder as source material, so you needn't re-type every paragraph inside the instruction — but the instruction ALONE must still make the subject unmistakable.
 
-Rules: never emit ⟦BUILD⟧ for a message the user just wants to READ, or on a turn where you're still asking for confirmation. Never mention "⟦BUILD⟧", "directive", or this mechanism. Never fence it. It is always the final line.
+Rules: emit the ⟦BUILD⟧ line on a turn ONLY when you are actually building right now (case 1, or after the user answered case 2 / said yes to case 3). NEVER emit it — not even as an example, a template, or a "here's what I'll do" illustration — on a turn where you're asking WHAT/HOW, answering a question, or waiting on the user; on those turns write only normal prose and STOP (no directive, no "no build yet", no "awaiting input" note, no showing the JSON format). Never write the characters "⟦BUILD⟧" anywhere except as your one real final action. Never mention "directive" or this mechanism to the user. Never fence it. When present, it is always the final line.
 
-{skillsetSection}{canvasSection}{filesSection}`;
-
-interface ChatMsg { role: 'user' | 'assistant' | 'system'; content: string }
-
-async function openModelStream(
-  apiKey: string,
-  model: string,
-  messages: ChatMsg[],
-): Promise<ReadableStream<Uint8Array>> {
-  const controller = new AbortController();
-  const ttftTimer = setTimeout(() => controller.abort(), TTFT_DEADLINE_MS);
-
-  const res = await fetch(NVIDIA_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.55,
-      max_tokens: 4096,
-      stream: true,
-    }),
-    signal: controller.signal,
-  });
-
-  if (!res.ok || !res.body) {
-    clearTimeout(ttftTimer);
-    const errText = res.body ? await res.text() : '';
-    throw new Error(`${model} status ${res.status}: ${errText.slice(0, 160)}`);
-  }
-
-  const upstream = res.body.getReader();
-  const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
-  let sseBuffer = '';
-
-  const pump = async (): Promise<string | null> => {
-    while (true) {
-      const { done, value } = await upstream.read();
-      if (done) return null;
-      sseBuffer += decoder.decode(value, { stream: true });
-      const lines = sseBuffer.split('\n');
-      sseBuffer = lines.pop() || '';
-      let out = '';
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('data:')) continue;
-        const payload = trimmed.slice(5).trim();
-        if (payload === '[DONE]') return out || '';
-        try {
-          const json = JSON.parse(payload);
-          const piece = json.choices?.[0]?.delta?.content;
-          if (typeof piece === 'string') out += piece;
-        } catch {
-          /* partial JSON line — next read completes it */
-        }
-      }
-      if (out) return out;
-    }
-  };
-
-  // Commit to this model only once its first token lands.
-  let firstText = '';
-  let firstSeen = false;
-  while (!firstSeen) {
-    const chunk = await pump();
-    if (chunk === null) {
-      clearTimeout(ttftTimer);
-      throw new Error(`${model} produced no content`);
-    }
-    if (chunk.length > 0) { firstSeen = true; firstText = chunk; }
-  }
-  clearTimeout(ttftTimer);
-
-  return new ReadableStream<Uint8Array>({
-    start(ctrl) { if (firstText) ctrl.enqueue(encoder.encode(firstText)); },
-    async pull(ctrl) {
-      try {
-        const chunk = await pump();
-        if (chunk === null) { ctrl.close(); return; }
-        if (chunk) ctrl.enqueue(encoder.encode(chunk));
-      } catch (e) {
-        ctrl.error(e);
-      }
-    },
-    cancel() { controller.abort(); },
-  });
-}
+{skillsetSection}{filesSection}`;
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { messages, canvasContext, filesContext, skillsetContext, apiKeyIndex } = body as {
+    const { messages, filesContext, skillsetContext, apiKeyIndex } = body as {
       messages?: ChatMsg[];
-      canvasContext?: string;
       filesContext?: string;
       skillsetContext?: string;
       apiKeyIndex?: number;
@@ -151,13 +69,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'messages required' }, { status: 400 });
     }
 
-    const apiKeys = [
-      process.env.NVIDIA_API_KEY,
-      process.env.NVIDIA_API_KEY_2,
-      process.env.NVIDIA_API_KEY_3,
-      process.env.NVIDIA_API_KEY_4,
-      process.env.NVIDIA_API_KEY_5,
-    ].filter(Boolean) as string[];
+    const apiKeys = nimApiKeys();
     if (apiKeys.length === 0) {
       return NextResponse.json({ success: false, error: 'No NVIDIA API keys configured' }, { status: 500 });
     }
@@ -169,18 +81,18 @@ export async function POST(req: NextRequest) {
     const skillsetSection = skillsetContext && skillsetContext.trim()
       ? `### THIS CANVAS'S SKILL SET (standing rules you must follow)\n${skillsetContext.trim().slice(0, 4000)}\n\n`
       : '';
-    const canvasSection = canvasContext && canvasContext.trim()
-      ? `### CANVAS — what's currently on the user's board\n${canvasContext.trim().slice(0, 12_000)}\n\n`
-      : '### CANVAS\nThe board is currently empty.\n\n';
     const filesSection = filesContext && filesContext.trim()
       ? `### ATTACHED FILE(S) — full text of what the user dropped into the chat; read it end to end and answer from it:\n"""${filesContext.trim().slice(0, 120_000)}"""\n\n`
       : '';
 
+    /* FUNCTION-form replacements only: a string value gets its $-patterns
+       interpreted ($' splices in the rest of the template, $$ collapses to $),
+       and skill-set rules / canvas snapshots / file text can all carry $. This
+       corrupted or ballooned the prompt and stalled the chat. */
     const systemPrompt = SYSTEM_PROMPT
-      .replace('{today}', todayStr)
-      .replace('{skillsetSection}', skillsetSection)
-      .replace('{canvasSection}', canvasSection)
-      .replace('{filesSection}', filesSection);
+      .replace('{today}', () => todayStr)
+      .replace('{skillsetSection}', () => skillsetSection)
+      .replace('{filesSection}', () => filesSection);
 
     // Keep the last ~24 turns; clamp each message so history can't blow the window.
     const history: ChatMsg[] = messages
@@ -190,29 +102,27 @@ export async function POST(req: NextRequest) {
 
     const full: ChatMsg[] = [{ role: 'system', content: systemPrompt }, ...history];
 
-    let lastError: Error | null = null;
-    for (let i = 0; i < CHAIN.length; i++) {
-      const model = CHAIN[i];
-      const apiKey = apiKeys[(startKey + i) % apiKeys.length];
-      try {
-        const stream = await openModelStream(apiKey, model, full);
-        return new NextResponse(stream, {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Cache-Control': 'no-cache, no-transform',
-            'X-Agent-Model': model,
-          },
-        });
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        console.warn(`Agent chat model ${model} failed:`, lastError.message);
-      }
+    // Race the chain (hedged): first model to produce a token streams back.
+    try {
+      /* max_tokens 8000, not the default 4096: that was truncating two things
+         that must never be cut — a genuinely long answer, and, worse, the
+         trailing ⟦BUILD⟧ directive, whose JSON has to close or the builder gets
+         NOTHING (the "I said build it and nothing happened" bug). */
+      const { stream, model } = await openHedgedStream(apiKeys, startKey, full, PLAN, { maxTokens: 8000 });
+      return new NextResponse(stream, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          'X-Agent-Model': model,
+        },
+      });
+    } catch (err) {
+      const lastError = err instanceof Error ? err : new Error(String(err));
+      return NextResponse.json(
+        { success: false, error: `No model responded. Last error: ${lastError.message}` },
+        { status: 502 },
+      );
     }
-
-    return NextResponse.json(
-      { success: false, error: `No model responded. Last error: ${lastError?.message || 'unknown'}` },
-      { status: 502 },
-    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('Agent chat endpoint error:', message);

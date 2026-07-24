@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useCallback, useState, useEffect } from 'react';
+import React, { useRef, useCallback, useState, useEffect, useMemo } from 'react';
 import { useCollabStore } from '@/store/collabStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
@@ -15,18 +15,50 @@ import FileBlock from './FileBlock';
 import MapBlock from './MapBlock';
 import WeatherBlock from './WeatherBlock';
 import RichText from './RichText';
+import InkText from './InkText';
+import AnimatedText from './AnimatedText';
+import { useFlowStore } from '@/store/flowStore';
+import { INK_FONT, intervalToIntensity, foldRhythm } from '@/lib/typingInk';
 import CodeSandboxBlock from './CodeSandboxBlock';
 import RepoExplorerBlock from './RepoExplorerBlock';
 import QuoteBlock from './QuoteBlock';
+import CalloutBlock from './CalloutBlock';
+import EmbedBlock from './EmbedBlock';
+import GitHubBlock from './GitHubBlock';
 import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
-import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock, TimelineBlock } from './ExtensionBlocks';
+import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock, TimelineBlock, TableBlock } from './ExtensionBlocks';
 import WhiteboardBlock from './WhiteboardBlock';
 import BinderBlock from './BinderBlock';
 import MirrorBlock from './MirrorBlock';
+import SemanticGist from './SemanticGist';
+import { semanticView } from '@/lib/semanticZoom';
+import { stackSlots, stackTargetAt, membersOf, isStackable } from '@/lib/stacks';
 import { createPortal } from 'react-dom';
 import { ImageShape, imageShapeStyle, nextImageShape, IMAGE_SHAPE_LABEL } from '@/lib/imageShapes';
+import { getFrameKind, frameColorOf, frameKindMeta, objectsInFrame, type FrameKind } from '@/lib/frames';
+import { PIN_COLORS, pinShade, DEFAULT_PIN_COLOR } from '@/lib/brainstorm';
+
+/** The mark on a frame's title tab that says what kind of region it is. */
+function FrameKindGlyph({ kind }: { kind: FrameKind }) {
+  const common = {
+    width: 11, height: 11, viewBox: '0 0 24 24', fill: 'none',
+    stroke: 'currentColor', strokeWidth: 2.4,
+    strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
+    'aria-hidden': true, className: 'shrink-0',
+  };
+  if (kind === 'delete') {
+    return <svg {...common}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>;
+  }
+  if (kind === 'scene') {
+    return <svg {...common}><rect x="2" y="4" width="20" height="16" rx="2" /><line x1="7" y1="4" x2="7" y2="20" /><line x1="17" y1="4" x2="17" y2="20" /></svg>;
+  }
+  if (kind === 'agent') {
+    return <svg {...common}><path d="M12 3v3M12 18v3M3 12h3M18 12h3" /><circle cx="12" cy="12" r="4.5" /></svg>;
+  }
+  return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="2" /></svg>;
+}
 
 /**
  * The DOM range at a viewport point. Two engines, two spellings: Firefox ships
@@ -494,7 +526,7 @@ interface CanvasObjectProps {
   isFocused: boolean;
 }
 
-function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
+function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObjectProps) {
   const updateObject = useCanvasStore((s) => s.updateObject);
   const setSelectedId = useCanvasStore((s) => s.setSelectedId);
   const setFocusedId = useCanvasStore((s) => s.setFocusedId);
@@ -514,10 +546,31 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const addToTrash = useCanvasStore((s) => s.addToTrash);
   const connections = useCanvasStore((s) => s.connections);
   const setSlashMenu = useCanvasStore((s) => s.setSlashMenu);
+  const setAtMenu = useCanvasStore((s) => s.setAtMenu);
+  const readOnly = useCanvasStore((s) => s.readOnly);
+  const isTouring = useCanvasStore((s) => s.isTouring);
+  const spreadStackId = useCanvasStore((s) => s.spreadStackId);
+  const setSpreadStack = useCanvasStore((s) => s.setSpreadStack);
+
+  /** Where this card sits in its pile, if it's in one. See lib/stacks.ts. */
+  const stackSlot = stackSlots(objects, spreadStackId).get(obj.id) ?? null;
 
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
+  const [isHoveredRaw, setIsHovered] = useState(false);
+
+  /* A tour presents CONTENT — every trace of editing UI on the objects
+     themselves goes away for the duration.
+     This is not cosmetic: a selected frame's eight resize handles are pinned to
+     its bounds, which is exactly where a frame scene's mask cuts, so each one
+     showed up as a half-circle notched into the edge of the slide. Neutralising
+     selection and hover here (rather than hiding handles in CSS) also takes out
+     the selection ring, the "tap to cycle shape" hint, the workflow-node hover
+     controls and the arrow handles in one move — including any object the mouse
+     happens to pass over mid-presentation. The real selection is untouched and
+     comes straight back when the tour ends. */
+  const isSelected = isSelectedProp && !isTouring;
+  const isHovered = isHoveredRaw && !isTouring;
   /** Full-screen image preview ("full view" frame button). */
   const [lightboxOpen, setLightboxOpen] = useState(false);
   /** True right after a real drag so the mouseup's click doesn't also cycle the
@@ -545,6 +598,16 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const connectorSelectedIds = useCanvasStore((s) => s.connectorSelectedIds);
   const toggleConnectorSelection = useCanvasStore((s) => s.toggleConnectorSelection);
 
+  // Brainstorm kit (pins / clips / threads). isPin means this object IS a
+  // push-pin and renders with no card chrome.
+  const isPin = obj.type === 'pin';
+  const brainstormTool = useCanvasStore((s) => s.brainstormTool);
+  const threadAnchorId = useCanvasStore((s) => s.threadAnchorId);
+  const setThreadAnchorId = useCanvasStore((s) => s.setThreadAnchorId);
+  const toggleClip = useCanvasStore((s) => s.toggleClip);
+  const linkThread = useCanvasStore((s) => s.linkThread);
+  const isThreadAnchor = threadAnchorId === obj.id;
+
   // Collaboration: mark objects authored by someone else with their colour dot.
   // Selectors return primitives, so frequent cursor updates never re-render this.
   const collabActive = useCollabStore((s) => s.status === 'connected' && Object.keys(s.peers).length > 0);
@@ -554,6 +617,14 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const showAuthorDot = collabActive && !!authorId && authorId !== myPeerId;
   
   const isEditing = editingId === obj.id && mode !== 'connector';
+
+  /* Typing-as-ink. A block "is ink" once its energy is baked in (style.inkType,
+     read back forever) OR while it's being typed with the Flow ink toggle on.
+     Only free text / headings get it — the expressive, hand-written surfaces. */
+  const inkFlowOn = useFlowStore((s) => s.enabled && s.prefs.typingInk);
+  const inkEligible = obj.type === 'text' || obj.type === 'heading';
+  const isInkBlock = inkEligible && (Boolean(obj.style?.inkType) || (isEditing && inkFlowOn));
+
   const dragStart = useRef({ x: 0, y: 0, objX: 0, objY: 0 });
   const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 });
   const contentRef = useRef<HTMLDivElement>(null);
@@ -562,6 +633,14 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const latestContent = useRef(obj.content || '');
   /** Where the click that opened edit mode landed, so the caret goes THERE. */
   const caretPoint = useRef<{ x: number; y: number } | null>(null);
+
+  /* Typing-as-ink capture state (only live while editing in ink mode): the
+     per-char intensity array we're building, plus the text + timestamp of the
+     previous keystroke so each new one's interval → intensity. */
+  const inkRhythmRef = useRef<number[]>((obj.style?.inkRhythm as number[] | undefined) || []);
+  const inkPrevTextRef = useRef<string>(obj.content || '');
+  const inkPrevTsRef = useRef<number>(0);
+  const inkActiveRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (isEditing) {
@@ -572,6 +651,11 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      // Public share viewer: look, don't touch. Let native events through (so
+      // links/embeds/scroll still work) but never start a drag or select.
+      // A tour takes the same deal: the presenter can still click a link or an
+      // embed, but can't nudge a block out of place mid-slide.
+      if (readOnly || isTouring) return;
       if (mode === 'draw' || isEditing) return;
 
       // Clicks on embedded controls (poll options, settings inputs, checkpoint
@@ -596,26 +680,74 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         dragObj = addObject({ ...obj, zIndex: getNextZIndex(), createdAt: Date.now(), updatedAt: Date.now() });
       }
 
+      /* Taking hold of a card in an OPEN pile.
+         A pile's fan is drawn, never stored — every member shares the pile's
+         one x/y — so a spread card sits somewhere its own data says it isn't.
+         Two consequences, and both matter:
+
+         Nothing is detached HERE. Grabbing is not pulling: you have to be
+         able to click a spread card to read or edit it, and detaching on
+         mousedown would tear a card out of the pile every time you tried.
+         The detach happens on the first real movement, below.
+
+         And the drag has to start from where the card LOOKS like it is, or it
+         jumps by the width of its own offset the moment it comes loose. */
+      const grabbedSlot = stackSlots(objects, spreadStackId).get(dragObj.id);
+      const spreadGrab = grabbedSlot?.spread && dragObj.id === obj.id ? grabbedSlot : null;
+
       // Only select if not in connector mode
       if (mode !== 'connector') {
         setSelectedId(dragObj.id);
       }
 
-      if (dragObj.id === obj.id) {
+      /* Raising the clicked object to the top is right for everything EXCEPT a
+         frame. A frame is a backdrop: promote it and it covers the very blocks
+         it wraps, so the first click on a frame made all of its contents
+         unclickable (addObject already guards the creation path — this was the
+         same bug arriving through interaction instead). */
+      if (dragObj.id === obj.id && dragObj.type !== 'frame') {
         updateObject(dragObj.id, { zIndex: getNextZIndex() });
       }
 
-      // Dragging a frame carries along whatever was grouped into it.
+      /* Dragging a frame carries everything that SITS in it — every block whose
+         centre is inside the frame right now (objectsInFrame, the same rule the
+         canvas uses to decide grouping) UNION anything explicitly tagged to it.
+         So the frame becomes a real bulk-move handle: grab it and the whole
+         group travels, whether or not each piece was ever formally dropped in. */
       const frameChildren = dragObj.type === 'frame'
-        ? objects.filter((o) => o.style?.frameParentId === dragObj.id).map((o) => ({ id: o.id, x: o.x, y: o.y }))
+        ? (() => {
+            const seen = new Set<string>([dragObj.id]);
+            const out: { id: string; x: number; y: number }[] = [];
+            const add = (o: CanvasObjectData) => {
+              if (seen.has(o.id)) return;
+              seen.add(o.id);
+              out.push({ id: o.id, x: o.x, y: o.y });
+            };
+            objectsInFrame(objects, dragObj).forEach(add);
+            objects.filter((o) => o.style?.frameParentId === dragObj.id).forEach(add);
+            return out;
+          })()
         : [];
 
-      const before = { x: dragObj.x, y: dragObj.y };
+      /* A CLOSED pile moves as one object, the way a real stack of paper does
+         — you can't slide the top note off a pile without opening it first,
+         and neither can you here. That asymmetry is the whole interaction:
+         drag a closed pile to move it, open it to take one card out. */
+      const carriedStack =
+        grabbedSlot && !grabbedSlot.spread
+          ? membersOf(objects, grabbedSlot.stackId)
+              .filter((m) => m.id !== dragObj.id)
+              .map((m) => ({ id: m.id, x: m.x, y: m.y }))
+          : [];
+      const carried = [...frameChildren, ...carriedStack];
+
+      const before = { x: dragObj.x, y: dragObj.y, style: dragObj.style };
       dragStart.current = {
         x: e.clientX,
         y: e.clientY,
-        objX: dragObj.x,
-        objY: dragObj.y,
+        // Drawn position, not stored position — see spreadGrab above.
+        objX: dragObj.x + (spreadGrab?.dx ?? 0),
+        objY: dragObj.y + (spreadGrab?.dy ?? 0),
         // For arrows:
         objStartX: dragObj.style?.startX as number || 0,
         objStartY: dragObj.style?.startY as number || 0,
@@ -636,7 +768,98 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       let overChatZone = false;
       let overAgentChatZone = false;
       let draggedFar = false;
+      /** Set once a card has actually been pulled clear of an open pile. */
+      let detached = false;
       const HOTZONE_W = 210;
+
+      /* --- Edge auto-pan while dragging -----------------------------------
+         The camera at grab time, the fixed zoom, and the latest cursor. When the
+         cursor rides a screen edge, a rAF loop scrolls the viewport that way so
+         you can shift a block (or a whole framed group) clear across the board
+         without letting go. `positionAt` recomputes the block's world spot from
+         the LIVE camera, so it stays glued under the cursor as the world scrolls
+         beneath it — that camera-compensation term is zero whenever the camera
+         isn't moving, so an ordinary drag behaves exactly as before. */
+      const dragStartCam = { x: camera.x, y: camera.y };
+      const zoom = camera.zoom;
+      let lastCursor = { x: e.clientX, y: e.clientY };
+      let edgeRAF: number | null = null;
+      let overAnyHotzone = false;
+
+      const positionAt = (cursorX: number, cursorY: number) => {
+        const liveCam = useCanvasStore.getState().camera;
+        const dx = (cursorX - dragStart.current.x) / zoom - (liveCam.x - dragStartCam.x) / zoom;
+        const dy = (cursorY - dragStart.current.y) / zoom - (liveCam.y - dragStartCam.y) / zoom;
+
+        let newX = dragStart.current.objX + dx;
+        let newY = dragStart.current.objY + dy;
+
+        if (mode !== 'connector') {
+          const others = objects
+            .filter((o) => o.id !== dragObj.id)
+            .map((o) => ({ x: o.x, y: o.y, width: o.width, height: o.height }));
+          const snap = getSnapPoints(newX, newY, dragObj.width, dragObj.height, others);
+          if (snap.x !== null) newX = snap.x;
+          if (snap.y !== null) newY = snap.y;
+        }
+
+        // The moment a grab on a spread card becomes a real drag it leaves the
+        // pile, at the exact spot it was drawn, so it comes away without a jump.
+        if (spreadGrab && !detached) {
+          if (!draggedFar) return;
+          detached = true;
+          useCanvasStore.getState().unstackObject(dragObj.id, newX, newY);
+        }
+
+        if (dragObj.type === 'arrow') {
+          const ds = dragStart.current as any;
+          updateObject(dragObj.id, {
+            x: newX,
+            y: newY,
+            style: {
+              ...dragObj.style,
+              startX: ds.objStartX + dx,
+              startY: ds.objStartY + dy,
+              endX: ds.objEndX + dx,
+              endY: ds.objEndY + dy,
+              ...(ds.objBendX !== undefined ? { bendX: ds.objBendX + dx, bendY: ds.objBendY + dy } : {}),
+            },
+          });
+        } else {
+          updateObject(dragObj.id, { x: newX, y: newY });
+        }
+
+        // Carried group moves by the frame's REAL (post-snap) displacement, so
+        // it stays rigidly attached.
+        if (carried.length > 0) {
+          const effDx = newX - dragStart.current.objX;
+          const effDy = newY - dragStart.current.objY;
+          carried.forEach((c) => {
+            useCanvasStore.getState().updateObject(c.id, { x: c.x + effDx, y: c.y + effDy });
+          });
+        }
+      };
+
+      const EDGE = 72;       // px band along each edge that triggers a scroll
+      const EDGE_SPEED = 17; // px/frame at the very edge, eased in across the band
+      const tickEdge = () => {
+        edgeRAF = requestAnimationFrame(tickEdge);
+        // Only auto-pan a real drag, and never while poised over a dock hotzone
+        // (those live on the same left edge and must win).
+        if (!draggedFar || overAnyHotzone) return;
+        const W = window.innerWidth, H = window.innerHeight;
+        const { x: cx, y: cy } = lastCursor;
+        let vx = 0, vy = 0;
+        if (cx < EDGE) vx = (EDGE - cx) / EDGE;
+        else if (cx > W - EDGE) vx = -(cx - (W - EDGE)) / EDGE;
+        if (cy < EDGE) vy = (EDGE - cy) / EDGE;
+        else if (cy > H - EDGE) vy = -(cy - (H - EDGE)) / EDGE;
+        if (vx === 0 && vy === 0) return;
+        const cam = useCanvasStore.getState().camera;
+        useCanvasStore.getState().setCamera({ x: cam.x + vx * EDGE_SPEED, y: cam.y + vy * EDGE_SPEED, zoom: cam.zoom });
+        positionAt(lastCursor.x, lastCursor.y); // keep the block glued under the cursor
+      };
+      edgeRAF = requestAnimationFrame(tickEdge);
 
       const handleMouseMove = (moveE: MouseEvent) => {
         if (Math.abs(moveE.clientX - dragStart.current.x) > 8 || Math.abs(moveE.clientY - dragStart.current.y) > 8) {
@@ -693,50 +916,17 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         }
         if (wlabel) wlabel.style.opacity = overWarpZone ? '1' : '0.55';
 
-        const dx = (moveE.clientX - dragStart.current.x) / camera.zoom;
-        const dy = (moveE.clientY - dragStart.current.y) / camera.zoom;
-
-        let newX = dragStart.current.objX + dx;
-        let newY = dragStart.current.objY + dy;
-
-        // Skip snapping in connector mode for a more fluid feel
-        if (mode !== 'connector') {
-          const others = objects
-            .filter((o) => o.id !== dragObj.id)
-            .map((o) => ({ x: o.x, y: o.y, width: o.width, height: o.height }));
-
-          const snap = getSnapPoints(newX, newY, dragObj.width, dragObj.height, others);
-          if (snap.x !== null) newX = snap.x;
-          if (snap.y !== null) newY = snap.y;
-        }
-
-        if (dragObj.type === 'arrow') {
-          const ds = dragStart.current as any;
-          updateObject(dragObj.id, {
-            x: newX,
-            y: newY,
-            style: {
-              ...dragObj.style,
-              startX: ds.objStartX + dx,
-              startY: ds.objStartY + dy,
-              endX: ds.objEndX + dx,
-              endY: ds.objEndY + dy,
-              ...(ds.objBendX !== undefined ? { bendX: ds.objBendX + dx, bendY: ds.objBendY + dy } : {}),
-            }
-          });
-        } else {
-          updateObject(dragObj.id, { x: newX, y: newY });
-        }
-
-        if (frameChildren.length > 0) {
-          frameChildren.forEach((c) => {
-            useCanvasStore.getState().updateObject(c.id, { x: c.x + dx, y: c.y + dy });
-          });
-        }
+        // Remember the cursor + whether a dock zone owns it, then place the
+        // block. The edge-pan loop reuses lastCursor to keep scrolling when the
+        // cursor is held still against an edge.
+        overAnyHotzone = overMinimizeZone || overWarpZone || overChatZone || overAgentChatZone;
+        lastCursor = { x: moveE.clientX, y: moveE.clientY };
+        positionAt(moveE.clientX, moveE.clientY);
       };
 
       const handleMouseUp = () => {
         setIsDragging(false);
+        if (edgeRAF !== null) { cancelAnimationFrame(edgeRAF); edgeRAF = null; }
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp, END_DRAG);
         // Let the click that follows this mouseup see that we dragged (so it
@@ -828,6 +1018,37 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           }
         }
 
+        /* Dropping a note onto another note piles them.
+           Aimed by the dragged card's CENTRE, because that's what people
+           watch while they drag. This sits after the binder and dock checks
+           so those keep priority, and before frame grouping so a pile made
+           inside a frame still joins the frame. */
+        if (draggedFar && isStackable(dragObj)) {
+          const state = useCanvasStore.getState();
+          const live = state.objects.find((o) => o.id === dragObj.id);
+          if (live) {
+            const target = stackTargetAt(
+              state.objects,
+              live,
+              { x: live.x + live.width / 2, y: live.y + live.height / 2 },
+              // Aim at the cards as DRAWN — an open pile's members are all
+              // stored at one spot but shown spread around it.
+              stackSlots(state.objects, state.spreadStackId)
+            );
+            if (target) {
+              state.stackObjects(live.id, target.id);
+              state.setSpreadStack(null);
+              /* `before` carries the pre-drop style, so one Ctrl+Z lifts this
+                 card back off the pile and puts it where it came from. The
+                 note it landed on keeps a stackId, which is inert: a pile is
+                 only a pile at two members or more (lib/stacks.ts), so a
+                 leftover id on a lone card is simply never a pile. */
+              pushUndo({ type: 'edit', objectId: live.id, before, after: { x: live.x, y: live.y } });
+              return;
+            }
+          }
+        }
+
         // Dropping a non-frame object inside a frame's bounds groups it —
         // move the frame later and this comes along for the ride.
         if (dragObj.type !== 'frame' && dragObj.type !== 'arrow') {
@@ -857,7 +1078,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp, END_DRAG);
     },
-    [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex, addObject]
+    [mode, isEditing, obj, camera.zoom, objects, setSelectedId, updateObject, pushUndo, getNextZIndex, addObject, readOnly, isTouring, spreadStackId]
   );
 
   const handleResizeStart = useCallback(
@@ -1069,6 +1290,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (readOnly || isTouring) return;
 
       if (obj.type === 'heading') {
         // Navigate into nested canvas
@@ -1091,16 +1313,66 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         setEditingId(obj.id);
       }
     },
-    [obj, setFocusedId, pushCanvas, setEditingId]
+    [obj, setFocusedId, pushCanvas, setEditingId, readOnly, isTouring]
   );
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (isTouring) return;
+
+      /* One tap opens a pile. Until it's open there is nothing useful to do
+         with the card you clicked — it's the only one of several you can even
+         see — so the tap belongs to the pile, not to the card. Selecting and
+         editing come back the moment it's spread. A drag is not a tap.
+
+         This sits ABOVE the read-only guard on purpose: opening a pile writes
+         nothing to the board, and a viewer who can't open one can't read a
+         single card underneath the top of it. */
+      if (stackSlot && !stackSlot.spread && !dragMovedRef.current) {
+        setSpreadStack(stackSlot.stackId);
+        if (!readOnly) setSelectedId(null);
+        return;
+      }
+
+      if (readOnly) return;
       if (mode === 'draw' || isEditing) return;
 
       if (mode === 'connector') {
         toggleConnectorSelection(obj.id);
+        return;
+      }
+
+      /* Brainstorm kit routing. A tap in brainstorm mode means one of the three
+         tools, never "edit this block":
+           · clip   → fasten / unfasten a paper clip on this block
+           · thread → tap this pin, then tap another, to run string between them
+           · pin    → placing happens on empty canvas; a tap here just selects   */
+      if (mode === 'brainstorm') {
+        if (dragMovedRef.current) return;
+        if (brainstormTool === 'clip') {
+          toggleClip(obj.id);
+          return;
+        }
+        if (brainstormTool === 'thread') {
+          if (!threadAnchorId) {
+            setThreadAnchorId(obj.id);
+          } else if (threadAnchorId === obj.id) {
+            setThreadAnchorId(null); // tapped the anchor again → let it go
+          } else {
+            linkThread(threadAnchorId, obj.id);
+            setThreadAnchorId(null);
+          }
+          return;
+        }
+        // pin tool: just select what was tapped, don't type into it
+        setSelectedId(obj.id);
+        return;
+      }
+
+      // A push-pin never opens a text caret — it's named through its popover.
+      if (isPin) {
+        setSelectedId(obj.id);
         return;
       }
 
@@ -1125,7 +1397,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       const isFunctionalBlock =
         obj.type === 'card' &&
         Object.entries(obj.style || {}).some(([k, v]) => /^is[A-Z]/.test(k) && Boolean(v)) &&
-        !obj.style?.isQuote;
+        !obj.style?.isQuote && !obj.style?.isCallout;
 
       /* An EMPTY block goes straight into edit on the first click.
          It used to take two — click to select, click again to type — and a blank
@@ -1135,14 +1407,16 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
          write in it. There is nothing to select on an empty block anyway. */
       const isBlank = !(obj.content || '').trim();
       // image & mirror already returned above (they tap-to-cycle, never type).
-      const canType = !isFunctionalBlock;
+      // A frame is typed into through its title tab, never its body — clicking
+      // the empty middle of an unnamed frame must not open a rename.
+      const canType = !isFunctionalBlock && obj.type !== 'frame';
 
       if (canType && (isSelected || isBlank)) {
         caretPoint.current = { x: e.clientX, y: e.clientY };
         setEditingId(obj.id);
       }
     },
-    [mode, isEditing, isSelected, obj, setEditingId, updateObject, toggleConnectorSelection]
+    [mode, isEditing, isSelected, obj, setEditingId, updateObject, toggleConnectorSelection, readOnly, isTouring, stackSlot, setSpreadStack, setSelectedId, isPin, brainstormTool, threadAnchorId, setThreadAnchorId, toggleClip, linkThread]
   );
 
   // Handle unified content saving. Compares against the LIVE stored content
@@ -1152,9 +1426,21 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
   const saveContent = useCallback((finalContent: string) => {
     if (obj.style?.isCheckpoint) return;
     const live = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
-    if (!live || finalContent === live.content) return;
+    if (!live) return;
+
+    // Bake the typing rhythm into the block. This is the ONE write that can fire
+    // even when the text itself is unchanged (e.g. re-opening an ink note and
+    // stepping away) — but only when we actually captured something.
+    let inkUpdate: Record<string, unknown> | null = null;
+    if (inkActiveRef.current && inkRhythmRef.current.length > 0) {
+      const rhythm = inkRhythmRef.current.slice(0, finalContent.length);
+      inkUpdate = { ...live.style, inkType: true, inkRhythm: rhythm };
+    }
+
+    if (finalContent === live.content && !inkUpdate) return;
 
     const updates: any = { content: finalContent };
+    if (inkUpdate) updates.style = inkUpdate;
 
     // Auto-adjust height for text elements
     if (obj.type === 'text' || obj.type === 'heading' || obj.type === 'workflow-node') {
@@ -1246,6 +1532,40 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
 
   useEffect(() => () => forgetMeasuredHeight(obj.id), [obj.id]);
 
+  /* ---- Semantic zoom ----------------------------------------------------
+     Far enough out, this block stops printing its text and prints what it is
+     ABOUT instead (lib/semanticZoom.ts owns that decision).
+
+     The exclusions here are all the same exclusion: a block you are HOLDING is
+     not a block you are surveying. Editing it, having it selected, dragging or
+     resizing it, or wiring it up in connector mode all mean the real words are
+     the point — you can be typing at 30% zoom, and the letters must not turn
+     into a summary under the caret. Everything else on the board still
+     collapses around it. */
+  const isBusy = isEditing || isSelected || isDragging || isResizing || mode === 'connector';
+  const semantic = useMemo(
+    () => (isBusy ? null : semanticView(obj, camera.zoom)),
+    [isBusy, obj, camera.zoom]
+  );
+
+  /* Whatever ink the block's own text is drawn in — the gist has to inherit
+     it, or a summary goes invisible on exactly the notes whose colour was
+     chosen deliberately. A sticky contrasts against its own pastel paper, not
+     against the canvas. */
+  const semanticInk = useMemo(() => {
+    if (!semantic) return '';
+    if (obj.type === 'sticky') {
+      const bg = (obj.style?.color as string) || '#FEF3C7';
+      return /^#/.test(bg)
+        ? ensureReadableInk(obj.style?.textColor as string | undefined, bg)
+        : readableInk('#FEF3C7');
+    }
+    if (obj.type === 'card') {
+      return (obj.style?.textColor as string | undefined) || 'var(--text-primary)';
+    }
+    return ensureReadableInk(obj.style?.textColor as string | undefined, paperColor(canvasBackground));
+  }, [semantic, obj.type, obj.style?.color, obj.style?.textColor, canvasBackground]);
+
   useEffect(() => {
     if (isEditing && contentRef.current) {
       const target = contentRef.current as any;
@@ -1255,7 +1575,26 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         target.innerText = obj.content || '';
       }
       latestContent.current = obj.content || '';
+
+      // Seed ink capture for this editing session. Capture is armed only if the
+      // Flow ink toggle is on OR this block was already an ink note (so adding
+      // to an old ink note keeps recording its energy).
+      const flow = useFlowStore.getState();
+      inkActiveRef.current = inkEligible && (flow.enabled && flow.prefs.typingInk || Boolean(obj.style?.inkType));
+      inkRhythmRef.current = ((obj.style?.inkRhythm as number[] | undefined) || []).slice();
+      inkPrevTextRef.current = obj.content || '';
+      inkPrevTsRef.current = 0;
+
       contentRef.current.focus();
+
+      // A real <input> (the frame's title tab) has no DOM range to aim at —
+      // select what's there so a rename can be typed straight over, and bail
+      // before the contentEditable caret machinery below.
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+        caretPoint.current = null;
+        target.select();
+        return;
+      }
 
       // Put the caret WHERE THE USER CLICKED. Entering edit mode swaps the
       // rendered markup for a raw-text editable, which destroys the browser's
@@ -1329,8 +1668,25 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       if (contentRef.current) {
         const target = contentRef.current as any;
         const text = 'value' in target ? target.value : target.innerText;
+
+        // TYPING AS INK — fold this keystroke's rhythm into the per-char array
+        // before latestContent moves on. The interval since the last keystroke
+        // becomes the intensity of whatever characters were just added.
+        if (inkActiveRef.current) {
+          const now = performance.now();
+          const dt = inkPrevTsRef.current ? now - inkPrevTsRef.current : 999;
+          const intensity = intervalToIntensity(dt);
+          inkRhythmRef.current = foldRhythm(inkRhythmRef.current, inkPrevTextRef.current, text, intensity);
+          inkPrevTextRef.current = text;
+          inkPrevTsRef.current = now;
+        }
+
         latestContent.current = text;
-        
+
+        // A frame's title is a NAME, not prose — "Q1/Q2" or "@team roadmap"
+        // must stay typeable without a command palette hijacking the keystroke.
+        if (obj.type === 'frame') return;
+
         // Slash Command Detection: matches a forward slash optionally followed by search query, e.g. "/coun"
         const match = text.match(/(?:^|\s)\/([a-zA-Z]*)$/);
         if (match) {
@@ -1349,7 +1705,32 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             setSlashMenu(null);
           }
         }
-        
+
+        // @-mention detection: "@" preceded by start/space, then a bare word
+        // (no spaces) at the caret. Opens the block picker; a space cancels it,
+        // so "meet @ 5pm" never triggers. Only opens when there's actually
+        // another block to link to, so it never captures Enter for nothing.
+        const atMatch = text.match(/(?:^|\s)@([\w-]*)$/);
+        const hasLinkTarget = atMatch
+          ? useCanvasStore.getState().objects.some(
+              (o) => o.id !== obj.id && o.type !== 'arrow' && o.type !== 'drawing'
+            )
+          : false;
+        if (atMatch && hasLinkTarget) {
+          const rect = contentRef.current.getBoundingClientRect();
+          setAtMenu({
+            objectId: obj.id,
+            query: atMatch[1] || '',
+            x: rect.left,
+            y: rect.bottom + window.scrollY + 6,
+          });
+        } else {
+          const cur = useCanvasStore.getState().atMenu;
+          if (cur && cur.objectId === obj.id) {
+            setAtMenu(null);
+          }
+        }
+
         // Auto-adjust height during typing!
         if (obj.type === 'text' || obj.type === 'heading' || obj.type === 'workflow-node') {
           const padding = obj.type === 'workflow-node' ? 30 : 10;
@@ -1400,6 +1781,30 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       sel?.addRange(range);
     };
     window.addEventListener('seed-agent-prompt', handleSeedAgent);
+
+    // The @-mention menu picks a target block; we swap the trailing "@query" the
+    // user typed for a chip token "@[Label](ref:id)" and keep them typing.
+    const handleInsertMention = (e: Event) => {
+      const detail = (e as CustomEvent<{ objectId: string; targetId: string; label: string }>).detail;
+      if (detail?.objectId !== obj.id || !contentRef.current) return;
+      const el = contentRef.current;
+      const safeLabel = (detail.label || 'link').replace(/[\[\]()\n]/g, '').trim().slice(0, 60) || 'link';
+      const token = `@[${safeLabel}](ref:${detail.targetId}) `;
+      const cur = el.innerText;
+      const replaced = cur.replace(/(^|\s)@[\w-]*$/, (_m, pre) => `${pre}${token}`);
+      // If the trailing "@query" was somehow already gone, append rather than lose the link.
+      el.innerText = replaced === cur ? (cur + (cur && !/\s$/.test(cur) ? ' ' : '') + token) : replaced;
+      latestContent.current = el.innerText;
+      el.focus();
+      const range = document.createRange();
+      const sel = window.getSelection();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      setAtMenu(null);
+    };
+    window.addEventListener('insert-mention', handleInsertMention);
 
     const handleNativeKeyDown = (e: KeyboardEvent) => {
       // Intercept Enter for inline /agent (or /ai) commands. The command may sit
@@ -1453,6 +1858,23 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               return tail.toString().trim() === '';
             })();
             const curLine = full.slice(full.lastIndexOf('\n') + 1);
+
+            // Toggle header (▸ / >> ): Enter drops the caret into an indented
+            // body line, so its collapsible detail is trivial to start typing.
+            const tgl = curLine.match(/^([ \t]*)(?:▸|▾|>>)\s+(.*)$/);
+            if (caretAtEnd && tgl) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (tgl[2].trim() === '') {
+                // Empty toggle header → drop the marker and leave.
+                for (let d = 0; d < curLine.length; d++) document.execCommand('delete', false);
+              } else {
+                document.execCommand('insertText', false, '\n' + tgl[1] + '  ');
+              }
+              latestContent.current = el.innerText;
+              return;
+            }
+
             const lm = curLine.match(/^(\s*)([-*•]|\d+\.|\[[ xX]?\]|>)\s(.*)$/);
             if (caretAtEnd && lm) {
               e.preventDefault();
@@ -1469,6 +1891,19 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                 else next = `${marker} `;
                 document.execCommand('insertText', false, '\n' + indent + next);
               }
+              latestContent.current = el.innerText;
+              return;
+            }
+
+            // Plain but indented line (e.g. a toggle's body paragraph): keep the
+            // indentation on Enter so the text stays inside its toggle instead of
+            // dedenting out. An empty indented line falls through to a normal
+            // newline — the natural "press Enter again to exit" gesture.
+            const indentCont = curLine.match(/^([ \t]{2,})\S/);
+            if (caretAtEnd && indentCont) {
+              e.preventDefault();
+              e.stopPropagation();
+              document.execCommand('insertText', false, '\n' + indentCont[1]);
               latestContent.current = el.innerText;
               return;
             }
@@ -1491,17 +1926,37 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
         }
       }
 
+      // @-mention menu navigation (mirrors the slash menu). Handled first so its
+      // Enter/arrows drive the picker instead of the block.
+      const atMenuNow = useCanvasStore.getState().atMenu;
+      if (atMenuNow && atMenuNow.objectId === obj.id) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          let ev = 'at-menu-down';
+          if (e.key === 'ArrowUp') ev = 'at-menu-up';
+          if (e.key === 'Enter') ev = 'at-menu-select';
+          window.dispatchEvent(new CustomEvent(ev));
+          return;
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          setAtMenu(null);
+          return;
+        }
+      }
+
       const currentMenu = useCanvasStore.getState().slashMenu;
       if (!currentMenu || currentMenu.objectId !== obj.id) return;
 
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
-        
+
         let eventName = 'slash-menu-down';
         if (e.key === 'ArrowUp') eventName = 'slash-menu-up';
         if (e.key === 'Enter') eventName = 'slash-menu-select';
-        
+
         window.dispatchEvent(new CustomEvent(eventName));
       } else if (e.key === 'Escape') {
         e.preventDefault();
@@ -1529,6 +1984,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     return () => {
       clearTimeout(timeoutId);
       window.removeEventListener('seed-agent-prompt', handleSeedAgent);
+      window.removeEventListener('insert-mention', handleInsertMention);
       if (ref) {
         ref.removeEventListener('input', handleNativeInput);
         ref.removeEventListener('keydown', handleNativeKeyDown);
@@ -1555,8 +2011,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       if (currentMenu && currentMenu.objectId === obj.id) {
         setSlashMenu(null);
       }
+      // …and the @-mention menu.
+      const currentAt = useCanvasStore.getState().atMenu;
+      if (currentAt && currentAt.objectId === obj.id) {
+        setAtMenu(null);
+      }
     };
-  }, [isEditing, obj.id, obj.type, removeObject, editingId, setEditingId, obj.height, updateObject, setSlashMenu, saveContent, syncWidth]);
+  }, [isEditing, obj.id, obj.type, removeObject, editingId, setEditingId, obj.height, updateObject, setSlashMenu, setAtMenu, saveContent, syncWidth]);
 
   const handleBlur = useCallback(() => {
     if (editingId === obj.id) {
@@ -1575,6 +2036,32 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     const canvasPaper = paperColor(canvasBackground);
     const freeInk = ensureReadableInk(obj.style?.textColor as string | undefined, canvasPaper);
     switch (obj.type) {
+      case 'pin': {
+        // A push-pin: glossy dome head over a needle stuck into the board.
+        const head = (obj.style?.pinColor as string) || DEFAULT_PIN_COLOR;
+        const shade = pinShade(head);
+        return (
+          <div className="w-full h-full" style={{ pointerEvents: 'none' }}>
+            <svg
+              viewBox="0 0 40 40"
+              width="100%"
+              height="100%"
+              style={{ overflow: 'visible', filter: 'drop-shadow(0 3px 2.5px rgba(45,42,38,0.32))' }}
+            >
+              {/* needle into the cork */}
+              <path d="M20 21 L20 39" stroke="#8b9096" strokeWidth="2.4" strokeLinecap="round" />
+              <path d="M20 22 L20 36" stroke="#e6e9ec" strokeWidth="0.8" strokeLinecap="round" />
+              {/* collar under the head */}
+              <ellipse cx="20" cy="20.5" rx="4.8" ry="2.4" fill={shade} />
+              {/* dome head */}
+              <circle cx="20" cy="13" r="10.6" fill={head} />
+              <circle cx="20" cy="13" r="10.6" fill="none" stroke={shade} strokeWidth="1.3" />
+              {/* glossy highlight */}
+              <ellipse cx="16" cy="9.4" rx="4.1" ry="2.9" fill="#ffffff" opacity="0.5" />
+            </svg>
+          </div>
+        );
+      }
       case 'arrow': {
         const startX = obj.style?.startX as number || 0;
         const startY = obj.style?.startY as number || 0;
@@ -1733,29 +2220,93 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       }
 
       case 'frame': {
-        const frameColor = (obj.style?.frameColor as string) || '#C97B4B';
+        const kind = getFrameKind(obj);
+        const frameColor = frameColorOf(obj);
+        const meta = frameKindMeta(kind);
+        const captured = kind === 'normal' ? 0 : objectsInFrame(objects, obj).length;
+
+        /* During a tour, a tool frame is scaffolding, not content — a scene
+           frame would otherwise present its own blue outline and a title tab
+           duplicating the slide heading right on top of the slide. A plain
+           grouping frame stays: that one is a deliberate visual, not a control. */
+        if (isTouring && kind !== 'normal') return null;
+
+        /* Each kind reads differently at a glance. A delete frame in particular
+           must never be mistakable for a grouping frame, so it gets the
+           heaviest treatment: solid red rule and a warning wash. */
+        const borderStyle =
+          kind === 'delete' ? `2.5px solid ${frameColor}AA`
+          : kind === 'scene' ? `2px solid ${frameColor}80`
+          : kind === 'agent' ? `2px dashed ${frameColor}99`
+          : `2px dashed ${frameColor}66`;
+
         return (
           <div
             className="w-full h-full rounded-[22px] relative"
             style={{
-              border: `2px dashed ${frameColor}66`,
-              background: `${frameColor}0C`,
+              border: borderStyle,
+              background: kind === 'delete' ? `${frameColor}14` : `${frameColor}0C`,
             }}
           >
+            {/* Title tab. This is the rename affordance — it used to be an
+                11px pill whose editable collapsed to zero width when the name
+                was empty, so "double-click the frame to rename" put a caret
+                nobody could see, on a frame that is mostly covered by its own
+                contents anyway. Now it's a real, hit-testable control that
+                says what it does. */}
             <div
-              className="absolute -top-[13px] left-4 px-3 py-1 rounded-full text-[11px] font-bold shadow-sm max-w-[85%]"
-              style={{ background: frameColor, color: '#fff' }}
+              className="absolute -top-[15px] left-4 flex items-center gap-1.5 rounded-full shadow-sm max-w-[88%] group/frametab"
+              style={{ background: frameColor, color: '#fff', padding: '3px 10px' }}
+              title={isEditing ? undefined : `${meta.label} frame — click the name to rename`}
+              onMouseDown={(e) => {
+                // Never let a rename click start a frame drag.
+                if (isEditing) e.stopPropagation();
+              }}
+              onDoubleClick={(e) => {
+                if (readOnly) return;
+                e.stopPropagation();
+                setEditingId(obj.id);
+              }}
+              onClick={(e) => {
+                if (readOnly || isEditing) return;
+                // The tab doubles as the frame's drag handle, so a click that
+                // actually moved the frame must not also open a rename.
+                if (dragMovedRef.current) return;
+                e.stopPropagation();
+                setEditingId(obj.id);
+              }}
             >
+              <FrameKindGlyph kind={kind} />
               {isEditing ? (
-                <div
-                  ref={contentRef}
-                  contentEditable={isEditing}
-                  suppressContentEditableWarning
+                <input
+                  ref={contentRef as unknown as React.Ref<HTMLInputElement>}
                   onBlur={handleBlur}
-                  className="outline-none whitespace-nowrap"
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === 'Enter' || e.key === 'Escape') {
+                      e.preventDefault();
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  placeholder="Name this frame…"
+                  className="bg-transparent outline-none border-none text-[11px] font-bold text-white placeholder:text-white/60"
+                  style={{ minWidth: 130, width: `${Math.max(130, (obj.content || '').length * 7 + 24)}px` }}
                 />
               ) : (
-                <span className="whitespace-nowrap">{obj.content || 'Frame'}</span>
+                <span className="whitespace-nowrap text-[11px] font-bold cursor-text">
+                  {(obj.content || '').trim() || (
+                    <span className="text-white/70">Name this frame…</span>
+                  )}
+                </span>
+              )}
+              {captured > 0 && !isEditing && (
+                <span
+                  className="rounded-full text-[9px] font-extrabold tabular-nums shrink-0"
+                  style={{ background: 'rgba(255,255,255,0.24)', padding: '1px 6px' }}
+                  title={`${captured} block${captured === 1 ? '' : 's'} inside this frame`}
+                >
+                  {captured}
+                </span>
               )}
             </div>
           </div>
@@ -2068,7 +2619,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             data-placeholder="Start typing..."
             style={{
               fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '15px',
-              fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+              fontFamily: isInkBlock ? INK_FONT : (obj.style?.fontFamily as string) || "'Inter', sans-serif",
               fontWeight: (obj.style?.fontWeight as number | undefined) ?? undefined,
               textAlign: (obj.style?.textAlign as any) || undefined,
               color: freeInk,
@@ -2086,7 +2637,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             className="text-block-display break-words select-none"
             style={{
               fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '15px',
-              fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+              fontFamily: isInkBlock ? INK_FONT : (obj.style?.fontFamily as string) || "'Inter', sans-serif",
               fontWeight: (obj.style?.fontWeight as number | undefined) ?? undefined,
               textAlign: (obj.style?.textAlign as any) || undefined,
               color: freeInk,
@@ -2096,7 +2647,17 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
               ...(autoWidth ? { width: 'max-content', maxWidth: wrapWidth } : null),
             }}
           >
-            <RichText content={obj.content || ''} />
+            {isInkBlock ? (
+              <InkText content={obj.content || ''} rhythm={obj.style?.inkRhythm as number[] | undefined} />
+            ) : (
+              <AnimatedText content={obj.content || ''} anim={obj.style?.textAnim}>
+                <RichText
+                  content={obj.content || ''}
+                  persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
+                  onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
+                />
+              </AnimatedText>
+            )}
           </div>
         );
 
@@ -2112,7 +2673,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                 onBlur={handleBlur}
                 className="text-block-editable"
                 style={{
-                  fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+                  fontFamily: isInkBlock ? INK_FONT : (obj.style?.fontFamily as string) || "'Inter', sans-serif",
                   fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '2.2rem',
                   fontWeight: (obj.style?.fontWeight as number | undefined) ?? 500,
                   textAlign: (obj.style?.textAlign as any) || undefined,
@@ -2126,7 +2687,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                 ref={displayRef}
                 className="text-block-display select-none"
                 style={{
-                  fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
+                  fontFamily: isInkBlock ? INK_FONT : (obj.style?.fontFamily as string) || "'Inter', sans-serif",
                   fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '2.2rem',
                   fontWeight: (obj.style?.fontWeight as number | undefined) ?? 500,
                   textAlign: (obj.style?.textAlign as any) || undefined,
@@ -2136,7 +2697,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   wordBreak: 'break-word',
                 }}
               >
-                <RichText content={obj.content || ''} />
+                {isInkBlock ? (
+                  <InkText content={obj.content || ''} rhythm={obj.style?.inkRhythm as number[] | undefined} />
+                ) : (
+                  <AnimatedText content={obj.content || ''} anim={obj.style?.textAnim}>
+                    <RichText content={obj.content || ''} />
+                  </AnimatedText>
+                )}
               </div>
             )}
             <div
@@ -2199,7 +2766,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   color: stickyInk,
                 }}
               >
-                <RichText content={obj.content || ''} />
+                <AnimatedText content={obj.content || ''} anim={obj.style?.textAnim}>
+                  <RichText
+                    content={obj.content || ''}
+                    persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
+                    onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
+                  />
+                </AnimatedText>
               </div>
             )}
           </div>
@@ -2330,6 +2903,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             </div>
           );
         }
+        if (obj.style?.isTable) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <TableBlock obj={obj} />
+            </div>
+          );
+        }
         if (obj.style?.isTimeline) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
@@ -2386,13 +2966,39 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
             </div>
           );
         }
+        if (obj.style?.isEmbed) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <EmbedBlock obj={obj} />
+            </div>
+          );
+        }
+        if (obj.style?.isGithub) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <GitHubBlock obj={obj} />
+            </div>
+          );
+        }
         if (obj.style?.isQuote) {
           return (
             <div style={{ width: '100%', height: '100%' }}>
-              <QuoteBlock 
-                obj={obj} 
-                isEditing={isEditing} 
-                onBlur={handleBlur} 
+              <QuoteBlock
+                obj={obj}
+                isEditing={isEditing}
+                onBlur={handleBlur}
+                innerRef={contentRef}
+              />
+            </div>
+          );
+        }
+        if (obj.style?.isCallout) {
+          return (
+            <div style={{ width: '100%', height: '100%' }}>
+              <CalloutBlock
+                obj={obj}
+                isEditing={isEditing}
+                onBlur={handleBlur}
                 innerRef={contentRef}
               />
             </div>
@@ -2425,7 +3031,13 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
                   wordBreak: 'break-word',
                 }}
               >
-                <RichText content={obj.content || ''} />
+                <AnimatedText content={obj.content || ''} anim={obj.style?.textAnim}>
+                  <RichText
+                    content={obj.content || ''}
+                    persistedCollapsed={obj.style?.toggleCollapsed as Record<string, boolean> | undefined}
+                    onCollapseChange={(next) => updateObject(obj.id, { style: { ...obj.style, toggleCollapsed: next } })}
+                  />
+                </AnimatedText>
               </div>
             )}
           </div>
@@ -3630,7 +4242,9 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
     <motion.div
       ref={containerRef}
       data-object-id={obj.id}
-      className={`canvas-object absolute group ${(isEditing || editingCommentId === obj.id) ? '' : 'select-none'} ${obj.type === 'arrow' ? '' : (isDragging ? 'dragging' : '')} ${obj.type === 'arrow' ? '' : (isSelected ? 'selected' : '')} ${connectorSelectedIds.includes(obj.id) ? 'connector-selected' : ''}`}
+      /* Drives the fade of the real text beneath the gist (globals.css). */
+      data-semantic={semantic ? 'on' : undefined}
+      className={`canvas-object absolute group ${(isEditing || editingCommentId === obj.id) ? '' : 'select-none'} ${obj.type === 'arrow' ? '' : (isDragging ? 'dragging' : '')} ${(obj.type === 'arrow' || isPin) ? '' : (isSelected ? 'selected' : '')} ${connectorSelectedIds.includes(obj.id) ? 'connector-selected' : ''}`}
       style={{
         left: obj.x,
         top: obj.y,
@@ -3642,26 +4256,32 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
            where it belongs: behind. */
         zIndex: obj.type === 'frame'
           ? (obj.zIndex ?? 0)
-          : (isDragging ? 1000 : isSelected ? 100 : (obj.zIndex ?? 1)),
+          : isDragging ? 1000
+          /* A pile orders its own members, and an open one floats over the
+             board — otherwise cards bloom out underneath their neighbours. */
+          : stackSlot ? stackSlot.z
+          : isSelected ? 100 : (obj.zIndex ?? 1),
         cursor: mode === 'connector' ? 'grab' : isEditing ? 'text' : isDragging ? 'grabbing' : 'pointer',
         // Per-object opacity + custom text color set from the selection panel.
         opacity: (obj.style?.opacity as number | undefined) ?? undefined,
         color: (obj.type === 'text' || obj.type === 'heading' || obj.type === 'card' || obj.type === 'sticky')
           ? ((obj.style?.textColor as string | undefined) ?? undefined)
           : undefined,
-        background: (mode === 'connector' || connectorSelectedIds.includes(obj.id))
+        background: isPin
+          ? 'rgba(0,0,0,0)'
+          : (mode === 'connector' || connectorSelectedIds.includes(obj.id))
           ? (obj.type === 'sticky' ? 'none' : 'var(--bg-card)')
           : ((obj.type === 'text' || obj.type === 'heading' || obj.type === 'card')
               ? ((obj.style?.bgColor as string | undefined) ?? 'rgba(0,0,0,0)')
               : 'rgba(0,0,0,0)'),
-        boxShadow: obj.type === 'arrow' ? 'none' : ((connectorSelectedIds.includes(obj.id) || mode === 'connector')
+        boxShadow: (obj.type === 'arrow' || isPin) ? 'none' : ((connectorSelectedIds.includes(obj.id) || mode === 'connector')
           ? (connectorSelectedIds.includes(obj.id)
             ? '0 0 50px rgba(var(--accent-rgb), 0.4), 0 8px 32px rgba(0,0,0,0.15)'
             : '0 0 40px rgba(var(--accent-rgb), 0.25), 0 8px 32px rgba(0,0,0,0.1)')
           : 'none'),
-        border: obj.type === 'arrow' ? 'none' : (connectorSelectedIds.includes(obj.id)
+        border: (obj.type === 'arrow' || isPin) ? 'none' : (connectorSelectedIds.includes(obj.id)
           ? '3px solid rgba(var(--accent-rgb), 0.8)'
-          : mode === 'connector' 
+          : mode === 'connector'
           ? '2px solid rgba(var(--accent-rgb), 0.5)'
           : 'none'),
         pointerEvents: (mode === 'draw' || mode === 'arrow') ? 'none' : 'auto',
@@ -3671,7 +4291,15 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       animate={mode === 'connector' ? {
         y: [0, -10, 0, 10, 0],
         rotate: [obj.rotation || 0, (obj.rotation || 0) + 0.5, obj.rotation || 0, (obj.rotation || 0) - 0.5, obj.rotation || 0],
-      } : { y: 0, rotate: obj.rotation || 0 }}
+      } : {
+        /* The pile's whole layout lives here, as a transform on top of the
+           shared x/y every member stores. Spreading and gathering are then
+           just a change of target, which framer-motion tweens for free — and
+           since nothing was written down, nothing has to be put back. */
+        x: stackSlot ? stackSlot.dx : 0,
+        y: stackSlot ? stackSlot.dy : 0,
+        rotate: (obj.rotation || 0) + (stackSlot ? stackSlot.rotate : 0),
+      }}
       transition={mode === 'connector' ? {
         y: {
           duration: 3 + (obj.x % 500) / 100,
@@ -3698,6 +4326,162 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       }}
     >
       {renderContent()}
+
+      {/* A paper clip fastened to this block (or the top of a pile). Decoration
+          only — pointer-events off so it never eats a click on the note. */}
+      {!isPin && obj.type !== 'arrow' && obj.type !== 'frame' && obj.style?.clip ? (
+        <div
+          className="absolute z-[15] pointer-events-none"
+          style={{ top: -13, left: '50%', transform: 'translateX(-50%) rotate(-7deg)' }}
+        >
+          <svg width="24" height="34" viewBox="0 0 26 36" style={{ filter: 'drop-shadow(0 2px 2px rgba(45,42,38,0.35))' }}>
+            <path
+              d="M8 32 V11 a5 5 0 0 1 10 0 v17 a3.2 3.2 0 0 1 -6.4 0 V13"
+              fill="none"
+              stroke={(obj.style.clip as { color?: string }).color || '#8C93A0'}
+              strokeWidth="2.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M8 32 V11 a5 5 0 0 1 10 0 v17 a3.2 3.2 0 0 1 -6.4 0 V13"
+              fill="none"
+              stroke="#ffffff"
+              strokeOpacity="0.4"
+              strokeWidth="0.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+      ) : null}
+
+      {/* The pin the thread tool is currently anchored to — a soft pulsing ring
+          telling you "tap another to tie the string here". */}
+      {isThreadAnchor && (
+        <motion.div
+          className="absolute pointer-events-none rounded-full"
+          style={{ inset: isPin ? -6 : -8, border: '2px dashed var(--accent)' }}
+          animate={{ opacity: [0.9, 0.35, 0.9], scale: [1, 1.06, 1] }}
+          transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      )}
+
+      {/* Pin name — shown on hover (and while dragging), a quiet pill above the
+          head. Only pins that have been named show it. */}
+      {isPin && !isSelected && (obj.content || '').trim() && (isHovered || isDragging) && (
+        <div
+          className="absolute left-1/2 -translate-x-1/2 z-[102] pointer-events-none whitespace-nowrap px-2.5 py-1 rounded-full bg-[var(--bg-secondary)]/95 backdrop-blur-sm border border-[var(--border)] text-[11px] font-semibold text-[var(--text-primary)] shadow-md"
+          style={{ top: -14, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}
+        >
+          {(obj.content || '').trim()}
+        </div>
+      )}
+
+      {/* Pin popover — name it, recolour its head, or pull it out. Appears while
+          the pin is selected. Stops propagation so clicks here don't deselect. */}
+      {isPin && isSelected && !isDragging && (
+        <motion.div
+          initial={{ opacity: 0, y: 6, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+          className="absolute left-1/2 -translate-x-1/2 z-[103] glass-panel"
+          style={{ bottom: 'calc(100% + 10px)', padding: 10, width: 208 }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            autoFocus
+            type="text"
+            value={obj.content || ''}
+            onChange={(e) => updateObject(obj.id, { content: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === 'Escape') {
+                (e.target as HTMLInputElement).blur();
+                setSelectedId(null);
+              }
+            }}
+            placeholder="Name this pin…"
+            className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg outline-none text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+            style={{ padding: '6px 9px' }}
+          />
+          <div className="flex items-center justify-between" style={{ marginTop: 9 }}>
+            <div className="flex items-center gap-1.5">
+              {PIN_COLORS.map((p) => {
+                const active = ((obj.style?.pinColor as string) || DEFAULT_PIN_COLOR).toLowerCase() === p.head.toLowerCase();
+                return (
+                  <button
+                    key={p.head}
+                    onClick={() => updateObject(obj.id, { style: { ...obj.style, pinColor: p.head } })}
+                    title={p.name}
+                    className="rounded-full transition-transform hover:scale-115 cursor-pointer"
+                    style={{
+                      width: 16,
+                      height: 16,
+                      background: p.head,
+                      boxShadow: active ? `0 0 0 2px var(--bg-secondary), 0 0 0 3.5px ${p.head}` : `inset 0 0 0 1px ${p.shade}`,
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <button
+              onClick={() => {
+                const rect = containerRef.current?.getBoundingClientRect();
+                addToTrash({
+                  id: obj.id,
+                  label: (obj.content || 'Pin').slice(0, 24),
+                  originX: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+                  originY: rect ? rect.top + rect.height / 2 : window.innerHeight / 2,
+                  objectData: obj,
+                  connectionsData: connections.filter((c) => c.fromId === obj.id || c.toId === obj.id),
+                });
+                removeObject(obj.id);
+              }}
+              title="Remove pin"
+              className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+              </svg>
+            </button>
+          </div>
+        </motion.div>
+      )}
+
+      {/* How deep the pile goes. Only the top card says it — the ones below
+          are edges, and an edge with a badge on it reads as a separate note. */}
+      {stackSlot && !stackSlot.spread && stackSlot.isTop && (
+        <motion.div
+          initial={{ scale: 0.6, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+          className="absolute -top-2 -right-2 z-[30] rounded-full bg-[var(--accent)] text-white font-semibold tabular-nums pointer-events-none flex items-center justify-center"
+          style={{
+            // Inline: the global reset kills padding utilities, and a badge
+            // with dead padding clips its own number at the corners.
+            minWidth: 22,
+            height: 22,
+            padding: '0 6px',
+            fontSize: 11,
+            boxShadow: '0 2px 8px rgba(45,42,38,0.28)',
+          }}
+          title={`${stackSlot.count} notes — click to spread`}
+        >
+          {stackSlot.count}
+        </motion.div>
+      )}
+
+      {/* What this block is about, once its words are too small to read. */}
+      {semantic && (
+        <SemanticGist
+          view={semantic}
+          zoom={camera.zoom}
+          ink={semanticInk}
+          align={(obj.style?.textAlign as 'left' | 'center' | 'right' | undefined) || 'left'}
+          fontFamily={obj.style?.fontFamily as string | undefined}
+        />
+      )}
 
       {/* Collaborator attribution dot — only shows during a joined session */}
       {showAuthorDot && (
@@ -3838,7 +4622,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
       )}
 
       {/* Mini Action Buttons */}
-      {!isDragging && obj.type !== 'workflow-node' && (
+      {!isDragging && obj.type !== 'workflow-node' && !isPin && (
         <div 
           className={`absolute -top-8 flex gap-1.5 z-[101] pb-2 px-2 transition-all duration-200 ${
             (isHovered && !isEditing) 
@@ -3868,7 +4652,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           )}
 
           {/* Heart Button */}
-          {!obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && obj.type !== 'mirror' && (
+          {!readOnly && !obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && obj.type !== 'mirror' && (
             <motion.button
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
@@ -3890,7 +4674,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           )}
 
           {/* Comment Button */}
-          {!obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && obj.type !== 'mirror' && (
+          {!readOnly && !obj.style?.isCheckpoint && obj.type !== 'shape' && obj.type !== 'arrow' && obj.type !== 'mirror' && (
             <motion.button
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
@@ -4012,7 +4796,7 @@ function CanvasObject({ obj, isSelected, isFocused }: CanvasObjectProps) {
           ))}
         </>
       ) : (
-        isSelected && (
+        isSelected && !isPin && (
           <div
             className="resize-handle"
             style={{ bottom: -5, right: -5, opacity: 1 }}

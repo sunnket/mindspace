@@ -7,10 +7,14 @@ import { useChatStore, useChatUnreadTotal } from '@/store/chatStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import WorkflowMenu from './WorkflowMenu';
+import FlowModePanel, { FlowIcon } from './FlowModePanel';
+import { useFlowStore } from '@/store/flowStore';
 import CanvasBackgroundPanel from './CanvasBackgroundPanel';
+import BrainstormPanel, { PinIcon } from './BrainstormPanel';
 import ShapePreview from '@/components/canvas/ShapePreview';
 import { RELAX_EFFECTS, RELAX_EFFECT_LIST } from '@/lib/relaxEffects';
 import RelaxIcon from './RelaxIcons';
+import { FRAME_KINDS, frameKindMeta } from '@/lib/frames';
 
 const FRAME_COLORS = [
   { name: 'Terracotta', hex: '#C97B4B' },
@@ -95,6 +99,8 @@ const hslToHex = (h: number, s: number, l: number): string => {
 export default function FloatingToolbar() {
   const mode = useCanvasStore((s) => s.mode);
   const setMode = useCanvasStore((s) => s.setMode);
+  const viewLocked = useCanvasStore((s) => s.viewLocked);
+  const toggleViewLocked = useCanvasStore((s) => s.toggleViewLocked);
   const drawColor = useCanvasStore((s) => s.drawColor);
   const setDrawColor = useCanvasStore((s) => s.setDrawColor);
   const drawSize = useCanvasStore((s) => s.drawSize);
@@ -129,6 +135,8 @@ export default function FloatingToolbar() {
   const setTextSize = useCanvasStore((s) => s.setTextSize);
   const selectedId = useCanvasStore((s) => s.selectedId);
   const updateObject = useCanvasStore((s) => s.updateObject);
+  const frameDraftKind = useCanvasStore((s) => s.frameDraftKind);
+  const setFrameDraftKind = useCanvasStore((s) => s.setFrameDraftKind);
   const objects = useCanvasStore((s) => s.objects);
   const addObject = useCanvasStore((s) => s.addObject);
   const setSelectedId = useCanvasStore((s) => s.setSelectedId);
@@ -151,9 +159,12 @@ export default function FloatingToolbar() {
   const [showShapeOptions, setShowShapeOptions] = useState(false);
   const [showArrowOptions, setShowArrowOptions] = useState(false);
   const [showFrameOptions, setShowFrameOptions] = useState(false);
+  const [showBrainstormOptions, setShowBrainstormOptions] = useState(false);
   const [showWorkflowMenu, setShowWorkflowMenu] = useState(false);
   const [showBgOptions, setShowBgOptions] = useState(false);
   const [showRelaxOptions, setShowRelaxOptions] = useState(false);
+  const [showFlow, setShowFlow] = useState(false);
+  const flowEnabled = useFlowStore((s) => s.enabled);
 
   const relaxEffect = useCanvasStore((s) => s.relaxEffect);
   const setRelaxEffect = useCanvasStore((s) => s.setRelaxEffect);
@@ -178,9 +189,11 @@ export default function FloatingToolbar() {
     setShowShapeOptions(false);
     setShowArrowOptions(false);
     setShowFrameOptions(false);
+    setShowBrainstormOptions(false);
     setShowBgOptions(false);
     setShowRelaxOptions(false);
     setShowWorkflowMenu(false);
+    setShowFlow(false);
   }, []);
 
   /* A mode can also be entered from the keyboard (D, S, R, V…) or by the canvas
@@ -196,6 +209,7 @@ export default function FloatingToolbar() {
     setShowDrawOptions(mode === 'draw');
     setShowShapeOptions(mode === 'shape');
     setShowFrameOptions(mode === 'frame');
+    setShowBrainstormOptions(mode === 'brainstorm');
     setShowRelaxOptions(mode === 'relax');
     setShowBgOptions(false);
     setShowWorkflowMenu(false);
@@ -267,18 +281,6 @@ export default function FloatingToolbar() {
       ),
     },
     {
-      id: 'pan',
-      label: 'Pan (Space)',
-      icon: (
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M18 11V6a2 2 0 0 0-4 0v5" />
-          <path d="M14 10V4a2 2 0 0 0-4 0v6" />
-          <path d="M10 10.5V6a2 2 0 0 0-4 0v8" />
-          <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
-        </svg>
-      ),
-    },
-    {
       id: 'arrow',
       // A connector, not a compass needle: a line with a real head on it, which
       // is what the tool actually draws.
@@ -316,6 +318,11 @@ export default function FloatingToolbar() {
       ),
     },
     {
+      id: 'brainstorm',
+      label: 'Brainstorm — pins, clips & thread',
+      icon: <PinIcon size={17} />,
+    },
+    {
       id: 'relax',
       label: 'Stress Reliefer',
       icon: (
@@ -346,6 +353,38 @@ export default function FloatingToolbar() {
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
           >
             <WorkflowMenu onClose={() => setShowWorkflowMenu(false)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Brainstorm panel — pins, clips & thread */}
+      <AnimatePresence>
+        {showBrainstormOptions && mode === 'brainstorm' && (
+          <motion.div
+            key="brainstorm-panel"
+            className="absolute bottom-16 left-1/2 -translate-x-1/2 z-[100]"
+            initial={{ opacity: 0, y: 15, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 15, scale: 0.95 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <BrainstormPanel />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Flow Mode panel */}
+      <AnimatePresence>
+        {showFlow && (
+          <motion.div
+            key="flow-panel"
+            className="absolute bottom-16 right-0 z-[100]"
+            initial={{ opacity: 0, y: 15, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 15, scale: 0.95 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <FlowModePanel onClose={() => setShowFlow(false)} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -414,6 +453,7 @@ export default function FloatingToolbar() {
                   (tool.id === 'draw' && showDrawOptions) ||
                   (tool.id === 'shape' && showShapeOptions) ||
                   (tool.id === 'frame' && showFrameOptions) ||
+                  (tool.id === 'brainstorm' && showBrainstormOptions) ||
                   (tool.id === 'relax' && showRelaxOptions);
 
                 if (mode === (tool.id as InteractionMode) && panelOpen) {
@@ -427,6 +467,7 @@ export default function FloatingToolbar() {
                 if (tool.id === 'draw') setShowDrawOptions(true);
                 else if (tool.id === 'shape') setShowShapeOptions(true);
                 else if (tool.id === 'frame') setShowFrameOptions(true);
+                else if (tool.id === 'brainstorm') setShowBrainstormOptions(true);
                 else if (tool.id === 'relax') setShowRelaxOptions(true);
               }}
               className={`relative w-9 h-9 rounded-lg flex items-center justify-center text-sm font-medium transition-all ${
@@ -447,6 +488,40 @@ export default function FloatingToolbar() {
             </motion.button>
           );
         })}
+
+        {/* Lock-in mode — where Pan used to live. Freezes the viewport into the
+            user's own space (no scroll/pan, no stray block on empty canvas) while
+            zoom + editing stay live. A padlock that visibly opens/shuts. */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => { closeAllPanels(); toggleViewLocked(); }}
+          className={`relative w-9 h-9 rounded-lg flex items-center justify-center text-sm font-medium transition-all ${
+            viewLocked ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+          }`}
+          title={viewLocked ? 'Unlock the canvas view' : 'Lock the view — freeze this as your space'}
+        >
+          {viewLocked && (
+            <motion.span
+              layoutId="toolbar-active"
+              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+              className="absolute inset-0 rounded-lg clay-inset"
+            />
+          )}
+          <span className="relative flex items-center justify-center">
+            {viewLocked ? (
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4.5" y="11" width="15" height="9" rx="2" />
+                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+              </svg>
+            ) : (
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4.5" y="11" width="15" height="9" rx="2" />
+                <path d="M8 11V7a4 4 0 0 1 7.5-1.3" />
+              </svg>
+            )}
+          </span>
+        </motion.button>
 
         {/* Canvas background / color mode — sits right beside Frame */}
         <motion.button
@@ -478,6 +553,43 @@ export default function FloatingToolbar() {
               <circle cx="12" cy="12" r="9" />
               <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
             </svg>
+          </span>
+        </motion.button>
+
+        {/* Plugins used to live here. It moved to the canvas-title header,
+            alongside Share, Skill Set and Collaborate — board-level actions
+            belong with the board's name, not in the drawing toolbar. */}
+
+        {/* Flow Mode — cinematic focus writing (spotlight, semantic weather, progress) */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => {
+            const wasOpen = showFlow;
+            closeAllPanels();
+            setCommentMode(false);
+            setThreadsSidebarOpen(false);
+            if (!wasOpen) setShowFlow(true);
+          }}
+          className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
+            showFlow || flowEnabled
+              ? 'text-[var(--accent)]'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+          }`}
+          title="Flow Mode — cinematic focus writing"
+        >
+          {showFlow && (
+            <motion.span
+              layoutId="toolbar-active"
+              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+              className="absolute inset-0 rounded-lg clay-inset"
+            />
+          )}
+          {flowEnabled && !showFlow && (
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--accent)] shadow-[0_0_6px_var(--accent)]" />
+          )}
+          <span className="relative flex items-center justify-center">
+            <FlowIcon size={18} />
           </span>
         </motion.button>
 
@@ -1500,6 +1612,39 @@ export default function FloatingToolbar() {
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
             <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
+              Frame type
+            </span>
+            <div className="flex gap-1">
+              {FRAME_KINDS.map((k) => {
+                const active = frameDraftKind === k.id;
+                return (
+                  <button
+                    key={k.id}
+                    onClick={() => setFrameDraftKind(k.id)}
+                    title={k.blurb}
+                    aria-pressed={active}
+                    className="flex-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer active:scale-95 whitespace-nowrap"
+                    style={{
+                      padding: '6px 4px',
+                      background: active ? k.color : 'var(--well)',
+                      color: active ? '#fff' : 'var(--text-secondary)',
+                    }}
+                  >
+                    {k.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-[var(--text-muted)] text-center leading-relaxed">
+              {frameKindMeta(frameDraftKind).blurb}
+            </p>
+
+            {/* Colour is the user's to choose only on a grouping frame — every
+                other kind is locked to its identity colour so it can't be
+                mistaken for one. */}
+            {frameDraftKind === 'normal' && (
+            <>
+            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
               Frame color
             </span>
             <div className="flex gap-1.5 justify-center">
@@ -1525,8 +1670,11 @@ export default function FloatingToolbar() {
                 );
               })}
             </div>
+            </>
+            )}
+
             <p className="text-[10px] text-[var(--text-muted)] text-center leading-relaxed">
-              Click to place a frame, then drag its title tab to move it. Great for grouping related cards.
+              Click to place it, then click its title tab to name it.
             </p>
           </motion.div>
         )}

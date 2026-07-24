@@ -17,6 +17,19 @@ interface SlashItem {
 
 const ITEMS: SlashItem[] = [
   {
+    id: 'singularity',
+    label: 'Singularity Search',
+    sublabel: 'Pull matches from every canvas into a black hole',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2" /><ellipse cx="12" cy="12" rx="10" ry="4" /><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)" /><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)" /></svg>),
+    keywords: ['singularity', 'search', 'find', 'galaxy', 'universe', 'magnet', 'cluster', 'black hole', 'everything', 'across'],
+    action: (objectId) => {
+      // Not a block — it opens the full-screen search well. Clear the slash text
+      // block it was summoned from so it doesn't linger empty.
+      useCanvasStore.getState().removeObject(objectId);
+      useCanvasStore.getState().setSingularityOpen(true);
+    }
+  },
+  {
     id: 'countdown',
     label: 'Countdown',
     sublabel: 'Live timer to a date',
@@ -57,6 +70,87 @@ const ITEMS: SlashItem[] = [
         style: {
           isTodo: true
         }
+      });
+      setEditingId(null);
+    }
+  },
+  {
+    id: 'callout',
+    label: 'Callout',
+    sublabel: 'Note / Warning / Idea box — flag what matters',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><line x1="12" y1="11" x2="12" y2="16" /><line x1="12" y1="8" x2="12" y2="8.01" /></svg>),
+    keywords: ['callout', 'note', 'warning', 'idea', 'question', 'success', 'alert', 'info', 'tip'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'card',
+        width: 340,
+        height: 132,
+        content: '',
+        style: { isCallout: true, calloutKind: 'note' },
+      });
+      setEditingId(null);
+    }
+  },
+  {
+    id: 'toggle',
+    label: 'Toggle List',
+    sublabel: 'Collapsible section — hide detail behind a heading',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /><line x1="14" y1="7" x2="20" y2="7" /><line x1="14" y1="17" x2="20" y2="17" /></svg>),
+    keywords: ['toggle', 'collapse', 'expand', 'fold', 'accordion', 'details', 'section'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'text',
+        width: 460,
+        height: 60,
+        content: '▸ Toggle heading\n  Hidden details — click the arrow to collapse',
+      });
+      setEditingId(null);
+    }
+  },
+  {
+    id: 'divider',
+    label: 'Divider',
+    sublabel: 'A horizontal rule to section your notes',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12" /></svg>),
+    keywords: ['divider', 'rule', 'line', 'separator', 'hr', 'section', 'break'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'text',
+        width: 460,
+        height: 24,
+        content: '---',
+      });
+      setEditingId(null);
+    }
+  },
+  {
+    id: 'codesnippet',
+    label: 'Code Snippet',
+    sublabel: 'Formatted monospace text — lighter than a Code Sandbox',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><polyline points="9 9 7 12 9 15" /><polyline points="15 9 17 12 15 15" /></svg>),
+    keywords: ['code', 'snippet', 'monospace', 'fenced', 'pre', 'syntax'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'text',
+        width: 460,
+        height: 96,
+        content: '```\nconst greeting = "hello";\nconsole.log(greeting);\n```',
+      });
+      setEditingId(null);
+    }
+  },
+  {
+    id: 'spoiler',
+    label: 'Spoiler',
+    sublabel: 'Hidden text behind a bar — click to reveal',
+    icon: (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9.9 4.24A9 9 0 0 1 12 4c7 0 10 8 10 8a13 13 0 0 1-1.67 2.68" /><path d="M6.6 6.6A13 13 0 0 0 2 12s3 8 10 8a9 9 0 0 0 5.4-1.6" /><line x1="2" y1="2" x2="22" y2="22" /></svg>),
+    keywords: ['spoiler', 'hidden', 'blur', 'redact', 'reveal', 'secret', 'hide'],
+    action: (objectId, updateObject, setEditingId) => {
+      updateObject(objectId, {
+        type: 'text',
+        width: 420,
+        height: 44,
+        content: '||hidden — click to reveal||',
       });
       setEditingId(null);
     }
@@ -391,7 +485,9 @@ export default function SlashCommandMenu() {
           top: `${slashMenu.y}px`,
           backdropFilter: 'blur(12px)'
         }}
-        onMouseDown={(e) => e.stopPropagation()} // Prevent deselections
+        // preventDefault keeps focus on the editing block so it doesn't blur
+        // (which would end editing and unmount this menu before the click lands).
+        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
       >
         <div className="text-[10px] text-white/40 px-2 py-1 font-bold uppercase tracking-wider border-b border-white/5 mb-1 select-none">
           Add canvas extension

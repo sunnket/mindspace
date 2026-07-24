@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useCanvasStore } from '@/store/canvasStore';
+import { useCanvasStore, resolveParentId } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import { Occupancy, rectOf, isBackdrop, settle, fitFrame } from '@/lib/canvasLayout';
 import { formatSkillsetForAgent } from '@/lib/skillset';
@@ -161,54 +161,13 @@ function makeActionScanner(onAction: (a: Action) => void) {
 }
 
 
-/**
- * Guaranteed local build. When every model is unreachable we still put something
- * useful on the canvas from the prompt alone, so the agent NEVER produces nothing.
- */
-function localFallbackActions(prompt: string, context: string | undefined, x: number, y: number): Action[] {
-  const source = (context && context.trim()) ? context : prompt;
-  const title = prompt.trim().replace(/\s+/g, ' ').slice(0, 60).replace(/^./, (c) => c.toUpperCase());
-
-  const actions: Action[] = [{
-    type: 'CREATE_OBJECT', tempId: 'fb_h',
-    objData: { type: 'heading', x, y, width: 440, height: 60, content: title || 'New note', style: {} },
-    log: 'Adding a heading...',
-  }];
-
-  // Split the source into list-ish items
-  const items = source
-    .split(/\n|;|(?:,\s)|(?:\d+[.)]\s)|(?:[-*•]\s)/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 1 && s.toLowerCase() !== prompt.trim().toLowerCase())
-    .slice(0, 8);
-
-  if (items.length >= 2) {
-    const todo = items.map((t, idx) => ({ id: String(idx + 1), text: t.slice(0, 120), done: false }));
-    actions.push({
-      type: 'CREATE_OBJECT', tempId: 'fb_todo',
-      objData: {
-        type: 'card', x, y: y + 84, width: 320, height: 300,
-        content: JSON.stringify(todo),
-        style: { isTodo: true, todoTitle: title || 'Checklist' },
-      },
-      log: 'Turning it into a checklist...',
-    });
-  } else {
-    const palette = ['#FEF3C7', '#F3E8FF', '#ECFDF5'];
-    const notes = (source.match(/[^.!?\n]+[.!?]?/g) || [source]).map((s) => s.trim()).filter(Boolean).slice(0, 3);
-    notes.forEach((note, idx) => {
-      actions.push({
-        type: 'CREATE_OBJECT', tempId: `fb_s${idx}`,
-        objData: {
-          type: 'sticky', x: x + idx * 224, y: y + 84, width: 200, height: 160,
-          content: note.slice(0, 180), style: { color: palette[idx % palette.length] },
-        },
-        log: 'Adding a note...',
-      });
-    });
-  }
-  return actions;
-}
+/* The "guaranteed local build" that used to live here is DEAD, deliberately.
+   When every model failed it echoed the user's own prompt back onto the canvas
+   as a heading + sticky — output-shaped noise that read as the agent
+   gaslighting you with your own words (and got reported as a hallucination
+   twice). The replacement contract: retry the whole model race once on fresh
+   keys, and if that also fails, say so honestly in the status pill and put
+   NOTHING fake on the board. */
 
 export default function AgentOverlay() {
   const agentLogs = useCanvasStore((s) => s.agentLogs);
@@ -219,6 +178,9 @@ export default function AgentOverlay() {
   const logEndRef = useRef<HTMLDivElement>(null);
   const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  /** The chat message id (if any) that kicked off the run in flight, so Stop can
+   *  resolve its "Building…" chip to error instead of leaving it spinning. */
+  const activeSourceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -227,18 +189,38 @@ export default function AgentOverlay() {
   const handleStop = () => {
     runningRef.current = false;
     abortRef.current?.abort();
+    window.dispatchEvent(new Event('agent-cursor-hide'));
+    // Resolve the chat chip of whatever was building so it doesn't spin forever.
+    if (activeSourceIdRef.current && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('agent-build-state', { detail: { sourceId: activeSourceIdRef.current, state: 'error' } }));
+      activeSourceIdRef.current = null;
+    }
     setAgentState({ agentRunning: false, agentStatus: 'idle', agentLogs: [] });
   };
 
   const runAgent = useCallback(async (
     promptText: string, keyIdx: number, customX?: number, customY?: number, refContext?: string,
-    filesContextArg?: string, briefArg?: string, modeArg?: string,
+    filesContextArg?: string, briefArg?: string, modeArg?: string, sourceId?: string,
   ) => {
-    if (!promptText.trim() || runningRef.current) return;
+    if (!promptText.trim()) return;
+
+    /* When a build was kicked off from the AI chat panel, report its real
+       progress back to that chat message so its "Building this on your canvas…"
+       chip resolves to done / error instead of spinning forever. A no-op for
+       inline /agent runs (no sourceId). */
+    const emitBuildState = (state: 'building' | 'done' | 'error') => {
+      if (!sourceId || typeof window === 'undefined') return;
+      window.dispatchEvent(new CustomEvent('agent-build-state', { detail: { sourceId, state } }));
+    };
+
+    // Another run is already in flight: don't queue a second, but resolve this
+    // build's chip so the chat doesn't wait on a run that never starts.
+    if (runningRef.current) { emitBuildState('error'); return; }
 
     const store = useCanvasStore.getState();
     const { camera } = store;
     runningRef.current = true;
+    activeSourceIdRef.current = sourceId ?? null;
 
     const startX = customX ?? (-camera.x + window.innerWidth / 2) / camera.zoom;
     const startY = customY ?? (-camera.y + window.innerHeight / 2) / camera.zoom;
@@ -251,11 +233,19 @@ export default function AgentOverlay() {
     };
     const live = () => useCanvasStore.getState();
 
+    /* The agent's visible hand (AgentCursor). Every block it touches sends the
+       pointer gliding there with a note of what it's doing — the run reads as a
+       live collaborator working the board instead of blocks silently popping in. */
+    const cursorTo = (cx: number, cy: number, note?: string) => {
+      window.dispatchEvent(new CustomEvent('agent-cursor', {
+        detail: { x: cx, y: cy, note: note?.replace(/\.{2,}$/, '').replace(/…$/, '') },
+      }));
+    };
+    const cursorHide = () => window.dispatchEvent(new Event('agent-cursor-hide'));
+    cursorTo(startX, startY, 'Thinking');
+
     // Snapshot the canvas level the user is looking at
-    const stack = store.canvasStack;
-    const activeParent = stack.length > 0
-      ? stack[stack.length - 1]
-      : (store.urlCanvasId === 'root' ? undefined : store.urlCanvasId);
+    const activeParent = resolveParentId(store.canvasStack, store.urlCanvasId);
     const visibleObjects = store.objects.filter((o) => o.parentId === activeParent && !o.style?.isMinimized);
     const visibleIds = new Set(visibleObjects.map((o) => o.id));
     const visibleConnections = store.connections.filter((c) => visibleIds.has(c.fromId) && visibleIds.has(c.toId));
@@ -568,6 +558,11 @@ export default function AgentOverlay() {
               void resolveMap(spawned.id, (style.mapQuery as string).trim());
             }
             executed++;
+            cursorTo(
+              pos.x + Math.min(48, (Number(od.width) || 200) / 2),
+              pos.y + Math.min(36, (Number(od.height) || 100) / 2),
+              action.log,
+            );
             gentlePan({ x: pos.x, y: pos.y, width: Number(od.width) || 200, height: Number(od.height) || 100 });
             break;
           }
@@ -603,11 +598,14 @@ export default function AgentOverlay() {
             // Content or size changed → the block's real footprint changed too.
             if (!wantsMove) occupancy.set({ ...existing, ...merged });
             executed++;
+            cursorTo(Number(merged.x ?? existing.x) + 40, Number(merged.y ?? existing.y) + 28, action.log);
             break;
           }
           case 'DELETE_OBJECT': {
             const targetId = resolveId(action.id);
-            if (targetId && live().objects.some((o) => o.id === targetId)) {
+            const doomed = targetId ? live().objects.find((o) => o.id === targetId) : undefined;
+            if (doomed) {
+              cursorTo(doomed.x + 40, doomed.y + 28, action.log);
               live().removeObject(targetId);
               occupancy.remove(targetId); // its space is free again
               touched.delete(targetId);
@@ -619,9 +617,16 @@ export default function AgentOverlay() {
             const fromId = resolveId(action.fromId);
             const toId = resolveId(action.toId);
             const objs = live().objects;
-            if (fromId && toId && objs.some((o) => o.id === fromId) && objs.some((o) => o.id === toId)) {
+            const fromObj = objs.find((o) => o.id === fromId);
+            const toObj = objs.find((o) => o.id === toId);
+            if (fromObj && toObj) {
               live().addConnection(fromId, toId, action.style || {});
               executed++;
+              cursorTo(
+                (fromObj.x + fromObj.width / 2 + toObj.x + toObj.width / 2) / 2,
+                (fromObj.y + fromObj.height / 2 + toObj.y + toObj.height / 2) / 2,
+                action.log,
+              );
             }
             break;
           }
@@ -703,27 +708,93 @@ export default function AgentOverlay() {
 
     const finishSuccess = () => {
       settleLayout();
+      cursorHide();
       addLog('[Success] Done.');
       setAgentState({ agentStatus: 'success', agentRunning: false });
       runningRef.current = false;
+      emitBuildState('done');
+      activeSourceIdRef.current = null;
       setTimeout(() => {
         if (useCanvasStore.getState().agentStatus === 'success') setAgentState({ agentStatus: 'idle', agentLogs: [] });
       }, 2200);
     };
 
-    const runLocalFallback = () => {
-      addLog('[Agent] Building offline...');
-      localFallbackActions(promptText, refContext, startX, startY).forEach(runAction);
-      finishSuccess();
+    /* Honest failure: red pill with a real message, build chip → error, and — as
+       the user asked — a single CLEAR status note on the canvas at the agent's
+       spot (NOT the prompt-echo, which parroted their words back as content).
+       This one is unmistakably a system message and it deletes nothing. */
+    const failRun = (msg: string) => {
+      cursorHide();
+      addLog(`[Failure] ${msg}`);
+      try {
+        live().addObject({
+          type: 'sticky', x: Math.round(startX), y: Math.round(startY),
+          width: 320, height: 150,
+          content: `⚠️ ${msg}`,
+          style: { color: '#FEE2E2', textColor: '#7F1D1D' },
+        });
+      } catch { /* even the note is best-effort */ }
+      setAgentState({ agentStatus: 'failed', agentRunning: false });
+      runningRef.current = false;
+      emitBuildState('error');
+      activeSourceIdRef.current = null;
+      setTimeout(() => {
+        if (useCanvasStore.getState().agentStatus === 'failed') setAgentState({ agentStatus: 'idle', agentLogs: [] });
+      }, 6000);
     };
 
     try {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      // If the task is about an image the user placed, LOOK at it first so any
-      // caption/description is grounded in what the picture actually shows.
+      /* --- Context pre-passes: ALL CONCURRENT, ALL HARD-CAPPED --------------
+         Vision, URL crawling, memory, search, weather, wiki, news, youtube… are
+         best-effort garnish — none of them is worth stalling the build for. They
+         used to run with NO deadline at all (and vision + crawling ran SERIALLY
+         before the rest), so a single hanging upstream held "Gathering context…"
+         hostage for minutes. Now every source runs in ONE parallel batch on a
+         shared abort signal with a hard deadline: whatever answered in time
+         ships with the prompt, the rest are cut loose mid-flight. The user's
+         Stop button aborts through the same wire. */
+      /* Two tiers of deadline. PRIMARY sources (vision, the URLs the user
+         pasted, memory, verified YouTube results a video ask depends on) get the
+         full window — they ARE the material. GARNISH (search/wiki/news/quotes/…)
+         is nice-to-have seasoning, and its broad trigger regexes fire on tons of
+         prompts, so a slow garnish upstream was routinely holding the whole
+         build at "Gathering context…" for the full 8s. Garnish now gets cut
+         loose at 4.5s; a run with no primary sources starts that much sooner. */
+      const CONTEXT_DEADLINE_MS = 8000;
+      const GARNISH_DEADLINE_MS = 4500;
+      const ctxController = new AbortController();
+      const garnishController = new AbortController();
+      const onMainAbort = () => { ctxController.abort(); garnishController.abort(); };
+      controller.signal.addEventListener('abort', onMainAbort);
+      const ctxTimer = setTimeout(() => { ctxController.abort(); garnishController.abort(); }, CONTEXT_DEADLINE_MS);
+      const garnishTimer = setTimeout(() => garnishController.abort(), GARNISH_DEADLINE_MS);
+      const sig = ctxController.signal;
+      const gsig = garnishController.signal;
+
       let visionContext: string | undefined;
+      let webContext: string | undefined;
+      let memoriesContext: string | undefined;
+      let searchContext: string | undefined;
+      let weatherContext: string | undefined;
+      let dictContext: string | undefined;
+      let wikiContext: string | undefined;
+      let newsContext: string | undefined;
+      let youtubeContext: string | undefined;
+      let quotesContext: string | undefined;
+      let countryContext: string | undefined;
+      let triviaContext: string | undefined;
+
+      const pLower = promptText.toLowerCase();
+      const wantsYouTube = /\b(youtube|video|song|music|listen to|watch|play|track|album|artist|singer|band|clip|trailer|mv|music video|remix|cover|live performance)\b/i.test(pLower);
+      const pre: Promise<void>[] = [];
+      const ctxStart = Date.now();
+      addLog('[Agent] Gathering context…');
+
+      // VISION — if the task is about an image the user placed, LOOK at it so
+      // any caption/description is grounded in what the picture actually shows.
       if (isImageTask(promptText)) {
         const isImg = (o?: CanvasObjectData) =>
           !!o && (o.type === 'image' || (typeof o.content === 'string' && o.content.startsWith('data:image')));
@@ -737,71 +808,45 @@ export default function AgentOverlay() {
             );
           }
         }
-        if (target && typeof target.content === 'string' && target.content.startsWith('data:image')) {
-          addLog('[Agent] Looking at your image...');
-          try {
-            const small = await downscaleImage(target.content);
-            const vres = await fetch('/api/vision', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ image: small }),
-              signal: controller.signal,
-            });
-            if (vres.ok) {
-              const vjson = await vres.json();
-              if (vjson?.description) {
-                visionContext = `Image at (x:${Math.round(target.x)}, y:${Math.round(target.y)}, ${Math.round(target.width)}x${Math.round(target.height)}) shows: ${vjson.description}`;
+        const vt = target && typeof target.content === 'string' && target.content.startsWith('data:image') ? target : undefined;
+        if (vt) {
+          pre.push((async () => {
+            try {
+              const small = await downscaleImage(vt.content);
+              const vres = await fetch('/api/vision', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: small }),
+                signal: sig,
+              });
+              if (vres.ok) {
+                const vjson = await vres.json();
+                if (vjson?.description) {
+                  visionContext = `Image at (x:${Math.round(vt.x)}, y:${Math.round(vt.y)}, ${Math.round(vt.width)}x${Math.round(vt.height)}) shows: ${vjson.description}`;
+                }
               }
-            }
-          } catch { /* vision is best-effort — proceed without it */ }
+            } catch { /* vision is best-effort — proceed without it */ }
+          })());
         }
-        if (!runningRef.current) return;
       }
 
-      // If the user pasted URL(s), CRAWL them so the agent works from the real
-      // page — "read this", "summarize this docs page", "pull X from this link".
-      let webContext: string | undefined;
+      // URL CRAWL — if the user pasted URL(s), fetch them ALL in parallel so the
+      // agent works from the real pages ("read this", "summarize this docs page").
       const urlsInPrompt = Array.from(
         new Set((promptText.match(/https?:\/\/[^\s)]+/gi) || []).map((u) => u.replace(/[.,]+$/, '')))
       ).slice(0, 3);
-      if (urlsInPrompt.length) {
-        addLog('[Agent] Reading the web…');
-        const parts: string[] = [];
-        for (const u of urlsInPrompt) {
+      const crawlSlots: (string | null)[] = urlsInPrompt.map(() => null);
+      urlsInPrompt.forEach((u, idx) => {
+        pre.push((async () => {
           try {
-            const r = await fetch(`/api/fetch-url?url=${encodeURIComponent(u)}`, { signal: controller.signal });
+            const r = await fetch(`/api/fetch-url?url=${encodeURIComponent(u)}`, { signal: sig });
             if (r.ok) {
               const j = await r.json();
-              if (j?.text) parts.push(`URL: ${j.url || u}\nTITLE: ${j.title || ''}\n${j.text}`);
+              if (j?.text) crawlSlots[idx] = `URL: ${j.url || u}\nTITLE: ${j.title || ''}\n${j.text}`;
             }
           } catch { /* skip a page that won't load */ }
-        }
-        if (parts.length) webContext = parts.join('\n\n----------\n\n').slice(0, 24_000);
-        if (!runningRef.current) return;
-      }
-
-      /* --- Context pre-passes: ALL CONCURRENT ------------------------------
-         These used to run strictly one after another (memory → search → weather
-         → wiki → news → youtube → …). Any research-y prompt tripped several of
-         them, and the user paid the SUM of every round trip before the model
-         even started — seconds of dead time. They're independent, so fire them
-         together and await once. A single "Gathering context…" log avoids the
-         read-modify-write race that per-source logging would hit in parallel. */
-      let memoriesContext: string | undefined;
-      let searchContext: string | undefined;
-      let weatherContext: string | undefined;
-      let dictContext: string | undefined;
-      let wikiContext: string | undefined;
-      let newsContext: string | undefined;
-      let youtubeContext: string | undefined;
-      let quotesContext: string | undefined;
-      let countryContext: string | undefined;
-      let triviaContext: string | undefined;
-
-      const pLower = promptText.toLowerCase();
-      const sig = controller.signal;
-      const pre: Promise<void>[] = [];
-      addLog('[Agent] Gathering context…');
+        })());
+      });
 
       // Memory (always)
       pre.push((async () => {
@@ -810,20 +855,22 @@ export default function AgentOverlay() {
           if (memRes.ok) {
             const memJson = await memRes.json();
             if (memJson.success && memJson.memories?.length) {
-              memoriesContext = memJson.memories.map((m: any) => `- ${m.key}: ${m.value}`).join('\n');
+              memoriesContext = memJson.memories.map((m: { key: string; value: string }) => `- ${m.key}: ${m.value}`).join('\n');
             }
           }
         } catch { /* best effort */ }
       })());
 
-      if (/\b(search|find|google|look up|who is|what is|how to|best|top|compare|vs|versus|recommend|review|list of|examples of|alternatives|how much|price|cost|where can i|when did|why does|which is)\b/i.test(pLower)) {
+      // wantsYouTube also fires a plain web search (link redundancy for video
+      // asks) — IN the batch, not as a sequential tail after it.
+      if (wantsYouTube || /\b(search|find|google|look up|who is|what is|how to|best|top|compare|vs|versus|recommend|review|list of|examples of|alternatives|how much|price|cost|where can i|when did|why does|which is)\b/i.test(pLower)) {
         pre.push((async () => {
           try {
-            const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: sig });
+            const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: gsig });
             if (sRes.ok) {
               const sJson = await sRes.json();
               if (sJson.success && sJson.results?.length) {
-                searchContext = sJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
+                searchContext = sJson.results.map((r: { url: string; title: string; snippet: string }) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
               }
             }
           } catch { /* best effort */ }
@@ -835,7 +882,7 @@ export default function AgentOverlay() {
           try {
             const match = promptText.match(/(?:in|at|for) ([a-zA-Z\s,]+)/i);
             const q = match ? match[1].trim() : promptText;
-            const wRes = await fetch(`/api/weather?q=${encodeURIComponent(q)}`, { signal: sig });
+            const wRes = await fetch(`/api/weather?q=${encodeURIComponent(q)}`, { signal: gsig });
             if (wRes.ok) {
               const wJson = await wRes.json();
               if (!wJson.error) {
@@ -851,7 +898,7 @@ export default function AgentOverlay() {
           try {
             const match = promptText.match(/(?:define|meaning of|definition of|what does .* mean) ([a-zA-Z]+)/i);
             const w = match ? match[1].trim() : promptText.split(' ').pop() || '';
-            const dRes = await fetch(`/api/dictionary?word=${encodeURIComponent(w)}`, { signal: sig });
+            const dRes = await fetch(`/api/dictionary?word=${encodeURIComponent(w)}`, { signal: gsig });
             if (dRes.ok) {
               const dJson = await dRes.json();
               if (dJson.success && dJson.results?.length) dictContext = JSON.stringify(dJson.results, null, 2);
@@ -865,7 +912,7 @@ export default function AgentOverlay() {
           try {
             const match = promptText.match(/(?:who is|who was|what is|history of|biography of|about|wikipedia|origin of|explain) ([a-zA-Z0-9\s]+)/i);
             const q = match ? match[1].trim() : promptText;
-            const wikiRes = await fetch(`/api/wikipedia?q=${encodeURIComponent(q)}`, { signal: sig });
+            const wikiRes = await fetch(`/api/wikipedia?q=${encodeURIComponent(q)}`, { signal: gsig });
             if (wikiRes.ok) {
               const wikiJson = await wikiRes.json();
               if (wikiJson.success) wikiContext = `TITLE: ${wikiJson.title}\nSUMMARY: ${wikiJson.summary}\nURL: ${wikiJson.url}`;
@@ -879,18 +926,17 @@ export default function AgentOverlay() {
           try {
             const match = promptText.match(/(?:news about|latest on|headlines for|update on|trending) ([a-zA-Z0-9\s]+)/i);
             const q = match ? match[1].trim() : undefined;
-            const nRes = await fetch(`/api/news${q ? `?q=${encodeURIComponent(q)}` : ''}`, { signal: sig });
+            const nRes = await fetch(`/api/news${q ? `?q=${encodeURIComponent(q)}` : ''}`, { signal: gsig });
             if (nRes.ok) {
               const nJson = await nRes.json();
               if (nJson.success && nJson.results?.length) {
-                newsContext = nJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
+                newsContext = nJson.results.map((r: { url: string; title: string; snippet: string }) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
               }
             }
           } catch { /* best effort */ }
         })());
       }
 
-      const wantsYouTube = /\b(youtube|video|song|music|listen to|watch|play|track|album|artist|singer|band|clip|trailer|mv|music video|remix|cover|live performance)\b/i.test(pLower);
       if (wantsYouTube) {
         pre.push((async () => {
           try {
@@ -913,7 +959,7 @@ export default function AgentOverlay() {
       if (/\b(quote|quotes|inspire|inspiration|motivation|motivational|words of wisdom|famous saying|wise words)\b/i.test(pLower)) {
         pre.push((async () => {
           try {
-            const qRes = await fetch(`/api/quotes-search?limit=5`, { signal: sig });
+            const qRes = await fetch(`/api/quotes-search?limit=5`, { signal: gsig });
             if (qRes.ok) {
               const qJson = await qRes.json();
               if (qJson.success && qJson.results?.length) {
@@ -929,7 +975,7 @@ export default function AgentOverlay() {
           try {
             const match = promptText.match(/(?:about|country|capital of|population of|flag of|currency of|language of|languages in) ([a-zA-Z\s]+)/i);
             const q = match ? match[1].trim() : promptText;
-            const cRes = await fetch(`/api/country-info?q=${encodeURIComponent(q)}`, { signal: sig });
+            const cRes = await fetch(`/api/country-info?q=${encodeURIComponent(q)}`, { signal: gsig });
             if (cRes.ok) {
               const cJson = await cRes.json();
               if (cJson.success && cJson.results?.length) {
@@ -943,7 +989,7 @@ export default function AgentOverlay() {
       if (/\b(trivia|quiz|fun fact|random fact|did you know|brain teaser)\b/i.test(pLower)) {
         pre.push((async () => {
           try {
-            const tRes = await fetch(`/api/trivia?amount=5`, { signal: sig });
+            const tRes = await fetch(`/api/trivia?amount=5`, { signal: gsig });
             if (tRes.ok) {
               const tJson = await tRes.json();
               if (tJson.success && tJson.results?.length) {
@@ -955,94 +1001,120 @@ export default function AgentOverlay() {
       }
 
       await Promise.all(pre);
+      clearTimeout(ctxTimer);
+      clearTimeout(garnishTimer);
+      controller.signal.removeEventListener('abort', onMainAbort);
+      {
+        const crawled = crawlSlots.filter((s): s is string => Boolean(s));
+        if (crawled.length) webContext = crawled.join('\n\n----------\n\n').slice(0, 24_000);
+      }
+      addLog(`[Agent] Context ready in ${((Date.now() - ctxStart) / 1000).toFixed(1)}s — thinking…`);
+      if (!runningRef.current) return;
 
-      // YouTube asks also want plain link redundancy — run a web search only if
-      // the search pass didn't already (checked AFTER the parallel batch settles).
-      if (wantsYouTube && !searchContext) {
-        try {
-          const sRes = await fetch(`/api/web-search?q=${encodeURIComponent(promptText)}`, { signal: sig });
-          if (sRes.ok) {
-            const sJson = await sRes.json();
-            if (sJson.success && sJson.results?.length) {
-              searchContext = sJson.results.map((r: any) => `URL: ${r.url}\nTITLE: ${r.title}\nSNIPPET: ${r.snippet}`).join('\n\n');
-            }
+      const requestBody = {
+        prompt: promptText,
+        agentX: startX, agentY: startY,
+        context: refContext,
+        brief: briefArg,
+        mode: modeArg,
+        visionContext,
+        webContext,
+        memoriesContext,
+        searchContext,
+        weatherContext,
+        dictContext,
+        wikiContext,
+        newsContext,
+        youtubeContext,
+        quotesContext,
+        countryContext,
+        triviaContext,
+        filesContext: filesContext || undefined,
+        // Per-canvas Skill Set — standing rules the agent must obey here.
+        skillsetContext: formatSkillsetForAgent(store.skillset) || undefined,
+        canvas: {
+          isDark: store.canvasBackground.dark,
+          // Send the height each block ACTUALLY renders at, not the nominal one
+          // it was stored with. A note created as height:120 that grew to 600px
+          // of text has to look 600px tall to the model, or it plans the next
+          // block 200px down — straight through the middle of the note.
+          objects: visibleObjects.map((o) => ({
+            id: o.id, type: o.type, x: o.x, y: o.y,
+            width: o.width, height: Math.round(rectOf(o).h), content: o.content, style: o.style,
+          })),
+          connections: visibleConnections.map((c) => ({ id: c.id, fromId: c.fromId, toId: c.toId })),
+        },
+      };
+
+      /* --- call the model & stream the plan, with ONE automatic retry --------
+         A hedged race can still lose an unlucky round to tier congestion (every
+         slot stalling past its deadline), and rarely a model streams JSON the
+         scanner can't use. Both used to end in the prompt-echo fallback. Now a
+         failed or empty round is re-raced ONCE on a rotated key alignment — a
+         fresh round usually lands on warmer workers. Returns true when this
+         round produced actions (or the user stopped — nothing left to do). */
+      let fullResponse = '';
+      const streamPlanRound = async (keyOffset: number): Promise<boolean> => {
+        const res = await fetch('/api/agent/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...requestBody, apiKeyIndex: keyIdx + keyOffset }),
+          signal: controller.signal,
+        });
+        if (!runningRef.current) return true; // stopped — don't retry
+        if (!res.ok || !res.body) return false;
+
+        // Stream the plan; execute each action the instant it completes.
+        const scan = makeActionScanner((action) => { if (runningRef.current) runAction(action); });
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        const roundStart = Date.now();
+        fullResponse = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!runningRef.current) { reader.cancel(); return true; }
+          const chunk = decoder.decode(value, { stream: true });
+          fullResponse += chunk;
+          scan(chunk);
+          /* DUD-ROUND WATCHDOG. A real plan puts "actions" FIRST, so its first
+             action completes within the first couple thousand characters. A
+             model that instead streams PROSE (live-verified: llama-70b answered
+             a heavy build with a 97-second markdown essay — zero actions) would
+             otherwise hold this loop hostage to the very end. If we're several
+             thousand chars or 45s in with NOTHING parsed, the round is a dud —
+             cut it loose and let the retry (or the honest failure) take over. */
+          if (executed === 0 && (fullResponse.length > 6000 || Date.now() - roundStart > 45_000)) {
+            reader.cancel();
+            return false;
           }
-        } catch { /* best effort */ }
+        }
+        return executed > 0;
+      };
+
+      let planOk = await streamPlanRound(0);
+      if (!planOk && runningRef.current) {
+        addLog('[Agent] Models busy — retrying on a different key/model…');
+        planOk = await streamPlanRound(2); // rotate two keys forward, not just one
       }
       if (!runningRef.current) return;
-
-      const res = await fetch('/api/agent/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: promptText,
-          apiKeyIndex: keyIdx,
-          agentX: startX, agentY: startY,
-          context: refContext,
-          brief: briefArg,
-          mode: modeArg,
-          visionContext,
-          webContext,
-          memoriesContext,
-          searchContext,
-          weatherContext,
-          dictContext,
-          wikiContext,
-          newsContext,
-          youtubeContext,
-          quotesContext,
-          countryContext,
-          triviaContext,
-          filesContext: filesContext || undefined,
-          // Per-canvas Skill Set — standing rules the agent must obey here.
-          skillsetContext: formatSkillsetForAgent(store.skillset) || undefined,
-          canvas: {
-            isDark: store.canvasBackground.dark,
-            // Send the height each block ACTUALLY renders at, not the nominal one
-            // it was stored with. A note created as height:120 that grew to 600px
-            // of text has to look 600px tall to the model, or it plans the next
-            // block 200px down — straight through the middle of the note.
-            objects: visibleObjects.map((o) => ({
-              id: o.id, type: o.type, x: o.x, y: o.y,
-              width: o.width, height: Math.round(rectOf(o).h), content: o.content, style: o.style,
-            })),
-            connections: visibleConnections.map((c) => ({ id: c.id, fromId: c.fromId, toId: c.toId })),
-          },
-        }),
-        signal: controller.signal,
-      });
-
-      if (!runningRef.current) return;
-
-      // Non-streamed error response → guaranteed local build instead of failing
-      if (!res.ok || !res.body) {
-        runLocalFallback();
+      if (!planOk) {
+        failRun('AI models are busy or rate-limited right now — nothing was built. Give it a few seconds and try again.');
         return;
       }
 
-      // Stream the plan; execute each action the instant it completes
-      const scan = makeActionScanner((action) => { if (runningRef.current) runAction(action); });
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let fullResponse = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!runningRef.current) { reader.cancel(); return; }
-        const chunk = decoder.decode(value, { stream: true });
-        fullResponse += chunk;
-        scan(chunk);
-      }
-
-      if (!runningRef.current) return;
-
       // Every link card fired off its own check the moment it landed (verifyLink).
       // Let those finish before we call the run done, so a dead card is gone from
-      // the board before the user is told the agent is finished.
+      // the board before the user is told the agent is finished — but NEVER let a
+      // slow validator hold the whole run hostage (that's a big part of the "it
+      // just sits there saying building" feeling). Cap the wait; any late failure
+      // still removes its own card when it resolves.
       if (linkChecks.length) {
         addLog('[Agent] Checking every link works…');
-        await Promise.all(linkChecks);
+        await Promise.race([
+          Promise.all(linkChecks),
+          new Promise<void>((resolve) => setTimeout(resolve, 6000)),
+        ]);
       }
 
       if (!runningRef.current) return;
@@ -1080,30 +1152,22 @@ export default function AgentOverlay() {
 
       if (!runningRef.current) return;
 
-      if (executed === 0) {
-        // Model responded but produced nothing usable → still guarantee output
-        runLocalFallback();
-        return;
-      }
-      finishSuccess();
+      finishSuccess(); // planOk guaranteed executed > 0 above
     } catch (err) {
       if (!runningRef.current) return; // user stopped
       console.error('[Agent]', err);
-      // Never leave the canvas empty — fall back locally
-      if (executed === 0) {
-        runLocalFallback();
-      } else {
-        finishSuccess();
-      }
+      // A partial board still deserves its settle pass; an empty run fails honestly.
+      if (executed === 0) failRun('Something went wrong mid-run — nothing was built. Try again.');
+      else finishSuccess();
     }
   }, [setAgentState]);
 
   // Inline "/agent <task>" launches arrive as run-agent window events
   useEffect(() => {
     const handleRunEvent = (e: Event) => {
-      const ce = e as CustomEvent<{ prompt: string; apiKeyIndex?: number; x?: number; y?: number; context?: string; filesContext?: string; brief?: string; mode?: string }>;
-      const { prompt: p, apiKeyIndex: ki, x, y, context, filesContext, brief, mode } = ce.detail;
-      runAgent(p, ki ?? 0, x, y, context, filesContext, brief, mode);
+      const ce = e as CustomEvent<{ prompt: string; apiKeyIndex?: number; x?: number; y?: number; context?: string; filesContext?: string; brief?: string; mode?: string; sourceId?: string }>;
+      const { prompt: p, apiKeyIndex: ki, x, y, context, filesContext, brief, mode, sourceId } = ce.detail;
+      runAgent(p, ki ?? 0, x, y, context, filesContext, brief, mode, sourceId);
     };
     window.addEventListener('run-agent', handleRunEvent);
     return () => window.removeEventListener('run-agent', handleRunEvent);

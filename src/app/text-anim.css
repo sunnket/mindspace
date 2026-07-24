@@ -1,0 +1,344 @@
+/* ============================================================================
+   TEXT ANIMATION ENGINE
+   Paired with src/lib/textAnim.ts (data) + src/components/canvas/AnimatedText.tsx
+   (runtime). Everything animates transform / opacity / filter only, so effects
+   composite on the GPU and never reflow the block. All colours are theme tokens,
+   so every effect reads on both the light (cream) and dark canvas backgrounds.
+   ============================================================================ */
+
+.ct-root { position: relative; display: block; }
+.ct-kinetic, .ct-surface { display: block; }
+.ct-kinetic .ct-u { will-change: transform, opacity, filter; backface-visibility: hidden; }
+
+/* Reveal units stay hidden until their block scrolls into view (loop units are
+   always live). Delay + fill:both then holds each unit on its 0% keyframe during
+   the stagger wait, so text never flashes in fully-formed. */
+.ct-kinetic:not(.ct-loop):not(.ct-play) .ct-u { opacity: 0; }
+.ct-kinetic.ct-play .ct-u {
+  animation-name: var(--kf);
+  animation-duration: calc(var(--ct-dur, 620ms) / var(--ct-speed, 1));
+  animation-timing-function: var(--ct-ease, cubic-bezier(.2,.75,.25,1));
+  animation-fill-mode: both;
+  animation-delay: calc(var(--i, 0) * var(--ct-stagger, 40ms) / var(--ct-speed, 1));
+}
+.ct-kinetic.ct-loop.ct-play .ct-u {
+  animation-iteration-count: infinite;
+  animation-fill-mode: none;
+  /* negative delay pre-advances each unit so a loop reads as a travelling wave */
+  animation-delay: calc(var(--i, 0) * var(--ct-stagger, 40ms) / var(--ct-speed, 1) * -1);
+}
+.ct-surface.ct-play {
+  animation-name: var(--kf, none);
+  animation-duration: calc(var(--ct-dur, 2400ms) / var(--ct-speed, 1));
+  animation-timing-function: var(--ct-ease, ease-in-out);
+  animation-fill-mode: both;
+}
+.ct-surface.ct-loop.ct-play { animation-iteration-count: infinite; }
+
+/* ---- fallback for over-long text that cannot be split gracefully ---- */
+@keyframes ctFadeSimple { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.ct-fade-simple { opacity: 0; }
+.ct-fade-simple.ct-play { animation: ctFadeSimple .5s cubic-bezier(.2,.75,.25,1) both; }
+
+/* =========================== REVEAL (kinetic) ============================ */
+@keyframes ctCascadeUp   { from { opacity:0; transform: translateY(.9em); }                       to { opacity:1; transform:none; } }
+@keyframes ctCascadeDown { from { opacity:0; transform: translateY(-.9em); }                      to { opacity:1; transform:none; } }
+@keyframes ctBloom       { from { opacity:0; transform: scale(.2) rotate(-14deg); }               to { opacity:1; transform:none; } }
+@keyframes ctBlurIn      { from { opacity:0; filter: blur(11px); }                                to { opacity:1; filter: blur(0); } }
+@keyframes ctSlideLeft   { from { opacity:0; transform: translateX(.8em); }                       to { opacity:1; transform:none; } }
+@keyframes ctDropBounce  { 0% { opacity:0; transform: translateY(-1.15em); } 62% { opacity:1; transform: translateY(.12em); } 80% { transform: translateY(-.05em); } 100% { transform:none; } }
+@keyframes ctFlipX       { from { opacity:0; transform: perspective(420px) rotateX(-92deg); }     to { opacity:1; transform: perspective(420px) rotateX(0); } }
+@keyframes ctFlipY       { from { opacity:0; transform: perspective(420px) rotateY(92deg); }      to { opacity:1; transform: perspective(420px) rotateY(0); } }
+@keyframes ctSlot        { 0% { opacity:0; transform: translateY(-1.2em); filter: blur(3px); } 70% { opacity:1; filter: blur(0); } 100% { transform:none; } }
+@keyframes ctSplitFlap   { 0% { opacity:0; transform: perspective(360px) rotateX(90deg); } 55% { opacity:1; transform: perspective(360px) rotateX(-14deg); } 100% { transform: perspective(360px) rotateX(0); } }
+@keyframes ctRipple      { 0% { opacity:0; transform: scale(0); } 60% { opacity:1; transform: scale(1.28); } 100% { transform: scale(1); } }
+@keyframes ctSpringIn    { 0% { opacity:0; transform: scale(.4); } 65% { opacity:1; transform: scale(1.14); } 100% { transform: scale(1); } }
+@keyframes ctUnfold      { from { opacity:0; transform: perspective(400px) rotateX(88deg); }       to { opacity:1; transform: perspective(400px) rotateX(0); } }
+@keyframes ctSkewIn      { from { opacity:0; transform: skewX(20deg) translateX(.5em); }           to { opacity:1; transform: none; } }
+@keyframes ctLineWipe    { from { opacity:.15; clip-path: inset(0 100% 0 0); transform: translateX(.3em); } to { opacity:1; clip-path: inset(0 0 0 0); transform:none; } }
+@keyframes ctFocusIn     { from { opacity:0; transform: scale(2.3); filter: blur(7px); }           to { opacity:1; transform:none; filter: blur(0); } }
+@keyframes ctRollIn      { from { opacity:0; transform: translateX(-.6em) rotate(-130deg); }       to { opacity:1; transform:none; } }
+
+.ct-cascade-up   { --kf: ctCascadeUp; }
+.ct-cascade-down { --kf: ctCascadeDown; }
+.ct-bloom        { --kf: ctBloom;   --ct-ease: cubic-bezier(.34,1.56,.55,1); }
+.ct-blur-in      { --kf: ctBlurIn; }
+.ct-slide-left   { --kf: ctSlideLeft; }
+.ct-drop-bounce  { --kf: ctDropBounce; }
+.ct-flip-x       { --kf: ctFlipX; }
+.ct-flip-y       { --kf: ctFlipY; }
+.ct-slot         { --kf: ctSlot; }
+.ct-split-flap   { --kf: ctSplitFlap; }
+.ct-ripple       { --kf: ctRipple;  --ct-ease: cubic-bezier(.34,1.4,.55,1); }
+.ct-spring-in    { --kf: ctSpringIn; --ct-ease: cubic-bezier(.34,1.56,.55,1); }
+.ct-unfold       { --kf: ctUnfold; }
+.ct-skew-in      { --kf: ctSkewIn; }
+.ct-line-wipe    { --kf: ctLineWipe; --ct-ease: cubic-bezier(.7,0,.2,1); }
+.ct-expand       { --kf: ctFocusIn; }
+.ct-roll-in      { --kf: ctRollIn;  --ct-ease: cubic-bezier(.34,1.4,.55,1); }
+.ct-line-wipe .ct-u { display: block; }
+
+/* =========================== CAPTION (kinetic) ========================== */
+@keyframes ctKaraoke    { from { opacity:.28; }                          to { opacity:1; } }
+@keyframes ctWordPop    { 0% { opacity:.3; transform: scale(.86); } 55% { opacity:1; transform: scale(1.16); } 100% { transform: scale(1); } }
+@keyframes ctPunch      { 0% { opacity:0; transform: scale(1.6); } 60% { opacity:1; } 100% { transform: scale(1); } }
+@keyframes ctBounceRead { 0% { opacity:0; transform: translateY(.7em); } 55% { opacity:1; transform: translateY(-.18em); } 100% { transform:none; } }
+@keyframes ctHighlight  { from { background-size: 0% 100%; } to { background-size: 100% 100%; } }
+@keyframes ctSpotlight  { 0%,100% { opacity:.32; filter: brightness(.9); } 12% { opacity:1; filter: brightness(1.35); } 40% { opacity:.32; filter: brightness(.9); } }
+
+.ct-karaoke     { --kf: ctKaraoke; }
+.ct-word-pop    { --kf: ctWordPop;  --ct-ease: cubic-bezier(.34,1.5,.55,1); }
+.ct-pop-in      { --kf: ctPunch;    --ct-ease: cubic-bezier(.2,1.3,.35,1); }
+.ct-bounce-read { --kf: ctBounceRead; --ct-ease: cubic-bezier(.34,1.4,.55,1); }
+.ct-spotlight   { --kf: ctSpotlight; }
+.ct-highlighter { --kf: ctHighlight; --ct-ease: cubic-bezier(.6,0,.3,1); }
+.ct-highlighter .ct-u {
+  background-image: linear-gradient(120deg, rgba(var(--accent-rgb), .32), rgba(var(--accent-rgb), .32));
+  background-repeat: no-repeat;
+  background-position: 0 88%;
+  border-radius: 3px;
+  padding: 0 .04em;
+}
+
+/* =========================== AMBIENT (surface) ========================== */
+@keyframes ctGradFlow  { to { background-position: 220% center; } }
+@keyframes ctRainbow   { to { background-position: 300% center; } }
+@keyframes ctFloat     { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-.18em); } }
+@keyframes ctBreathe   { 0%,100% { transform: scale(1); } 50% { transform: scale(1.045); } }
+@keyframes ctNeon {
+  0%,100% { text-shadow: 0 0 4px rgba(var(--accent-rgb),.7), 0 0 12px rgba(var(--accent-rgb),.45); }
+  50%     { text-shadow: 0 0 8px rgba(var(--accent-rgb),.95), 0 0 22px rgba(var(--accent-rgb),.7), 0 0 34px rgba(var(--accent-rgb),.4); }
+}
+@keyframes ctFlicker {
+  0%,19%,21%,23%,25%,54%,56%,100% { opacity:1; text-shadow: 0 0 7px rgba(var(--accent-rgb),.85), 0 0 18px rgba(var(--accent-rgb),.55); }
+  20%,24%,55% { opacity:.55; text-shadow: none; }
+}
+@keyframes ctChroma {
+  0%,100% { text-shadow: -1.5px 0 rgba(255,0,90,.5), 1.5px 0 rgba(0,190,255,.5); }
+  50%     { text-shadow: 1.5px 0 rgba(255,0,90,.5), -1.5px 0 rgba(0,190,255,.5); }
+}
+@keyframes ctUnderlineFlow { 0% { background-position: -60% 100%; } 100% { background-position: 160% 100%; } }
+@keyframes ctGlowDrift {
+  0%,100% { text-shadow: -.14em 0 10px rgba(var(--accent-rgb),.55); }
+  50%     { text-shadow: .14em 0 10px rgba(var(--accent-rgb),.55); }
+}
+
+.ct-gradient-sweep {
+  background: linear-gradient(100deg, var(--accent) 0%, var(--accent-light) 30%, #ffffff 50%, var(--accent-light) 70%, var(--accent) 100%);
+  background-size: 220% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctGradFlow; --ct-ease: linear;
+}
+.ct-rainbow {
+  background: linear-gradient(100deg, #ff5d5d, #ffb84d, #ffe74d, #5dff8f, #4dc3ff, #9d5dff, #ff5db8, #ff5d5d);
+  background-size: 300% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctRainbow; --ct-ease: linear;
+}
+.ct-shimmer {
+  background: linear-gradient(100deg, #b8860b 0%, #d4af37 35%, #fff7d6 50%, #d4af37 65%, #b8860b 100%);
+  background-size: 220% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctGradFlow; --ct-ease: linear;
+}
+.ct-neon-pulse    { --kf: ctNeon; color: var(--accent-light); }
+.ct-neon-flicker  { --kf: ctFlicker; color: var(--accent-light); }
+.ct-chromatic     { --kf: ctChroma; }
+.ct-float         { --kf: ctFloat; }
+.ct-breathe       { --kf: ctBreathe; }
+.ct-glow-drift    { --kf: ctGlowDrift; }
+.ct-underline-flow {
+  background-image: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-repeat: no-repeat; background-size: 55% 2px; background-position: -60% 100%;
+  --kf: ctUnderlineFlow; --ct-ease: linear;
+}
+
+/* =========================== SIGNATURE ========================== */
+@keyframes ctGlitch {
+  0%,88%,100% { transform: translate(0); text-shadow: -2px 0 rgba(255,0,90,.55), 2px 0 rgba(0,225,255,.55); clip-path: inset(0 0 0 0); }
+  90% { transform: translate(-2px, 1px); clip-path: inset(22% 0 40% 0); }
+  92% { transform: translate(3px, -1px); clip-path: inset(60% 0 8% 0); }
+  94% { transform: translate(-1px, 1px); clip-path: inset(10% 0 65% 0); }
+  96% { transform: translate(0); clip-path: inset(0 0 0 0); }
+}
+@keyframes ctHolo {
+  0%,100% { opacity: .92; transform: skewX(0deg); text-shadow: -1px 0 rgba(255,0,200,.5), 1px 0 rgba(0,255,225,.5); }
+  25% { opacity: 1; }
+  50% { opacity: .8; transform: skewX(-.6deg); text-shadow: 1px 0 rgba(255,0,200,.5), -1px 0 rgba(0,255,225,.5); }
+  75% { opacity: 1; }
+}
+@keyframes ctAssemble { from { opacity:0; transform: translate(calc(var(--rx,0) * 2.6em), calc(var(--ry,0) * 2.3em)) rotate(calc(var(--rr,0) * 90deg)) scale(.35); } to { opacity:1; transform:none; } }
+@keyframes ctScatter  { from { opacity:0; transform: translate(calc(var(--rx,0) * 1.4em), calc(var(--ry,0) * 1.2em)) rotate(calc(var(--rr,0) * 45deg)); } to { opacity:1; transform:none; } }
+@keyframes ctLightSweep { 0% { background-position: -140% center; } 60%,100% { background-position: 240% center; } }
+@keyframes ctEmber {
+  0%,100% { text-shadow: 0 0 5px rgba(255,140,20,.7), 0 -2px 10px rgba(255,90,10,.5); transform: translateY(0); }
+  50% { text-shadow: 0 0 9px rgba(255,170,40,.9), 0 -3px 16px rgba(255,110,20,.6); transform: translateY(-.03em); }
+}
+@keyframes ctDepthEcho {
+  0%,100% { text-shadow: 1px 1px 0 rgba(var(--accent-rgb),.5), 2px 2px 0 rgba(var(--accent-rgb),.32), 3px 3px 0 rgba(var(--accent-rgb),.18); }
+  50% { text-shadow: -1px 1px 0 rgba(var(--accent-rgb),.5), -2px 2px 0 rgba(var(--accent-rgb),.32), -3px 3px 0 rgba(var(--accent-rgb),.18); }
+}
+
+.ct-glitch     { --kf: ctGlitch; --ct-ease: steps(1,end); }
+.ct-hologram   { --kf: ctHolo; color: #63f5e8; }
+.ct-assemble   { --kf: ctAssemble; --ct-ease: cubic-bezier(.2,.9,.25,1); }
+.ct-scatter-in { --kf: ctScatter; --ct-ease: cubic-bezier(.2,.9,.25,1); }
+.ct-sweep-light {
+  background: linear-gradient(100deg, currentColor 0%, currentColor 38%, #ffffff 50%, currentColor 62%, currentColor 100%);
+  background-size: 260% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; --kf: ctLightSweep; --ct-ease: cubic-bezier(.5,0,.2,1);
+}
+.ct-fire {
+  background: linear-gradient(0deg, #ff4d00 0%, #ff8c00 40%, #ffd24d 75%, #fff0a8 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
+  --kf: ctEmber;
+}
+.ct-depth-echo { --kf: ctDepthEcho; }
+
+/* scramble / decrypt (JS-driven glyph churn) */
+.ct-scramble .ct-churn  { color: var(--accent); opacity: .85; }
+.ct-scramble .ct-locked { color: inherit; }
+.ct-matrix { color: #38ff9b; text-shadow: 0 0 7px rgba(56,255,155,.55); }
+.ct-matrix .ct-churn { color: #9dffcf; text-shadow: 0 0 8px rgba(56,255,155,.7); }
+.ct-matrix .ct-locked { color: #38ff9b; }
+
+/* typewriter caret */
+.ct-caret { display: inline-block; color: var(--accent); font-weight: 400; margin-left: 1px; animation: ctCaret 1s step-end infinite; }
+.ct-caret-done { animation: ctCaretFade .5s ease .9s forwards; }
+@keyframes ctCaret { 50% { opacity: 0; } }
+@keyframes ctCaretFade { to { opacity: 0; } }
+
+/* =========================== PLAYFUL ========================== */
+@keyframes ctRubber { 0%{transform:scale(1,1)} 30%{transform:scale(1.18,.82)} 45%{transform:scale(.86,1.14)} 60%{transform:scale(1.06,.94)} 75%{transform:scale(.97,1.03)} 100%{transform:scale(1,1)} }
+@keyframes ctTada   { 0%{transform:scale(1) rotate(0)} 10%,20%{transform:scale(.9) rotate(-3deg)} 30%,50%,70%,90%{transform:scale(1.1) rotate(3deg)} 40%,60%,80%{transform:scale(1.1) rotate(-3deg)} 100%{transform:scale(1) rotate(0)} }
+@keyframes ctHeartbeat { 0%{transform:scale(1)} 14%{transform:scale(1.16)} 28%{transform:scale(1)} 42%{transform:scale(1.16)} 70%,100%{transform:scale(1)} }
+@keyframes ctSwing  { 20%{transform:rotate(11deg)} 40%{transform:rotate(-8deg)} 60%{transform:rotate(5deg)} 80%{transform:rotate(-3deg)} 100%{transform:rotate(0)} }
+@keyframes ctWobble { 0%,100%{transform:translateX(0) rotate(0)} 15%{transform:translateX(-.16em) rotate(-4deg)} 30%{transform:translateX(.13em) rotate(3deg)} 45%{transform:translateX(-.1em) rotate(-2deg)} 60%{transform:translateX(.07em) rotate(1deg)} 75%{transform:translateX(-.03em) rotate(0)} }
+@keyframes ctPulseScale { 0%,100%{transform:scale(1); opacity:.9} 50%{transform:scale(1.06); opacity:1} }
+@keyframes ctJelly  { 0%,100%{transform:scale(1,1)} 30%{transform:scale(1.12,.86)} 55%{transform:scale(.9,1.1)} 75%{transform:scale(1.04,.97)} }
+@keyframes ctBounceLoop { 0%,100%{transform:translateY(0)} 40%{transform:translateY(-.42em)} }
+
+.ct-rubber      { --kf: ctRubber; transform-origin: center bottom; }
+.ct-tada        { --kf: ctTada; }
+.ct-heartbeat   { --kf: ctHeartbeat; }
+.ct-swing       { --kf: ctSwing; transform-origin: top center; }
+.ct-wobble      { --kf: ctWobble; }
+.ct-pulse-scale { --kf: ctPulseScale; }
+.ct-jelly       { --kf: ctJelly; }
+.ct-jelly .ct-u { transform-origin: center bottom; }
+.ct-bounce-loop { --kf: ctBounceLoop; --ct-ease: cubic-bezier(.3,.1,.3,1); }
+.ct-wave        { --kf: ctBounceLoop; --ct-ease: ease-in-out; }
+
+/* =================== SIGNATURE (expansion pack) =================== */
+@keyframes ctDomino    { from { opacity:0; transform: perspective(500px) rotateY(-100deg); } to { opacity:1; transform: perspective(500px) rotateY(0); } }
+@keyframes ctVortex    { from { opacity:0; transform: rotate(calc(var(--rr,0) * 200deg)) scale(0) translateY(.8em); } to { opacity:1; transform: none; } }
+@keyframes ctWarp      { from { opacity:0; transform: perspective(440px) translateZ(-220px) rotateX(35deg); } to { opacity:1; transform: perspective(440px) translateZ(0) rotateX(0); } }
+@keyframes ctShockwave { 0% { opacity:0; transform: scale(2.4); filter: blur(4px); } 55% { opacity:1; transform: scale(.9); filter: blur(0); } 100% { transform: scale(1); } }
+@keyframes ctBurnIn    { 0% { opacity:0; text-shadow: 0 0 14px rgba(255,174,0,.9), 0 0 26px rgba(255,80,0,.7); filter: brightness(2.2); } 55% { opacity:1; } 100% { text-shadow: none; filter: brightness(1); } }
+@keyframes ctFreeze    { from { opacity:0; filter: blur(6px) brightness(1.5); text-shadow: 0 0 10px rgba(150,220,255,.85); } to { opacity:1; filter: blur(0) brightness(1); text-shadow: none; } }
+@keyframes ctComet     { from { opacity:0; transform: translateX(-1.4em); text-shadow: .6em 0 .35em rgba(var(--accent-rgb),.65); } to { opacity:1; transform: none; text-shadow: none; } }
+@keyframes ctElasticBand { 0% { opacity:0; transform: scaleX(0); } 60% { opacity:1; transform: scaleX(1.22); } 80% { transform: scaleX(.94); } 100% { transform: scaleX(1); } }
+@keyframes ctSqueeze   { 0% { opacity:0; transform: scaleY(0); } 60% { opacity:1; transform: scaleY(1.18); } 100% { transform: scaleY(1); } }
+@keyframes ctFlickerIn { 0%,9% { opacity:0; } 10% { opacity:1; } 12%,15% { opacity:0; } 16% { opacity:1; } 19% { opacity:.25; } 22% { opacity:1; } 27% { opacity:.5; } 30%,100% { opacity:1; } }
+@keyframes ctNeonSign  { 0%,42%,48%,61%,65%,100% { opacity:1; text-shadow: 0 0 4px var(--accent-light), 0 0 12px rgba(var(--accent-rgb),.8), 0 0 24px rgba(var(--accent-rgb),.5); } 45% { opacity:.4; text-shadow: none; } 63% { opacity:.6; text-shadow: 0 0 6px rgba(var(--accent-rgb),.4); } }
+@keyframes ctRgbSplit  { 0%,100% { text-shadow: -3px 0 rgba(255,0,90,.6), 3px 0 rgba(0,200,255,.6); } 50% { text-shadow: 3px 0 rgba(255,0,90,.6), -3px 0 rgba(0,200,255,.6); } }
+@keyframes ctLaser     { 0% { background-position: -60% center; } 100% { background-position: 160% center; } }
+
+.ct-domino       { --kf: ctDomino; }
+.ct-domino .ct-u { transform-origin: left center; }
+.ct-vortex       { --kf: ctVortex; --ct-ease: cubic-bezier(.2,.8,.2,1); }
+.ct-warp         { --kf: ctWarp; }
+.ct-shockwave    { --kf: ctShockwave; --ct-ease: cubic-bezier(.2,1.2,.3,1); }
+.ct-burn-in      { --kf: ctBurnIn; }
+.ct-freeze       { --kf: ctFreeze; }
+.ct-comet        { --kf: ctComet; --ct-ease: cubic-bezier(.2,.85,.25,1); }
+.ct-elastic-band       { --kf: ctElasticBand; }
+.ct-elastic-band .ct-u { transform-origin: left center; }
+.ct-squeeze       { --kf: ctSqueeze; }
+.ct-squeeze .ct-u { transform-origin: center bottom; }
+.ct-flicker-in   { --kf: ctFlickerIn; --ct-ease: steps(1,end); }
+.ct-neon-sign    { --kf: ctNeonSign; color: var(--accent-light); -webkit-text-stroke: .5px rgba(var(--accent-rgb),.5); }
+.ct-rgb-split    { --kf: ctRgbSplit; }
+.ct-laser {
+  background: linear-gradient(100deg, currentColor 0%, currentColor 44%, #7dffea 50%, currentColor 56%, currentColor 100%);
+  background-size: 300% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: inherit; --kf: ctLaser; --ct-ease: linear;
+}
+/* cipher — violet decode variant of the scramble special */
+.ct-scr-cipher .ct-churn { color: #a06bff; text-shadow: 0 0 8px rgba(160,107,255,.5); }
+.ct-scr-cipher .ct-locked { color: inherit; }
+
+/* =================== AMBIENT (expansion pack) =================== */
+@keyframes ctAurora    { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+@keyframes ctLiquid    { 0% { background-position: 0% 50%; filter: hue-rotate(0deg); } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; filter: hue-rotate(50deg); } }
+@keyframes ctIrid      { to { background-position: 260% center; } }
+@keyframes ctFlowX     { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+@keyframes ctFoil      { 0% { background-position: -120% center; } 100% { background-position: 220% center; } }
+@keyframes ctElectric  { 0%,100% { text-shadow: 0 0 4px #5cd0ff, 0 0 10px rgba(60,140,255,.6); } 40% { text-shadow: 0 0 7px #7ee0ff, 0 0 16px rgba(60,140,255,.85), 0 0 26px rgba(80,120,255,.5); } 42% { text-shadow: none; } 44% { text-shadow: 0 0 7px #7ee0ff, 0 0 16px rgba(60,140,255,.85); } 70% { text-shadow: 0 0 5px #5cd0ff; } }
+@keyframes ctIce       { 0%,100% { text-shadow: 0 0 6px rgba(160,225,255,.7); } 50% { text-shadow: 0 0 10px rgba(200,240,255,.95), 0 0 20px rgba(140,210,255,.5); } }
+@keyframes ctToxic     { 0%,100% { text-shadow: 0 0 5px rgba(120,255,60,.6); } 50% { text-shadow: 0 0 10px rgba(160,255,80,.95), 0 0 22px rgba(90,220,40,.6); filter: brightness(1.15); } }
+@keyframes ctBevel     { 0%,100% { text-shadow: 1px 1px 0 rgba(255,255,255,.5), -1px -1px 0 rgba(0,0,0,.35); } 50% { text-shadow: -1px -1px 0 rgba(255,255,255,.5), 1px 1px 0 rgba(0,0,0,.35); } }
+@keyframes ctHueCycle  { to { filter: hue-rotate(360deg); } }
+@keyframes ctShadowDrift { 0%,100% { text-shadow: -.18em .1em 0 rgba(var(--accent-rgb),.35); } 50% { text-shadow: .18em .1em 0 rgba(var(--accent-rgb),.35); } }
+@keyframes ctPendulum  { 0%,100% { transform: rotate(-9deg); } 50% { transform: rotate(9deg); } }
+
+.ct-aurora {
+  background: linear-gradient(100deg, #7ef9ff, #a78bfa, #6ee7b7, #f0abfc, #7ef9ff);
+  background-size: 300% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctAurora; --ct-ease: ease-in-out;
+}
+.ct-liquid {
+  background: linear-gradient(100deg, #ff6ec4, #7873f5, #4ade80, #ff6ec4);
+  background-size: 300% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctLiquid; --ct-ease: ease-in-out;
+}
+.ct-iridescent {
+  background: linear-gradient(100deg, #e0c3fc, #8ec5fc, #c1fbc9, #ffd6f6, #e0c3fc);
+  background-size: 240% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctIrid; --ct-ease: linear;
+}
+.ct-magma {
+  background: linear-gradient(100deg, #4a0000, #ff2d00, #ff8c00, #ffd000, #ff2d00, #4a0000);
+  background-size: 220% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctFlowX; --ct-ease: linear;
+}
+.ct-ocean {
+  background: linear-gradient(100deg, #0ea5e9, #22d3ee, #67e8f9, #38bdf8, #0ea5e9);
+  background-size: 220% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctFlowX; --ct-ease: linear;
+}
+.ct-sunset {
+  background: linear-gradient(100deg, #ff8a5b, #ff5f9e, #c56cf0, #ffcc70, #ff8a5b);
+  background-size: 220% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctFlowX; --ct-ease: linear;
+}
+.ct-gold-foil {
+  background: linear-gradient(100deg, #8a6d1f 0%, #d4af37 30%, #fff6cf 46%, #ffffff 50%, #fff6cf 54%, #d4af37 70%, #8a6d1f 100%);
+  background-size: 300% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctFoil; --ct-ease: cubic-bezier(.5,0,.2,1);
+}
+.ct-electric     { --kf: ctElectric; color: #bfe9ff; }
+.ct-ice          { --kf: ctIce; color: #cdeeff; }
+.ct-toxic        { --kf: ctToxic; color: #b6ff5c; }
+.ct-bevel        { --kf: ctBevel; }
+.ct-glow-cycle   { --kf: ctHueCycle; text-shadow: 0 0 10px rgba(var(--accent-rgb),.7), 0 0 20px rgba(var(--accent-rgb),.4); --ct-ease: linear; }
+.ct-shadow-drift { --kf: ctShadowDrift; }
+.ct-pendulum       { --kf: ctPendulum; }
+.ct-pendulum .ct-u { transform-origin: top center; }
+.ct-rainbow-letters       { --kf: ctHueCycle; --ct-ease: linear; }
+.ct-rainbow-letters .ct-u { color: #ff5d5d; }
+
+/* =========================== REDUCED MOTION ========================== */
+/* The engine already returns the plain render for reduced-motion viewers; this is
+   a CSS backstop so nothing animates or hides even if a node slips through. */
+@media (prefers-reduced-motion: reduce) {
+  .ct-kinetic .ct-u, .ct-surface, .ct-caret {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
+  .ct-gradient-sweep, .ct-rainbow, .ct-shimmer, .ct-fire, .ct-sweep-light, .ct-hologram,
+  .ct-laser, .ct-aurora, .ct-liquid, .ct-iridescent, .ct-magma, .ct-ocean, .ct-sunset, .ct-gold-foil {
+    background: none !important;
+    -webkit-text-fill-color: currentColor !important;
+    color: inherit !important;
+  }
+}
