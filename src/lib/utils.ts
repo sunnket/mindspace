@@ -66,6 +66,53 @@ export function canvasToScreen(
   };
 }
 
+type Camera = { x: number; y: number; zoom: number };
+
+/**
+ * The world point sitting at the centre of MY viewport, given my camera.
+ * This is the unit of "where someone is looking" that survives being sent to a
+ * peer with a differently-sized window — unlike a raw camera offset, which
+ * frames a different region on a different screen.
+ */
+export function viewportCenterWorld(camera: Camera): { x: number; y: number } {
+  const w = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const h = typeof window !== 'undefined' ? window.innerHeight : 720;
+  return screenToCanvas(w / 2, h / 2, camera);
+}
+
+/**
+ * The camera that puts a given world point dead-centre in MY viewport at a
+ * given zoom. The inverse of {@link viewportCenterWorld} — the receiving half
+ * of "follow" and "present", so both people frame the same content regardless
+ * of window size.
+ */
+export function cameraForWorldCenter(cx: number, cy: number, zoom: number): Camera {
+  const w = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const h = typeof window !== 'undefined' ? window.innerHeight : 720;
+  return { x: w / 2 - cx * zoom, y: h / 2 - cy * zoom, zoom };
+}
+
+/**
+ * A camera that frames an axis-aligned world bounding box inside the current
+ * viewport with a little breathing room. Used to drop a joining collaborator
+ * straight onto the shared content instead of wherever they happened to be.
+ */
+export function cameraToFitBounds(
+  bounds: { minX: number; minY: number; maxX: number; maxY: number },
+  opts?: { padding?: number; maxZoom?: number; minZoom?: number }
+): Camera {
+  const w = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const h = typeof window !== 'undefined' ? window.innerHeight : 720;
+  const padding = opts?.padding ?? 140;
+  const bw = Math.max(1, bounds.maxX - bounds.minX);
+  const bh = Math.max(1, bounds.maxY - bounds.minY);
+  const zoom = Math.min(
+    opts?.maxZoom ?? 1,
+    Math.max(opts?.minZoom ?? 0.15, Math.min((w - padding) / bw, (h - padding) / bh))
+  );
+  return cameraForWorldCenter((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2, zoom);
+}
+
 /**
  * Smooth interpolation
  */
