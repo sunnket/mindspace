@@ -29,8 +29,9 @@ import React, { useEffect, useRef } from 'react';
 import { loadProfile, makePersonality, mulberry32, type CatPersonality } from '@/lib/catBrain';
 import { ART_W, ART_H, POSE_FRAMES, COATS, getSheet, type Sheet, type CompiledFrame } from '@/lib/catSprites';
 
-/** A touch larger than on the board — it's the hero of the empty sky. */
-const ART_PX = 1.9;
+/** Small companion drifting through the sky — sized so it reads as a friend
+ *  passing by, not a mascot filling the frame. */
+const ART_PX = 1.3;
 
 type Pose = 'stand' | 'stretch' | 'roll' | 'paw' | 'sit';
 

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { useCanvasStore, resolveParentId } from '@/store/canvasStore';
+import { useCanvasStore } from '@/store/canvasStore';
 import { useAuthStore } from '@/store/authStore';
 import { formatSkillsetForAgent } from '@/lib/skillset';
 import {
@@ -57,6 +57,10 @@ function parseBuild(full: string): { visible: string; build: { instruction: stri
     else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
   }
   if (end === -1) return { visible, build: null };
+  // If the visible reply ends by asking the user something, the agent is
+  // clarifying (case 2) — honour that and DON'T fire a build it bolted on anyway.
+  // The user's rule: never implement without first asking what/how.
+  if (endsWithQuestion(visible)) return { visible, build: null };
   try {
     const obj = JSON.parse(rest.slice(start, end + 1));
     if (obj && typeof obj.instruction === 'string' && isRealInstruction(obj.instruction)) {
@@ -68,28 +72,26 @@ function parseBuild(full: string): { visible: string; build: { instruction: stri
   return { visible, build: null };
 }
 
-/** A compact text snapshot of the visible board so the chat model has awareness. */
-function buildCanvasContext(): string {
-  const store = useCanvasStore.getState();
-  const activeParent = resolveParentId(store.canvasStack, store.urlCanvasId);
-  const objs = store.objects.filter((o) => o.parentId === activeParent && !o.style?.isMinimized);
-  if (objs.length === 0) return '';
-  const cam = store.camera;
-  const cx = (-cam.x + (typeof window !== 'undefined' ? window.innerWidth : 1200) / 2) / cam.zoom;
-  const cy = (-cam.y + (typeof window !== 'undefined' ? window.innerHeight : 800) / 2) / cam.zoom;
-  const near = [...objs].sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy)).slice(0, 60);
-  const rows = near.map((o) => {
-    const s = o.style || {};
-    let label = (o.content || '').replace(/\s+/g, ' ').slice(0, 160);
-    if (s.isRepo) label = `[code repo: ${(s.repoName as string) || 'repo'}]`;
-    else if (s.isTodo) label = `[todo: ${(s.todoTitle as string) || 'tasks'}]`;
-    else if (s.isChart) label = `[chart: ${(s.chartTitle as string) || o.type}]`;
-    else if (s.isCode) label = `[code] ${label}`;
-    else if (o.type === 'image') label = '[image]';
-    else if (s.isFile) label = `[file: ${(s.fileName as string) || 'file'}]`;
-    return { id: o.id, type: o.type, x: Math.round(o.x), y: Math.round(o.y), w: Math.round(o.width), h: Math.round(o.height), text: label };
-  });
-  return JSON.stringify(rows);
+/** Is the user's message a pure question — an interrogative that never asks for
+ *  anything on the canvas? Those must only ever be ANSWERED, never built. A real
+ *  build request either isn't interrogative ("build a…") or names the canvas. */
+function isPureQuestion(msg: string): boolean {
+  const t = (msg || '').trim();
+  if (!t) return false;
+  const startsQuestion = /^(what|how|why|when|who|where|which|whose|whom|is|are|am|was|were|do|does|did|can|could|would|should|will|explain|tell me|describe|define|difference|compare|whats|what's|hows|how's)\b/i;
+  const mentionsCanvas = /\b(canvas|board|on (?:my|the|this)|onto|put (?:it|this|that|them)|add (?:it|this|that|them)|draw|diagram|dashboard|timeline|checklist|chart|mind ?map|visuali[sz]e)\b/i;
+  return startsQuestion.test(t) && !mentionsCanvas.test(t);
+}
+
+/** Does this reply end by asking the user something? (trailing '?', ignoring
+ *  trailing whitespace / closing punctuation / a stray parenthetical). */
+function endsWithQuestion(text: string): boolean {
+  const t = (text || '').trim();
+  if (!t) return false;
+  // Look at the last non-empty line — a build reply is a statement, a clarify
+  // reply ends on a question.
+  const lastLine = t.split('\n').map((l) => l.trim()).filter(Boolean).pop() || '';
+  return /\?[)\]"'*_\s]*$/.test(lastLine);
 }
 
 function currentCanvasId(): string {
@@ -249,8 +251,11 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          // Deliberately NO canvas snapshot: the chat agent answers/plans from the
+          // conversation, and only the BUILDER reads the live board (to place work
+          // in empty space). Feeding the chat the canvas made it narrate the board
+          // on plain queries, which the user doesn't want.
           messages: historyForApi,
-          canvasContext: buildCanvasContext(),
           filesContext: filesContext || undefined,
           skillsetContext: formatSkillsetForAgent(useCanvasStore.getState().skillset) || undefined,
         }),
@@ -284,7 +289,14 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => ({
       }
       if (flushTimer) clearTimeout(flushTimer);
 
-      const { visible, build } = parseBuild(full);
+      const parsed = parseBuild(full);
+      const visible = parsed.visible;
+      /* Final backstop against the agent auto-implementing on a plain question.
+         The strongest signal is the USER's own message: if they asked a pure
+         question (interrogative opener, no mention of the canvas), never fire a
+         build the model bolted onto the answer — the user must be asked what /
+         how before anything lands on their board. */
+      const build = isPureQuestion(text) ? null : parsed.build;
       const finalContent = visible || (build ? 'On it — building that on your canvas now.' : '…');
       updateAsst({ content: finalContent, streaming: false, built: !!build, buildState: build ? 'building' : undefined });
 

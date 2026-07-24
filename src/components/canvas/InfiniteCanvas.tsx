@@ -517,12 +517,14 @@ export default function InfiniteCanvas() {
         return;
       }
 
-      /* Locked view = the user's fixed space. Swallow every gesture that would
-         move the board or spawn a block on empty canvas (pan drag, middle-click
-         pan, and the tiny-drag/click-to-create below), while still letting the
-         click fall through to deselect. Editing existing blocks is untouched —
-         those are CanvasObject's own handlers. */
+      /* Locked view = the user's fixed space. The board can't move — no pan
+         drag, no scroll (handleWheel), no middle-click pan — but a TAP still
+         drops a text box, so the frozen frame stays a place you write in.
+         Record the press so the tap check in handleMouseUp fires; handleMouseMove
+         refuses to pan while locked, so only a still tap (not a drag) creates. */
       if (viewLocked) {
+        isPanningRef.current = true;
+        panStartRef.current = { x: e.clientX, y: e.clientY, camX: camera.x, camY: camera.y };
         setSelectedId(null);
         setEditingId(null);
         useCanvasStore.getState().setSpreadStack(null);
@@ -597,10 +599,10 @@ export default function InfiniteCanvas() {
         }
       }
 
-      if (isPanningRef.current) {
+      if (isPanningRef.current && !useCanvasStore.getState().viewLocked) {
         // If we are in select/text mode, and drag is large enough, switch to panning the canvas optionally?
         // Wait, standard behavior: space to pan, or middle click. Left drag creates selection box (which we don't have yet), or just pans if empty canvas.
-        // Let's implement empty canvas drag = pan for simplicity!
+        // Let's implement empty canvas drag = pan for simplicity! (Locked view never pans.)
         if (mode === 'select' || mode === 'text' || mode === 'pan' || mode === 'relax' || mode === 'brainstorm') {
           const dx = e.clientX - panStartRef.current.x;
           const dy = e.clientY - panStartRef.current.y;
@@ -623,14 +625,28 @@ export default function InfiniteCanvas() {
         // If it was a click (not a drag) on empty space in select/text/shape/arrow mode, create element!
         const target = e.target as HTMLElement;
         const isClickOnObject = target.closest('.canvas-object') || target.closest('.canvas-object-content');
-        if (!isClickOnObject && (mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax' || mode === 'brainstorm')) {
+        const locked = useCanvasStore.getState().viewLocked;
+        if (!isClickOnObject && (locked || mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax' || mode === 'brainstorm')) {
           const dx = Math.abs(e.clientX - panStartRef.current.x);
           const dy = Math.abs(e.clientY - panStartRef.current.y);
           if (dx < 5 && dy < 5) {
             // It was a click
             const worldPos = screenToCanvas(e.clientX, e.clientY, camera);
-            
-            if (mode === 'arrow') {
+
+            if (locked) {
+              // Locked view: a tap always drops a writable text box, whatever
+              // tool happens to be held — the whole point of the frozen space.
+              const ts = useCanvasStore.getState().textStyle;
+              const obj = addObject({
+                type: 'text', x: worldPos.x, y: worldPos.y, width: 160, height: 44, content: '',
+                style: {
+                  fontSize: ts.fontSize, fontFamily: ts.fontFamily, fontWeight: ts.fontWeight,
+                  textColor: ts.textColor, bgColor: ts.bgColor, textAlign: ts.textAlign, headingLevel: ts.headingLevel,
+                },
+              });
+              setSelectedId(obj.id);
+              setEditingId(obj.id);
+            } else if (mode === 'arrow') {
               const aStyle = useCanvasStore.getState().arrowStyle;
               if (!activeArrowId) {
                 // First click: Create the arrow with the current tool defaults

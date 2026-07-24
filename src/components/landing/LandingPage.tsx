@@ -648,7 +648,19 @@ export default function LandingPage() {
      ============================================================ */
 
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex overflow-x-hidden relative paper-texture">
+    <div
+      className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex overflow-x-hidden relative paper-texture"
+      /* Soften the orange for the whole landing: the default terracotta read as
+         a heavy, dark orange on the cream — everything accent-tinted (text,
+         pills, hovers like the Continue card) inherits this lighter, airier tone
+         instead. Scoped here so the canvas keeps the deeper brand accent. */
+      style={{
+        ['--accent' as string]: '#D89A6E',
+        ['--accent-rgb' as string]: '216, 154, 110',
+        ['--accent-light' as string]: '#E9BE9B',
+        ['--accent-subtle' as string]: 'rgba(216, 154, 110, 0.12)',
+      }}
+    >
       <div className="noise-overlay" />
 
       {/* the resident wanders the bottom of the page while you decide */}
@@ -780,8 +792,8 @@ export default function LandingPage() {
                     <div className="min-w-0">
                       <h2
                         onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
-                        className="text-3xl md:text-4xl leading-[1.05] font-semibold tracking-tight text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors truncate"
-                        style={{ fontFamily: "'Playfair Display', serif" }}
+                        className="text-4xl md:text-5xl leading-[1.02] font-normal tracking-[0.01em] text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors truncate"
+                        style={{ fontFamily: "'Bebas Neue', sans-serif" }}
                       >
                         {continueWorkspace.title || 'untitled canvas'}
                       </h2>

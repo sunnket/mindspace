@@ -32,6 +32,14 @@ function isRealInstruction(instr: string): boolean {
   return !/^(none|n\/?a|tbd|todo|pending|await|awaiting|null|undefined|no build|no change|[-—.]+)\b/i.test(s);
 }
 
+/** Does this reply end by asking the user something? */
+function endsWithQuestion(text: string): boolean {
+  const t = (text || '').trim();
+  if (!t) return false;
+  const lastLine = t.split('\n').map((l) => l.trim()).filter(Boolean).pop() || '';
+  return /\?[)\]"'*_\s]*$/.test(lastLine);
+}
+
 export type FrameAgentStatus = 'idle' | 'reading' | 'looking' | 'thinking' | 'error';
 
 export interface FrameTurn {
@@ -76,6 +84,9 @@ function parseBuild(full: string): { visible: string; build: { instruction: stri
     else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
   }
   if (end === -1) return { visible, build: null };
+  // A reply that ends by asking the user something is a clarification, not a
+  // build — don't fire a directive the model bolted on anyway.
+  if (endsWithQuestion(visible)) return { visible, build: null };
   try {
     const obj = JSON.parse(rest.slice(start, end + 1));
     if (obj && typeof obj.instruction === 'string' && isRealInstruction(obj.instruction)) {
