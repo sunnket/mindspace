@@ -140,15 +140,40 @@ export function isPointInRect(
 }
 
 /**
- * Is an object (or a resize handle) currently being dragged?
+ * The one drag gesture currently in flight, anywhere on the board.
  *
- * A module-level flag on purpose: it flips many times a second and must never
- * cause a render. The canvas reads it to make absolutely sure a block drag and
- * a viewport pan can never run at the same time — when they did, the camera
+ * Module-level on purpose: `objectDrag` flips many times a second and must
+ * never cause a render. The canvas reads it to make sure a block drag and a
+ * viewport pan can never run at the same time — when they did, the camera
  * scrolled under a block that was glued to the cursor and the block ended up
  * flung to a completely different part of the board.
+ *
+ * `endActive` is the safety net that matters more. A drag holds real
+ * resources — window listeners, a requestAnimationFrame loop, these flags —
+ * and every one of them used to be released by a single `mouseup`. The
+ * browser does not promise to deliver that event: release the button outside
+ * the window, alt-tab mid-drag, let the OS take the pointer, and it simply
+ * never arrives. The drag then never ended. Its move handler kept dragging
+ * the block around with no button held, and its rAF loop kept auto-panning
+ * the viewport — a board that scrolled away by itself and blocks that fled
+ * the cursor. Nothing recovered, because nothing was left to notice.
+ *
+ * So a session publishes its own teardown here, and anything that learns the
+ * gesture is over can end it: the next mousedown, a pointercancel, the window
+ * losing focus, or simply a mousemove that arrives with no buttons pressed.
  */
-export const dragState = { objectDrag: false };
+export const dragState: {
+  objectDrag: boolean;
+  endActive: (() => void) | null;
+} = { objectDrag: false, endActive: null };
+
+/** End whatever drag is in flight. Idempotent, and safe to call from anywhere. */
+export function endActiveDrag(): void {
+  const end = dragState.endActive;
+  dragState.endActive = null;
+  dragState.objectDrag = false;
+  if (end) end();
+}
 
 /**
  * Smart alignment snapping.

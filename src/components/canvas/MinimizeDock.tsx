@@ -53,6 +53,14 @@ export default function MinimizeDock() {
     setGhostLabel(label);
 
     const onMove = (ev: MouseEvent) => {
+      /* Button already released somewhere we couldn't see: abandon the drag
+         and put the ghost away, leaving the chip safely in the dock. */
+      if (ev.buttons === 0) {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        if (ghostRef.current) ghostRef.current.style.display = 'none';
+        return;
+      }
       if (Math.abs(ev.clientX - startX) > 4 || Math.abs(ev.clientY - startY) > 4) moved = true;
       const ghost = ghostRef.current;
       if (ghost) {

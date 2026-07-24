@@ -4,7 +4,7 @@ import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
-import { screenToCanvas, clamp, fitImageBox, dragState } from '@/lib/utils';
+import { screenToCanvas, clamp, fitImageBox, dragState, endActiveDrag } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import { ingestFile } from '@/lib/fileIngest';
 import { collectDropEntries, hasDirectoryEntry, ingestDroppedFolder } from '@/lib/repoIngest';
@@ -532,20 +532,23 @@ export default function InfiniteCanvas() {
   useEffect(() => {
     /* Bubble phase, NOT capture: React's own delegated onMouseUp on the board
        runs first and still gets to see the flag, so a still tap on empty
-       canvas keeps creating a text box. We only clean up after it. */
+       canvas keeps creating a text box. We only clean up after it.
+
+       And deliberately NOT `pointerup`. Pointer events are dispatched BEFORE
+       their compatibility mouse events, so listening for it here cleared the
+       flag before React's onMouseUp could read it — which silently killed
+       tap-anywhere-to-write. `pointercancel` is safe: it means the gesture was
+       abandoned, and no mouseup follows it. */
     const end = () => {
       isPanningRef.current = false;
-      // The block-drag flag gets the same treatment for the same reason: a
-      // gesture that ends anywhere unusual must still end.
-      dragState.objectDrag = false;
+      // Any block gesture still believing it's live ends here too.
+      endActiveDrag();
     };
     window.addEventListener('mouseup', end);
-    window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);
     window.addEventListener('blur', end);
     return () => {
       window.removeEventListener('mouseup', end);
-      window.removeEventListener('pointerup', end);
       window.removeEventListener('pointercancel', end);
       window.removeEventListener('blur', end);
     };
