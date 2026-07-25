@@ -27,6 +27,7 @@ import RelaxEffectsLayer from './RelaxEffectsLayer';
 import CanvasResident from './CanvasResident';
 import ConstellationView from './ConstellationView';
 import FlowModeLayer from './FlowModeLayer';
+import PdfReaderLayer from './PdfReaderLayer';
 import DrawingLayer from './DrawingLayer';
 import ConnectionsLayer from './ConnectionsLayer';
 import FloatingToolbar from '@/components/ui/FloatingToolbar';
@@ -618,15 +619,25 @@ export default function InfiniteCanvas() {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      /* Read the camera LIVE from the store, never from this callback's
+         closure. The closure only re-binds when `camera.zoom` changes (it's the
+         one camera field in the dep array), so after any PAN the closed-over
+         `camera.x/y` is stale by the whole pan distance. Locally that's
+         invisible — you see the real OS cursor — but the world coordinate we
+         broadcast to collaborators was computed from the wrong origin, so a
+         peer saw our cursor pinned to empty space (or floating over their own
+         UI) instead of what we were pointing at. This one read is the fix. */
+      const liveCamera = useCanvasStore.getState().camera;
+
       // Broadcast my cursor (in world coords) to collaborators, if in a session.
       const collab = useCollabStore.getState();
       if (collab.status === 'connected' && collab._cursorSender) {
-        const world = screenToCanvas(e.clientX, e.clientY, camera);
+        const world = screenToCanvas(e.clientX, e.clientY, liveCamera);
         collab._cursorSender(world.x, world.y);
       }
 
       if (activeArrowId) {
-        const worldPos = screenToCanvas(e.clientX, e.clientY, camera);
+        const worldPos = screenToCanvas(e.clientX, e.clientY, liveCamera);
         const arrowObj = objects.find((o) => o.id === activeArrowId);
         if (arrowObj && arrowObj.style) {
           const startX = arrowObj.style.startX as number || 0;
@@ -677,12 +688,14 @@ export default function InfiniteCanvas() {
           setCamera({
             x: panStartRef.current.camX + dx,
             y: panStartRef.current.camY + dy,
-            zoom: camera.zoom,
+            zoom: liveCamera.zoom,
           });
         }
       }
     },
-    [camera.zoom, mode, setCamera, activeArrowId, objects, updateObject]
+    // No `camera` dep: the handler reads it live from the store (see top), so
+    // the callback never needs to re-bind when the camera changes.
+    [mode, setCamera, activeArrowId, objects, updateObject]
   );
 
   const handleMouseUp = useCallback(
@@ -1675,6 +1688,11 @@ export default function InfiniteCanvas() {
           Opened from the minimap; portals itself to <body>; renders only when
           `constellationOpen`. */}
       <ConstellationView />
+
+      {/* Immersive PDF Reader: cinematic reading room for a dropped PDF.
+          Opened from a PDF file block; portals to <body>; renders only when a
+          PDF is open (usePdfReaderStore). */}
+      <PdfReaderLayer />
 
       {/* Every piece of app chrome, in ONE wrapper.
           A tour is a presentation, and `.tour-mode` used to hide only four of

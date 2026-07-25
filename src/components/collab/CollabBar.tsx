@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCollabStore } from '@/store/collabStore';
 import { useCanvasStore } from '@/store/canvasStore';
 import { initialsOf } from '@/lib/collab/palette';
+import { cameraForWorldCenter } from '@/lib/utils';
 
 const spring = { type: 'spring' as const, stiffness: 300, damping: 26 };
 
@@ -19,7 +20,9 @@ export default function CollabBar() {
   const isHost = useCollabStore((s) => s.isHost);
   const guestOriginView = useCollabStore((s) => s.guestOriginView);
   const addSelectionToOriginCanvas = useCollabStore((s) => s.addSelectionToOriginCanvas);
+  const cursors = useCollabStore((s) => s.cursors);
   const selectedId = useCanvasStore((s) => s.selectedId);
+  const animateCamera = useCanvasStore((s) => s.animateCamera);
 
   // Voice — a mic, not a call.
   const audioActive = useCollabStore((s) => s.audioActive);
@@ -81,6 +84,16 @@ export default function CollabBar() {
     await addSelectionToOriginCanvas();
     setAdded(true);
     setTimeout(() => setAdded(false), 1600);
+  };
+
+  /** Fly my camera to wherever a peer's cursor last was. Ties the roster to
+      the canvas: tap a name, land where they're working. */
+  const flyToPeer = (peerId: string) => {
+    const c = useCollabStore.getState().cursors[peerId];
+    if (!c) return;
+    const zoom = useCanvasStore.getState().camera.zoom;
+    animateCamera(cameraForWorldCenter(c.x, c.y, zoom), 520);
+    setRosterOpen(false);
   };
 
   const togglePresent = () => {
@@ -296,6 +309,7 @@ export default function CollabBar() {
                     muted={cp?.muted}
                     speaking={cp?.speaking}
                     canModerate={isHost}
+                    onLocate={p.id in cursors ? () => flyToPeer(p.id) : undefined}
                     onMute={() => mutePeer(p.id)}
                     onKick={() => kickPeer(p.id)}
                   />
@@ -323,13 +337,19 @@ export default function CollabBar() {
 }
 
 function RosterRow({
-  name, color, you = false, inCall = false, muted = false, speaking = false, canModerate = false, onMute, onKick,
+  name, color, you = false, inCall = false, muted = false, speaking = false, canModerate = false, onLocate, onMute, onKick,
 }: {
   name: string; color: string; you?: boolean; inCall?: boolean; muted?: boolean; speaking?: boolean;
-  canModerate?: boolean; onMute?: () => void; onKick?: () => void;
+  canModerate?: boolean; onLocate?: () => void; onMute?: () => void; onKick?: () => void;
 }) {
+  const locatable = !you && !!onLocate;
   return (
-    <div className="group flex items-center gap-2.5 rounded-xl hover:bg-white/50 dark:hover:bg-white/5 transition-colors" style={{ padding: '7px 8px' }}>
+    <div
+      onClick={locatable ? onLocate : undefined}
+      title={locatable ? `Jump to ${name}` : undefined}
+      className={`group flex items-center gap-2.5 rounded-xl hover:bg-white/50 dark:hover:bg-white/5 transition-colors ${locatable ? 'cursor-pointer' : ''}`}
+      style={{ padding: '7px 8px' }}
+    >
       <Avatar name={name} color={color} speaking={speaking} muted={muted} inCall={inCall} you={you} size={30} />
       <div className="min-w-0 flex-1">
         <p className="text-[12px] font-semibold text-[var(--text-primary)] truncate leading-tight">
@@ -339,15 +359,23 @@ function RosterRow({
           {!inCall ? 'Mic off' : muted ? 'Muted' : speaking ? 'Speaking' : 'Mic live'}
         </p>
       </div>
+      {/* locate hint — only when we know where they are, hidden until hover */}
+      {locatable && (
+        <span className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text-tertiary)]" title={`Jump to ${name}`}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="10" r="3" /><path d="M12 2a8 8 0 0 0-8 8c0 5.4 8 12 8 12s8-6.6 8-12a8 8 0 0 0-8-8z" />
+          </svg>
+        </span>
+      )}
       {inCall && (muted ? <MicOffIcon size={13} className="text-red-500 shrink-0" /> : <MicIcon size={13} className="text-[var(--text-tertiary)] shrink-0" />)}
       {canModerate && !you && (
         <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           {inCall && !muted && (
-            <button onClick={onMute} title="Mute this person" className="w-6 h-6 rounded-lg flex items-center justify-center text-[var(--text-tertiary)] hover:text-white hover:bg-[var(--accent)] transition cursor-pointer">
+            <button onClick={(e) => { e.stopPropagation(); onMute?.(); }} title="Mute this person" className="w-6 h-6 rounded-lg flex items-center justify-center text-[var(--text-tertiary)] hover:text-white hover:bg-[var(--accent)] transition cursor-pointer">
               <MicOffIcon size={12} />
             </button>
           )}
-          <button onClick={onKick} title="Remove from session" className="w-6 h-6 rounded-lg flex items-center justify-center text-[var(--text-tertiary)] hover:text-white hover:bg-red-500 transition cursor-pointer">
+          <button onClick={(e) => { e.stopPropagation(); onKick?.(); }} title="Remove from session" className="w-6 h-6 rounded-lg flex items-center justify-center text-[var(--text-tertiary)] hover:text-white hover:bg-red-500 transition cursor-pointer">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         </div>

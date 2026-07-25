@@ -5,6 +5,7 @@ import { CanvasObjectData } from '@/lib/db';
 import { WireMessage, CanvasOp, Transport } from './types';
 import { randomPeerColor } from './palette';
 import { setAudioTransport, handleAudioMessage, teardown as teardownAudio } from './audio';
+import { viewportCenterWorld, cameraToFitBounds } from '@/lib/utils';
 
 /** Wire messages that belong to the voice call, routed to lib/collab/audio.ts. */
 const AUDIO_MSG_TYPES = new Set([
@@ -23,7 +24,7 @@ let myId = '';
 let heartbeat: ReturnType<typeof setInterval> | null = null;
 let pruneTimer: ReturnType<typeof setInterval> | null = null;
 let cursorThrottleTs = 0;
-let pendingUpdates: Map<string, Partial<CanvasObjectData>> = new Map();
+const pendingUpdates: Map<string, Partial<CanvasObjectData>> = new Map();
 let updateFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
 /* ---------------- transports ---------------- */
@@ -181,7 +182,14 @@ const pulseSenders = {
       presenterThrottleTs = now;
     }
     const me = useCollabStore.getState().me;
-    transport.send({ t: 'presenter', from: myId, name: me?.name || 'Presenter', camera });
+    // Broadcast WHERE I'm looking as a world point (my viewport centre) + zoom,
+    // NOT my raw camera offset. A raw offset frames a different region on a
+    // differently-sized screen, which is why "present" used to land everyone
+    // somewhere slightly wrong. The follower re-centres this point in their own
+    // window, so both people see the same content.
+    const c = camera ? viewportCenterWorld(camera) : null;
+    const view = c ? { x: c.x, y: c.y, zoom: camera!.zoom } : null;
+    transport.send({ t: 'presenter', from: myId, name: me?.name || 'Presenter', camera: view });
   },
   mirrorFrame: (objectId: string, frame: string) => {
     // The MirrorBlock already paces its captures; a size guard is the only
@@ -192,6 +200,21 @@ const pulseSenders = {
     transport.send({ t: 'mirror-frame', from: myId, id: objectId, frame });
   },
 };
+
+/** Fit a joining guest's camera to the host's content bounding box. */
+function frameSharedContent(objects: CanvasObjectData[]) {
+  if (!objects || objects.length === 0) return;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const o of objects) {
+    minX = Math.min(minX, o.x);
+    minY = Math.min(minY, o.y);
+    maxX = Math.max(maxX, o.x + (o.width || 0));
+    maxY = Math.max(maxY, o.y + (o.height || 0));
+  }
+  if (!isFinite(minX)) return;
+  const target = cameraToFitBounds({ minX, minY, maxX, maxY }, { padding: 160, maxZoom: 1, minZoom: 0.2 });
+  useCanvasStore.getState().animateCamera(target, 700);
+}
 
 function sendSnapshot(toPeerId: string) {
   if (!transport) return;
@@ -245,6 +268,11 @@ function handleMessage(msg: WireMessage) {
     case 'snapshot':
       if (msg.to === collab.me?.id) {
         useCanvasStore.getState().applyRemoteSnapshot(msg.objects, msg.strokes, msg.connections);
+        // Land the joiner ON the shared content. Without this they keep their
+        // own pre-join camera and open onto blank space with a peer's cursor
+        // floating out in the void — the single biggest "this feels broken"
+        // moment of joining a session.
+        frameSharedContent(msg.objects);
       }
       break;
     case 'reaction':

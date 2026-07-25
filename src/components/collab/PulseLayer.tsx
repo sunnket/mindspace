@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useCollabStore } from '@/store/collabStore';
 import { useCanvasStore } from '@/store/canvasStore';
-import { screenToCanvas } from '@/lib/utils';
+import { screenToCanvas, cameraForWorldCenter } from '@/lib/utils';
 
 const EMOJIS = ['👍', '❤️', '🎉', '🔥', '😮', '😂'];
 
@@ -95,10 +95,13 @@ export default function PulseLayer() {
     useCollabStore.getState()._pulse?.presenter(camera);
   }, [amPresenting, camera]);
 
-  // If following the presenter, track their viewport.
+  // If following the presenter, track their viewport. `presenter.camera` now
+  // carries the world point they have centred (+ zoom), so re-centre it in MY
+  // window — both of us frame the same content even on different screen sizes.
   useEffect(() => {
     if (following && presenter && presenter.id !== me?.id) {
-      useCanvasStore.getState().setCamera(presenter.camera);
+      const { x, y, zoom } = presenter.camera;
+      useCanvasStore.getState().setCamera(cameraForWorldCenter(x, y, zoom));
     }
   }, [following, presenter, me?.id]);
 

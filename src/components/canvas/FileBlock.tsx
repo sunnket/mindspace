@@ -5,6 +5,7 @@ import { CanvasObjectData } from '@/lib/db';
 import { useCanvasStore } from '@/store/canvasStore';
 import { formatBytes, getFileForBlock, extractTextForBlock } from '@/lib/fileIngest';
 import { playSnap } from '@/lib/relaxAudio';
+import { usePdfReaderStore } from '@/store/pdfReaderStore';
 
 /* Padding/margins are inline throughout this file: the app's global reset
    (`* { padding:0; margin:0 }`) is unlayered and overrides Tailwind's spacing
@@ -144,6 +145,12 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
   }, [readerOpen, viewer, textStatus, obj.id]);
 
   const openReader = () => {
+    // PDFs get the immersive full-screen reading room (book mode, atmospheres,
+    // aged paper, highlighter, …) instead of the plain embedded iframe.
+    if (viewer === 'pdf') {
+      usePdfReaderStore.getState().openReader(obj.id);
+      return;
+    }
     const size = OPEN_SIZE[viewer];
     updateObject(obj.id, {
       width: size.w,
@@ -442,10 +449,12 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
             onMouseDown={stop}
             className="flex items-center gap-1.5 rounded-full text-[10px] font-bold tracking-wider uppercase transition-all active:scale-95 cursor-pointer shadow-sm"
             style={{ padding: '7px 13px', background: canPreview ? 'var(--accent-subtle)' : 'var(--well)', border: canPreview ? '1px solid rgba(var(--accent-rgb),0.3)' : '1px solid var(--border)', color: canPreview ? 'var(--accent)' : 'var(--text-secondary)' }}
-            title={canPreview ? 'Open an embedded preview' : 'Open details'}
+            title={viewer === 'pdf' ? 'Open the immersive reader' : canPreview ? 'Open an embedded preview' : 'Open details'}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
-            Open
+            {viewer === 'pdf'
+              ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></svg>
+              : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>}
+            {viewer === 'pdf' ? 'Read' : 'Open'}
           </button>
 
           <button

@@ -18,10 +18,41 @@ import type { WireMessage } from './types';
  * it. Good enough for a friendly workspace; it is not a hard security boundary.
  */
 
-const ICE_SERVERS: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-];
+/**
+ * STUN discovers your public address; TURN relays audio when a direct P2P path
+ * can't be punched through (symmetric NAT, strict corporate/mobile networks) —
+ * which is most real two-people-on-different-wifi calls. STUN alone is why the
+ * old call so often connected to silence: the peers found each other's private
+ * addresses and never actually reached each other.
+ *
+ * The openrelay project provides free public TURN; it's the fallback so a call
+ * connects out of the box. For your own reliability, drop credentials in
+ * NEXT_PUBLIC_TURN_URL / _USER / _CRED and they're prepended.
+ */
+function buildIceServers(): RTCIceServer[] {
+  const servers: RTCIceServer[] = [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+  ];
+
+  const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
+  if (turnUrl) {
+    servers.unshift({
+      urls: turnUrl,
+      username: process.env.NEXT_PUBLIC_TURN_USER || '',
+      credential: process.env.NEXT_PUBLIC_TURN_CRED || '',
+    });
+  }
+
+  // Free public relay — keeps calls working across networks without any setup.
+  servers.push(
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+  );
+  return servers;
+}
+
+const ICE_SERVERS: RTCIceServer[] = buildIceServers();
 
 interface PeerConn {
   pc: RTCPeerConnection;
@@ -93,6 +124,7 @@ export async function joinAudioCall(opts?: { muted?: boolean }): Promise<void> {
   store()._setMicMuted(muted);
   store()._setAudioError(null);
 
+  installGestureUnblock();
   startVAD();
   attachSelfVAD();
 
@@ -104,6 +136,30 @@ export async function joinAudioCall(opts?: { muted?: boolean }): Promise<void> {
 /** Am I already in the mesh? Lets the UI avoid a redundant join. */
 export function isInCall(): boolean {
   return inCall;
+}
+
+/**
+ * Browsers block audio from starting without a user gesture. Joining the
+ * session is a gesture, but a peer's <audio> is created LATER (when their track
+ * arrives), by which point the gesture is spent and `.play()` silently rejects
+ * — a call that "connected" but was mute. This retries every remote element on
+ * the next real gesture, and resumes the analyser AudioContext (also born
+ * suspended), so voice comes alive the instant anyone clicks anything.
+ */
+let gestureUnblockInstalled = false;
+function unblockPlayback() {
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  conns.forEach((entry) => {
+    if (entry.audioEl.paused) entry.audioEl.play().catch(() => {});
+  });
+}
+function installGestureUnblock() {
+  if (gestureUnblockInstalled || typeof window === 'undefined') return;
+  gestureUnblockInstalled = true;
+  const handler = () => unblockPlayback();
+  window.addEventListener('pointerdown', handler, true);
+  window.addEventListener('keydown', handler, true);
+  window.addEventListener('touchstart', handler, true);
 }
 
 export function leaveAudioCall(): void {
@@ -241,7 +297,10 @@ function ensureConn(peerId: string, connectNow: boolean): PeerConn {
     const [stream] = e.streams;
     if (stream) {
       audioEl.srcObject = stream;
-      audioEl.play().catch(() => {/* will play after a user gesture */});
+      audioEl.play().catch(() => {
+        // Autoplay refused — the gesture unblock (installed on join) retries it
+        // on the next click/keypress, so a call is never permanently silent.
+      });
       attachRemoteVAD(peerId, stream);
     }
   };
@@ -325,6 +384,8 @@ function ensureCtx(): AudioContext | null {
   try {
     const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     audioCtx = new Ctor();
+    // Often born 'suspended' under autoplay policy; a gesture resumes it.
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
     return audioCtx;
   } catch {
     return null;
