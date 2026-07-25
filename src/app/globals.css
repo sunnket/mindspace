@@ -3,6 +3,7 @@
 @import "./text-anim.css";
 @import "./flow.css";
 @import "./pdf-reader.css";
+@import "./pdf-rooms.css";
 
 /* Drive Tailwind's `dark:` variant from the canvas color mode (set by
    canvasTheme.ts on :root) instead of the OS preference, so every existing

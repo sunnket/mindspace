@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Immersive PDF Reader — a full-screen "reading room" for dropped PDFs (v3).
+ * Immersive PDF Reader — a full-screen "reading room" for dropped PDFs (v4).
  *
  * Opened from a PDF file block (FileBlock). Portaled to <body>, mounted only
  * while open (usePdfReaderStore). No top chrome — the page owns the whole frame;
@@ -11,8 +11,9 @@
  *     hardcover Book layout (leather boards, thickening page-edge stacks, sunken
  *     gutter, ribbon marker) with a 3D page-CURL turn (front/back faces + sheen).
  *   • Aged paper — a real sepia FILTER on the page content + foxing + edge-brown.
- *   • 22 layered, realistic Rooms (base + key light + haze + vignette + particles)
- *     grouped Ambience / Nature / Cosmos / Mood.
+ *   • 40 built rooms (components/canvas/pdfRooms.tsx): layered stages with
+ *     distance, architecture, a motivated key light and a foreground, chosen
+ *     from a drawer that previews the real scene. Optional ambient sound.
  *   • Annotate — highlighter, freehand ink (perfect-freehand), resizable sticky
  *     notes, an eraser, and select-to-clip onto the board.
  *
@@ -27,14 +28,10 @@ import { usePdfReaderStore } from '@/store/pdfReaderStore';
 import { useCanvasStore } from '@/store/canvasStore';
 import { getFileForBlock } from '@/lib/fileIngest';
 import { PdfSession, type TextSpan } from '@/lib/pdf/pdfReader';
-import { playWhoosh, playSnap, startRain, stopRain } from '@/lib/relaxAudio';
+import { playWhoosh, playSnap, startRain, stopRain, startAmbience, stopAmbience } from '@/lib/relaxAudio';
+import { ROOMS, ROOM_GROUPS, RoomScene, RoomPreview, getRoom, isRoom, type Atmos, type RoomGroup } from './pdfRooms';
 
 /* ------------------------------- model ---------------------------------- */
-type Atmos =
-  | 'clean' | 'focus' | 'candle' | 'fireplace' | 'library' | 'cafe' | 'parchment'
-  | 'rain' | 'snow' | 'forest' | 'autumn' | 'sakura' | 'meadow' | 'ocean'
-  | 'night' | 'moonlit' | 'aurora' | 'cosmos'
-  | 'sunset' | 'dusk' | 'romance' | 'lavender';
 type Layout = 'scroll' | 'book';
 type Tool = 'none' | 'highlight' | 'draw' | 'sticky' | 'eraser';
 
@@ -43,63 +40,25 @@ interface Stroke { id: string; page: number; pts: number[][]; color: string; siz
 interface Sticky { id: string; page: number; x: number; y: number; w: number; h: number; text: string; color: string; rot: number }
 
 interface ReaderState {
-  page: number; layout: Layout; atmos: Atmos; aged: boolean; strip: boolean;
+  page: number; layout: Layout; atmos: Atmos; aged: boolean; strip: boolean; sound: boolean;
   bookmarks: number[]; highlights: Highlight[]; drawings: Stroke[]; stickies: Sticky[];
 }
 const DEFAULTS: ReaderState = {
-  page: 1, layout: 'scroll', atmos: 'library', aged: false, strip: true,
+  page: 1, layout: 'scroll', atmos: 'library', aged: false, strip: true, sound: false,
   bookmarks: [], highlights: [], drawings: [], stickies: [],
 };
 function arr<T>(v: unknown): T[] { return Array.isArray(v) ? v as T[] : []; }
 function initState(raw: unknown): ReaderState {
   const r = (raw && typeof raw === 'object') ? raw as Partial<ReaderState> : {};
-  const atmos = ROOMS.some((x) => x.key === r.atmos) ? r.atmos! : DEFAULTS.atmos;
   return {
-    ...DEFAULTS, ...r, atmos,
+    ...DEFAULTS, ...r,
+    atmos: isRoom(r.atmos) ? r.atmos : DEFAULTS.atmos,
+    sound: r.sound === true,
     page: Math.max(1, r.page || 1),
     bookmarks: arr(r.bookmarks), highlights: arr(r.highlights),
     drawings: arr(r.drawings), stickies: arr<Sticky>(r.stickies).map((s) => ({ ...s, w: s.w || 150, h: s.h || 104 })),
   };
 }
-
-const ROOMS: { key: Atmos; label: string; group: string; grad: string }[] = [
-  { key: 'clean',     label: 'Clean',       group: 'Ambience', grad: 'linear-gradient(160deg,#3c3c42,#16161a)' },
-  { key: 'focus',     label: 'Focus',       group: 'Ambience', grad: 'radial-gradient(circle at 50% 26%,#1a1512,#050403)' },
-  { key: 'candle',    label: 'Candlelight', group: 'Ambience', grad: 'linear-gradient(160deg,#3a2410,#0a0503)' },
-  { key: 'fireplace', label: 'Fireplace',   group: 'Ambience', grad: 'radial-gradient(circle at 50% 92%,#5a2408,#150703)' },
-  { key: 'library',   label: 'Library',     group: 'Ambience', grad: 'linear-gradient(160deg,#4a3320,#160d06)' },
-  { key: 'cafe',      label: 'Café',        group: 'Ambience', grad: 'linear-gradient(160deg,#3a2a1c,#130c07)' },
-  { key: 'parchment', label: 'Parchment',   group: 'Ambience', grad: 'linear-gradient(160deg,#5a4526,#231a0e)' },
-  { key: 'rain',      label: 'Rainy',       group: 'Nature',   grad: 'linear-gradient(160deg,#1c2732,#070d14)' },
-  { key: 'snow',      label: 'Snowfall',    group: 'Nature',   grad: 'linear-gradient(160deg,#33465a,#0d151f)' },
-  { key: 'forest',    label: 'Forest',      group: 'Nature',   grad: 'linear-gradient(160deg,#1f3a24,#08130b)' },
-  { key: 'autumn',    label: 'Autumn',      group: 'Nature',   grad: 'linear-gradient(160deg,#4a2f16,#150c05)' },
-  { key: 'sakura',    label: 'Sakura',      group: 'Nature',   grad: 'linear-gradient(160deg,#4a2d3a,#170d12)' },
-  { key: 'meadow',    label: 'Meadow',      group: 'Nature',   grad: 'linear-gradient(180deg,#2a4a55,#12261a)' },
-  { key: 'ocean',     label: 'Ocean',       group: 'Nature',   grad: 'linear-gradient(160deg,#123a3d,#041314)' },
-  { key: 'night',     label: 'Starlit',     group: 'Cosmos',   grad: 'radial-gradient(circle at 70% 20%,#2a2d55,#05050f)' },
-  { key: 'moonlit',   label: 'Moonlit',     group: 'Cosmos',   grad: 'radial-gradient(circle at 78% 16%,#2a3150,#06070f)' },
-  { key: 'aurora',    label: 'Aurora',      group: 'Cosmos',   grad: 'linear-gradient(180deg,#0a2a24,#03080d)' },
-  { key: 'cosmos',    label: 'Cosmos',      group: 'Cosmos',   grad: 'radial-gradient(circle at 40% 40%,#2a1a55,#040211)' },
-  { key: 'sunset',    label: 'Golden Hour', group: 'Mood',     grad: 'linear-gradient(160deg,#6a3320,#241030)' },
-  { key: 'dusk',      label: 'Dusk',        group: 'Mood',     grad: 'linear-gradient(160deg,#3a2450,#160b18)' },
-  { key: 'romance',   label: 'Romance',     group: 'Mood',     grad: 'linear-gradient(160deg,#4d1c31,#160810)' },
-  { key: 'lavender',  label: 'Lavender',    group: 'Mood',     grad: 'linear-gradient(160deg,#352a55,#120d20)' },
-];
-const ROOM_GROUPS = ['Ambience', 'Nature', 'Cosmos', 'Mood'];
-
-type PKind = 'dust' | 'ember' | 'rain' | 'snow' | 'leaf' | 'petal' | 'bokeh' | 'stars' | 'gold' | 'pollen';
-const ROOM_FX: Record<Atmos, { k: PKind; extras?: string[]; leaf?: string; petal?: [string, string, string] }> = {
-  clean: { k: 'dust' }, focus: { k: 'dust' }, candle: { k: 'ember' }, fireplace: { k: 'ember' },
-  library: { k: 'dust' }, cafe: { k: 'bokeh' }, parchment: { k: 'dust' },
-  rain: { k: 'rain', extras: ['lightning'] }, snow: { k: 'snow' },
-  forest: { k: 'leaf', extras: ['rays'], leaf: '#6fae4a' }, autumn: { k: 'leaf', leaf: '#d8792a' },
-  sakura: { k: 'petal', petal: ['#fff0f5', '#ffd1e3', '#ffb0cf'] }, meadow: { k: 'pollen', extras: ['rays'] },
-  ocean: { k: 'bokeh' }, night: { k: 'stars', extras: ['shoot'] }, moonlit: { k: 'stars', extras: ['moon'] },
-  aurora: { k: 'stars', extras: ['aurora'] }, cosmos: { k: 'stars', extras: ['nebula'] },
-  sunset: { k: 'gold' }, dusk: { k: 'gold' }, romance: { k: 'petal', extras: ['hearts'], petal: ['#ffd0df', '#ff9ec0', '#f06ea0'] },
-  lavender: { k: 'bokeh' },
-};
 
 const HL_COLORS = ['rgba(255,224,77,0.55)', 'rgba(150,231,150,0.5)', 'rgba(127,199,255,0.5)', 'rgba(255,158,199,0.5)', 'rgba(255,184,119,0.5)'];
 const PEN_COLORS = ['#e0483a', '#2f6fed', '#12a150', '#f5a623', '#8b5cf6', '#1a1a1a'];
@@ -136,6 +95,8 @@ const I = {
   strip: 'M3 5h4v14H3zM10 5h4v14h-4zM17 5h4v14h-4z',
   aged: 'M4 19.5V6a2 2 0 0 1 2-2h11l3 3v12.5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1zM8 8h6M8 12h8M8 16h5',
   room: 'M12 3 2 12h3v8h6v-5h2v5h6v-8h3z',
+  sound: 'M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13',
+  mute: 'M11 5 6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6',
 };
 function Ico({ d, s = 16 }: { d: string; s?: number }) {
   return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
@@ -167,6 +128,8 @@ function Reader({ objId }: { objId: string }) {
   const [stickyColor, setStickyColor] = useState(STICKY_COLORS[0]);
   const [clip, setClip] = useState(false);
   const [roomOpen, setRoomOpen] = useState(false);
+  const [roomTab, setRoomTab] = useState<RoomGroup | 'All'>('All');
+  const [card, setCard] = useState<{ label: string; blurb: string } | null>(null);
   const [toast, setToast] = useState('');
   const [flip, setFlip] = useState<null | { dir: 'next' | 'prev'; half: 'l' | 'r'; front: number; back: number }>(null);
 
@@ -197,8 +160,17 @@ function Reader({ objId }: { objId: string }) {
   useEffect(() => { const t = setTimeout(() => persist(st), 450); return () => clearTimeout(t); }, [st, persist]);
   const doClose = useCallback(() => { persist(st); closeReader(); }, [persist, st, closeReader]);
 
-  /* -- rain ambience ----------------------------------------------------- */
-  useEffect(() => { if (st.atmos === 'rain') { startRain(); return () => stopRain(); } return undefined; }, [st.atmos]);
+  /* -- ambience ----------------------------------------------------------- *
+   * Off unless asked for: a reader that starts making noise on its own is a
+   * reader you close. When it is on, the bed follows the room. */
+  useEffect(() => {
+    if (!st.sound) return undefined;
+    const bed = getRoom(st.atmos).sound;
+    if (!bed) return undefined;
+    if (bed === 'rain') { startRain(); return () => stopRain(); }
+    startAmbience(bed);
+    return () => stopAmbience(bed);
+  }, [st.atmos, st.sound]);
 
   const flash = useCallback((m: string) => { setToast(m); window.setTimeout(() => setToast(''), 1700); }, []);
 
@@ -267,7 +239,14 @@ function Reader({ objId }: { objId: string }) {
   }, [win, aspect, st.layout, st.strip]);
 
   const bookmarked = st.bookmarks.includes(st.page);
-  const roomLabel = ROOMS.find((r) => r.key === st.atmos)?.label || 'Room';
+  const room = getRoom(st.atmos);
+
+  /* Walking into a room announces itself, then gets out of the way. */
+  const enterRoom = useCallback((r: typeof room) => {
+    set({ atmos: r.key });
+    setCard({ label: r.label, blurb: r.blurb });
+    window.setTimeout(() => setCard((c) => (c && c.label === r.label ? null : c)), 2600);
+  }, [set]);
 
   const pageProps = {
     session, tool, hlColor, penColor, penSize, stickyColor,
@@ -286,11 +265,18 @@ function Reader({ objId }: { objId: string }) {
           : null;
 
   return (
-    <div className="pdfr-root" data-atmos={st.atmos} data-aged={st.aged ? '1' : '0'} data-tool={tool} onMouseUp={onStageMouseUp}>
-      <div className="pdfr-bg"><div className="base" /><div className="key" /><div className="haze" /><div className="vig" /></div>
-      <Particles atmos={st.atmos} />
+    <div className="pdfr-root" data-atmos={st.atmos} data-aged={st.aged ? '1' : '0'} data-tool={tool} onMouseUp={onStageMouseUp}
+      style={{ ['--accent' as string]: room.accent, ['--glow' as string]: String(room.glow ?? 0.4), color: room.ink || '#f4ece0' }}>
+      <RoomScene atmos={st.atmos} />
 
       <div className="pdfr-close" title="Close (Esc)" onClick={doClose}><Ico d={I.close} s={17} /></div>
+
+      {card && (
+        <div className="pdfr-roomcaption" key={card.label}>
+          <div className="t">{card.label}</div>
+          <div className="b">{card.blurb}</div>
+        </div>
+      )}
 
       {/* stage */}
       <div className="pdfr-stage" style={{ position: 'absolute', inset: 0, top: 14, bottom: st.strip ? 190 : 82, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto', padding: '10px 22px', zIndex: 5 }} onClick={() => roomOpen && setRoomOpen(false)}>
@@ -319,27 +305,12 @@ function Reader({ objId }: { objId: string }) {
           <button className={`pdfr-btn ${st.layout === 'book' ? 'active' : ''}`} title="Book view" onClick={() => set({ layout: 'book' })}><Ico d={I.book} s={15} /></button>
         </div>
         <button className={`pdfr-btn ${st.aged ? 'active' : ''}`} title="Age the paper" onClick={() => set({ aged: !st.aged })}><Ico d={I.aged} s={15} /></button>
-        <div style={{ position: 'relative' }}>
-          <button className={`pdfr-btn ${roomOpen ? 'active' : ''}`} title="Reading room" onClick={() => setRoomOpen(!roomOpen)}><Ico d={I.room} s={15} /> {roomLabel}</button>
-          {roomOpen && (
-            <div className="pdfr-pop" style={{ bottom: 'calc(100% + 12px)', left: '50%', transform: 'translateX(-50%)' }} onClick={(e) => e.stopPropagation()}>
-              {ROOM_GROUPS.map((g) => (
-                <div key={g} style={{ marginBottom: 12 }}>
-                  <h4 style={{ marginBottom: 8 }}>{g}</h4>
-                  <div className="pdfr-rooms">
-                    {ROOMS.filter((r) => r.group === g).map((r) => (
-                      <div key={r.key} className={`pdfr-room ${st.atmos === r.key ? 'active' : ''}`} onClick={() => set({ atmos: r.key })} title={r.label}>
-                        <div className="fill" style={{ background: r.grad }} />
-                        <div className="tick">✓</div>
-                        <div className="lbl">{r.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <button className={`pdfr-btn ${roomOpen ? 'active' : ''}`} title="Reading room" onClick={() => setRoomOpen(!roomOpen)}><Ico d={I.room} s={15} /> {room.label}</button>
+        {room.sound && (
+          <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} title={st.sound ? 'Mute the room' : 'Let the room be heard'} onClick={() => set({ sound: !st.sound })}>
+            <Ico d={st.sound ? I.sound : I.mute} s={15} />
+          </button>
+        )}
         <div className="pdfr-sep" />
         <button className={`pdfr-btn ${bookmarked ? 'active' : ''}`} title="Bookmark this page" onClick={() => toggleBookmark(st.page)}><Ico d={I.bookmark} s={15} /></button>
         <button className={`pdfr-btn ${tool === 'highlight' ? 'active' : ''}`} title="Highlighter" onClick={() => setTool(tool === 'highlight' ? 'none' : 'highlight')}><Ico d={I.hl} s={15} /></button>
@@ -350,6 +321,52 @@ function Reader({ objId }: { objId: string }) {
         <button className={`pdfr-btn ${clip ? 'active' : ''}`} title="Clip: select text to send it to the board" onClick={() => setClip(!clip)}><Ico d={I.clip} s={15} /></button>
         <button className={`pdfr-btn ${st.strip ? 'active' : ''}`} title="Thumbnails" onClick={() => set({ strip: !st.strip })}><Ico d={I.strip} s={15} /></button>
       </div>
+
+      {roomOpen && (
+        <div className="pdfr-drawer" onClick={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
+          <div className="head">
+            <div>
+              <h3>Rooms</h3>
+              <p>Somewhere to read this. {ROOMS.length} of them — the light, the weather and the furniture change, the page doesn&apos;t.</p>
+            </div>
+            <div className="x" title="Close" onClick={() => setRoomOpen(false)}><Ico d={I.close} s={15} /></div>
+          </div>
+
+          <div className="pdfr-tabs">
+            {(['All', ...ROOM_GROUPS] as const).map((g) => (
+              <button key={g} className={`pdfr-tab ${roomTab === g ? 'active' : ''}`} onClick={() => setRoomTab(g)}>{g}</button>
+            ))}
+          </div>
+
+          <div className="body">
+            {ROOM_GROUPS.filter((g) => roomTab === 'All' || roomTab === g).map((g) => (
+              <div key={g}>
+                <h4>{g}</h4>
+                <div className="pdfr-grid">
+                  {ROOMS.filter((r) => r.group === g).map((r) => (
+                    <div key={r.key} className={`pdfr-roomcard ${st.atmos === r.key ? 'active' : ''}`} title={r.blurb} onClick={() => enterRoom(r)}>
+                      <RoomPreview atmos={r.key} />
+                      <div className="cap">
+                        <span className="dot" />{r.label}
+                        {r.sound && <Ico d={I.sound} s={11} />}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="foot">
+            <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} onClick={() => set({ sound: !st.sound })} title={room.sound ? '' : 'This room is a quiet one'}>
+              <Ico d={st.sound ? I.sound : I.mute} s={14} /> Ambient sound {st.sound ? 'on' : 'off'}
+            </button>
+            <button className={`pdfr-btn ${st.aged ? 'active' : ''}`} onClick={() => set({ aged: !st.aged })}>
+              <Ico d={I.aged} s={14} /> Aged paper
+            </button>
+          </div>
+        </div>
+      )}
 
       {st.strip && session && <Filmstrip session={session} page={st.page} bookmarks={st.bookmarks} onJump={go} />}
 
@@ -371,48 +388,6 @@ function usePageAspect(session: PdfSession | null, page: number): number {
     return () => { alive = false; };
   }, [session, page]);
   return a;
-}
-
-/* ------------------------------ particles ------------------------------- */
-function Particles({ atmos }: { atmos: Atmos }) {
-  const fx = ROOM_FX[atmos];
-  const items = useMemo(() => {
-    const k = fx.k;
-    const n = k === 'rain' ? 64 : k === 'stars' ? (atmos === 'cosmos' ? 92 : atmos === 'moonlit' ? 32 : 60)
-      : k === 'snow' ? 46 : k === 'petal' ? 22 : k === 'leaf' ? 22 : k === 'bokeh' ? 14
-      : k === 'ember' ? (atmos === 'fireplace' ? 42 : 24) : k === 'pollen' ? 30 : 26;
-    return Array.from({ length: n }, () => {
-      if (k === 'rain') return { left: `${rand(-4, 100)}%`, animationDuration: `${rand(0.5, 1.05)}s`, animationDelay: `${-rand(0, 1.2)}s` };
-      if (k === 'stars') return { left: `${rand(2, 98)}%`, top: `${rand(3, 84)}%`, animationDuration: `${rand(2.2, 5)}s`, animationDelay: `${-rand(0, 4)}s` };
-      if (k === 'snow') return { left: `${rand(0, 100)}%`, animationDuration: `${rand(5, 11)}s`, animationDelay: `${-rand(0, 8)}s`, transform: `scale(${rand(0.5, 1.2)})` };
-      if (k === 'petal' || k === 'leaf') return { left: `${rand(-4, 100)}%`, animationDuration: `${rand(7, 13)}s`, animationDelay: `${-rand(0, 10)}s`, transform: `scale(${rand(0.7, 1.25)})` };
-      if (k === 'bokeh') { const s = rand(60, 200); return { left: `${rand(4, 92)}%`, top: `${rand(8, 88)}%`, width: `${s}px`, height: `${s}px`, animationDuration: `${rand(8, 16)}s`, animationDelay: `${-rand(0, 8)}s` }; }
-      if (k === 'ember') return { left: `${rand(6, 94)}%`, animationDuration: `${rand(3.4, 6.5)}s`, animationDelay: `${-rand(0, 5)}s` };
-      return { left: `${rand(2, 96)}%`, top: `${rand(6, 92)}%`, animationDuration: `${rand(6, 13)}s`, animationDelay: `${-rand(0, 8)}s` };
-    });
-  }, [fx.k, atmos]);
-
-  const extras = fx.extras || [];
-  const hearts = useMemo(() => atmos === 'romance' ? Array.from({ length: 6 }, () => ({ left: `${rand(6, 90)}%`, animationDuration: `${rand(7, 12)}s`, animationDelay: `${-rand(0, 9)}s`, fontSize: `${rand(14, 26)}px` })) : [], [atmos]);
-
-  const vars: React.CSSProperties = {};
-  if (fx.leaf) (vars as Record<string, string>)['--leafc'] = fx.leaf;
-  if (fx.petal) { const [a, b, c] = fx.petal; (vars as Record<string, string>)['--petal1'] = a; (vars as Record<string, string>)['--petal2'] = b; (vars as Record<string, string>)['--petal3'] = c; }
-
-  return (
-    <>
-      <div className={`pdfr-particles pdfr-${fx.k}`} aria-hidden style={vars}>
-        {items.map((s, i) => <span key={i} className="p" style={s as React.CSSProperties} />)}
-      </div>
-      {extras.includes('lightning') && <div className="pdfr-lightning" aria-hidden />}
-      {extras.includes('shoot') && <div className="pdfr-shoot" aria-hidden />}
-      {extras.includes('rays') && <div className="pdfr-rays" aria-hidden />}
-      {extras.includes('moon') && <div className="pdfr-moon" aria-hidden />}
-      {extras.includes('nebula') && <div className="pdfr-nebula" aria-hidden />}
-      {extras.includes('aurora') && <div className="pdfr-auroralayer" aria-hidden />}
-      {extras.includes('hearts') && <div className="pdfr-heart" aria-hidden>{hearts.map((h, i) => <span key={i} style={h as React.CSSProperties}>♥</span>)}</div>}
-    </>
-  );
 }
 
 /* --------------------------------- book --------------------------------- */
