@@ -1,0 +1,338 @@
+/* ============================================================================
+   IMMERSIVE PDF READER — the "reading room".
+   Paired with src/store/pdfReaderStore.ts + src/components/canvas/PdfReaderLayer.tsx
+   + src/lib/pdf/pdfReader.ts.
+
+   The layer is a full-screen takeover portaled to <body>. A `data-atmos`
+   attribute on the root swaps the whole room (light, particles, mood); a
+   separate `data-aged` flag tints the PAGES to old paper independently, so any
+   room can hold a fresh or a yellowed book. All motion is transform/opacity/
+   filter only.
+   ============================================================================ */
+
+.pdfr-root {
+  position: fixed;
+  inset: 0;
+  z-index: 300;                 /* a true takeover — above canvas chrome & panels */
+  overflow: hidden;
+  font-family: 'Outfit', sans-serif;
+  color: #f4ece0;
+  --room-a: #2b2622;            /* room gradient stops (overridden per atmosphere) */
+  --room-b: #17130f;
+  --room-c: #0c0906;
+  --accent: 245, 200, 130;      /* warm reading accent, rgb */
+  --page-tint: transparent;     /* aged-paper overlay colour */
+  --page-shadow: 0 40px 90px -30px rgba(0,0,0,0.8), 0 8px 26px -12px rgba(0,0,0,0.6);
+  animation: pdfrFadeIn 0.5s ease both;
+}
+@keyframes pdfrFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* The room backdrop — layered gradients per atmosphere. */
+.pdfr-bg {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(120% 90% at 50% 8%, var(--room-a) 0%, var(--room-b) 46%, var(--room-c) 100%);
+  transition: background 900ms ease;
+}
+.pdfr-bg::after {                /* soft top light + deep vignette on every room */
+  content: ''; position: absolute; inset: 0;
+  background:
+    radial-gradient(80% 60% at 50% -6%, rgba(255,246,230,0.10), transparent 60%),
+    radial-gradient(130% 120% at 50% 52%, transparent 48%, rgba(0,0,0,0.62) 100%);
+  transition: opacity 900ms ease;
+}
+
+/* ------------------------------- atmospheres ------------------------------ */
+.pdfr-root[data-atmos="clean"]   { --room-a:#3a3a40; --room-b:#26262b; --room-c:#141417; --accent:210,214,222; }
+.pdfr-root[data-atmos="focus"]   { --room-a:#141110; --room-b:#0a0807; --room-c:#040302; --accent:245,205,140; }
+.pdfr-root[data-atmos="candle"]  { --room-a:#2a1c10; --room-b:#160d06; --room-c:#0a0503; --accent:255,178,92; }
+.pdfr-root[data-atmos="haunted"] { --room-a:#141a18; --room-b:#0a0f0d; --room-c:#040706; --accent:150,196,180; color:#dce7e1; }
+.pdfr-root[data-atmos="rain"]    { --room-a:#1a222e; --room-b:#0e141d; --room-c:#060a10; --accent:158,200,236; color:#e6eef6; }
+.pdfr-root[data-atmos="night"]   { --room-a:#181a2e; --room-b:#0c0d1c; --room-c:#050510; --accent:178,186,255; color:#e9eafb; }
+.pdfr-root[data-atmos="library"] { --room-a:#3a2a1a; --room-b:#22160c; --room-c:#120b05; --accent:238,190,120; }
+
+/* Focus mode: pull the room even darker so the page spotlight reads as light. */
+.pdfr-root[data-atmos="focus"] .pdfr-bg::after,
+.pdfr-root[data-atmos="candle"] .pdfr-bg::after,
+.pdfr-root[data-atmos="haunted"] .pdfr-bg::after { opacity: 1.25; }
+
+/* Warm/lamp glow blob for candle + library, drifting flicker for candle. */
+.pdfr-lamp {
+  position: absolute; left: 50%; top: 40%;
+  width: 130vmax; height: 130vmax; transform: translate(-50%,-50%);
+  pointer-events: none; opacity: 0;
+  background: radial-gradient(circle, rgba(var(--accent),0.16) 0%, rgba(var(--accent),0.05) 26%, transparent 55%);
+  transition: opacity 900ms ease;
+}
+.pdfr-root[data-atmos="library"] .pdfr-lamp { opacity: 0.9; }
+.pdfr-root[data-atmos="candle"]  .pdfr-lamp { opacity: 1; animation: pdfrFlicker 3.6s ease-in-out infinite; }
+.pdfr-root[data-atmos="haunted"] .pdfr-lamp { opacity: 0.55; animation: pdfrFlicker 5.5s ease-in-out infinite; background: radial-gradient(circle, rgba(var(--accent),0.10), transparent 52%); }
+@keyframes pdfrFlicker {
+  0%,100% { opacity: 1; }
+  8%  { opacity: 0.86; }
+  10% { opacity: 1; }
+  42% { opacity: 0.92; }
+  44% { opacity: 0.78; }
+  46% { opacity: 0.98; }
+  70% { opacity: 0.9; }
+}
+
+/* ----------------------------- ambient particles -------------------------- */
+.pdfr-particles { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.pdfr-particles .p { position: absolute; will-change: transform, opacity; }
+
+/* Rain streaks (rain atmosphere). */
+.pdfr-rain .p {
+  top: -14%; width: 1.4px; height: 88px; border-radius: 2px;
+  background: linear-gradient(to bottom, rgba(190,220,255,0), rgba(205,230,255,0.5));
+  animation: pdfrRain linear infinite;
+}
+@keyframes pdfrRain { from { transform: translate3d(0,-12vh,0); } to { transform: translate3d(-52px,116vh,0); } }
+
+/* Lightning flash — a full-screen wash that fires occasionally. */
+.pdfr-lightning {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: radial-gradient(90% 60% at 50% 0%, rgba(210,232,255,0.5), transparent 60%);
+  animation: pdfrFlash 14s linear infinite;
+}
+@keyframes pdfrFlash {
+  0%, 8%, 100% { opacity: 0; }
+  2% { opacity: 0.9; }
+  3% { opacity: 0.15; }
+  4.4% { opacity: 0.8; }
+  6% { opacity: 0; }
+}
+
+/* Dust motes (candle / haunted / library). */
+.pdfr-dust .p {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--accent),0.8), transparent 70%);
+  animation: pdfrDrift ease-in-out infinite alternate;
+}
+@keyframes pdfrDrift {
+  from { transform: translate3d(0,0,0); opacity: 0.15; }
+  50% { opacity: 0.55; }
+  to { transform: translate3d(46px,-34px,0); opacity: 0.25; }
+}
+
+/* Starfield (night). */
+.pdfr-stars .p {
+  width: 2px; height: 2px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 6px rgba(200,210,255,0.9);
+  animation: pdfrTwinkle ease-in-out infinite;
+}
+@keyframes pdfrTwinkle { 0%,100% { opacity: 0.12; transform: scale(0.6);} 50% { opacity: 0.95; transform: scale(1);} }
+
+/* Creeping fog (haunted). */
+.pdfr-fog {
+  position: absolute; inset: -20% -30%; pointer-events: none; opacity: 0.5;
+  background:
+    radial-gradient(40% 30% at 20% 70%, rgba(160,190,180,0.10), transparent 60%),
+    radial-gradient(46% 34% at 80% 40%, rgba(140,175,165,0.10), transparent 60%);
+  animation: pdfrFog 26s ease-in-out infinite alternate;
+}
+@keyframes pdfrFog { from { transform: translate3d(-3%,0,0) scale(1); } to { transform: translate3d(4%,-2%,0) scale(1.12); } }
+
+/* --------------------------------- the page ------------------------------- */
+/* The rendered PDF page (canvas or typeset sheet). Aged flag tints + textures. */
+.pdfr-page {
+  position: relative;
+  background: #fff;
+  box-shadow: var(--page-shadow);
+  border-radius: 3px;
+  overflow: hidden;
+  transition: box-shadow 400ms ease;
+}
+.pdfr-page canvas { display: block; width: 100%; height: auto; }
+
+/* Aged paper: warm the sheet, add a fibrous grain + edge-scorch, all via overlays
+   so it works identically over a canvas render and a typeset sheet. */
+.pdfr-root[data-aged="1"] { --page-tint: rgba(196,150,74,0.20); }
+.pdfr-page .pdfr-aged {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  transition: opacity 500ms ease;
+  background:
+    radial-gradient(140% 120% at 50% 50%, transparent 52%, rgba(120,86,30,0.34) 100%),
+    linear-gradient(115deg, rgba(150,110,40,0.05) 0%, rgba(120,80,20,0.12) 100%),
+    var(--page-tint);
+  mix-blend-mode: multiply;
+}
+.pdfr-page .pdfr-aged::before {          /* fibre speckle */
+  content: ''; position: absolute; inset: 0; opacity: 0.5;
+  background-image:
+    radial-gradient(rgba(90,60,20,0.14) 0.5px, transparent 0.6px),
+    radial-gradient(rgba(120,90,40,0.10) 0.5px, transparent 0.6px);
+  background-size: 3px 3px, 5px 5px;
+  background-position: 0 0, 2px 3px;
+}
+.pdfr-root[data-aged="1"] .pdfr-page .pdfr-aged { opacity: 1; }
+.pdfr-root[data-aged="1"] .pdfr-page { border-radius: 3px 10px 4px 8px; }  /* subtle deckle */
+
+/* Focus/candle rooms: give the page its own light so it lifts off the dark. */
+.pdfr-root[data-atmos="focus"]  .pdfr-page,
+.pdfr-root[data-atmos="candle"] .pdfr-page,
+.pdfr-root[data-atmos="haunted"] .pdfr-page {
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.04), var(--page-shadow), 0 0 120px -20px rgba(var(--accent),0.45);
+}
+
+/* ------------------------------- text layer ------------------------------- */
+/* Transparent, selectable text positioned over the canvas (for select→clip). */
+/* Transparent text (so it's invisible) but the layer itself stays opaque so the
+   browser's ::selection highlight renders at full strength for clipping. */
+.pdfr-textlayer {
+  position: absolute; inset: 0; overflow: hidden; line-height: 1;
+  user-select: text; -webkit-user-select: text;
+}
+.pdfr-textlayer span { position: absolute; white-space: pre; transform-origin: 0 0; color: transparent; cursor: text; }
+.pdfr-textlayer span::selection { background: rgba(120,170,255,0.4); }
+.pdfr-textlayer span::-moz-selection { background: rgba(120,170,255,0.4); }
+
+/* --------------------------------- highlights ----------------------------- */
+.pdfr-hl { position: absolute; border-radius: 2px; mix-blend-mode: multiply; pointer-events: auto; cursor: pointer; }
+.pdfr-root[data-tool="highlight"] .pdfr-page { cursor: crosshair; }
+.pdfr-root[data-tool="pin"] .pdfr-page { cursor: cell; }
+
+/* Drop-pin marker + note bubble. */
+.pdfr-pin {
+  position: absolute; width: 22px; height: 22px; transform: translate(-50%,-100%);
+  pointer-events: auto; cursor: pointer; filter: drop-shadow(0 3px 4px rgba(0,0,0,0.4));
+}
+.pdfr-pin-note {
+  position: absolute; transform: translate(-50%,-100%);
+  max-width: 220px; padding: 8px 11px; border-radius: 10px;
+  background: rgba(28,24,20,0.94); color: #f4ece0; font-size: 12px; line-height: 1.4;
+  border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 12px 30px -12px rgba(0,0,0,0.7);
+}
+
+/* ---------------------------------- book ---------------------------------- */
+/* Two-page spread with a stitched spine and a 3D page-flip. */
+.pdfr-book { display: flex; align-items: stretch; perspective: 2600px; }
+.pdfr-book .pdfr-leaf { position: relative; }
+.pdfr-book .spine {
+  width: 2px; align-self: stretch;
+  background: linear-gradient(to right, rgba(0,0,0,0.28), rgba(0,0,0,0.06), rgba(0,0,0,0.28));
+  box-shadow: 0 0 22px rgba(0,0,0,0.4);
+}
+/* The turning sheet, animated on flip. */
+.pdfr-flip {
+  position: absolute; inset: 0; transform-origin: left center; backface-visibility: hidden;
+  z-index: 5; box-shadow: var(--page-shadow);
+}
+.pdfr-flip.turn-next { animation: pdfrTurnNext 0.62s cubic-bezier(.4,.05,.3,1) both; transform-origin: left center; }
+.pdfr-flip.turn-prev { animation: pdfrTurnPrev 0.62s cubic-bezier(.4,.05,.3,1) both; transform-origin: right center; }
+@keyframes pdfrTurnNext { from { transform: rotateY(0deg); filter: brightness(1);} to { transform: rotateY(-176deg); filter: brightness(0.86);} }
+@keyframes pdfrTurnPrev { from { transform: rotateY(0deg); filter: brightness(1);} to { transform: rotateY(176deg); filter: brightness(0.86);} }
+
+/* The subtle corner page-turn buttons. */
+.pdfr-corner {
+  position: absolute; bottom: 0; width: 64px; height: 78px; cursor: pointer;
+  display: flex; align-items: flex-end; justify-content: center;
+  opacity: 0; transition: opacity 300ms ease; z-index: 8; pointer-events: auto;
+}
+.pdfr-corner.right { right: 0; }
+.pdfr-corner.left { left: 0; }
+.pdfr-book:hover .pdfr-corner, .pdfr-stage:hover .pdfr-corner { opacity: 0.5; }
+.pdfr-corner:hover { opacity: 1 !important; }
+.pdfr-corner .fold {
+  width: 52px; height: 66px;
+  background: linear-gradient(135deg, transparent 46%, rgba(255,255,255,0.12) 47%, rgba(0,0,0,0.22) 100%);
+  border-radius: 0 0 4px 0;
+}
+.pdfr-corner.left .fold { transform: scaleX(-1); }
+
+/* -------------------------------- filmstrip ------------------------------- */
+.pdfr-strip {
+  display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden;
+  padding: 10px 14px; scroll-behavior: smooth;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.25) transparent;
+}
+.pdfr-strip::-webkit-scrollbar { height: 8px; }
+.pdfr-strip::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+.pdfr-thumb {
+  position: relative; flex: 0 0 auto; width: 62px; cursor: pointer; border-radius: 4px;
+  overflow: hidden; border: 2px solid transparent; background: rgba(255,255,255,0.06);
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+}
+.pdfr-thumb img { display: block; width: 100%; height: auto; }
+.pdfr-thumb:hover { transform: translateY(-3px); box-shadow: 0 8px 18px -8px rgba(0,0,0,0.6); }
+.pdfr-thumb.active { border-color: rgb(var(--accent)); box-shadow: 0 0 0 1px rgba(var(--accent),0.5), 0 8px 20px -8px rgba(0,0,0,0.7); }
+.pdfr-thumb .n {
+  position: absolute; bottom: 0; left: 0; right: 0; text-align: center;
+  font-size: 9px; font-weight: 700; padding: 1px 0;
+  background: rgba(0,0,0,0.55); color: #fff;
+}
+.pdfr-thumb .dogear {           /* bookmark corner on saved pages */
+  position: absolute; top: 0; right: 0; width: 0; height: 0;
+  border-top: 14px solid rgb(var(--accent)); border-left: 14px solid transparent;
+}
+
+/* --------------------------------- chrome --------------------------------- */
+.pdfr-bar {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 9px; border-radius: 16px;
+  background: rgba(20,17,14,0.66); backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 18px 50px -20px rgba(0,0,0,0.8);
+  z-index: 20;
+}
+.pdfr-bar.top { top: 16px; }
+.pdfr-bar.bottom { bottom: 16px; }
+.pdfr-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 34px; min-width: 34px; padding: 0 9px; border-radius: 11px;
+  background: transparent; color: #e9ddca; cursor: pointer;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+  border: 1px solid transparent; transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+  user-select: none; white-space: nowrap;
+}
+.pdfr-btn:hover { background: rgba(255,255,255,0.09); color: #fff; }
+.pdfr-btn.active { background: rgba(var(--accent),0.20); color: #fff; border-color: rgba(var(--accent),0.5); }
+.pdfr-btn:disabled { opacity: 0.35; cursor: default; }
+.pdfr-sep { width: 1px; height: 22px; background: rgba(255,255,255,0.12); margin: 0 3px; }
+
+/* Slide-out settings popover (fonts, atmosphere grid, sliders). */
+.pdfr-pop {
+  position: absolute; z-index: 30;
+  padding: 14px; border-radius: 16px; width: 268px;
+  background: rgba(24,20,17,0.94); backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 26px 60px -24px rgba(0,0,0,0.85);
+  animation: pdfrPop 0.22s cubic-bezier(.16,1,.3,1) both;
+}
+@keyframes pdfrPop { from { opacity: 0; transform: translateY(8px) scale(0.98);} to { opacity: 1; transform: none;} }
+.pdfr-pop h4 { font-size: 9.5px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(244,236,224,0.55); margin: 0; }
+.pdfr-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+.pdfr-chip {
+  display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 11px; cursor: pointer;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+  font-size: 11.5px; font-weight: 600; color: #ecdfca; transition: all 160ms ease;
+}
+.pdfr-chip:hover { background: rgba(255,255,255,0.1); }
+.pdfr-chip.active { border-color: rgba(var(--accent),0.6); background: rgba(var(--accent),0.16); color: #fff; }
+.pdfr-chip .dot { width: 14px; height: 14px; border-radius: 5px; flex: 0 0 auto; }
+
+.pdfr-range { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.16); outline: none; }
+.pdfr-range::-webkit-slider-thumb { -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%; background: rgb(var(--accent)); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+.pdfr-range::-moz-range-thumb { width: 15px; height: 15px; border: none; border-radius: 50%; background: rgb(var(--accent)); cursor: pointer; }
+
+/* Typeset (reflow) sheet. */
+.pdfr-typeset {
+  background: #fbf6ec; color: #241d14;
+  padding: 64px 72px; box-sizing: border-box;
+}
+.pdfr-typeset p { margin: 0 0 0.9em; }
+
+/* Progress ribbon under the top bar. */
+.pdfr-progress { position: absolute; top: 0; left: 0; height: 2px; background: rgb(var(--accent)); box-shadow: 0 0 8px rgba(var(--accent),0.7); transition: width 300ms ease; z-index: 25; }
+
+/* Loading + hint. */
+.pdfr-loading { display: flex; flex-direction: column; align-items: center; gap: 14px; color: rgba(244,236,224,0.7); }
+.pdfr-spin { width: 30px; height: 30px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.15); border-top-color: rgb(var(--accent)); animation: pdfrSpin 0.8s linear infinite; }
+@keyframes pdfrSpin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pdfr-particles .p, .pdfr-lamp, .pdfr-fog, .pdfr-lightning, .pdfr-flip { animation: none !important; }
+  .pdfr-root { animation: none; }
+}

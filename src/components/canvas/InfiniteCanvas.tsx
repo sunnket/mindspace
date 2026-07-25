@@ -27,6 +27,7 @@ import RelaxEffectsLayer from './RelaxEffectsLayer';
 import CanvasResident from './CanvasResident';
 import ConstellationView from './ConstellationView';
 import FlowModeLayer from './FlowModeLayer';
+import PdfReaderLayer from './PdfReaderLayer';
 import DrawingLayer from './DrawingLayer';
 import ConnectionsLayer from './ConnectionsLayer';
 import FloatingToolbar from '@/components/ui/FloatingToolbar';
@@ -1687,6 +1688,11 @@ export default function InfiniteCanvas() {
           Opened from the minimap; portals itself to <body>; renders only when
           `constellationOpen`. */}
       <ConstellationView />
+
+      {/* Immersive PDF Reader: cinematic reading room for a dropped PDF.
+          Opened from a PDF file block; portals to <body>; renders only when a
+          PDF is open (usePdfReaderStore). */}
+      <PdfReaderLayer />
 
       {/* Every piece of app chrome, in ONE wrapper.
           A tour is a presentation, and `.tour-mode` used to hide only four of
