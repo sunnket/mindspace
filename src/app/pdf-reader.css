@@ -1,338 +1,372 @@
 /* ============================================================================
-   IMMERSIVE PDF READER — the "reading room".
-   Paired with src/store/pdfReaderStore.ts + src/components/canvas/PdfReaderLayer.tsx
+   IMMERSIVE PDF READER — the "reading room" (v2, realistic).
+   Paired with src/store/pdfReaderStore.ts + components/canvas/PdfReaderLayer.tsx
    + src/lib/pdf/pdfReader.ts.
 
-   The layer is a full-screen takeover portaled to <body>. A `data-atmos`
-   attribute on the root swaps the whole room (light, particles, mood); a
-   separate `data-aged` flag tints the PAGES to old paper independently, so any
-   room can hold a fresh or a yellowed book. All motion is transform/opacity/
-   filter only.
+   Root carries three independent switches:
+     data-atmos  — the room (light, particles, mood)
+     data-aged   — yellows the actual page content (a real filter, not a tint)
+     data-tool   — the active annotation tool (drives the page cursor)
+   All motion is transform / opacity / filter only.
    ============================================================================ */
 
 .pdfr-root {
-  position: fixed;
-  inset: 0;
-  z-index: 300;                 /* a true takeover — above canvas chrome & panels */
-  overflow: hidden;
-  font-family: 'Outfit', sans-serif;
-  color: #f4ece0;
-  --room-a: #2b2622;            /* room gradient stops (overridden per atmosphere) */
-  --room-b: #17130f;
-  --room-c: #0c0906;
-  --accent: 245, 200, 130;      /* warm reading accent, rgb */
-  --page-tint: transparent;     /* aged-paper overlay colour */
-  --page-shadow: 0 40px 90px -30px rgba(0,0,0,0.8), 0 8px 26px -12px rgba(0,0,0,0.6);
-  animation: pdfrFadeIn 0.5s ease both;
+  position: fixed; inset: 0; z-index: 300; overflow: hidden;
+  font-family: 'Outfit', sans-serif; color: #f4ece0;
+  --room-a: #2b2622; --room-b: #17130f; --room-c: #0c0906;
+  --accent: 245, 200, 130;
+  --page-shadow: 0 40px 90px -34px rgba(0,0,0,0.82), 0 10px 30px -14px rgba(0,0,0,0.6);
+  animation: pdfrFadeIn 0.55s ease both;
 }
 @keyframes pdfrFadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-/* The room backdrop — layered gradients per atmosphere. */
-.pdfr-bg {
-  position: absolute; inset: 0;
-  background:
-    radial-gradient(120% 90% at 50% 8%, var(--room-a) 0%, var(--room-b) 46%, var(--room-c) 100%);
-  transition: background 900ms ease;
-}
-.pdfr-bg::after {                /* soft top light + deep vignette on every room */
-  content: ''; position: absolute; inset: 0;
-  background:
-    radial-gradient(80% 60% at 50% -6%, rgba(255,246,230,0.10), transparent 60%),
-    radial-gradient(130% 120% at 50% 52%, transparent 48%, rgba(0,0,0,0.62) 100%);
-  transition: opacity 900ms ease;
-}
+/* --------------------------------- rooms --------------------------------- */
+/* Every room is layered: a deep base gradient + a warm/cool key light + an
+   atmospheric haze + a vignette. Particles ride on top (see .pdfr-particles). */
+.pdfr-bg { position: absolute; inset: 0; transition: background 900ms ease; }
+.pdfr-bg .base { position: absolute; inset: 0; }
+.pdfr-bg .key  { position: absolute; inset: 0; }        /* main light source */
+.pdfr-bg .haze { position: absolute; inset: 0; }        /* colour fog / bloom */
+.pdfr-bg .vig  { position: absolute; inset: 0;
+  background: radial-gradient(130% 115% at 50% 46%, transparent 46%, rgba(0,0,0,0.6) 100%); }
 
-/* ------------------------------- atmospheres ------------------------------ */
-.pdfr-root[data-atmos="clean"]   { --room-a:#3a3a40; --room-b:#26262b; --room-c:#141417; --accent:210,214,222; }
-.pdfr-root[data-atmos="focus"]   { --room-a:#141110; --room-b:#0a0807; --room-c:#040302; --accent:245,205,140; }
-.pdfr-root[data-atmos="candle"]  { --room-a:#2a1c10; --room-b:#160d06; --room-c:#0a0503; --accent:255,178,92; }
-.pdfr-root[data-atmos="haunted"] { --room-a:#141a18; --room-b:#0a0f0d; --room-c:#040706; --accent:150,196,180; color:#dce7e1; }
-.pdfr-root[data-atmos="rain"]    { --room-a:#1a222e; --room-b:#0e141d; --room-c:#060a10; --accent:158,200,236; color:#e6eef6; }
-.pdfr-root[data-atmos="night"]   { --room-a:#181a2e; --room-b:#0c0d1c; --room-c:#050510; --accent:178,186,255; color:#e9eafb; }
-.pdfr-root[data-atmos="library"] { --room-a:#3a2a1a; --room-b:#22160c; --room-c:#120b05; --accent:238,190,120; }
+.pdfr-root[data-atmos="clean"]   { --accent: 206,214,224; }
+.pdfr-root[data-atmos="focus"]   { --accent: 245,205,140; }
+.pdfr-root[data-atmos="candle"]  { --accent: 255,176,92; }
+.pdfr-root[data-atmos="library"] { --accent: 236,186,116; }
+.pdfr-root[data-atmos="rain"]    { --accent: 158,200,236; color:#e6eef6; }
+.pdfr-root[data-atmos="night"]   { --accent: 178,186,255; color:#e9eafb; }
+.pdfr-root[data-atmos="forest"]  { --accent: 150,214,150; color:#e7f2e4; }
+.pdfr-root[data-atmos="autumn"]  { --accent: 236,150,72; }
+.pdfr-root[data-atmos="snow"]    { --accent: 200,220,240; color:#eef4fb; }
+.pdfr-root[data-atmos="ocean"]   { --accent: 120,214,220; color:#e4f4f4; }
+.pdfr-root[data-atmos="sunset"]  { --accent: 255,168,110; }
+.pdfr-root[data-atmos="romance"] { --accent: 255,158,190; color:#fbe9ef; }
 
-/* Focus mode: pull the room even darker so the page spotlight reads as light. */
-.pdfr-root[data-atmos="focus"] .pdfr-bg::after,
-.pdfr-root[data-atmos="candle"] .pdfr-bg::after,
-.pdfr-root[data-atmos="haunted"] .pdfr-bg::after { opacity: 1.25; }
+/* base gradients */
+[data-atmos="clean"]   .base { background: linear-gradient(165deg, #3c3c42 0%, #24242a 52%, #131317 100%); }
+[data-atmos="focus"]   .base { background: radial-gradient(120% 90% at 50% 24%, #191512 0%, #0a0806 55%, #030201 100%); }
+[data-atmos="candle"]  .base { background: linear-gradient(165deg, #2a1a0d 0%, #150c06 55%, #080402 100%); }
+[data-atmos="library"] .base { background: linear-gradient(165deg, #3d2a17 0%, #22160c 55%, #100a05 100%); }
+[data-atmos="rain"]    .base { background: linear-gradient(165deg, #1c2732 0%, #10161f 52%, #070b11 100%); }
+[data-atmos="night"]   .base { background: radial-gradient(120% 100% at 50% 6%, #1c1f3c 0%, #0d0f22 46%, #04040e 100%); }
+[data-atmos="forest"]  .base { background: linear-gradient(165deg, #1f3a24 0%, #12241636 40%, #08130b 100%), #08130b; }
+[data-atmos="autumn"]  .base { background: linear-gradient(165deg, #4a2f16 0%, #2a1a0c 55%, #150c05 100%); }
+[data-atmos="snow"]    .base { background: linear-gradient(165deg, #33465a 0%, #1c2a3a 52%, #0d151f 100%); }
+[data-atmos="ocean"]   .base { background: linear-gradient(165deg, #123a3d 0%, #0a2427 52%, #041314 100%); }
+[data-atmos="sunset"]  .base { background: linear-gradient(160deg, #6a3320 0%, #522048 46%, #241030 78%, #0e0716 100%); }
+[data-atmos="romance"] .base { background: linear-gradient(165deg, #4d1c31 0%, #2e1220 52%, #160810 100%); }
 
-/* Warm/lamp glow blob for candle + library, drifting flicker for candle. */
-.pdfr-lamp {
-  position: absolute; left: 50%; top: 40%;
-  width: 130vmax; height: 130vmax; transform: translate(-50%,-50%);
-  pointer-events: none; opacity: 0;
-  background: radial-gradient(circle, rgba(var(--accent),0.16) 0%, rgba(var(--accent),0.05) 26%, transparent 55%);
-  transition: opacity 900ms ease;
-}
-.pdfr-root[data-atmos="library"] .pdfr-lamp { opacity: 0.9; }
-.pdfr-root[data-atmos="candle"]  .pdfr-lamp { opacity: 1; animation: pdfrFlicker 3.6s ease-in-out infinite; }
-.pdfr-root[data-atmos="haunted"] .pdfr-lamp { opacity: 0.55; animation: pdfrFlicker 5.5s ease-in-out infinite; background: radial-gradient(circle, rgba(var(--accent),0.10), transparent 52%); }
+/* key light (a soft directional glow) */
+[data-atmos="clean"]   .key { background: radial-gradient(70% 50% at 50% -8%, rgba(255,255,255,0.10), transparent 60%); }
+[data-atmos="focus"]   .key { background: radial-gradient(46% 40% at 50% 42%, rgba(255,224,180,0.14), transparent 60%); }
+[data-atmos="candle"]  .key { background: radial-gradient(60% 50% at 50% 34%, rgba(255,176,92,0.22), transparent 62%);
+  animation: pdfrFlicker 3.4s ease-in-out infinite; }
+[data-atmos="library"] .key { background:
+  radial-gradient(50% 32% at 50% -4%, rgba(255,206,130,0.30), transparent 62%),
+  radial-gradient(80% 60% at 50% 120%, rgba(120,72,30,0.28), transparent 70%); }
+[data-atmos="rain"]    .key { background: radial-gradient(80% 44% at 50% -6%, rgba(150,196,236,0.14), transparent 62%); }
+[data-atmos="night"]   .key { background: radial-gradient(28% 22% at 78% 16%, rgba(226,232,255,0.5), rgba(180,190,255,0.14) 40%, transparent 70%); }
+[data-atmos="forest"]  .key { background:
+  linear-gradient(122deg, rgba(200,255,190,0.14) 0%, transparent 26%),
+  linear-gradient(150deg, rgba(180,240,170,0.10) 8%, transparent 30%); }
+[data-atmos="autumn"]  .key { background: radial-gradient(70% 50% at 50% -6%, rgba(255,180,90,0.20), transparent 60%); }
+[data-atmos="snow"]    .key { background: radial-gradient(80% 50% at 50% -8%, rgba(220,235,255,0.16), transparent 62%); }
+[data-atmos="ocean"]   .key { background: radial-gradient(80% 46% at 50% -6%, rgba(140,240,236,0.14), transparent 62%); }
+[data-atmos="sunset"]  .key { background: radial-gradient(46% 40% at 50% 96%, rgba(255,180,110,0.34), transparent 60%); }
+[data-atmos="romance"] .key { background: radial-gradient(64% 46% at 50% 8%, rgba(255,150,186,0.20), transparent 60%); }
+
+/* haze / bloom */
+[data-atmos="candle"]  .haze,
+[data-atmos="library"] .haze { background: radial-gradient(40% 40% at 20% 78%, rgba(255,170,80,0.06), transparent 60%),
+                                            radial-gradient(40% 40% at 82% 30%, rgba(255,150,60,0.05), transparent 60%); }
+[data-atmos="sunset"]  .haze { background: radial-gradient(60% 30% at 50% 84%, rgba(255,120,80,0.18), transparent 70%); }
+[data-atmos="romance"] .haze { background: radial-gradient(30% 30% at 24% 30%, rgba(255,120,170,0.12), transparent 60%),
+                                            radial-gradient(30% 30% at 78% 66%, rgba(255,120,150,0.10), transparent 60%); }
+[data-atmos="ocean"]   .haze { background: radial-gradient(50% 30% at 50% 100%, rgba(60,200,200,0.14), transparent 70%); }
+
+/* deepen the vignette in the dark, moody rooms */
+[data-atmos="focus"]  .vig,
+[data-atmos="candle"] .vig { background: radial-gradient(120% 110% at 50% 44%, transparent 34%, rgba(0,0,0,0.78) 100%); }
+[data-atmos="night"]  .vig { background: radial-gradient(130% 120% at 50% 30%, transparent 42%, rgba(0,0,2,0.72) 100%); }
+
 @keyframes pdfrFlicker {
-  0%,100% { opacity: 1; }
-  8%  { opacity: 0.86; }
-  10% { opacity: 1; }
-  42% { opacity: 0.92; }
-  44% { opacity: 0.78; }
-  46% { opacity: 0.98; }
-  70% { opacity: 0.9; }
+  0%,100% { opacity: 1; } 8% { opacity: .84; } 10% { opacity: 1; }
+  42% { opacity: .9; } 44% { opacity: .74; } 46% { opacity: .98; } 70% { opacity: .9; }
 }
 
-/* ----------------------------- ambient particles -------------------------- */
+/* ----------------------------- particles --------------------------------- */
 .pdfr-particles { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .pdfr-particles .p { position: absolute; will-change: transform, opacity; }
 
-/* Rain streaks (rain atmosphere). */
-.pdfr-rain .p {
-  top: -14%; width: 1.4px; height: 88px; border-radius: 2px;
-  background: linear-gradient(to bottom, rgba(190,220,255,0), rgba(205,230,255,0.5));
-  animation: pdfrRain linear infinite;
-}
-@keyframes pdfrRain { from { transform: translate3d(0,-12vh,0); } to { transform: translate3d(-52px,116vh,0); } }
+.pdfr-rain .p { top: -14%; width: 1.4px; height: 92px; border-radius: 2px;
+  background: linear-gradient(to bottom, rgba(190,220,255,0), rgba(205,230,255,0.5)); animation: pdfrRain linear infinite; }
+@keyframes pdfrRain { from { transform: translate3d(0,-14vh,0); } to { transform: translate3d(-54px,118vh,0); } }
+.pdfr-lightning { position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: radial-gradient(90% 60% at 50% 0%, rgba(210,232,255,0.5), transparent 60%); animation: pdfrFlash 15s linear infinite; }
+@keyframes pdfrFlash { 0%,8%,100%{opacity:0} 2%{opacity:.9} 3%{opacity:.15} 4.4%{opacity:.8} 6%{opacity:0} }
 
-/* Lightning flash — a full-screen wash that fires occasionally. */
-.pdfr-lightning {
-  position: absolute; inset: 0; pointer-events: none; opacity: 0;
-  background: radial-gradient(90% 60% at 50% 0%, rgba(210,232,255,0.5), transparent 60%);
-  animation: pdfrFlash 14s linear infinite;
-}
-@keyframes pdfrFlash {
-  0%, 8%, 100% { opacity: 0; }
-  2% { opacity: 0.9; }
-  3% { opacity: 0.15; }
-  4.4% { opacity: 0.8; }
-  6% { opacity: 0; }
+.pdfr-stars .p { width: 2px; height: 2px; border-radius: 50%; background: #fff;
+  box-shadow: 0 0 6px rgba(200,210,255,0.9); animation: pdfrTwinkle ease-in-out infinite; }
+@keyframes pdfrTwinkle { 0%,100%{opacity:.12;transform:scale(.6)} 50%{opacity:.95;transform:scale(1)} }
+.pdfr-shoot { position: absolute; top: 12%; left: 60%; width: 130px; height: 1.4px; opacity: 0;
+  background: linear-gradient(90deg, transparent, #fff); transform: rotate(18deg); border-radius: 2px;
+  animation: pdfrShoot 9s ease-in infinite; box-shadow: 0 0 8px #cdd6ff; }
+@keyframes pdfrShoot { 0%,72%{opacity:0; transform:translate(0,0) rotate(18deg)} 74%{opacity:.9} 82%{opacity:0; transform:translate(-260px,90px) rotate(18deg)} 100%{opacity:0} }
+
+.pdfr-dust .p { width: 5px; height: 5px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--accent),0.85), transparent 70%); animation: pdfrDrift ease-in-out infinite alternate; }
+@keyframes pdfrDrift { from{transform:translate3d(0,0,0);opacity:.14} 50%{opacity:.5} to{transform:translate3d(46px,-34px,0);opacity:.24} }
+
+.pdfr-ember .p { bottom: -4%; width: 4px; height: 4px; border-radius: 50%;
+  background: radial-gradient(circle, #ffd27a, #ff7a1a 60%, transparent 72%); animation: pdfrRise ease-in infinite; }
+@keyframes pdfrRise { from{transform:translate3d(0,0,0) scale(1);opacity:0} 12%{opacity:.9} to{transform:translate3d(30px,-110vh,0) scale(.3);opacity:0} }
+
+.pdfr-snow .p { top: -6%; width: 7px; height: 7px; border-radius: 50%;
+  background: radial-gradient(circle, #fff, rgba(255,255,255,0.5) 60%, transparent 72%); filter: blur(0.3px); animation: pdfrSnow linear infinite; }
+@keyframes pdfrSnow { from{transform:translate3d(0,-6vh,0)} to{transform:translate3d(40px,112vh,0)} }
+
+.pdfr-petal .p { top: -6%; width: 15px; height: 15px;
+  background: radial-gradient(circle at 30% 30%, #ffd0df, #ff9ec0 55%, #f06ea0 100%);
+  border-radius: 76% 24% 76% 24% / 24% 76% 24% 76%; opacity: .85; filter: drop-shadow(0 2px 3px rgba(120,20,60,0.2));
+  animation: pdfrPetal linear infinite; }
+@keyframes pdfrPetal { 0%{transform:translate3d(0,-8vh,0) rotate(0)} 50%{transform:translate3d(46px,52vh,0) rotate(180deg)} 100%{transform:translate3d(-30px,116vh,0) rotate(360deg)} }
+.pdfr-heart { position: absolute; pointer-events: none; }
+.pdfr-heart span { position: absolute; font-size: 20px; opacity: 0; color: rgba(255,150,186,0.5);
+  filter: blur(0.4px); animation: pdfrHeart ease-in infinite; }
+@keyframes pdfrHeart { 0%{opacity:0; transform:translateY(20px) scale(.7)} 24%{opacity:.5} 100%{opacity:0; transform:translateY(-70vh) scale(1.1)} }
+
+.pdfr-leaf .p { top: -6%; width: 16px; height: 12px;
+  background: radial-gradient(circle at 30% 30%, var(--leafc, #e0a24a), color-mix(in srgb, var(--leafc, #e0a24a) 60%, #3a1e08) 100%);
+  border-radius: 0 82% 0 82%; opacity: .82; animation: pdfrLeaf linear infinite; }
+@keyframes pdfrLeaf { 0%{transform:translate3d(0,-8vh,0) rotate(0)} 50%{transform:translate3d(60px,54vh,0) rotate(200deg)} 100%{transform:translate3d(-24px,116vh,0) rotate(420deg)} }
+
+.pdfr-bokeh .p { border-radius: 50%; filter: blur(6px);
+  background: radial-gradient(circle, rgba(var(--accent),0.5), transparent 70%); animation: pdfrBokeh ease-in-out infinite alternate; }
+@keyframes pdfrBokeh { from{transform:translate3d(0,0,0) scale(.9);opacity:.2} to{transform:translate3d(30px,-26px,0) scale(1.1);opacity:.5} }
+
+.pdfr-gold .p { width: 4px; height: 4px; border-radius: 50%;
+  background: radial-gradient(circle, #ffe9b0, #ffb347 60%, transparent 72%); box-shadow: 0 0 6px rgba(255,190,90,0.7); animation: pdfrDrift ease-in-out infinite alternate; }
+
+/* light rays for forest */
+.pdfr-rays { position: absolute; inset: -20% -10% -10% -10%; pointer-events: none; opacity: .5; mix-blend-mode: screen;
+  background: repeating-linear-gradient(118deg, rgba(210,255,190,0.08) 0 3px, transparent 3px 42px);
+  animation: pdfrRays 16s ease-in-out infinite alternate; }
+@keyframes pdfrRays { from{transform:translateX(-2%)} to{transform:translateX(3%)} }
+
+/* --------------------------------- page ---------------------------------- */
+.pdfr-page { position: relative; background: #fff; box-shadow: var(--page-shadow);
+  border-radius: 3px; overflow: hidden; transition: box-shadow 400ms ease; }
+.pdfr-canvas { width: 100%; transition: filter 500ms ease; }
+.pdfr-canvas canvas { display: block; width: 100%; height: auto; }
+
+/* Page catches the room light in the dark rooms. */
+[data-atmos="focus"]  .pdfr-page,
+[data-atmos="candle"] .pdfr-page,
+[data-atmos="library"] .pdfr-page,
+[data-atmos="night"]  .pdfr-page,
+[data-atmos="romance"] .pdfr-page {
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.04), var(--page-shadow), 0 0 130px -18px rgba(var(--accent),0.5);
 }
 
-/* Dust motes (candle / haunted / library). */
-.pdfr-dust .p {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(var(--accent),0.8), transparent 70%);
-  animation: pdfrDrift ease-in-out infinite alternate;
+/* ------------------------------- aged paper ------------------------------ */
+/* The real fix: a filter on the CONTENT yellows the print itself; overlays add
+   foxing, edge-browning and fibre on top. Works over canvas + typeset alike. */
+.pdfr-root[data-aged="1"] .pdfr-canvas,
+.pdfr-root[data-aged="1"] .pdfr-typeset {
+  filter: sepia(0.62) saturate(1.5) brightness(1.02) contrast(0.94) hue-rotate(-6deg);
 }
-@keyframes pdfrDrift {
-  from { transform: translate3d(0,0,0); opacity: 0.15; }
-  50% { opacity: 0.55; }
-  to { transform: translate3d(46px,-34px,0); opacity: 0.25; }
-}
-
-/* Starfield (night). */
-.pdfr-stars .p {
-  width: 2px; height: 2px; border-radius: 50%;
-  background: #fff; box-shadow: 0 0 6px rgba(200,210,255,0.9);
-  animation: pdfrTwinkle ease-in-out infinite;
-}
-@keyframes pdfrTwinkle { 0%,100% { opacity: 0.12; transform: scale(0.6);} 50% { opacity: 0.95; transform: scale(1);} }
-
-/* Creeping fog (haunted). */
-.pdfr-fog {
-  position: absolute; inset: -20% -30%; pointer-events: none; opacity: 0.5;
-  background:
-    radial-gradient(40% 30% at 20% 70%, rgba(160,190,180,0.10), transparent 60%),
-    radial-gradient(46% 34% at 80% 40%, rgba(140,175,165,0.10), transparent 60%);
-  animation: pdfrFog 26s ease-in-out infinite alternate;
-}
-@keyframes pdfrFog { from { transform: translate3d(-3%,0,0) scale(1); } to { transform: translate3d(4%,-2%,0) scale(1.12); } }
-
-/* --------------------------------- the page ------------------------------- */
-/* The rendered PDF page (canvas or typeset sheet). Aged flag tints + textures. */
-.pdfr-page {
-  position: relative;
-  background: #fff;
-  box-shadow: var(--page-shadow);
-  border-radius: 3px;
-  overflow: hidden;
-  transition: box-shadow 400ms ease;
-}
-.pdfr-page canvas { display: block; width: 100%; height: auto; }
-
-/* Aged paper: warm the sheet, add a fibrous grain + edge-scorch, all via overlays
-   so it works identically over a canvas render and a typeset sheet. */
-.pdfr-root[data-aged="1"] { --page-tint: rgba(196,150,74,0.20); }
-.pdfr-page .pdfr-aged {
-  position: absolute; inset: 0; pointer-events: none; opacity: 0;
-  transition: opacity 500ms ease;
-  background:
-    radial-gradient(140% 120% at 50% 50%, transparent 52%, rgba(120,86,30,0.34) 100%),
-    linear-gradient(115deg, rgba(150,110,40,0.05) 0%, rgba(120,80,20,0.12) 100%),
-    var(--page-tint);
+.pdfr-aged { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 500ms ease;
   mix-blend-mode: multiply;
+  background:
+    /* foxing / age spots */
+    radial-gradient(circle at 18% 24%, rgba(120,80,24,0.24) 0, transparent 3.4%),
+    radial-gradient(circle at 72% 16%, rgba(110,70,20,0.18) 0, transparent 2.6%),
+    radial-gradient(circle at 84% 62%, rgba(120,80,24,0.22) 0, transparent 3%),
+    radial-gradient(circle at 32% 78%, rgba(100,64,18,0.2) 0, transparent 3.6%),
+    radial-gradient(circle at 56% 44%, rgba(120,84,30,0.14) 0, transparent 2.2%),
+    radial-gradient(circle at 8% 66%, rgba(110,72,22,0.16) 0, transparent 2.4%),
+    /* uneven edge-browning */
+    radial-gradient(130% 130% at 50% 50%, transparent 44%, rgba(92,58,18,0.5) 100%),
+    linear-gradient(115deg, rgba(150,110,40,0.06) 0%, rgba(120,80,20,0.16) 100%),
+    /* warm base tint */
+    rgba(214,172,104,0.30);
 }
-.pdfr-page .pdfr-aged::before {          /* fibre speckle */
-  content: ''; position: absolute; inset: 0; opacity: 0.5;
-  background-image:
-    radial-gradient(rgba(90,60,20,0.14) 0.5px, transparent 0.6px),
-    radial-gradient(rgba(120,90,40,0.10) 0.5px, transparent 0.6px);
-  background-size: 3px 3px, 5px 5px;
-  background-position: 0 0, 2px 3px;
-}
-.pdfr-root[data-aged="1"] .pdfr-page .pdfr-aged { opacity: 1; }
-.pdfr-root[data-aged="1"] .pdfr-page { border-radius: 3px 10px 4px 8px; }  /* subtle deckle */
+.pdfr-aged::before { content: ''; position: absolute; inset: 0; opacity: 0.5;
+  background-image: radial-gradient(rgba(90,60,20,0.16) 0.5px, transparent 0.6px), radial-gradient(rgba(120,90,40,0.11) 0.5px, transparent 0.6px);
+  background-size: 3px 3px, 5px 5px; background-position: 0 0, 2px 3px; }
+.pdfr-root[data-aged="1"] .pdfr-aged { opacity: 1; }
+.pdfr-root[data-aged="1"] .pdfr-page { border-radius: 4px 11px 5px 9px; }
 
-/* Focus/candle rooms: give the page its own light so it lifts off the dark. */
-.pdfr-root[data-atmos="focus"]  .pdfr-page,
-.pdfr-root[data-atmos="candle"] .pdfr-page,
-.pdfr-root[data-atmos="haunted"] .pdfr-page {
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.04), var(--page-shadow), 0 0 120px -20px rgba(var(--accent),0.45);
-}
-
-/* ------------------------------- text layer ------------------------------- */
-/* Transparent, selectable text positioned over the canvas (for select→clip). */
-/* Transparent text (so it's invisible) but the layer itself stays opaque so the
-   browser's ::selection highlight renders at full strength for clipping. */
-.pdfr-textlayer {
-  position: absolute; inset: 0; overflow: hidden; line-height: 1;
-  user-select: text; -webkit-user-select: text;
-}
+/* ------------------------------- text layer ------------------------------ */
+.pdfr-textlayer { position: absolute; inset: 0; overflow: hidden; line-height: 1;
+  user-select: text; -webkit-user-select: text; z-index: 4; }
 .pdfr-textlayer span { position: absolute; white-space: pre; transform-origin: 0 0; color: transparent; cursor: text; }
 .pdfr-textlayer span::selection { background: rgba(120,170,255,0.4); }
 .pdfr-textlayer span::-moz-selection { background: rgba(120,170,255,0.4); }
 
-/* --------------------------------- highlights ----------------------------- */
-.pdfr-hl { position: absolute; border-radius: 2px; mix-blend-mode: multiply; pointer-events: auto; cursor: pointer; }
-.pdfr-root[data-tool="highlight"] .pdfr-page { cursor: crosshair; }
-.pdfr-root[data-tool="pin"] .pdfr-page { cursor: cell; }
+/* -------------------------- highlights & ink ----------------------------- */
+.pdfr-hl { position: absolute; border-radius: 2px; mix-blend-mode: multiply; z-index: 2; }
+.pdfr-ink { position: absolute; inset: 0; z-index: 3; overflow: visible; pointer-events: none; }
+.pdfr-ink path { pointer-events: auto; }
+.pdfr-root[data-tool="highlight"] .pdfr-page,
+.pdfr-root[data-tool="draw"] .pdfr-page { cursor: crosshair; }
+.pdfr-root[data-tool="pin"] .pdfr-page,
+.pdfr-root[data-tool="sticky"] .pdfr-page { cursor: cell; }
+.pdfr-root[data-tool="eraser"] .pdfr-page { cursor: not-allowed; }
 
-/* Drop-pin marker + note bubble. */
-.pdfr-pin {
-  position: absolute; width: 22px; height: 22px; transform: translate(-50%,-100%);
-  pointer-events: auto; cursor: pointer; filter: drop-shadow(0 3px 4px rgba(0,0,0,0.4));
-}
-.pdfr-pin-note {
-  position: absolute; transform: translate(-50%,-100%);
-  max-width: 220px; padding: 8px 11px; border-radius: 10px;
-  background: rgba(28,24,20,0.94); color: #f4ece0; font-size: 12px; line-height: 1.4;
-  border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 12px 30px -12px rgba(0,0,0,0.7);
-}
+/* pins */
+.pdfr-pin { position: absolute; width: 24px; height: 24px; transform: translate(-50%,-100%); z-index: 12;
+  cursor: pointer; filter: drop-shadow(0 3px 4px rgba(0,0,0,0.4)); }
+.pdfr-pin-note, .pdfr-sticky { position: absolute; z-index: 13; }
+.pdfr-pin-note { transform: translate(-50%,-100%); max-width: 230px; padding: 9px 11px; border-radius: 11px;
+  background: rgba(28,24,20,0.95); color: #f4ece0; font-size: 12px; line-height: 1.4;
+  border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 14px 32px -14px rgba(0,0,0,0.72); }
 
-/* ---------------------------------- book ---------------------------------- */
-/* Two-page spread with a stitched spine and a 3D page-flip. */
-.pdfr-book { display: flex; align-items: stretch; perspective: 2600px; }
-.pdfr-book .pdfr-leaf { position: relative; }
-.pdfr-book .spine {
-  width: 2px; align-self: stretch;
-  background: linear-gradient(to right, rgba(0,0,0,0.28), rgba(0,0,0,0.06), rgba(0,0,0,0.28));
-  box-shadow: 0 0 22px rgba(0,0,0,0.4);
-}
-/* The turning sheet, animated on flip. */
-.pdfr-flip {
-  position: absolute; inset: 0; transform-origin: left center; backface-visibility: hidden;
-  z-index: 5; box-shadow: var(--page-shadow);
-}
-.pdfr-flip.turn-next { animation: pdfrTurnNext 0.62s cubic-bezier(.4,.05,.3,1) both; transform-origin: left center; }
-.pdfr-flip.turn-prev { animation: pdfrTurnPrev 0.62s cubic-bezier(.4,.05,.3,1) both; transform-origin: right center; }
-@keyframes pdfrTurnNext { from { transform: rotateY(0deg); filter: brightness(1);} to { transform: rotateY(-176deg); filter: brightness(0.86);} }
-@keyframes pdfrTurnPrev { from { transform: rotateY(0deg); filter: brightness(1);} to { transform: rotateY(176deg); filter: brightness(0.86);} }
+/* sticky notes */
+.pdfr-sticky { width: 140px; min-height: 92px; transform: translate(-50%,-50%) rotate(var(--rot,-2deg));
+  padding: 10px 11px 12px; border-radius: 2px 2px 3px 3px; cursor: grab;
+  box-shadow: 0 10px 22px -10px rgba(0,0,0,0.55), 0 2px 5px rgba(0,0,0,0.2);
+  font-family: 'Shantell Sans', 'Comic Sans MS', cursive; color: #3a2f16; font-size: 12.5px; line-height: 1.35;
+  background: var(--sticky, #ffe98a); }
+.pdfr-sticky.dragging { cursor: grabbing; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.6); }
+.pdfr-sticky::before { content: ''; position: absolute; top: -7px; left: 50%; transform: translateX(-50%) rotate(-4deg);
+  width: 40px; height: 15px; background: rgba(255,255,255,0.35); border: 1px solid rgba(0,0,0,0.05); border-radius: 1px; }
+.pdfr-sticky textarea { width: 100%; min-height: 62px; background: transparent; border: none; outline: none;
+  color: inherit; resize: none; font-family: inherit; font-size: inherit; line-height: inherit; }
+.pdfr-sticky .del { position: absolute; top: 3px; right: 5px; opacity: 0; cursor: pointer; font-size: 13px; color: rgba(60,40,10,0.6); }
+.pdfr-sticky:hover .del { opacity: 1; }
 
-/* The subtle corner page-turn buttons. */
-.pdfr-corner {
-  position: absolute; bottom: 0; width: 64px; height: 78px; cursor: pointer;
-  display: flex; align-items: flex-end; justify-content: center;
-  opacity: 0; transition: opacity 300ms ease; z-index: 8; pointer-events: auto;
+/* --------------------------------- typeset ------------------------------- */
+.pdfr-typeset { background: #fbf6ec; color: #241d14; padding: 64px 72px; box-sizing: border-box; }
+.pdfr-typeset p { margin: 0 0 0.9em; }
+
+/* =================================== BOOK ================================= */
+/* A real hardcover: leather boards behind the paper block, stacked page edges
+   that thicken as you read, a sunken gutter, and a ribbon marker. */
+.pdfr-book { position: relative; display: flex; align-items: stretch; perspective: 2800px;
+  padding: 16px; border-radius: 8px 12px 12px 8px;
+  background:
+    linear-gradient(160deg, #4a3320 0%, #38251440 50%, #2a1a0e 100%),
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.04) 0 2px, transparent 2px 4px);
+  box-shadow: 0 50px 110px -40px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.06), inset 0 0 40px rgba(0,0,0,0.4);
 }
-.pdfr-corner.right { right: 0; }
-.pdfr-corner.left { left: 0; }
-.pdfr-book:hover .pdfr-corner, .pdfr-stage:hover .pdfr-corner { opacity: 0.5; }
+.pdfr-book::before { /* stitched inner border of the cover */
+  content: ''; position: absolute; inset: 7px; border-radius: 5px;
+  border: 1px dashed rgba(255,235,200,0.14); pointer-events: none; }
+.pdfr-book .leaves { position: relative; display: flex; align-items: stretch; z-index: 2; }
+
+/* the thickness of stacked pages on each side */
+.pdfr-stack { align-self: stretch; position: relative; flex: 0 0 auto;
+  background: repeating-linear-gradient(0deg, #efe7d4 0 1px, #d8ccae 1px 2px, #f2ecdb 2px 3px); }
+.pdfr-stack.left  { border-radius: 3px 0 0 3px; box-shadow: inset 2px 0 4px rgba(0,0,0,0.22); }
+.pdfr-stack.right { border-radius: 0 3px 3px 0; box-shadow: inset -2px 0 4px rgba(0,0,0,0.22); }
+
+.pdfr-leaf { position: relative; }
+/* gutter shadow on the inner edge of each page */
+.pdfr-leaf.l::after, .pdfr-leaf.r::after { content: ''; position: absolute; top: 0; bottom: 0; width: 34px; pointer-events: none; z-index: 6; }
+.pdfr-leaf.l::after { right: 0; background: linear-gradient(to right, transparent, rgba(60,40,20,0.28)); }
+.pdfr-leaf.r::after { left: 0;  background: linear-gradient(to left,  transparent, rgba(60,40,20,0.28)); }
+.pdfr-spine { width: 3px; align-self: stretch; z-index: 7;
+  background: linear-gradient(to right, rgba(0,0,0,0.42), rgba(0,0,0,0.1), rgba(0,0,0,0.42)); box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+
+/* ribbon bookmark */
+.pdfr-ribbon { position: absolute; top: 0; width: 16px; z-index: 9; pointer-events: none;
+  background: linear-gradient(to right, #b03a3a, #d85555 40%, #b03a3a); box-shadow: 0 6px 12px -4px rgba(0,0,0,0.5); }
+.pdfr-ribbon::after { content: ''; position: absolute; bottom: -9px; left: 0; right: 0; height: 10px;
+  background: inherit; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 60%, 0 100%); }
+
+/* ------------------------------ page turn (curl) ------------------------- */
+/* The turning leaf is a 3D card with a front (leaving) and back (arriving)
+   face. A curved sheen + shadow sweeps across as it lifts, so the flat plane
+   reads as a bowing page. */
+.pdfr-turn { position: absolute; top: 0; height: 100%; transform-style: preserve-3d;
+  z-index: 15; will-change: transform; }
+.pdfr-turn .face { position: absolute; inset: 0; backface-visibility: hidden; overflow: hidden;
+  box-shadow: var(--page-shadow); background: #fff; }
+.pdfr-turn .face.back { transform: rotateY(180deg); }
+.pdfr-turn .sheen { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+.pdfr-turn.next { transform-origin: left center; animation: pdfrTurnNext 0.92s cubic-bezier(.42,.02,.28,1) both; }
+.pdfr-turn.prev { transform-origin: right center; animation: pdfrTurnPrev 0.92s cubic-bezier(.42,.02,.28,1) both; }
+@keyframes pdfrTurnNext { from { transform: rotateY(0deg); } to { transform: rotateY(-180deg); } }
+@keyframes pdfrTurnPrev { from { transform: rotateY(0deg); } to { transform: rotateY(180deg); } }
+/* curled highlight on the front face + travelling drop shadow */
+.pdfr-turn .face.front .sheen { background: linear-gradient(105deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0) 34%, rgba(0,0,0,0.28) 100%);
+  animation: pdfrSheenFront 0.92s ease-in-out both; }
+.pdfr-turn .face.back .sheen  { background: linear-gradient(255deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 34%, rgba(0,0,0,0.3) 100%);
+  animation: pdfrSheenBack 0.92s ease-in-out both; }
+@keyframes pdfrSheenFront { 0%{opacity:0} 45%{opacity:.9} 55%{opacity:0} 100%{opacity:0} }
+@keyframes pdfrSheenBack  { 0%{opacity:0} 50%{opacity:0} 60%{opacity:.85} 100%{opacity:.15} }
+/* a soft curve on the paper corners while turning */
+.pdfr-turn .face { border-radius: 2px 6px 6px 2px; }
+
+/* subtle corner fold hint that reveals the turn button */
+.pdfr-corner { position: absolute; bottom: 0; width: 74px; height: 92px; cursor: pointer; z-index: 12;
+  display: flex; align-items: flex-end; justify-content: center; opacity: 0; transition: opacity 300ms ease; }
+.pdfr-corner.right { right: 0; } .pdfr-corner.left { left: 0; }
+.pdfr-book:hover .pdfr-corner { opacity: .55; }
 .pdfr-corner:hover { opacity: 1 !important; }
-.pdfr-corner .fold {
-  width: 52px; height: 66px;
-  background: linear-gradient(135deg, transparent 46%, rgba(255,255,255,0.12) 47%, rgba(0,0,0,0.22) 100%);
-  border-radius: 0 0 4px 0;
-}
+.pdfr-corner .fold { width: 58px; height: 74px;
+  background: linear-gradient(135deg, transparent 44%, rgba(255,255,255,0.16) 46%, rgba(120,90,50,0.35) 100%);
+  border-radius: 0 0 5px 0; box-shadow: -3px -3px 8px -4px rgba(0,0,0,0.4) inset; }
 .pdfr-corner.left .fold { transform: scaleX(-1); }
 
-/* -------------------------------- filmstrip ------------------------------- */
-.pdfr-strip {
-  display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden;
-  padding: 10px 14px; scroll-behavior: smooth;
-  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.25) transparent;
-}
+/* -------------------------------- filmstrip ------------------------------ */
+.pdfr-strip { display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; padding: 10px 14px; scroll-behavior: smooth;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.25) transparent; }
 .pdfr-strip::-webkit-scrollbar { height: 8px; }
 .pdfr-strip::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
-.pdfr-thumb {
-  position: relative; flex: 0 0 auto; width: 62px; cursor: pointer; border-radius: 4px;
-  overflow: hidden; border: 2px solid transparent; background: rgba(255,255,255,0.06);
-  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
-}
+.pdfr-thumb { position: relative; flex: 0 0 auto; width: 62px; cursor: pointer; border-radius: 4px; overflow: hidden;
+  border: 2px solid transparent; background: rgba(255,255,255,0.06);
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease; }
 .pdfr-thumb img { display: block; width: 100%; height: auto; }
 .pdfr-thumb:hover { transform: translateY(-3px); box-shadow: 0 8px 18px -8px rgba(0,0,0,0.6); }
 .pdfr-thumb.active { border-color: rgb(var(--accent)); box-shadow: 0 0 0 1px rgba(var(--accent),0.5), 0 8px 20px -8px rgba(0,0,0,0.7); }
-.pdfr-thumb .n {
-  position: absolute; bottom: 0; left: 0; right: 0; text-align: center;
-  font-size: 9px; font-weight: 700; padding: 1px 0;
-  background: rgba(0,0,0,0.55); color: #fff;
-}
-.pdfr-thumb .dogear {           /* bookmark corner on saved pages */
-  position: absolute; top: 0; right: 0; width: 0; height: 0;
-  border-top: 14px solid rgb(var(--accent)); border-left: 14px solid transparent;
-}
+.pdfr-thumb .n { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; font-weight: 700; padding: 1px 0; background: rgba(0,0,0,0.55); color: #fff; }
+.pdfr-thumb .dogear { position: absolute; top: 0; right: 0; width: 0; height: 0; border-top: 14px solid rgb(var(--accent)); border-left: 14px solid transparent; }
 
-/* --------------------------------- chrome --------------------------------- */
-.pdfr-bar {
-  position: absolute; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 6px;
-  padding: 7px 9px; border-radius: 16px;
-  background: rgba(20,17,14,0.66); backdrop-filter: blur(18px) saturate(1.3);
-  -webkit-backdrop-filter: blur(18px) saturate(1.3);
-  border: 1px solid rgba(255,255,255,0.10);
-  box-shadow: 0 18px 50px -20px rgba(0,0,0,0.8);
-  z-index: 20;
-}
-.pdfr-bar.top { top: 16px; }
-.pdfr-bar.bottom { bottom: 16px; }
-.pdfr-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  height: 34px; min-width: 34px; padding: 0 9px; border-radius: 11px;
-  background: transparent; color: #e9ddca; cursor: pointer;
-  font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
-  border: 1px solid transparent; transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
-  user-select: none; white-space: nowrap;
-}
+/* --------------------------------- chrome -------------------------------- */
+.pdfr-bar { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px;
+  padding: 7px 9px; border-radius: 16px; background: rgba(20,17,14,0.66);
+  backdrop-filter: blur(18px) saturate(1.3); -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  border: 1px solid rgba(255,255,255,0.10); box-shadow: 0 18px 50px -20px rgba(0,0,0,0.8); z-index: 20; }
+.pdfr-bar.top { top: 16px; } .pdfr-bar.bottom { bottom: 16px; max-width: 94vw; flex-wrap: wrap; justify-content: center; }
+.pdfr-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; min-width: 34px;
+  padding: 0 9px; border-radius: 11px; background: transparent; color: #e9ddca; cursor: pointer;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.02em; border: 1px solid transparent;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease; user-select: none; white-space: nowrap; }
 .pdfr-btn:hover { background: rgba(255,255,255,0.09); color: #fff; }
 .pdfr-btn.active { background: rgba(var(--accent),0.20); color: #fff; border-color: rgba(var(--accent),0.5); }
 .pdfr-btn:disabled { opacity: 0.35; cursor: default; }
 .pdfr-sep { width: 1px; height: 22px; background: rgba(255,255,255,0.12); margin: 0 3px; }
 
-/* Slide-out settings popover (fonts, atmosphere grid, sliders). */
-.pdfr-pop {
-  position: absolute; z-index: 30;
-  padding: 14px; border-radius: 16px; width: 268px;
-  background: rgba(24,20,17,0.94); backdrop-filter: blur(20px);
-  border: 1px solid rgba(255,255,255,0.12);
-  box-shadow: 0 26px 60px -24px rgba(0,0,0,0.85);
-  animation: pdfrPop 0.22s cubic-bezier(.16,1,.3,1) both;
-}
-@keyframes pdfrPop { from { opacity: 0; transform: translateY(8px) scale(0.98);} to { opacity: 1; transform: none;} }
-.pdfr-pop h4 { font-size: 9.5px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(244,236,224,0.55); margin: 0; }
+.pdfr-pop { position: absolute; z-index: 30; padding: 14px; border-radius: 16px; width: 300px;
+  background: rgba(24,20,17,0.95); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 26px 60px -24px rgba(0,0,0,0.85); animation: pdfrPop 0.22s cubic-bezier(.16,1,.3,1) both; max-height: 72vh; overflow: auto; }
+@keyframes pdfrPop { from{opacity:0;transform:translateY(8px) scale(.98)} to{opacity:1;transform:none} }
+.pdfr-pop h4 { font-size: 9.5px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(244,236,224,0.5); margin: 0; }
 .pdfr-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
-.pdfr-chip {
-  display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 11px; cursor: pointer;
-  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
-  font-size: 11.5px; font-weight: 600; color: #ecdfca; transition: all 160ms ease;
-}
-.pdfr-chip:hover { background: rgba(255,255,255,0.1); }
-.pdfr-chip.active { border-color: rgba(var(--accent),0.6); background: rgba(var(--accent),0.16); color: #fff; }
+.pdfr-chip { position: relative; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 11px; cursor: pointer;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); font-size: 11.5px; font-weight: 600; color: #ecdfca;
+  transition: all 160ms ease; overflow: hidden; }
+.pdfr-chip:hover { background: rgba(255,255,255,0.1); transform: translateY(-1px); }
+.pdfr-chip.active { border-color: rgba(var(--accent),0.65); background: rgba(var(--accent),0.16); color: #fff; }
+.pdfr-chip .sw { width: 26px; height: 26px; border-radius: 7px; flex: 0 0 auto; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12); }
 .pdfr-chip .dot { width: 14px; height: 14px; border-radius: 5px; flex: 0 0 auto; }
 
 .pdfr-range { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.16); outline: none; }
 .pdfr-range::-webkit-slider-thumb { -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%; background: rgb(var(--accent)); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
 .pdfr-range::-moz-range-thumb { width: 15px; height: 15px; border: none; border-radius: 50%; background: rgb(var(--accent)); cursor: pointer; }
 
-/* Typeset (reflow) sheet. */
-.pdfr-typeset {
-  background: #fbf6ec; color: #241d14;
-  padding: 64px 72px; box-sizing: border-box;
-}
-.pdfr-typeset p { margin: 0 0 0.9em; }
+.pdfr-swatch { width: 20px; height: 20px; border-radius: 6px; cursor: pointer; border: 2px solid transparent; }
+.pdfr-swatch.active { border-color: #fff; }
 
-/* Progress ribbon under the top bar. */
 .pdfr-progress { position: absolute; top: 0; left: 0; height: 2px; background: rgb(var(--accent)); box-shadow: 0 0 8px rgba(var(--accent),0.7); transition: width 300ms ease; z-index: 25; }
-
-/* Loading + hint. */
 .pdfr-loading { display: flex; flex-direction: column; align-items: center; gap: 14px; color: rgba(244,236,224,0.7); }
 .pdfr-spin { width: 30px; height: 30px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.15); border-top-color: rgb(var(--accent)); animation: pdfrSpin 0.8s linear infinite; }
 @keyframes pdfrSpin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .pdfr-particles .p, .pdfr-lamp, .pdfr-fog, .pdfr-lightning, .pdfr-flip { animation: none !important; }
+  .pdfr-particles .p, .pdfr-lightning, .pdfr-shoot, .pdfr-rays, .pdfr-turn, .pdfr-turn .sheen, .pdfr-bg .key { animation: none !important; }
   .pdfr-root { animation: none; }
 }
