@@ -176,6 +176,86 @@ function bionic(text: string, key: string): React.ReactNode {
   });
 }
 
+/* ------------------------------ read aloud ------------------------------- */
+/**
+ * Speech is a state machine with three hostile edge cases, all of which the
+ * first version got wrong:
+ *
+ *   1. `cancel()` fires `end` on the utterance it just killed. If `end` blindly
+ *      advances the cursor, then changing the speed — which must cancel and
+ *      re-speak — skips a sentence, and doing it twice quickly runs off the end
+ *      of the page and stops everything. Every utterance is therefore tagged,
+ *      and only the utterance we still consider current is allowed to advance.
+ *   2. The text arrives asynchronously. Starting playback before the page's
+ *      prose has loaded used to look like "no sentences left", so it stopped
+ *      itself instantly — which is why it only ever spoke once.
+ *   3. Chrome silently stops speaking after ~15 seconds unless something pokes
+ *      `resume()`. The keepalive below is not optional.
+ */
+interface Speech {
+  on: boolean; paused: boolean; idx: number;
+  rate: number; pitch: number; volume: number; voice: string; auto: boolean;
+}
+const SPEECH: Speech = { on: false, paused: false, idx: 0, rate: 1, pitch: 1, volume: 1, voice: '', auto: true };
+
+function useVoices(): SpeechSynthesisVoice[] {
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  useEffect(() => {
+    const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
+    if (!synth) return undefined;
+    const read = () => setVoices(synth.getVoices().filter((v) => v.lang.startsWith('en') || v.default));
+    read();
+    synth.addEventListener('voiceschanged', read);
+    return () => synth.removeEventListener('voiceschanged', read);
+  }, []);
+  return voices;
+}
+
+function useReadAloud(opts: {
+  speech: Speech;
+  setSpeech: React.Dispatch<React.SetStateAction<Speech>>;
+  sentences: string[];
+  ready: boolean;                 // the prose for THIS page has arrived
+  voices: SpeechSynthesisVoice[];
+  hasNextPage: boolean;
+  onPageEnd: () => void;
+}) {
+  const { speech, setSpeech, sentences, ready, voices, hasNextPage, onPageEnd } = opts;
+  const currentRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  useEffect(() => {
+    const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
+    if (!synth) return undefined;
+    if (!speech.on || speech.paused) { synth.cancel(); currentRef.current = null; return undefined; }
+    if (!ready) return undefined;                       // (2) wait for the words
+
+    const text = sentences[speech.idx];
+    if (text === undefined) {
+      const id = window.setTimeout(() => {
+        if (speech.auto && hasNextPage) { onPageEnd(); setSpeech((s) => ({ ...s, idx: 0 })); }
+        else setSpeech((s) => ({ ...s, on: false, idx: 0 }));
+      }, 200);
+      return () => window.clearTimeout(id);
+    }
+
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = speech.rate; u.pitch = speech.pitch; u.volume = speech.volume;
+    const v = voices.find((x) => x.voiceURI === speech.voice);
+    if (v) u.voice = v;
+    u.onend = () => { if (currentRef.current === u) setSpeech((s) => ({ ...s, idx: s.idx + 1 })); };  // (1)
+    u.onerror = () => { if (currentRef.current === u) setSpeech((s) => ({ ...s, on: false })); };
+    currentRef.current = u;
+    synth.speak(u);
+
+    const keepalive = window.setInterval(() => { if (synth.speaking && !synth.paused) synth.resume(); }, 9000);  // (3)
+    return () => { window.clearInterval(keepalive); currentRef.current = null; synth.cancel(); };
+  }, [speech.on, speech.paused, speech.idx, speech.rate, speech.pitch, speech.volume, speech.voice, speech.auto,
+    sentences, ready, voices, hasNextPage, onPageEnd, setSpeech]);
+
+  useEffect(() => () => { try { window.speechSynthesis?.cancel(); } catch { /* ignore */ } }, []);
+}
+
 /** The word under the pointer — works over reflowed text and the PDF text layer alike. */
 function wordAtPoint(x: number, y: number): string {
   const doc = document as Document & {
@@ -220,11 +300,35 @@ const I = {
   zen: 'M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3',
   speak: 'M11 5 6 9H2v6h4l5 4zM16 8a4 4 0 0 1 0 8',
   pause: 'M7 4h4v16H7zM13 4h4v16h-4z',
+  play: 'M6 4l14 8-14 8z',
   define: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2zM10 7h6M10 11h4',
   ruler: 'M3 8h18M3 16h18M6 12h12',
 };
 function Ico({ d, s = 16 }: { d: string; s?: number }) {
   return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
+}
+
+
+/**
+ * One click, one call.
+ *
+ * The reader is portalled into <body>, and React keeps event listeners on both
+ * the application's root container and on each portal container. A click on a
+ * control inside the portal therefore arrives at the handler TWICE — same
+ * native event, same timestamp, two dispatches. Anything shaped like
+ * `onClick={() => setThing(!thing)}` toggles on and straight back off, which is
+ * exactly why "hide the toolbar" appeared to do nothing at all.
+ *
+ * Deduping on the native event's timestamp fixes every toggle at once: two
+ * dispatches of one event share a timestamp, two real clicks never do.
+ */
+function useOnce() {
+  const last = useRef(-1);
+  return useCallback((fn: () => void) => (e: { timeStamp: number }) => {
+    if (e.timeStamp === last.current) return;
+    last.current = e.timeStamp;
+    fn();
+  }, []);
 }
 
 /* ============================== gate ==================================== */
@@ -260,11 +364,13 @@ function Reader({ objId }: { objId: string }) {
   const [toast, setToast] = useState('');
   const [flip, setFlip] = useState<null | { dir: 'next' | 'prev'; half: 'l' | 'r'; front: number; back: number }>(null);
   const [chrome, setChrome] = useState(true);          // is the furniture showing?
-  const [speak, setSpeak] = useState<null | { sentence: number; rate: number }>(null);
+  const [speech, setSpeech] = useState<Speech>(SPEECH);
+  const voices = useVoices();
   const [define, setDefine] = useState(false);
   const [lookup, setLookup] = useState<null | { word: string; x: number; y: number; loading: boolean; phonetic?: string; defs?: { pos: string; text: string }[]; error?: string }>(null);
   const [rulerY, setRulerY] = useState(0.5);
   const toggleBookmarkRef = useRef<null | (() => void)>(null);
+  const once = useOnce();
 
   const numPages = session?.numPages ?? 0;
   const sound = st.sound;
@@ -319,7 +425,7 @@ function Reader({ objId }: { objId: string }) {
         if (dir === 'next') setFlip({ dir, half: 'r', front: Math.min(s.page + 1, numPages), back: target });
         else setFlip({ dir, half: 'l', front: s.page, back: Math.max(target + 1, 1) });
         try { if (s.sound) playPageTurn(0.6); else playWhoosh(); } catch { /* ignore */ }
-        window.setTimeout(() => setFlip(null), 1060);
+        window.setTimeout(() => setFlip(null), 920);
         return { ...s, page: target };
       }
       const target = dir === 'next' ? s.page + 1 : s.page - 1;
@@ -336,7 +442,7 @@ function Reader({ objId }: { objId: string }) {
   }, [session, sound]);
 
   /* Leaving zen always brings the furniture straight back. */
-  const setZen = useCallback((on: boolean) => { setChrome(true); set({ zen: on }); }, [set]);
+  const setZen = useCallback((on: boolean) => { setChrome(!on); set({ zen: on }); }, [set]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -357,20 +463,18 @@ function Reader({ objId }: { objId: string }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [turn, doClose, roomOpen, typeOpen, lookup, st.zen, st.layout, set, setZen]);
 
-  /* -- chrome that gets out of the way ------------------------------------ *
-   * Zen hides the furniture, but a reader who cannot find the way out panics,
-   * so any pointer movement brings it back for a few seconds. */
+  /* -- a toolbar that gets out of the way ---------------------------------- *
+   * Hidden means hidden. The dock comes back when the pointer enters the band
+   * of screen it lives in — the bottom ~120px — and goes away again when the
+   * pointer leaves. Nothing else reveals it, which is the whole point: the old
+   * version woke on any movement at all, so it never actually hid. */
   useEffect(() => {
     if (!st.zen) return undefined;
-    let t = window.setTimeout(() => setChrome(false), 900);
-    const wake = () => {
-      setChrome(true);
-      window.clearTimeout(t);
-      t = window.setTimeout(() => setChrome(false), 2600);
-    };
-    window.addEventListener('pointermove', wake);
-    window.addEventListener('keydown', wake);
-    return () => { window.clearTimeout(t); window.removeEventListener('pointermove', wake); window.removeEventListener('keydown', wake); };
+    const onMove = (e: PointerEvent) => setChrome(e.clientY > window.innerHeight - 132);
+    const onLeave = () => setChrome(false);
+    window.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerleave', onLeave);
+    return () => { window.removeEventListener('pointermove', onMove); document.removeEventListener('pointerleave', onLeave); };
   }, [st.zen]);
 
   const [win, setWin] = useState({ w: 1200, h: 800 });
@@ -381,7 +485,7 @@ function Reader({ objId }: { objId: string }) {
    * Both the typeset view and read-aloud want the same thing: the page as
    * paragraphs, then sentences. Do it once. */
   const [prose, setProse] = useState<{ page: number; paras: string[][] } | null>(null);
-  const needProse = st.layout === 'typeset' || !!speak;
+  const needProse = st.layout === 'typeset' || speech.on;
   useEffect(() => {
     if (!session || !needProse) return undefined;
     let alive = true;
@@ -390,32 +494,12 @@ function Reader({ objId }: { objId: string }) {
       .catch(() => { if (alive) setProse({ page: st.page, paras: [] }); });
     return () => { alive = false; };
   }, [session, st.page, needProse]);
-  const sentences = useMemo(() => (prose?.page === st.page ? prose.paras.flat() : []), [prose, st.page]);
+  const proseReady = prose?.page === st.page;
+  const sentences = useMemo(() => (proseReady ? prose!.paras.flat() : []), [prose, proseReady]);
 
-  /* -- read aloud ---------------------------------------------------------- *
-   * One utterance at a time, advancing our own cursor on `end`: queueing the
-   * whole page up front means no highlight and no way to stop cleanly. At the
-   * end of a page it turns to the next one and keeps going. */
-  useEffect(() => {
-    if (!speak || typeof window === 'undefined' || !window.speechSynthesis) return undefined;
-    const text = sentences[speak.sentence];
-    if (text === undefined) {
-      // Off the end of this page: hand over to the next one on the next tick,
-      // so we are not setting state inside the effect that is reading it.
-      const id = window.setTimeout(() => {
-        if (sentences.length && st.page < numPages) { turn('next'); setSpeak((sp) => (sp ? { ...sp, sentence: 0 } : sp)); }
-        else setSpeak(null);
-      }, 260);
-      return () => window.clearTimeout(id);
-    }
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = speak.rate;
-    u.onend = () => setSpeak((s) => (s ? { ...s, sentence: s.sentence + 1 } : s));
-    u.onerror = () => setSpeak(null);
-    window.speechSynthesis.speak(u);
-    return () => { window.speechSynthesis.cancel(); };
-  }, [speak, sentences, numPages, st.page, turn]);
-  useEffect(() => () => { try { window.speechSynthesis?.cancel(); } catch { /* ignore */ } }, []);
+  /* -- read aloud ---------------------------------------------------------- */
+  const onPageEnd = useCallback(() => turn('next'), [turn]);
+  useReadAloud({ speech, setSpeech, sentences, ready: proseReady, voices, hasNextPage: st.page < numPages, onPageEnd });
 
   /* -- look a word up ------------------------------------------------------ */
   const lookUp = useCallback(async (word: string, x: number, y: number) => {
@@ -513,9 +597,7 @@ function Reader({ objId }: { objId: string }) {
 
       <div className="pdfr-close" title="Close (Esc)" onClick={doClose}><Ico d={I.close} s={17} /></div>
 
-      {/* how far in you are — a hairline, always, even in zen */}
-      {numPages > 0 && <div className="pdfr-progress" style={{ transform: `scaleX(${st.page / numPages})` }} aria-hidden />}
-      <div className="pdfr-zenhint">move to bring the controls back · H to exit</div>
+      <div className="pdfr-zenhint">move to the bottom for the toolbar · H to bring it back for good</div>
 
       {card && (
         <div className="pdfr-roomcaption" key={card.label}>
@@ -534,7 +616,7 @@ function Reader({ objId }: { objId: string }) {
         ) : !session ? (
           <div className="pdfr-loading"><div className="pdfr-spin" /><div>Opening your PDF…</div></div>
         ) : st.layout === 'typeset' ? (
-          <Typeset paras={prose?.page === st.page ? prose.paras : null} typo={st.typo} width={win.w} speaking={speak?.sentence ?? -1} />
+          <Typeset paras={prose?.page === st.page ? prose.paras : null} typo={st.typo} width={win.w} speaking={speech.on ? speech.idx : -1} />
         ) : st.layout === 'book' ? (
           <BookView {...pageProps} page={st.page} numPages={numPages} pageW={sizing.pageW} flip={flip} onTurn={turn}
             bookmarks={st.bookmarks} onScrub={go} onUnmark={toggleBookmark} />
@@ -555,11 +637,11 @@ function Reader({ objId }: { objId: string }) {
       {/* the pens, and whatever the chosen one needs */}
       {annot && (
         <div className="pdfr-toolbar" style={{ bottom: stripShown ? 188 : 80 }}>
-          <button className={`pdfr-btn ${tool === 'highlight' ? 'active' : ''}`} title="Highlighter" onClick={() => setTool(tool === 'highlight' ? 'none' : 'highlight')}><Ico d={I.hl} s={15} /></button>
-          <button className={`pdfr-btn ${tool === 'draw' ? 'active' : ''}`} title="Draw / ink" onClick={() => setTool(tool === 'draw' ? 'none' : 'draw')}><Ico d={I.draw} s={15} /></button>
-          <button className={`pdfr-btn ${tool === 'sticky' ? 'active' : ''}`} title="Sticky note" onClick={() => setTool(tool === 'sticky' ? 'none' : 'sticky')}><Ico d={I.sticky} s={15} /></button>
-          <button className={`pdfr-btn ${tool === 'eraser' ? 'active' : ''}`} title="Eraser" onClick={() => setTool(tool === 'eraser' ? 'none' : 'eraser')}><Ico d={I.eraser} s={15} /></button>
-          <button className={`pdfr-btn ${clip ? 'active' : ''}`} title="Clip: select text to send it to the board" onClick={() => setClip(!clip)}><Ico d={I.clip} s={15} /></button>
+          <button className={`pdfr-btn ${tool === 'highlight' ? 'active' : ''}`} title="Highlighter" onClick={once(() => setTool(tool === 'highlight' ? 'none' : 'highlight'))}><Ico d={I.hl} s={15} /></button>
+          <button className={`pdfr-btn ${tool === 'draw' ? 'active' : ''}`} title="Draw / ink" onClick={once(() => setTool(tool === 'draw' ? 'none' : 'draw'))}><Ico d={I.draw} s={15} /></button>
+          <button className={`pdfr-btn ${tool === 'sticky' ? 'active' : ''}`} title="Sticky note" onClick={once(() => setTool(tool === 'sticky' ? 'none' : 'sticky'))}><Ico d={I.sticky} s={15} /></button>
+          <button className={`pdfr-btn ${tool === 'eraser' ? 'active' : ''}`} title="Eraser" onClick={once(() => setTool(tool === 'eraser' ? 'none' : 'eraser'))}><Ico d={I.eraser} s={15} /></button>
+          <button className={`pdfr-btn ${clip ? 'active' : ''}`} title="Clip: select text to send it to the board" onClick={once(() => setClip(!clip))}><Ico d={I.clip} s={15} /></button>
           {toolRow && <><div className="pdfr-sep" />{toolRow}</>}
         </div>
       )}
@@ -571,38 +653,33 @@ function Reader({ objId }: { objId: string }) {
         <button className="pdfr-btn" title="Next" disabled={st.page >= numPages} onClick={() => turn('next')}><Ico d={I.next} s={16} /></button>
         <div className="pdfr-sep" />
         <div className="pdfr-seg">
-          <button className={`pdfr-btn ${st.layout === 'scroll' ? 'active' : ''}`} title="Page view — the PDF as printed" onClick={() => set({ layout: 'scroll' })}><Ico d={I.scroll} s={15} /></button>
-          <button className={`pdfr-btn ${st.layout === 'book' ? 'active' : ''}`} title="Book view" onClick={() => set({ layout: 'book' })}><Ico d={I.book} s={15} /></button>
-          <button className={`pdfr-btn ${st.layout === 'typeset' ? 'active' : ''}`} title="Typeset — reflow it in your own font (F)" onClick={() => set({ layout: 'typeset' })}><Ico d={I.typeset} s={15} /></button>
+          <button className={`pdfr-btn ${st.layout === 'scroll' ? 'active' : ''}`} title="Page view — the PDF as printed" onClick={once(() => set({ layout: 'scroll' }))}><Ico d={I.scroll} s={15} /></button>
+          <button className={`pdfr-btn ${st.layout === 'book' ? 'active' : ''}`} title="Book view" onClick={once(() => set({ layout: 'book' }))}><Ico d={I.book} s={15} /></button>
+          <button className={`pdfr-btn ${st.layout === 'typeset' ? 'active' : ''}`} title="Typeset — reflow it in your own font (F)" onClick={once(() => set({ layout: 'typeset' }))}><Ico d={I.typeset} s={15} /></button>
         </div>
-        <button className={`pdfr-btn ${typeOpen ? 'active' : ''}`} title="Typography" onClick={() => { setTypeOpen(!typeOpen); setRoomOpen(false); }}><Ico d={I.type} s={15} /></button>
-        <button className={`pdfr-btn ${roomOpen ? 'active' : ''}`} title="Reading room" onClick={() => { setRoomOpen(!roomOpen); setTypeOpen(false); }}><Ico d={I.room} s={15} /> {room.label}</button>
+        <button className={`pdfr-btn ${typeOpen ? 'active' : ''}`} title="Typography" onClick={once(() => { setTypeOpen(!typeOpen); setRoomOpen(false); })}><Ico d={I.type} s={15} /></button>
+        <button className={`pdfr-btn ${roomOpen ? 'active' : ''}`} title="Reading room" onClick={once(() => { setRoomOpen(!roomOpen); setTypeOpen(false); })}><Ico d={I.room} s={15} /> {room.label}</button>
         {room.sound && (
-          <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} title={st.sound ? 'Mute the room' : 'Let the room be heard'} onClick={() => set({ sound: !st.sound })}>
+          <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} title={st.sound ? 'Mute the room' : 'Let the room be heard'} onClick={once(() => set({ sound: !st.sound }))}>
             <Ico d={st.sound ? I.sound : I.mute} s={15} />
           </button>
         )}
         <div className="pdfr-sep" />
-        <button className={`pdfr-btn ${speak ? 'active' : ''}`} title={speak ? 'Stop reading aloud' : 'Read this page aloud'}
-          onClick={() => setSpeak(speak ? null : { sentence: 0, rate: 1 })}><Ico d={speak ? I.pause : I.speak} s={15} /></button>
-        <button className={`pdfr-btn ${define ? 'active' : ''}`} title="Tap any word for its meaning" onClick={() => { setDefine(!define); setLookup(null); }}><Ico d={I.define} s={15} /></button>
-        <button className={`pdfr-btn ${st.ruler ? 'active' : ''}`} title="Focus the line you're on" onClick={() => set({ ruler: !st.ruler })}><Ico d={I.ruler} s={15} /></button>
+        <button className={`pdfr-btn ${speech.on ? 'active' : ''}`} title={speech.on ? 'Stop reading aloud' : 'Read this page aloud'}
+          onClick={once(() => setSpeech((sp) => ({ ...sp, on: !sp.on, paused: false, idx: sp.on ? 0 : sp.idx })))}><Ico d={I.speak} s={15} /></button>
+        <button className={`pdfr-btn ${define ? 'active' : ''}`} title="Tap any word for its meaning" onClick={once(() => { setDefine(!define); setLookup(null); })}><Ico d={I.define} s={15} /></button>
+        <button className={`pdfr-btn ${st.ruler ? 'active' : ''}`} title="Focus the line you're on" onClick={once(() => set({ ruler: !st.ruler }))}><Ico d={I.ruler} s={15} /></button>
         <div className="pdfr-sep" />
-        <button className={`pdfr-btn ${bookmarked ? 'active' : ''}`} title="Bookmark this page (B)" onClick={() => toggleBookmark(st.page)}><Ico d={I.bookmark} s={15} /></button>
-        <button className={`pdfr-btn ${annot || tool !== 'none' ? 'active' : ''}`} title="Mark up the page" onClick={() => { setAnnot(!annot); if (annot) setTool('none'); }}><Ico d={I.draw} s={15} /></button>
+        <button className={`pdfr-btn ${bookmarked ? 'active' : ''}`} title="Bookmark this page (B)" onClick={once(() => toggleBookmark(st.page))}><Ico d={I.bookmark} s={15} /></button>
+        <button className={`pdfr-btn ${annot || tool !== 'none' ? 'active' : ''}`} title="Mark up the page" onClick={once(() => { setAnnot(!annot); if (annot) setTool('none'); })}><Ico d={I.draw} s={15} /></button>
         <div className="pdfr-sep" />
-        <button className={`pdfr-btn ${st.strip ? 'active' : ''}`} title="Thumbnails" onClick={() => set({ strip: !st.strip })}><Ico d={I.strip} s={15} /></button>
-        <button className={`pdfr-btn ${st.zen ? 'active' : ''}`} title="Hide everything but the page (H)" onClick={() => setZen(!st.zen)}><Ico d={I.zen} s={15} /></button>
+        <button className={`pdfr-btn ${st.strip ? 'active' : ''}`} title="Thumbnails" onClick={once(() => set({ strip: !st.strip }))}><Ico d={I.strip} s={15} /></button>
+        <button className={`pdfr-btn ${st.zen ? 'active' : ''}`} title="Hide the toolbar — it comes back when you reach for it (H)" onClick={once(() => setZen(!st.zen))}><Ico d={I.zen} s={15} /></button>
       </div>
 
-      {speak && (
-        <div className="pdfr-speakbar" style={{ bottom: stripShown ? 236 : 128 }}>
-          <span className="dot" /> Reading aloud
-          <input className="pdfr-range" style={{ width: 90 }} type="range" min={0.6} max={2} step={0.1} value={speak.rate}
-            onChange={(e) => setSpeak({ ...speak, rate: parseFloat(e.target.value) })} title="Speed" />
-          <span className="rate">{speak.rate.toFixed(1)}×</span>
-          <button className="pdfr-btn" onClick={() => setSpeak(null)}><Ico d={I.close} s={13} /></button>
-        </div>
+      {speech.on && (
+        <SpeakBar speech={speech} setSpeech={setSpeech} voices={voices} bottom={stripShown ? 236 : 128}
+          total={sentences.length} text={sentences[speech.idx]} />
       )}
 
       {typeOpen && (
@@ -646,10 +723,10 @@ function Reader({ objId }: { objId: string }) {
           </div>
 
           <div className="foot">
-            <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} onClick={() => set({ sound: !st.sound })} title={room.sound ? '' : 'This room is a quiet one'}>
+            <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} onClick={once(() => set({ sound: !st.sound }))} title={room.sound ? '' : 'This room is a quiet one'}>
               <Ico d={st.sound ? I.sound : I.mute} s={14} /> Ambient sound {st.sound ? 'on' : 'off'}
             </button>
-            <button className={`pdfr-btn ${st.aged ? 'active' : ''}`} onClick={() => set({ aged: !st.aged })}>
+            <button className={`pdfr-btn ${st.aged ? 'active' : ''}`} onClick={once(() => set({ aged: !st.aged }))}>
               <Ico d={I.aged} s={14} /> Aged paper
             </button>
           </div>
@@ -787,6 +864,59 @@ function Slider({ min, max, step, value, onChange, format }: { min: number; max:
   );
 }
 
+/* ------------------------------- speak bar ------------------------------- */
+/** A transport, not a status line: pause, skip, speed, pitch, voice, and what
+ *  it is saying right now (which is the only way to tell it has stalled). */
+function SpeakBar({ speech, setSpeech, voices, bottom, total, text }: {
+  speech: Speech; setSpeech: React.Dispatch<React.SetStateAction<Speech>>;
+  voices: SpeechSynthesisVoice[]; bottom: number; total: number; text?: string;
+}) {
+  const [more, setMore] = useState(false);
+  const set = (p: Partial<Speech>) => setSpeech((s) => ({ ...s, ...p }));
+  const step = (d: number) => setSpeech((s) => ({ ...s, idx: Math.max(0, s.idx + d) }));
+
+  return (
+    <div className="pdfr-speakbar" style={{ bottom }}>
+      <div className="row">
+        <span className={`dot ${speech.paused ? 'off' : ''}`} />
+        <button className="pdfr-btn" title="Previous sentence" onClick={() => step(-1)}><Ico d={I.prev} s={14} /></button>
+        <button className="pdfr-btn" title={speech.paused ? 'Resume' : 'Pause'} onClick={() => set({ paused: !speech.paused })}>
+          <Ico d={speech.paused ? I.play : I.pause} s={14} />
+        </button>
+        <button className="pdfr-btn" title="Next sentence" onClick={() => step(1)}><Ico d={I.next} s={14} /></button>
+        <span className="pos">{Math.min(speech.idx + 1, Math.max(total, 1))}/{total || '—'}</span>
+        <div className="pdfr-sep" />
+        <span className="lbl">Speed</span>
+        <input className="pdfr-range" style={{ width: 104 }} type="range" min={0.5} max={2.5} step={0.05}
+          value={speech.rate} onChange={(e) => set({ rate: parseFloat(e.target.value) })} />
+        <span className="rate">{speech.rate.toFixed(2)}×</span>
+        <button className={`pdfr-btn ${more ? 'active' : ''}`} title="More" onClick={() => setMore(!more)}>⋯</button>
+        <button className="pdfr-btn" title="Stop" onClick={() => set({ on: false, idx: 0, paused: false })}><Ico d={I.close} s={13} /></button>
+      </div>
+
+      {more && (
+        <div className="row wrap">
+          <span className="lbl">Voice</span>
+          <select className="pdfr-select" value={speech.voice} onChange={(e) => set({ voice: e.target.value })}>
+            <option value="">System default</option>
+            {voices.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>)}
+          </select>
+          <span className="lbl">Pitch</span>
+          <input className="pdfr-range" style={{ width: 76 }} type="range" min={0.5} max={1.6} step={0.05}
+            value={speech.pitch} onChange={(e) => set({ pitch: parseFloat(e.target.value) })} />
+          <span className="lbl">Volume</span>
+          <input className="pdfr-range" style={{ width: 76 }} type="range" min={0} max={1} step={0.05}
+            value={speech.volume} onChange={(e) => set({ volume: parseFloat(e.target.value) })} />
+          <label className="pdfr-check tight"><input type="checkbox" checked={speech.auto} onChange={(e) => set({ auto: e.target.checked })} /> Keep going onto the next page</label>
+        </div>
+      )}
+
+      {text && <div className="said">{text}</div>}
+      {!voices.length && <div className="said warn">No speech voices are installed in this browser — the page will stay silent.</div>}
+    </div>
+  );
+}
+
 /* ------------------------------- dictionary ------------------------------ */
 function DefineCard({ word, x, y, loading, phonetic, defs, error, onClose }: {
   word: string; x: number; y: number; loading: boolean; phonetic?: string;
@@ -854,9 +984,8 @@ function BookView(props: PageSharedProps & {
 
   const Turn = flip && (
     <div className={`pdfr-turn ${flip.dir}`} style={{ width: pageW }}>
-      <div className="face front"><Page {...shared} page={flip.front} width={pageW} /><div className="sheen" /><div className="curl" /></div>
-      <div className="face back"><Page {...shared} page={flip.back} width={pageW} /><div className="sheen" /><div className="curl" /></div>
-      <div className="cast" />
+      <div className="face front"><Page {...shared} page={flip.front} width={pageW} /><div className="sheen" /></div>
+      <div className="face back"><Page {...shared} page={flip.back} width={pageW} /><div className="sheen" /></div>
     </div>
   );
 

@@ -44,7 +44,9 @@ export type Atmos =
   /* Mood */
   | 'sunset' | 'dusk' | 'romance' | 'lavender' | 'zen' | 'neon'
   /* Genre — rooms that match what you're reading */
-  | 'crypt' | 'manor' | 'stakeout' | 'oakroom' | 'poetseat' | 'carrel';
+  | 'crypt' | 'manor' | 'stakeout' | 'oakroom' | 'poetseat' | 'carrel'
+  | 'bridge' | 'tower' | 'tavern' | 'warroom' | 'chapel' | 'fort'
+  | 'maproom' | 'lab' | 'office' | 'kitchen' | 'arcade';
 
 type PKind =
   | 'none' | 'dust' | 'ember' | 'rain' | 'snow' | 'leaf' | 'petal' | 'bokeh'
@@ -951,6 +953,161 @@ const S_carrel = () => (
   </>
 );
 
+/* Sci-fi. You are on watch: instruments below, everything else out there. */
+const S_bridge = () => (
+  <>
+    {sky}
+    <div className="rs-viewport"><Stars set={STARS_C} /><div className="rs-nebula faint" /></div>
+    <div className="rs-hull" />
+    <div className="rs-console" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(60% 30% at 50% 96%, rgba(120,200,255,0.16), transparent 66%)' })} />
+    <Surface h={9} cls="deck" />
+  </>
+);
+
+/* Fantasy. Stone, star charts, and candles that never asked for a table. */
+const S_tower = () => (
+  <>
+    {sky}
+    <div className="rs-stonewall" />
+    <div className="rs-archwin"><Stars set={STARS_B} /><div className="rs-moon sm"><i className="crater a" /></div></div>
+    <div className="rs-chart" style={{ left: '5%', top: '16%' }} />
+    <div className="rs-chart sm" style={{ left: '20%', top: '46%', transform: 'rotate(4deg)' }} />
+    <Candle x="13%" bottom="62%" h={38} s={0.9} />
+    <Candle x="24%" bottom="72%" h={30} s={0.75} />
+    <Candle x="84%" bottom="58%" h={34} s={0.85} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(46% 42% at 50% 40%, rgba(180,160,255,0.14), transparent 66%)' })} />
+    <Surface h={15} cls="dark" />
+  </>
+);
+
+const S_tavern = () => (
+  <>
+    {sky}
+    <div className="rs-panel warm" />
+    <div className="rs-beam tav" style={{ left: '-4%' }} />
+    <div className="rs-beam tav" style={{ right: '-4%' }} />
+    <div className="rs-tankards" />
+    <div className="rs-hearthglow" />
+    <Lamp x="50%" y={0} size={0.9} drop={70} warm="255,182,96" />
+    <div className="rs-firelight" />
+    <Surface h={18} cls="oak">
+      <i className="rs-mug" style={{ left: '14%' }} />
+      <i className="rs-mug" style={{ left: '86%', transform: 'scale(0.9)' }} />
+    </Surface>
+  </>
+);
+
+/* History and war. One light, a table of maps, and the blackout up. */
+const S_warroom = () => (
+  <>
+    {sky}
+    <div className="rs-plaster cold" />
+    <div className="rs-pinmaps" />
+    <Lamp x="50%" y={0} size={1.4} cone={1.3} drop={40} warm="255,226,180" />
+    <div className="rs-maptable" />
+    <Surface h={12} cls="dark" />
+  </>
+);
+
+/* Philosophy, scripture, the long classics. Colour arrives through glass. */
+const S_chapel = () => (
+  <>
+    {sky}
+    <div className="rs-stonewall" />
+    <div className="rs-stained" />
+    <div className="rs-colorcast" />
+    <div className="rs-pews" />
+    <Candle x="10%" bottom="16%" h={64} s={1.1} />
+    <Candle x="90%" bottom="16%" h={56} s={1} />
+    <Surface h={15} cls="stonefloor" />
+  </>
+);
+
+/* Children's and YA. Sheets over chairs, a torch, and no bedtime. */
+const S_fort = () => (
+  <>
+    {sky}
+    <div className="rs-sheet" />
+    <div className="rs-fairy" />
+    <div className="rs-cushions" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(46% 42% at 50% 62%, rgba(255,212,140,0.22), transparent 68%)' })} />
+    <div className="rs-torch" />
+  </>
+);
+
+/* Travel and adventure. Charts, a globe, brass, somewhere to be going. */
+const S_maproom = () => (
+  <>
+    {sky}
+    <div className="rs-panel" />
+    <div className="rs-chart big" style={{ left: '4%', top: '10%' }} />
+    <div className="rs-chart" style={{ right: '6%', top: '14%', transform: 'rotate(-3deg)' }} />
+    <div className="rs-globe" />
+    <Lamp x="22%" y={14} size={1.2} cone={1} warm="255,206,140" />
+    <Surface h={18} cls="oak">
+      <i className="rs-papers" style={{ left: '62%' }} />
+    </Surface>
+  </>
+);
+
+/* Science and medicine. Cold, clean, and lit from directly above. */
+const S_lab = () => (
+  <>
+    {sky}
+    <div className="rs-tiles" />
+    <div className="rs-shelfglass" />
+    <div className="rs-glassware" />
+    <div className="rs-key" style={v({ background: 'linear-gradient(180deg, rgba(200,240,255,0.16), transparent 44%)' })} />
+    <Surface h={16} cls="bench" />
+  </>
+);
+
+/* Business, biography, the late working night. The city is the wallpaper. */
+const S_office = () => (
+  <>
+    {sky}
+    <div className="rs-curtainwall">
+      <div className="rs-street night" />
+      <Sil d={SKY_FAR} fill="#0a1018" style={{ bottom: 0, height: '54%', filter: 'blur(1.5px)' }} />
+      <Sil d={SKY_NEAR} fill="#05070d" style={{ bottom: 0, height: '44%' }} />
+      <CityLights />
+    </div>
+    <div className="rs-mullions" />
+    <Lamp x="16%" y={22} size={1.1} cone={0.8} warm="255,214,160" />
+    <Surface h={16} cls="marble" />
+  </>
+);
+
+/* Cookery and memoir. Somebody has been in here all afternoon. */
+const S_kitchen = () => (
+  <>
+    {sky}
+    <div className="rs-tilesplash" />
+    <Win side="right" top={12} w={26} h={38} bars="grid" wood="#5a4630" view={<div className="rs-daylight" />} />
+    <div className="rs-pans" />
+    <div className="rs-herbs" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(50% 46% at 82% 30%, rgba(255,238,200,0.24), transparent 64%)' })} />
+    <Surface h={18} cls="butcher">
+      <i className="rs-mug steam" style={{ left: '24%' }} />
+    </Surface>
+  </>
+);
+
+/* Comics, manga, games. Every light in here is a screen. */
+const S_arcade = () => (
+  <>
+    {sky}
+    <div className="rs-carpet" />
+    <div className="rs-cab" style={v({ left: '2%', '--c': '255,60,120' })} />
+    <div className="rs-cab" style={v({ left: '16%', '--c': '90,220,255', height: '58%' })} />
+    <div className="rs-cab" style={v({ right: '3%', '--c': '160,110,255' })} />
+    <div className="rs-cab" style={v({ right: '17%', '--c': '255,190,60', height: '56%' })} />
+    <div className="rs-crt" />
+    <div className="rs-scan" />
+  </>
+);
+
 /* ================================ registry ================================ */
 
 export const ROOMS: Room[] = [
@@ -961,6 +1118,17 @@ export const ROOMS: Room[] = [
   { key: 'oakroom', label: 'The Oak Room', group: 'Genre', blurb: 'Classics — green glass, brass, deep panelling', accent: '150,236,190', glow: 0.42, fx: { kind: 'dust', n: 26 }, scene: S_oakroom },
   { key: 'poetseat', label: "Poet's Window", group: 'Genre', blurb: 'Poetry — a window seat, rain, tea going cold', accent: '176,206,236', ink: '#eaf1f8', sound: 'rain', glow: 0.34, fx: { kind: 'none' }, scene: S_poetseat },
   { key: 'carrel', label: 'The Carrel', group: 'Genre', blurb: 'Study — a library cubicle at two in the morning', accent: '255,206,140', glow: 0.46, fx: { kind: 'dust', n: 22 }, scene: S_carrel },
+  { key: 'bridge', label: "Ship's Bridge", group: 'Genre', blurb: 'Science fiction — your watch, and everything else out there', accent: '130,200,255', ink: '#e8f2fc', sound: 'drone', glow: 0.4, fx: { kind: 'none' }, scene: S_bridge },
+  { key: 'tower', label: "Wizard's Tower", group: 'Genre', blurb: 'Fantasy — star charts, old stone, candles that float', accent: '196,172,255', ink: '#efeafc', glow: 0.48, fx: { kind: 'ember', n: 16 }, scene: S_tower },
+  { key: 'tavern', label: 'The Tavern', group: 'Genre', blurb: 'Adventure — low beams, a fire, someone telling it wrong', accent: '255,178,96', glow: 0.55, fx: { kind: 'ember', n: 22 }, scene: S_tavern },
+  { key: 'warroom', label: 'The War Room', group: 'Genre', blurb: 'History — one lamp over a table of maps', accent: '255,222,170', glow: 0.42, fx: { kind: 'dust', n: 26 }, scene: S_warroom },
+  { key: 'chapel', label: 'The Chapel', group: 'Genre', blurb: 'Philosophy — colour arriving through very old glass', accent: '226,196,140', glow: 0.44, fx: { kind: 'dust', n: 30 }, scene: S_chapel },
+  { key: 'fort', label: 'Blanket Fort', group: 'Genre', blurb: "Children's — sheets, fairy lights, no bedtime", accent: '255,206,150', glow: 0.5, fx: { kind: 'bokeh', n: 8 }, scene: S_fort },
+  { key: 'maproom', label: 'The Map Room', group: 'Genre', blurb: 'Travel — charts, a globe, somewhere to be going', accent: '246,200,132', glow: 0.44, fx: { kind: 'dust', n: 22 }, scene: S_maproom },
+  { key: 'lab', label: 'The Laboratory', group: 'Genre', blurb: 'Science — cold, clean, lit from directly above', accent: '186,226,244', ink: '#eaf4fa', glow: 0.3, fx: { kind: 'none' }, scene: S_lab },
+  { key: 'office', label: 'Corner Office', group: 'Genre', blurb: 'Business — the city doing the work of a wallpaper', accent: '226,206,180', glow: 0.36, fx: { kind: 'none' }, scene: S_office },
+  { key: 'kitchen', label: 'Kitchen Table', group: 'Genre', blurb: 'Cookery & memoir — somebody has been in here all afternoon', accent: '255,224,164', glow: 0.42, fx: { kind: 'dust', n: 20 }, scene: S_kitchen },
+  { key: 'arcade', label: 'The Arcade', group: 'Genre', blurb: 'Comics & games — every light in here is a screen', accent: '255,110,180', ink: '#fbe9f4', glow: 0.5, fx: { kind: 'none' }, scene: S_arcade },
 
   /* -- Study -- */
   { key: 'clean', label: 'Studio', group: 'Study', blurb: 'White walls, north light, nothing else', accent: '206,214,224', glow: 0.2, fx: { kind: 'dust', n: 22 }, scene: S_clean },

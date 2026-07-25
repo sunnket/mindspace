@@ -113,8 +113,10 @@
 .pdfr-turn .face { position:absolute; inset:0; backface-visibility:hidden; overflow:hidden; box-shadow: var(--page-shadow); background:#fff; border-radius:2px 6px 6px 2px; }
 .pdfr-turn .face.back { transform: rotateY(180deg); }
 .pdfr-turn .sheen { position:absolute; inset:0; pointer-events:none; opacity:0; }
-.pdfr-turn.next { transform-origin:left center; }
-.pdfr-turn.prev { transform-origin:right center; }
+.pdfr-turn.next { transform-origin:left center; animation: pdfrTurnNext 0.92s cubic-bezier(.42,.02,.28,1) both; }
+.pdfr-turn.prev { transform-origin:right center; animation: pdfrTurnPrev 0.92s cubic-bezier(.42,.02,.28,1) both; }
+@keyframes pdfrTurnNext { from{transform:rotateY(0)} to{transform:rotateY(-180deg)} }
+@keyframes pdfrTurnPrev { from{transform:rotateY(0)} to{transform:rotateY(180deg)} }
 .pdfr-turn .face.front .sheen { background: linear-gradient(105deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0) 34%, rgba(0,0,0,0.28) 100%); animation: pdfrSheenFront 0.92s ease-in-out both; }
 .pdfr-turn .face.back .sheen  { background: linear-gradient(255deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 34%, rgba(0,0,0,0.3) 100%); animation: pdfrSheenBack 0.92s ease-in-out both; }
 @keyframes pdfrSheenFront { 0%{opacity:0} 45%{opacity:.9} 55%{opacity:0} 100%{opacity:0} }
@@ -295,24 +297,36 @@
 .pdfr-define li b { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; opacity: .5; margin-right: 4px; font-style: italic; }
 .pdfr-define .l { margin-top: 8px; font-size: 12.5px; opacity: .6; }
 
-/* read-aloud status */
-.pdfr-speakbar { position: absolute; left: 50%; transform: translateX(-50%); z-index: 24; display: flex; align-items: center; gap: 10px;
-  padding: 6px 8px 6px 14px; border-radius: 14px; font-size: 11.5px; font-weight: 700;
-  background: rgba(20,17,14,0.82); backdrop-filter: blur(18px); border: 1px solid rgba(255,255,255,0.12); }
-.pdfr-speakbar .dot { width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--accent)); animation: pdfrPulse 1.4s ease-in-out infinite; }
-.pdfr-speakbar .rate { min-width: 30px; opacity: .6; font-variant-numeric: tabular-nums; }
+/* ------------------------------- speak bar ------------------------------- */
+.pdfr-speakbar { position: absolute; left: 50%; transform: translateX(-50%); z-index: 24;
+  display: flex; flex-direction: column; gap: 8px; width: min(94vw, 720px);
+  padding: 10px 12px; border-radius: 16px; font-size: 11.5px; font-weight: 700;
+  background: rgba(20,17,14,0.88); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.13);
+  box-shadow: 0 24px 60px -26px rgba(0,0,0,0.9); }
+.pdfr-speakbar .row { display: flex; align-items: center; gap: 8px; }
+.pdfr-speakbar .row.wrap { flex-wrap: wrap; padding-top: 2px; border-top: 1px solid rgba(255,255,255,0.09); }
+.pdfr-speakbar .pdfr-btn { height: 30px; min-width: 30px; padding: 0 8px; }
+.pdfr-speakbar .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: rgb(var(--accent));
+  animation: pdfrPulse 1.5s ease-in-out infinite; }
+.pdfr-speakbar .dot.off { animation: none; opacity: .35; }
+.pdfr-speakbar .lbl { opacity: .5; font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase; }
+.pdfr-speakbar .pos, .pdfr-speakbar .rate { opacity: .6; font-variant-numeric: tabular-nums; min-width: 42px; }
+.pdfr-speakbar .said { font-size: 12px; font-weight: 500; line-height: 1.45; opacity: .62;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.pdfr-speakbar .said.warn { opacity: .85; color: #ffcf8a; }
+.pdfr-speakbar .pdfr-check.tight { padding: 0; font-size: 11px; }
 @keyframes pdfrPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.75); } }
+.pdfr-select { height: 28px; max-width: 190px; padding: 0 8px; border-radius: 8px; font-size: 11px; font-weight: 600;
+  color: #f4ece0; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14); cursor: pointer; }
+.pdfr-select option { background: #1a1613; color: #f4ece0; }
 
-/* how far through you are — a hairline at the very top, visible even in zen */
-.pdfr-progress { position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 26; transform-origin: left center;
-  background: linear-gradient(90deg, rgba(var(--accent),0.35), rgb(var(--accent)));
-  transition: transform 400ms cubic-bezier(.16,1,.3,1); }
-
-/* ================================== zen ================================== */
-/* Hide the furniture. Everything fades and slides out of the way rather than
-   vanishing, so it's obvious it went somewhere and will come back. */
+/* ============================ hidden toolbar ============================= */
+/* Out of the way completely, and back the moment you reach for it. */
 .pdfr-root[data-zen="1"][data-chrome="0"] .pdfr-dock { opacity: 0; transform: translate(-50%, 26px); pointer-events: none; }
-.pdfr-root[data-zen="1"][data-chrome="0"] .pdfr-close { opacity: 0; transform: translateY(-14px); pointer-events: none; }
+/* The way out always stays on screen — hiding the toolbar should never leave
+   a reader hunting for how to get back. */
+.pdfr-root[data-zen="1"][data-chrome="0"] .pdfr-close { opacity: .35; }
+.pdfr-root[data-zen="1"][data-chrome="0"] .pdfr-close:hover { opacity: 1; }
 .pdfr-root[data-zen="1"][data-chrome="0"] .pdfr-toolbar,
 .pdfr-root[data-zen="1"][data-chrome="0"] .pdfr-speakbar { opacity: 0; pointer-events: none; }
 .pdfr-dock, .pdfr-close, .pdfr-toolbar, .pdfr-speakbar { transition: opacity 420ms ease, transform 420ms cubic-bezier(.16,1,.3,1); }
@@ -389,36 +403,6 @@
 .pdfr-ribbon .tip { position: absolute; left: 50%; bottom: -34px; transform: translateX(-50%);
   padding: 3px 9px; border-radius: 8px; font-size: 11px; font-weight: 800; white-space: nowrap;
   background: rgba(20,17,14,0.94); border: 1px solid rgba(255,255,255,0.16); color: #f4ece0; }
-
-/* ============================== page turning ============================= */
-/* A turned page is not a flat rectangle rotating. It lifts, bends against its
-   own stiffness, throws a moving shadow onto the page underneath, and lands
-   slightly late. The curl gradient is the bend; the cast is the shadow. */
-.pdfr-turn.next { animation: pdfrTurnNext 1.05s cubic-bezier(.36,.06,.22,1) both; }
-.pdfr-turn.prev { animation: pdfrTurnPrev 1.05s cubic-bezier(.36,.06,.22,1) both; }
-@keyframes pdfrTurnNext {
-  0%   { transform: rotateY(0) translateZ(0); }
-  22%  { transform: rotateY(-26deg) translateZ(22px); }
-  70%  { transform: rotateY(-142deg) translateZ(16px); }
-  100% { transform: rotateY(-180deg) translateZ(0); }
-}
-@keyframes pdfrTurnPrev {
-  0%   { transform: rotateY(0) translateZ(0); }
-  22%  { transform: rotateY(26deg) translateZ(22px); }
-  70%  { transform: rotateY(142deg) translateZ(16px); }
-  100% { transform: rotateY(180deg) translateZ(0); }
-}
-/* the bend: the sheet is brightest along the fold and darkest at the free edge */
-.pdfr-turn .curl { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: multiply; opacity: .85;
-  background: linear-gradient(90deg, rgba(120,96,60,0.30) 0%, rgba(255,255,255,0) 14%, rgba(255,255,255,0) 76%, rgba(90,70,44,0.26) 100%); }
-.pdfr-turn .face.back .curl { transform: scaleX(-1); }
-.pdfr-turn .face.front .sheen { animation-duration: 1.05s; }
-.pdfr-turn .face.back .sheen { animation-duration: 1.05s; }
-/* the shadow the lifted sheet drags across the page below it */
-.pdfr-turn .cast { position: absolute; top: 0; bottom: 0; left: 0; width: 200%; pointer-events: none; z-index: -1;
-  background: linear-gradient(90deg, rgba(0,0,0,0.42), rgba(0,0,0,0) 46%);
-  animation: pdfrCast 1.05s cubic-bezier(.36,.06,.22,1) both; }
-@keyframes pdfrCast { 0% { opacity: 0; transform: translateX(-6%); } 30% { opacity: .9; } 78% { opacity: .5; transform: translateX(52%); } 100% { opacity: 0; transform: translateX(64%); } }
 
 /* the block of paper: individual leaves, not a striped bar */
 .pdfr-stack { background:
