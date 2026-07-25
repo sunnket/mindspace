@@ -42,13 +42,15 @@ export type Atmos =
   /* Journey */
   | 'train' | 'plane' | 'tent'
   /* Mood */
-  | 'sunset' | 'dusk' | 'romance' | 'lavender' | 'zen' | 'neon';
+  | 'sunset' | 'dusk' | 'romance' | 'lavender' | 'zen' | 'neon'
+  /* Genre — rooms that match what you're reading */
+  | 'crypt' | 'manor' | 'stakeout' | 'oakroom' | 'poetseat' | 'carrel';
 
 type PKind =
   | 'none' | 'dust' | 'ember' | 'rain' | 'snow' | 'leaf' | 'petal' | 'bokeh'
   | 'star' | 'gold' | 'pollen' | 'firefly' | 'bubble' | 'ash';
 
-export type RoomGroup = 'Study' | 'Nature' | 'Cosmos' | 'Journey' | 'Mood';
+export type RoomGroup = 'Genre' | 'Study' | 'Nature' | 'Cosmos' | 'Journey' | 'Mood';
 
 export interface Room {
   key: Atmos;
@@ -850,9 +852,116 @@ const S_neon = () => (
   </>
 );
 
+/* -- Genre: rooms that match what you're reading --------------------------- */
+
+/* Horror. The rule for a scary room is restraint: one small light, a great deal
+   of dark, and something in it that is *almost* a figure. */
+const S_crypt = () => (
+  <>
+    {sky}
+    <div className="rs-cryptwall" />
+    <div className="rs-arches" />
+    <div className="rs-figure" />
+    <div className="rs-cobweb left" />
+    <div className="rs-cobweb right" />
+    <Surface h={15} cls="cryptfloor" />
+    <Candle x="14%" bottom="13%" h={54} s={1.1} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(40% 34% at 14% 62%, rgba(255,170,90,0.14), transparent 66%)' })} />
+    <div className="rs-breath" />
+  </>
+);
+
+const S_manor = () => (
+  <>
+    {sky}
+    <div className="rs-panel" />
+    <div className="rs-portrait" />
+    <Win side="right" top={8} w={34} h={58} glass="rain" bars="grid" wood="#1a120c"
+      view={<><div className="rs-street night" /><Sil d={FIR_NEAR} fill="#070c12" style={{ bottom: 0, height: '62%' }} /></>} />
+    <div className="rs-flash" />
+    <div className="rs-cobweb left" />
+    <Surface h={16} cls="oak" />
+    <Candle x="12%" bottom="14%" h={60} s={1.05} />
+    <div className="rs-breath" />
+  </>
+);
+
+const S_stakeout = () => (
+  <>
+    {sky}
+    <div className="rs-plaster cold" />
+    <div className="rs-blinds" />
+    <div className="rs-blinds floor" />
+    <div className="rs-corkcase" />
+    <Lamp x="86%" y={26} size={1.15} cone={0.8} warm="226,222,204" />
+    <div className="rs-smoke" />
+    <Surface h={16} cls="dark">
+      <i className="rs-mug" style={{ left: '16%' }} />
+      <i className="rs-papers" style={{ left: '72%' }} />
+    </Surface>
+  </>
+);
+
+/* Classics & study. These are the opposite problem: nothing spooky, everything
+   solid — deep wood, brass, green glass, the light of a lamp you own. */
+const S_oakroom = () => (
+  <>
+    {sky}
+    <div className="rs-panel" />
+    <div className="rs-wainscot" />
+    <Shelf side="left" />
+    <div className="rs-frame art" style={{ right: '9%' }} />
+    <div className="rs-bankers" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(38% 34% at 76% 44%, rgba(140,255,190,0.10), transparent 66%)' })} />
+    <Surface h={19} cls="oak">
+      <i className="rs-papers" style={{ left: '20%' }} />
+      <i className="rs-mug" style={{ left: '84%' }} />
+    </Surface>
+  </>
+);
+
+const S_poetseat = () => (
+  <>
+    {sky}
+    <div className="rs-plaster cold" />
+    <div className="rs-recess" />
+    <Win side="right" top={13} w={30} h={52} glass="rain" bars="grid" wood="#2b2822"
+      view={<><div className="rs-street" /><Sil d={FIR_FAR} fill="#1c2733" style={{ bottom: 0, height: '54%' }} /></>} />
+    <div className="rs-cushion" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(44% 40% at 74% 34%, rgba(176,206,236,0.16), transparent 64%)' })} />
+    <Surface h={13} cls="planks">
+      <i className="rs-mug steam" style={{ left: '18%' }} />
+    </Surface>
+  </>
+);
+
+const S_carrel = () => (
+  <>
+    {sky}
+    <div className="rs-carrelwalls" />
+    <Shelf side="right" />
+    <Lamp x="24%" y={20} size={1.3} cone={1.1} warm="255,214,150" />
+    <div className="rs-pinboard" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(34% 40% at 26% 34%, rgba(255,206,140,0.2), transparent 62%)' })} />
+    <Surface h={20} cls="carreldesk">
+      <i className="rs-papers" style={{ left: '12%' }} />
+      <i className="rs-mug steam" style={{ left: '66%' }} />
+      <i className="rs-bookstack" style={{ left: '84%' }} />
+    </Surface>
+  </>
+);
+
 /* ================================ registry ================================ */
 
 export const ROOMS: Room[] = [
+  /* -- Genre: pick the room that matches the book -- */
+  { key: 'crypt', label: 'The Crypt', group: 'Genre', blurb: 'Horror — one candle, and a great deal of dark', accent: '255,152,74', glow: 0.5, fx: { kind: 'dust', n: 28 }, scene: S_crypt },
+  { key: 'manor', label: 'Storm Manor', group: 'Genre', blurb: 'Gothic — rain on old glass, lightning behind it', accent: '206,182,150', sound: 'rain', glow: 0.4, fx: { kind: 'none' }, scene: S_manor },
+  { key: 'stakeout', label: 'The Stakeout', group: 'Genre', blurb: 'Thriller — blinds, cold coffee, a case wall', accent: '214,220,228', glow: 0.32, fx: { kind: 'dust', n: 20 }, scene: S_stakeout },
+  { key: 'oakroom', label: 'The Oak Room', group: 'Genre', blurb: 'Classics — green glass, brass, deep panelling', accent: '150,236,190', glow: 0.42, fx: { kind: 'dust', n: 26 }, scene: S_oakroom },
+  { key: 'poetseat', label: "Poet's Window", group: 'Genre', blurb: 'Poetry — a window seat, rain, tea going cold', accent: '176,206,236', ink: '#eaf1f8', sound: 'rain', glow: 0.34, fx: { kind: 'none' }, scene: S_poetseat },
+  { key: 'carrel', label: 'The Carrel', group: 'Genre', blurb: 'Study — a library cubicle at two in the morning', accent: '255,206,140', glow: 0.46, fx: { kind: 'dust', n: 22 }, scene: S_carrel },
+
   /* -- Study -- */
   { key: 'clean', label: 'Studio', group: 'Study', blurb: 'White walls, north light, nothing else', accent: '206,214,224', glow: 0.2, fx: { kind: 'dust', n: 22 }, scene: S_clean },
   { key: 'focus', label: 'Blackout', group: 'Study', blurb: 'One lamp, and the page', accent: '245,205,140', glow: 0.32, fx: { kind: 'dust', n: 14 }, scene: S_focus },
@@ -904,7 +1013,7 @@ export const ROOMS: Room[] = [
   { key: 'neon', label: 'Neon Rain', group: 'Mood', blurb: 'Signs bleeding into wet asphalt', accent: '255,110,180', ink: '#fbe9f4', sound: 'rain', glow: 0.46, fx: { kind: 'rain', n: 64 }, scene: S_neon },
 ];
 
-export const ROOM_GROUPS: RoomGroup[] = ['Study', 'Nature', 'Cosmos', 'Journey', 'Mood'];
+export const ROOM_GROUPS: RoomGroup[] = ['Genre', 'Study', 'Nature', 'Cosmos', 'Journey', 'Mood'];
 const BY_KEY = new Map(ROOMS.map((r) => [r.key, r]));
 export const getRoom = (k: Atmos | undefined): Room => BY_KEY.get(k as Atmos) ?? BY_KEY.get('library')!;
 export const isRoom = (k: unknown): k is Atmos => typeof k === 'string' && BY_KEY.has(k as Atmos);
