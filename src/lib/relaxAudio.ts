@@ -390,6 +390,110 @@ export function playWhoosh() {
   n.stop(t + dur + 0.05);
 }
 
+/* ------------------------------------------------------------------ paper */
+/* The PDF reader's book. A page turn is not a whoosh: it is a short, bright
+   rustle with a *rise* as the sheet lifts and a duller flap as it lands, and the
+   two halves have to overlap or it reads as one swipe. Everything here is noise
+   through moving filters — paper has no pitch. */
+
+/** A sheet lifting, arcing over and landing. `depth` 0–1 leans heavier/slower. */
+export function playPageTurn(depth = 0.5) {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 0.28);
+  const dur = 0.34 + depth * 0.2;
+
+  // the lift: high, thin, opening up as the sheet peels away from the stack
+  const lift = noise(ac, dur * 0.7, 1.8);
+  const hp = ac.createBiquadFilter();
+  hp.type = 'bandpass';
+  hp.Q.value = 0.8;
+  hp.frequency.setValueAtTime(rand(1500, 2100), t);
+  hp.frequency.exponentialRampToValueAtTime(rand(3400, 4600), t + dur * 0.6);
+  const lg = ac.createGain();
+  lg.gain.setValueAtTime(0.0001, t);
+  lg.gain.exponentialRampToValueAtTime(0.05 + depth * 0.03, t + 0.06);
+  lg.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.7);
+  lift.connect(hp).connect(lg).connect(out);
+  lift.start(t);
+  lift.stop(t + dur);
+
+  // the landing: lower and softer, a beat later, so the sheet has somewhere to go
+  const land = noise(ac, 0.22, 2.6);
+  const lp = ac.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(2600, t);
+  lp.frequency.exponentialRampToValueAtTime(700, t + 0.22);
+  const dg = ac.createGain();
+  const at = t + dur * 0.52;
+  dg.gain.setValueAtTime(0.0001, at);
+  dg.gain.exponentialRampToValueAtTime(0.06 + depth * 0.04, at + 0.03);
+  dg.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
+  land.connect(lp).connect(dg).connect(out);
+  land.start(at);
+  land.stop(at + 0.26);
+}
+
+/** Opening the covers: a low resonant creak from the spine. Used once, on open. */
+export function playSpineCreak() {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 0.5);
+  const dur = 0.85;
+
+  const n = noise(ac, dur, 1.1);
+  // Two narrow peaks sliding upward — the sound of glue and board under strain.
+  const b1 = ac.createBiquadFilter();
+  b1.type = 'bandpass'; b1.Q.value = 9;
+  b1.frequency.setValueAtTime(180, t);
+  b1.frequency.exponentialRampToValueAtTime(300, t + dur);
+  const b2 = ac.createBiquadFilter();
+  b2.type = 'bandpass'; b2.Q.value = 14;
+  b2.frequency.setValueAtTime(430, t);
+  b2.frequency.exponentialRampToValueAtTime(680, t + dur);
+
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.07, t + 0.12);
+  g.gain.exponentialRampToValueAtTime(0.03, t + dur * 0.6);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+  // a slow wobble, because a creak is never smooth
+  const wob = ac.createOscillator();
+  const wobDepth = ac.createGain();
+  wob.frequency.value = 11;
+  wobDepth.gain.value = 26;
+  wob.connect(wobDepth).connect(b2.frequency);
+  wob.start(t); wob.stop(t + dur);
+
+  n.connect(b1).connect(g).connect(out);
+  n.connect(b2).connect(g);
+  n.start(t);
+  n.stop(t + dur + 0.05);
+}
+
+/** The book settling closed — a soft, dull thump of paper meeting paper. */
+export function playPaperSettle() {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 0.35);
+  const n = noise(ac, 0.3, 3.2);
+  const lp = ac.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(1200, t);
+  lp.frequency.exponentialRampToValueAtTime(240, t + 0.3);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.09, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+  n.connect(lp).connect(g).connect(out);
+  n.start(t);
+  n.stop(t + 0.34);
+}
+
 /** Catching a firefly: a tiny glassy ping, high and brief. */
 export function playSparkle() {
   const ac = audioCtx();
