@@ -42,11 +42,11 @@ import SkillSetPanel from '@/components/ui/SkillSetPanel';
 import { isSkillsetActive, activeRuleCount } from '@/lib/skillset';
 import SelectionPanel from '@/components/ui/SelectionPanel';
 import Minimap from '@/components/ui/Minimap';
+import ReturnToWork from '@/components/ui/ReturnToWork';
 import CheckpointIndex from '@/components/ui/CheckpointIndex';
 import SaveIndicator from '@/components/ui/SaveIndicator';
 import TrashPile from '@/components/ui/TrashPile';
 import VoiceOrb from './VoiceOrb';
-import AuthButton from '@/components/ui/AuthButton';
 import ShortcutsOverlay from './ShortcutsOverlay';
 import ShareModal from '@/components/ui/ShareModal';
 import MinimizeDock from './MinimizeDock';
@@ -752,9 +752,10 @@ export default function InfiniteCanvas() {
                 });
                 setActiveArrowId(obj.id);
               } else {
-                // Second click: Finalize the arrow
+                // Second click: finalize the arrow. It carries no label any
+                // more, so it's left selected (handles live, style panel open)
+                // rather than dropped into a text caret.
                 setSelectedId(activeArrowId);
-                setEditingId(activeArrowId);
                 setActiveArrowId(null);
                 setMode('select');
               }
@@ -773,8 +774,9 @@ export default function InfiniteCanvas() {
                   borderColor: 'var(--accent-light)',
                 }
               });
+              // Selected, not editing: a shape holds no text, so there is
+              // nothing to type into once it lands.
               setSelectedId(obj.id);
-              setEditingId(obj.id);
               setMode('select');
             } else if (mode === 'frame') {
               const draftKind = useCanvasStore.getState().frameDraftKind;
@@ -1717,11 +1719,16 @@ export default function InfiniteCanvas() {
             slide capture, and the Ask-AI box for agent frames. */}
         <FrameHUD />
         <Minimap />
+        {/* Scrolled off into empty space? One chip, pointing home. */}
+        <ReturnToWork />
         <CheckpointIndex />
         <SaveIndicator />
         <TrashPile />
         <VoiceOrb />
-        <AuthButton hideGuest={true} />
+        {/* The account avatar + name used to sit in the top-right corner of the
+            board. It's a duplicate — the same control already lives on the
+            landing page, which is where you sign in and out from — and on the
+            canvas it was chrome competing with the work. Gone from here. */}
 
         {/* Live collaboration */}
         <CollabBar />

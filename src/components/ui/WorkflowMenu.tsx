@@ -540,7 +540,7 @@ export default function WorkflowMenu({ onClose }: { onClose: () => void }) {
   }, [selectedCategory, favorites]);
 
   return (
-    <div style={{ padding: 20 }} className="workflow-menu glass-panel max-w-[420px] w-full text-sm font-sans flex flex-col gap-4 max-h-[82vh] overflow-y-auto select-none pointer-events-auto border border-[var(--border)] shadow-xl bg-[var(--bg-glass)]">
+    <div style={{ padding: 20 }} className="workflow-menu tool-panel max-w-[420px] w-full text-sm font-sans flex flex-col gap-4 max-h-[82vh] overflow-y-auto select-none pointer-events-auto">
       {/* Title */}
       <div className="flex items-center justify-between border-b border-[var(--border)] shrink-0" style={{ paddingBottom: 10 }}>
         <div>

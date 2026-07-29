@@ -62,7 +62,7 @@ export default function BrainstormPanel() {
   const setThreadColor = useCanvasStore((s) => s.setThreadColor);
 
   return (
-    <div className="glass-panel flex flex-col gap-3" style={{ padding: 14, width: 268 }}>
+    <div className="tool-panel flex flex-col gap-3" style={{ padding: 14, width: 268 }}>
       {/* Header */}
       <div className="flex items-center justify-between px-0.5">
         <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-[0.16em] select-none">

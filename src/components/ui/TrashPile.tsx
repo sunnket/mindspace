@@ -4,9 +4,34 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence, useSpring } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 
-// Fixed target in screen space — bottom-left corner
-const TARGET_X = 44;
-const TARGET_Y = typeof window !== 'undefined' ? window.innerHeight - 30 : 900;
+/* ───────────────────────────────────────────────────────────────────────────
+   Where the bin sits, in one place.
+
+   The bin is SUNK into the bottom-left corner: only its mouth breaks the fold,
+   like a real bin standing just out of frame. Everything geometric about it is
+   derived from these four numbers so the flight path, the resting heap and the
+   drawing can never drift apart.
+
+   These were module-level constants read once at import time, which meant the
+   drop target was computed against whatever the window height happened to be on
+   first load and never moved again — resize the window and every deleted card
+   flew to a point in mid-air.
+   ─────────────────────────────────────────────────────────────────────────── */
+const BIN_LEFT = 16;        // container's `left`
+const BIN_SIZE = 64;        // the bin button is 64×64
+const BIN_SUNK = 30;        // px of the bin hidden below the viewport at rest
+/** Mouth centre inside the 72-unit viewBox, as a fraction of the bin's height. */
+const MOUTH_AT = 14.6 / 72;
+
+/** Screen-space centre of the bin's opening — what deleted things fall into. */
+function mouthPoint(): { x: number; y: number } {
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+  return {
+    x: BIN_LEFT + BIN_SIZE / 2,
+    // Bin top edge = vh - (BIN_SIZE - BIN_SUNK); the mouth is a bit below that.
+    y: vh - (BIN_SIZE - BIN_SUNK) + BIN_SIZE * MOUTH_AT,
+  };
+}
 
 function seededRandom(seed: number) {
   const x = Math.sin(seed + 1) * 10000;
@@ -57,8 +82,10 @@ function FlyingPaperCard({
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [card.id, onLanded]);
 
-  const dx = TARGET_X - card.originX;
-  const dy = TARGET_Y - card.originY;
+  // Aim a few px BELOW the lip so the ball reads as dropping in, not landing on.
+  const target = mouthPoint();
+  const dx = target.x - card.originX;
+  const dy = target.y + 6 - card.originY;
   const dist = Math.sqrt(dx * dx + dy * dy);
   const angle = Math.atan2(dy, dx) * (180 / Math.PI);
 
@@ -89,8 +116,10 @@ function FlyingPaperCard({
           : {
               x: dx,
               y: dy,
-              scaleX: 0.35,
-              scaleY: 0.35,
+              // Shrinks almost to nothing at the mouth: the ball goes IN, it
+              // doesn't just fade out somewhere near the bin.
+              scaleX: 0.12,
+              scaleY: 0.12,
               rotate: angle + 90,
               opacity: 0,
               filter: `blur(${Math.min(dist / 500, 2)}px)`,
@@ -102,7 +131,9 @@ function FlyingPaperCard({
           : {
               duration: 0.58,
               ease: [0.6, 0, 0.98, 0.4] as [number, number, number, number],
-              opacity: { duration: 0.5, ease: 'easeIn' },
+              // Hold the ball solid until it's over the mouth, then snuff it
+              // out fast — the last 25% of the flight is inside the bin.
+              opacity: { duration: 0.16, delay: 0.42, ease: 'easeIn' },
               filter: { duration: 0.58 },
             }
       }
@@ -142,8 +173,8 @@ function FlyingBackPaperCard({
   card: FlyingBackCard;
   onLanded: (id: string) => void;
 }) {
-  const startX = TARGET_X;
-  const startY = typeof window !== 'undefined' ? window.innerHeight - 50 : 800;
+  // Climbs back out of the same hole it fell into.
+  const { x: startX, y: startY } = mouthPoint();
 
   useEffect(() => {
     const t = setTimeout(() => onLanded(card.id), 750);
@@ -407,7 +438,9 @@ export default function TrashPile() {
         color: item.color,
         rotation: (r - 0.5) * 56,
         offsetX: (r2 - 0.5) * 20,
-        offsetY: 6 + idx * 2 + r3 * 5,
+        // Wrapped like the sync path above — `idx * 2` climbed forever and
+        // turned the heap into a column hovering over the bin.
+        offsetY: 4 + (idx % 5) * 3 + r3 * 5,
         scale: 0.93 + r * 0.14,
         zIndex: idx + 1,
       };
@@ -536,6 +569,18 @@ export default function TrashPile() {
     ).values()
   );
 
+  /* What the bin can swallow before it starts spilling.
+     Below this the corner stays clean: things you delete simply disappear into
+     the mouth, which is the whole point of a bin. Past it, one crumpled ball
+     appears per extra item (capped, so a hundred deletions don't build a tower)
+     — the pile IS the "you should empty this" signal, so no badge is needed. */
+  const BIN_CAPACITY = 9;
+  const MAX_VISIBLE_BALLS = 10;
+  const overflow = Math.max(0, pileCards.length - BIN_CAPACITY);
+  const overflowCards = overflow > 0
+    ? pileCards.slice(-Math.min(overflow, MAX_VISIBLE_BALLS))
+    : [];
+
   return (
     <>
       {/* Flying crumple cards (To Trash) */}
@@ -567,9 +612,6 @@ export default function TrashPile() {
             <div className="flex items-center justify-between px-4 py-3 bg-[#EDE5D8]/40 dark:bg-white/5 border-b border-black/5 dark:border-white/5">
               <div className="flex items-center gap-1.5">
                 <span className="font-serif italic text-lg text-[var(--accent)]">Deleted Items</span>
-                <span className="text-[10px] bg-[var(--accent-subtle)] text-[var(--accent)] font-semibold px-2 py-0.5 rounded-full">
-                  {visibleTrashItems.length}
-                </span>
               </div>
               <button 
                 onClick={handleEmptyAll}
@@ -651,113 +693,105 @@ export default function TrashPile() {
         )}
       </AnimatePresence>
 
-      {/* Trash bin + pile in bottom-left */}
+      {/* The bin, sunk into the bottom-left corner.
+
+          It used to wear a domed lid with a handle, which is the one part of a
+          bin you can't throw anything through — so the animation had to flap it
+          open on every delete, and at rest the corner was occupied by a big
+          grey cap with a heap balanced on top of it.
+
+          Now it's an open bin seen from just above the floor line: the lip and
+          the dark mouth break the fold, everything else is below it. Deleted
+          things fall straight in and are gone. Only when it's genuinely full
+          (ten or more) does rubbish start piling out over the rim — which is
+          the board telling you to empty it, without a number anywhere. */}
       <AnimatePresence>
         {isPileVisible && (
           <motion.div
-            /* Sunk so the fold cuts just under the lid's rim — at rest you see
-               the cap and the heap on top of it, nothing else. Hovering lifts
-               the whole bin out of the floor to show the barrel. */
-            className="fixed left-4 z-[9990] flex flex-col items-center pointer-events-auto"
-            style={{ bottom: -32 }}
-            initial={{ opacity: 0, scale: 0.5, y: 30 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            whileHover={{ y: -34 }}
-            exit={{ opacity: 0, scale: 0.5, y: 30 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+            className="fixed z-[9990] flex flex-col items-center pointer-events-auto"
+            style={{ left: BIN_LEFT, bottom: -BIN_SUNK }}
+            initial={{ opacity: 0, y: 34 }}
+            animate={{ opacity: 1, y: 0 }}
+            /* Hover pulls the whole bin up out of the floor so you can see what
+               you're clicking — and so the click target isn't a 30px sliver. */
+            whileHover={{ y: -BIN_SUNK - 4 }}
+            exit={{ opacity: 0, y: 34 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 22 }}
           >
-            {/* Pile of cards stacked above the bin */}
+            {/* Overflow heap. Negative margin so the balls rest ON the lip
+                rather than hovering above it. */}
             <motion.div
-              className="relative w-16 h-10 mb-0.5"
-              style={{ scale: pileScale }}
+              className="relative w-16 h-10"
+              style={{ scale: pileScale, marginBottom: -12 }}
             >
               <AnimatePresence>
-                {pileCards.slice(-10).map((card) => (
+                {overflowCards.map((card) => (
                   <PileItem key={card.id} card={card} justLanded={card.id === justLandedId} />
                 ))}
               </AnimatePresence>
-
-              {/* Count. Always on now, not just past ten: the label that used to
-                  carry it sat under the bin, which is below the fold since the
-                  bin sank into the floor — so any pile of ten or fewer had no
-                  number anywhere. */}
-              {pileCards.length > 0 && (
-                <motion.div
-                  className="absolute -top-2 -left-2 min-w-[17px] h-[17px] rounded-full bg-red-500 text-white text-[9px] font-extrabold flex items-center justify-center shadow z-50 tabular-nums"
-                  style={{ padding: '0 4px' }}
-                  initial={{ scale: 0 }} animate={{ scale: 1 }}
-                  transition={{ type: 'spring', stiffness: 500, damping: 15 }}
-                >
-                  {pileCards.length}
-                </motion.div>
-              )}
             </motion.div>
 
-            {/* Trash bin icon */}
             <motion.button
-              className="relative w-14 h-14 flex items-center justify-center"
-              whileHover={{ scale: 1.08 }}
-              whileTap={{ scale: 0.92 }}
-              onClick={() => setIsTrashOpen(!isTrashOpen)}
-              title={`${pileCards.length} deleted item${pileCards.length !== 1 ? 's' : ''} — click to view`}
+              className="relative flex items-center justify-center"
               style={{
-                filter: isTrashOpen ? 'drop-shadow(0 0 8px rgba(var(--accent-rgb),0.4))' : 'none'
+                width: BIN_SIZE,
+                height: BIN_SIZE,
+                filter: isTrashOpen ? 'drop-shadow(0 0 8px rgba(var(--accent-rgb),0.4))' : 'none',
               }}
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.94 }}
+              /* A soft thunk as something lands, from the bin itself — the lid
+                 that used to carry this reaction no longer exists. */
+              animate={{ scaleY: justLandedId ? [1, 0.93, 1.02, 1] : 1 }}
+              transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
+              onClick={() => setIsTrashOpen(!isTrashOpen)}
+              title="Deleted items — click to open"
+              aria-label="Open deleted items"
             >
-              {/* A real bin, sunk into the bottom edge so only the LID sits
-                  above the fold — the body is drawn below the viewport line and
-                  simply isn't seen until you hover and the whole thing lifts.
-                  Before, a chunk of the barrel hung in mid-air with nothing
-                  under it, which read as a floating icon rather than a bin
-                  standing on the floor. */}
               <svg viewBox="0 0 72 72" className="w-full h-full drop-shadow-2xl" fill="none">
                 <defs>
-                  <linearGradient id="bin-body" x1="16" y1="26" x2="56" y2="72" gradientUnits="userSpaceOnUse">
+                  <linearGradient id="bin-body" x1="14" y1="14" x2="58" y2="72" gradientUnits="userSpaceOnUse">
                     <stop offset="0%" stopColor="#6E7681" />
                     <stop offset="42%" stopColor="#495059" />
                     <stop offset="100%" stopColor="#2C3138" />
                   </linearGradient>
-                  <linearGradient id="bin-lid" x1="8" y1="14" x2="64" y2="27" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stopColor="#98A1AC" />
-                    <stop offset="45%" stopColor="#6B737E" />
-                    <stop offset="100%" stopColor="#3D434B" />
+                  <linearGradient id="bin-rim" x1="10" y1="9" x2="62" y2="20" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#C2CAD4" />
+                    <stop offset="55%" stopColor="#828B96" />
+                    <stop offset="100%" stopColor="#525A65" />
                   </linearGradient>
-                  <linearGradient id="bin-rim" x1="8" y1="20" x2="64" y2="24" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stopColor="#B7C0CB" />
-                    <stop offset="100%" stopColor="#57606B" />
-                  </linearGradient>
+                  {/* The hole. Darker at the far edge so it reads as depth. */}
+                  <radialGradient id="bin-mouth" cx="50%" cy="86%" r="78%">
+                    <stop offset="0%" stopColor="#1B1F25" />
+                    <stop offset="70%" stopColor="#0B0E12" />
+                    <stop offset="100%" stopColor="#05070A" />
+                  </radialGradient>
                 </defs>
 
-                {/* Tapered barrel — a bin narrows toward the base. */}
-                <path d="M17 27 L55 27 L50 70 Q50 72 48 72 L24 72 Q22 72 22 70 Z"
-                  fill="url(#bin-body)" stroke="rgba(0,0,0,0.35)" strokeWidth="1" strokeLinejoin="round" />
+                {/* Tapered barrel, hanging below the lip — a bin narrows to its
+                    base. Most of this is under the fold at rest. */}
+                <path
+                  d="M10.5 14.6 L61.5 14.6 L54 70 Q53.6 72 51.6 72 L20.4 72 Q18.4 72 18 70 Z"
+                  fill="url(#bin-body)"
+                  stroke="rgba(0,0,0,0.35)"
+                  strokeWidth="1"
+                  strokeLinejoin="round"
+                />
 
-                {/* Ribs, following the taper rather than running straight down. */}
-                <g stroke="rgba(255,255,255,0.13)" strokeWidth="1.6" strokeLinecap="round">
-                  <path d="M27 33 L26 66" /><path d="M36 33 L36 66" /><path d="M45 33 L46 66" />
+                {/* Ribs, following the taper. */}
+                <g stroke="rgba(255,255,255,0.12)" strokeWidth="1.6" strokeLinecap="round">
+                  <path d="M26 26 L24 66" /><path d="M36 26 L36 66" /><path d="M46 26 L48 66" />
                 </g>
-                {/* Inner shadow just under the rim, so the barrel reads as hollow. */}
-                <path d="M18 28 L54 28 L53.4 33 L18.6 33 Z" fill="rgba(0,0,0,0.30)" />
 
-                {/* Lid — the only part above the fold at rest. */}
-                <motion.g
-                  animate={{
-                    rotate: justLandedId || isTrashOpen ? [-2, 9, -3, 0] : 0,
-                    y: justLandedId || isTrashOpen ? [0, -6, 2, 0] : 0,
-                  }}
-                  transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
-                  style={{ transformOrigin: '18px 24px' }}
-                >
-                  <ellipse cx="36" cy="24" rx="27" ry="6.5" fill="url(#bin-rim)" stroke="rgba(0,0,0,0.3)" strokeWidth="1" />
-                  <path d="M9 24 Q9 15 36 13 Q63 15 63 24 Z" fill="url(#bin-lid)" stroke="rgba(0,0,0,0.3)" strokeWidth="1" strokeLinejoin="round" />
-                  <path d="M14 21 Q22 16 34 15.2" stroke="rgba(255,255,255,0.4)" strokeWidth="1.6" strokeLinecap="round" fill="none" />
-                  {/* Handle */}
-                  <rect x="28" y="7" width="16" height="6" rx="3" fill="url(#bin-rim)" stroke="rgba(0,0,0,0.3)" strokeWidth="1" />
-                </motion.g>
+                {/* The lip: an outer ellipse for the metal, an inner one for the
+                    opening. This pair IS the "tip of the bin" you see. */}
+                <ellipse cx="36" cy="14.6" rx="25.8" ry="7" fill="url(#bin-rim)" stroke="rgba(0,0,0,0.34)" strokeWidth="1" />
+                <ellipse cx="36" cy="15.4" rx="22" ry="5.2" fill="url(#bin-mouth)" />
+                {/* Front inner wall catching a little light, so the hole has a floor. */}
+                <path d="M14.6 16.6 Q36 23.4 57.4 16.6 Q36 21.8 14.6 16.6 Z" fill="rgba(255,255,255,0.07)" />
+                {/* Specular along the back-left of the lip. */}
+                <path d="M15 11.6 Q24 7.6 36 7.6" stroke="rgba(255,255,255,0.5)" strokeWidth="1.7" strokeLinecap="round" fill="none" />
               </svg>
-
-              {/* The count moved to the badge on the heap — down here it was
-                  below the fold and never seen. */}
             </motion.button>
           </motion.div>
         )}

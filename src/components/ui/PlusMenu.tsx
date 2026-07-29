@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
+import { useChatStore, useChatUnreadTotal } from '@/store/chatStore';
 import { v4 as uuidv4 } from 'uuid';
 import { screenToCanvas, randomStickyColor } from '@/lib/utils';
 import { ingestFile } from '@/lib/fileIngest';
@@ -56,6 +57,11 @@ export default function PlusMenu() {
   const setPlusMenuPos = useCanvasStore((s) => s.setPlusMenuPos);
   const addObject = useCanvasStore((s) => s.addObject);
   const camera = useCanvasStore((s) => s.camera);
+  /* Messages moved OUT of the toolbar (the agent took that slot) and in here.
+     The unread count comes along — a DM you haven't read has to be visible
+     somewhere, and a menu row that quietly says "2 unread" is that somewhere. */
+  const openChat = useChatStore((s) => s.openPanel);
+  const chatUnread = useChatUnreadTotal();
 
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
@@ -617,6 +623,17 @@ export default function PlusMenu() {
             });
           },
         },
+        {
+          // Not a block — an action. It lives here because this menu is where
+          // the occasional things go now that the toolbar belongs to the agent.
+          icon: (<MenuIcon><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" /></MenuIcon>),
+          label: 'Messages',
+          desc: chatUnread > 0
+            ? `Direct messages · ${chatUnread} unread`
+            : 'Direct messages with your people',
+          keywords: 'chat dm message people talk inbox conversation',
+          action: () => openChat(),
+        },
       ],
     },
   ];
@@ -678,7 +695,7 @@ export default function PlusMenu() {
         exit={{ opacity: 0, scale: 0.96, y: plusMenuPos.isToolbar ? 6 : -6 }}
         transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
       >
-        <div className="glass-panel overflow-hidden flex flex-col" style={{ maxHeight: 'min(64vh, 560px)' }}>
+        <div className="tool-panel overflow-hidden flex flex-col" style={{ maxHeight: 'min(64vh, 560px)' }}>
           {/* Search */}
           <div className="shrink-0 border-b border-[var(--border)]" style={{ padding: '10px 12px' }}>
             <div

@@ -99,8 +99,11 @@ html, body {
    Warm-tinted shadows only — never neutral gray.
    ============================================ */
 
-/* Soft-extruded clay surface: outer diffusion shadow + inner top highlight */
-.clay-card {
+/* Soft-extruded clay surface: outer diffusion shadow + inner top highlight.
+   `.tool-panel` is the SAME material with a radius baked in — see the note
+   below for why menus wear it instead of glass. */
+.clay-card,
+.tool-panel {
   background: #FFFDFA;
   border: 1px solid rgba(var(--accent-rgb), 0.10);
   box-shadow:
@@ -108,6 +111,23 @@ html, body {
     inset 0 -1px 0 rgba(90, 62, 40, 0.04),
     0 18px 40px -18px rgba(90, 62, 40, 0.20),
     0 4px 10px -6px rgba(90, 62, 40, 0.08);
+}
+
+/* ------------------------------------------------------------------
+   Menus and option cards — deliberately NOT glass.
+
+   Every toolbar flyout used to be `.glass-panel`: a 65%-opaque wash
+   over a live canvas. Whatever you were about to edit showed THROUGH
+   the control you were editing it with, and against a busy or dark
+   board the two images blurred into one unreadable surface. Anything
+   you have to READ and CLICK now wears the same solid material as the
+   AI chat panel, so the canvas behind it is simply behind it.
+
+   Glass is kept for slim chrome (the toolbar bar itself), where there
+   is no content inside to compete with what's underneath.
+   ------------------------------------------------------------------ */
+.tool-panel {
+  border-radius: var(--radius-lg);
 }
 
 /* Pressed-in clay well (active pills, preview recesses) */
@@ -1031,7 +1051,8 @@ html, body {
 /* Clay & glass materials are hardcoded cream in light mode — give them dark,
    theme-tinted surfaces so every modal/panel built on them (Collaborate,
    Scenes, Margins, Shortcuts, tour bar…) stays legible on dark paper. */
-:root[data-canvas-theme="dark"] .clay-card {
+:root[data-canvas-theme="dark"] .clay-card,
+:root[data-canvas-theme="dark"] .tool-panel {
   background: var(--bg-secondary);
   border-color: rgba(255, 255, 255, 0.10);
   box-shadow:

@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, InteractionMode } from '@/store/canvasStore';
-import { useChatStore, useChatUnreadTotal } from '@/store/chatStore';
+import { useAgentChatStore } from '@/store/agentChatStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import WorkflowMenu from './WorkflowMenu';
@@ -140,18 +140,19 @@ export default function FloatingToolbar() {
   const objects = useCanvasStore((s) => s.objects);
   const addObject = useCanvasStore((s) => s.addObject);
   const setSelectedId = useCanvasStore((s) => s.setSelectedId);
-  const setEditingId = useCanvasStore((s) => s.setEditingId);
   const selectedObject = objects.find(o => o.id === selectedId);
   const camera = useCanvasStore((s) => s.camera);
   const checkpoint = useCanvasStore((s) => s.checkpoint);
   const setCheckpoint = useCanvasStore((s) => s.setCheckpoint);
   const setCommentMode = useCanvasStore((s) => s.setCommentMode);
   const setThreadsSidebarOpen = useCanvasStore((s) => s.setThreadsSidebarOpen);
-  // Human↔human DM chat now lives in the toolbar (replacing the old thread pins).
-  const chatPanelOpen = useChatStore((s) => s.panelOpen);
-  const openChat = useChatStore((s) => s.openPanel);
-  const closeChat = useChatStore((s) => s.closePanel);
-  const chatUnread = useChatUnreadTotal();
+  /* The AI agent chat now owns this slot. Human↔human DMs used to be here, but
+     the agent is the thing you reach for constantly while working a board — a
+     conversation with a teammate is an occasional errand, so it moved into the
+     insert (+) menu and the slash menu where the other occasional things live. */
+  const agentChatOpen = useAgentChatStore((s) => s.panelOpen);
+  const toggleAgentChat = useAgentChatStore((s) => s.toggle);
+  const agentStreaming = useAgentChatStore((s) => s.streaming);
 
   const [showDrawOptions, setShowDrawOptions] = useState(false);
   const [showAdvancedDraw, setShowAdvancedDraw] = useState(false);
@@ -593,8 +594,9 @@ export default function FloatingToolbar() {
           </span>
         </motion.button>
 
-        {/* Messages — human↔human DM chat (moved here from the corner; replaces
-            the old thread pins, which are gone). */}
+        {/* AI Agent chat — opens the resizable panel on the right. This is the
+            slot the DM chat used to hold; the agent earns it because it's the
+            one conversation you have constantly while building a board. */}
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
@@ -602,17 +604,16 @@ export default function FloatingToolbar() {
             closeAllPanels();
             setCommentMode(false);
             setThreadsSidebarOpen(false);
-            if (chatPanelOpen) closeChat();
-            else openChat();
+            toggleAgentChat();
           }}
           className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
-            chatPanelOpen
+            agentChatOpen
               ? 'text-[var(--accent)]'
               : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
           }`}
-          title="Messages"
+          title="AI Agent — chat & build on this canvas"
         >
-          {chatPanelOpen && (
+          {agentChatOpen && (
             <motion.span
               layoutId="toolbar-active"
               transition={{ type: 'spring', stiffness: 380, damping: 30 }}
@@ -621,18 +622,17 @@ export default function FloatingToolbar() {
           )}
           <span className="relative flex items-center justify-center">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <defs>
-                <mask id="toolbar-chat-bubble-mask">
-                  <rect x="0" y="0" width="24" height="24" fill="white" />
-                  <path d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292" fill="black" stroke="black" strokeWidth="3.5" />
-                </mask>
-              </defs>
-              <path d="M18.85 12C18.9484 11.5153 19 11.0137 19 10.5C19 6.35786 15.6421 3 11.5 3C7.35786 3 4 6.35786 4 10.5C4 11.3766 4.15039 12.2181 4.42676 13C5.50098 16.0117 3 18 3 18H9.5" mask="url(#toolbar-chat-bubble-mask)" />
-              <path d="M19.4003 18C19.7837 17.2499 20 16.4002 20 15.5C20 12.4624 17.5376 10 14.5 10C11.4624 10 9 12.4624 9 15.5C9 18.5376 11.4624 21 14.5 21L21 21C21 21 20 20 19.4143 18.0292" />
+              <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
             </svg>
           </span>
-          {chatUnread > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 rounded-full bg-[var(--accent)] text-white text-[8px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">{chatUnread}</span>
+          {/* A reply still streaming while the panel is shut is the one thing
+              worth interrupting for — a quiet pulse, not a number. */}
+          {agentStreaming && !agentChatOpen && (
+            <motion.span
+              className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--accent)]"
+              animate={{ opacity: [0.35, 1, 0.35], scale: [0.85, 1.15, 0.85] }}
+              transition={{ duration: 1.2, repeat: Infinity }}
+            />
           )}
         </motion.button>
 
@@ -675,7 +675,7 @@ export default function FloatingToolbar() {
         {showDrawOptions && mode === 'draw' && (
           <motion.div
             style={{ padding: 16 }}
-            className={`glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+            className={`tool-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
               showAdvancedDraw
                 ? 'w-[840px] max-w-[95vw]'
                 : 'w-[270px]'
@@ -1236,7 +1236,7 @@ export default function FloatingToolbar() {
         {showShapeOptions && mode === 'shape' && (
           <motion.div
             style={{ padding: 16 }}
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 min-w-[280px]"
+            className="tool-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 min-w-[280px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -1411,8 +1411,8 @@ export default function FloatingToolbar() {
                           borderColor: 'var(--accent-light)',
                         }
                       });
+                      // Selected only — shapes hold no text to type into.
                       setSelectedId(obj.id);
-                      setEditingId(obj.id);
                       setMode('select');
                     }
                   }}
@@ -1480,7 +1480,7 @@ export default function FloatingToolbar() {
       <AnimatePresence>
         {false && (
           <motion.div
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[240px]"
+            className="tool-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[240px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -1605,7 +1605,7 @@ export default function FloatingToolbar() {
         {showFrameOptions && mode === 'frame' && (
           <motion.div
             style={{ padding: 16 }}
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 min-w-[240px]"
+            className="tool-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 min-w-[240px]"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -1735,7 +1735,7 @@ export default function FloatingToolbar() {
         {showBgOptions && (
           <motion.div
             style={{ padding: 16 }}
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2"
+            className="tool-panel absolute bottom-14 left-1/2 -translate-x-1/2"
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}

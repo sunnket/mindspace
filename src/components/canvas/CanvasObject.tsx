@@ -266,22 +266,44 @@ function BrowserView({ id, url, reloadKey, onLoading }: BrowserViewProps) {
 }
 
 
+/**
+ * A sticky note pinned beside a block.
+ *
+ * The old one was a hand-drawn SVG speech balloon with `fill="white"` baked in
+ * and its text painted in `--text-secondary` — which flips to near-white on a
+ * dark canvas, so the comment you'd just typed disappeared into its own bubble.
+ * The layout was Tailwind padding classes (`px-6 pb-5`), all of which are dead
+ * under this app's unlayered `* { padding: 0 }` reset, so the text ran flush to
+ * the balloon's edge and under its tail. And it hung over the board forever
+ * whether you were looking at that block or not.
+ *
+ * It's a real card now: theme surface, theme ink, inline padding, and it shows
+ * only while you're actually on the block (or writing in it).
+ */
 interface CommentBubbleProps {
   obj: CanvasObjectData;
   isEditing: boolean;
+  /** The parent block is hovered/selected — otherwise the note stays out of sight. */
+  visible: boolean;
   onStartEditing: () => void;
   onStopEditing: () => void;
 }
 
-function CommentBubble({ obj, isEditing, onStartEditing, onStopEditing }: CommentBubbleProps) {
+function CommentBubble({ obj, isEditing, visible, onStartEditing, onStopEditing }: CommentBubbleProps) {
   const updateObject = useCanvasStore((s) => s.updateObject);
   const camera = useCanvasStore((s) => s.camera);
   const offset = (obj.style?.commentOffset as { x: number; y: number }) || { x: 0, y: 0 };
-  const width = (obj.style?.commentWidth as number) || 180;
-  const height = (obj.style?.commentHeight as number) || 80;
-  
+  const width = (obj.style?.commentWidth as number) || 190;
+  const height = (obj.style?.commentHeight as number) || 92;
+
   const [localComment, setLocalComment] = useState((obj.style?.comment as string) || '');
-  const inputRef = useRef<HTMLInputElement>(null);
+  /* Own hover, tracked separately: the note sits OUTSIDE the block's box, so
+     reaching for it means leaving the block — without this it would vanish
+     from under the cursor on the way over. */
+  const [selfHover, setSelfHover] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const show = visible || selfHover || isEditing;
 
   // Sync local state when external comment changes (if not editing)
   useEffect(() => {
@@ -346,6 +368,7 @@ function CommentBubble({ obj, isEditing, onStartEditing, onStopEditing }: Commen
 
   const handleResize = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     const startX = e.clientX;
     const startY = e.clientY;
     const initialWidth = width;
@@ -358,8 +381,8 @@ function CommentBubble({ obj, isEditing, onStartEditing, onStopEditing }: Commen
       updateObject(obj.id, {
         style: {
           ...obj.style,
-          commentWidth: Math.max(120, initialWidth + dx),
-          commentHeight: Math.max(60, initialHeight + dy),
+          commentWidth: Math.max(140, initialWidth + dx),
+          commentHeight: Math.max(70, initialHeight + dy),
         }
       });
     };
@@ -378,104 +401,142 @@ function CommentBubble({ obj, isEditing, onStartEditing, onStopEditing }: Commen
     onStopEditing();
   };
 
+  const body = (obj.style?.comment as string) || '';
+
   return (
-    <div 
-      className={`absolute select-auto ${isEditing ? 'z-[1000]' : 'z-[102]'}`}
+    <motion.div
+      className={`absolute select-auto group/comment ${isEditing ? 'z-[1000]' : 'z-[102]'}`}
       style={{
         left: offset.x,
         top: offset.y,
+        width,
         transform: 'translate(-50%, -50%)',
+        // Hidden means untouchable, or an invisible card would still swallow
+        // clicks meant for the board behind it.
+        pointerEvents: show ? 'auto' : 'none',
       }}
+      initial={false}
+      animate={{ opacity: show ? 1 : 0, scale: show ? 1 : 0.94, y: show ? 0 : 4 }}
+      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+      onMouseEnter={() => setSelfHover(true)}
+      onMouseLeave={() => setSelfHover(false)}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
     >
-      <div className="relative group/comment">
-        {/* Speech Bubble SVG Container */}
-        <motion.div
-          onMouseDown={handleDrag}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-          className={`relative flex items-center justify-center ${isEditing ? 'cursor-text' : 'cursor-grab active:cursor-grabbing'}`}
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-        >
-          {/* Speech Bubble SVG - Dynamic Sizing */}
-          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="drop-shadow-xl filter pointer-events-none">
-            <path 
-              d={`M10,10 Q10,0 20,0 L${width-20},0 Q${width-10},0 ${width-10},10 L${width-10},${height-30} Q${width-10},${height-20} ${width-20},${height-20} L40,${height-20} L10,${height-5} L10,${height-20} Q0,${height-20} 0,${height-30} L0,10 Q0,0 10,0`} 
-              fill="white" 
-              stroke="var(--accent-light)" 
-              strokeWidth="1.5"
-              transform="translate(5, 5) scale(0.95)"
-            />
-          </svg>
+      <div
+        onMouseDown={handleDrag}
+        className={`relative rounded-[14px] ${isEditing ? 'cursor-text' : 'cursor-grab active:cursor-grabbing'}`}
+        style={{
+          minHeight: height,
+          padding: '9px 11px 11px',
+          background: 'var(--bg-secondary)',
+          border: `1px solid ${isEditing ? 'var(--accent)' : 'var(--border-strong)'}`,
+          boxShadow: '0 10px 26px -12px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.25)',
+        }}
+      >
+        {/* Tail — two stacked triangles so the note reads as attached to the
+            block rather than floating near it. The outer one is the border. */}
+        <span
+          aria-hidden
+          className="absolute"
+          style={{
+            left: 18, bottom: -8, width: 0, height: 0,
+            borderLeft: '8px solid transparent',
+            borderRight: '8px solid transparent',
+            borderTop: `8px solid ${isEditing ? 'var(--accent)' : 'var(--border-strong)'}`,
+          }}
+        />
+        <span
+          aria-hidden
+          className="absolute"
+          style={{
+            left: 19, bottom: -6, width: 0, height: 0,
+            borderLeft: '7px solid transparent',
+            borderRight: '7px solid transparent',
+            borderTop: '7px solid var(--bg-secondary)',
+          }}
+        />
 
-          {/* Content inside bubble */}
-          <div 
-            className="absolute inset-0 flex flex-col justify-center px-6 pb-5 pointer-events-auto"
-            onClick={() => isEditing && inputRef.current?.focus()}
+        {/* Header: a quiet label, and the delete that only appears on hover. */}
+        <div className="flex items-center justify-between gap-2" style={{ marginBottom: 5 }}>
+          <span className="flex items-center gap-1 text-[8.5px] font-extrabold uppercase tracking-[0.14em] text-[var(--text-tertiary)] select-none">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+            Note
+          </span>
+          <button
+            title="Delete this note"
+            className="opacity-0 group-hover/comment:opacity-100 transition-opacity flex items-center justify-center rounded-md text-[var(--text-tertiary)] hover:text-red-500 cursor-pointer shrink-0"
+            style={{ width: 15, height: 15 }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              updateObject(obj.id, { style: { ...obj.style, comment: null } });
+            }}
           >
-            <div className="flex items-center gap-2 w-full pt-1">
-              {isEditing ? (
-                <textarea
-                  ref={inputRef as any}
-                  value={localComment}
-                  onChange={(e) => {
-                    setLocalComment(e.target.value);
-                    // Auto-resize height
-                    e.target.style.height = 'auto';
-                    e.target.style.height = e.target.scrollHeight + 'px';
-                  }}
-                  onBlur={handleSave}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSave();
-                    }
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                  className="bg-transparent border-none outline-none text-[12px] w-full resize-none overflow-hidden text-[var(--text-primary)] font-medium leading-tight"
-                  placeholder="Type a comment..."
-                  rows={1}
-                />
-              ) : (
-                <div 
-                  className="text-[12px] text-[var(--text-secondary)] font-medium whitespace-pre-wrap break-words w-full cursor-text"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onStartEditing();
-                  }}
-                >
-                  {(obj.style?.comment as string) || 'Add a comment...'}
-                </div>
-              )}
-              
-              {!isEditing && (
-                <button 
-                  className="opacity-0 group-hover/comment:opacity-100 transition-opacity text-[10px] text-red-400 hover:text-red-600 p-1"
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    updateObject(obj.id, { style: { ...obj.style, comment: null } });
-                  }}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          </div>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
 
-          {/* Resizer Handle */}
-          {!isEditing && (
-            <div
-              onMouseDown={handleResize}
-              className="absolute bottom-2 right-2 w-3 h-3 cursor-nwse-resize opacity-0 group-hover/comment:opacity-100 transition-opacity flex items-center justify-center"
-            >
-              <div className="w-1.5 h-1.5 border-r border-b border-[var(--text-muted)]" />
-            </div>
-          )}
-        </motion.div>
+        {isEditing ? (
+          <textarea
+            ref={inputRef}
+            value={localComment}
+            onChange={(e) => setLocalComment(e.target.value)}
+            onBlur={handleSave}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Escape') { e.preventDefault(); handleSave(); }
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSave(); }
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            placeholder="Type a note…  (Enter to save, Shift+Enter for a new line)"
+            className="w-full bg-transparent border-none outline-none resize-none custom-scrollbar text-[12px] font-medium text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
+            style={{ minHeight: Math.max(34, height - 40), maxHeight: 260, lineHeight: 1.45 }}
+          />
+        ) : (
+          <div
+            className="text-[12px] font-medium whitespace-pre-wrap break-words cursor-text"
+            style={{
+              color: body ? 'var(--text-primary)' : 'var(--text-tertiary)',
+              lineHeight: 1.45,
+              maxHeight: 260,
+              overflowY: 'auto',
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onStartEditing();
+            }}
+          >
+            {body || 'Add a note…'}
+          </div>
+        )}
+
+        {/* Resizer */}
+        {!isEditing && (
+          <div
+            onMouseDown={handleResize}
+            title="Drag to resize"
+            className="absolute opacity-0 group-hover/comment:opacity-100 transition-opacity flex items-end justify-end cursor-nwse-resize"
+            style={{ bottom: 3, right: 3, width: 11, height: 11 }}
+          >
+            <span
+              style={{
+                width: 6, height: 6,
+                borderRight: '1.5px solid var(--text-tertiary)',
+                borderBottom: '1.5px solid var(--text-tertiary)',
+                borderBottomRightRadius: 2,
+              }}
+            />
+          </div>
+        )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -1499,7 +1560,9 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       // Enter focus mode
       setFocusedId(obj.id);
 
-      if (obj.type === 'text' || obj.type === 'sticky' || obj.type === 'card' || obj.type === 'shape') {
+      // Shapes and arrows are marks, not containers — they no longer hold text,
+      // so a double-click on one must not open a caret with nowhere to render.
+      if (obj.type === 'text' || obj.type === 'sticky' || obj.type === 'card') {
         caretPoint.current = { x: e.clientX, y: e.clientY };
         setEditingId(obj.id);
       }
@@ -2277,10 +2340,6 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         const localBendX = hasBend ? bendWX - obj.x : (localX1 + localX2) / 2;
         const localBendY = hasBend ? bendWY - obj.y : (localY1 + localY2) / 2;
 
-        // Label sits on the line (or on the curve at t=0.5 for a quadratic).
-        const midX = hasBend ? (localX1 + 2 * localBendX + localX2) / 4 : (localX1 + localX2) / 2;
-        const midY = hasBend ? (localY1 + 2 * localBendY + localY2) / 4 : (localY1 + localY2) / 2;
-
         const color = (obj.style?.color as string) || 'var(--accent)';
         const thickness = (obj.style?.thickness as number) || 3;
         const pointerType = (obj.style?.pointerType as string) || 'line';
@@ -2383,34 +2442,11 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
               </>
             )}
 
-            {/* Label in the middle */}
-            {(isEditing || obj.content) && (
-              <div 
-                className="absolute z-20 -translate-x-1/2 -translate-y-1/2 glass-panel p-1.5 rounded-lg shadow-sm border border-[var(--border)] min-w-[80px] pointer-events-auto"
-                style={{
-                  left: `${midX}px`,
-                  top: `${midY}px`,
-                  background: 'var(--bg-glass)',
-                  backdropFilter: 'blur(8px)',
-                }}
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                {isEditing ? (
-                  <div
-                    ref={contentRef}
-                    contentEditable={isEditing}
-                    suppressContentEditableWarning
-                    onBlur={handleBlur}
-                    className="text-block-editable text-xs font-semibold px-1 py-0.5 text-[var(--text-primary)]"
-                    style={{ outline: 'none', textAlign: 'center', minWidth: '70px' }}
-                  />
-                ) : (
-                  <div className="text-xs font-semibold px-1 py-0.5 text-[var(--text-primary)] whitespace-nowrap text-center">
-                    {obj.content}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* An arrow used to carry a label box pinned to its midpoint, and
+                placing one dropped you straight into typing it. A connector
+                says "this leads to that" — the meaning is in the two things it
+                joins, and the box only ever sat on top of them. Gone; write a
+                text block beside the line if the link needs a name. */}
           </div>
         );
       }
@@ -3248,8 +3284,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       case 'shape':
         {
           const shapeType = (obj.style?.shapeType as string) || 'square';
-          const isShapeEditing = isEditing;
-          
+
           // Define shape color from style, otherwise use default themes
           const shapeBg = (obj.style?.color as string) || 'var(--bg-glass)';
           const shapeBorder = (obj.style?.borderColor as string) || 'var(--accent-light)';
@@ -3269,117 +3304,6 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           // Hand-drawn wobble level (applied as an SVG turbulence filter class).
           const roughClass = sloppiness === 'cartoonist' ? 'shape-rough-2' : sloppiness === 'artist' ? 'shape-rough-1' : '';
 
-          const getShapePadding = (shape: string) => {
-            switch (shape) {
-              case 'triangle': return { left: '20%', right: '20%', top: '35%', bottom: '15%' };
-              case 'diamond': return { left: '22%', right: '22%', top: '22%', bottom: '22%' };
-              case 'star': return { left: '25%', right: '25%', top: '30%', bottom: '25%' };
-              case 'heart': return { left: '20%', right: '20%', top: '25%', bottom: '30%' };
-              case 'cloud': return { left: '20%', right: '20%', top: '35%', bottom: '20%' };
-              case 'database': return { left: '18%', right: '18%', top: '25%', bottom: '18%' };
-              case 'document': return { left: '15%', right: '15%', top: '20%', bottom: '20%' };
-              case 'speech': return { left: '18%', right: '18%', top: '20%', bottom: '25%' };
-              case 'message': return { left: '15%', right: '15%', top: '20%', bottom: '20%' };
-              case 'cross': return { left: '30%', right: '30%', top: '30%', bottom: '30%' };
-              case 'lightning': return { left: '30%', right: '30%', top: '35%', bottom: '20%' };
-              case 'shield': return { left: '18%', right: '18%', top: '20%', bottom: '20%' };
-              case 'arrow-left': return { left: '35%', right: '15%', top: '20%', bottom: '20%' };
-              case 'arrow-right': return { left: '15%', right: '35%', top: '20%', bottom: '20%' };
-              case 'arrow-up': return { left: '35%', right: '35%', top: '15%', bottom: '45%' };
-              case 'arrow-down': return { left: '35%', right: '35%', top: '45%', bottom: '15%' };
-              case 'tag': return { left: '15%', right: '22%', top: '20%', bottom: '20%' };
-              case 'banner': return { left: '20%', right: '20%', top: '25%', bottom: '25%' };
-              case 'octagon': return { left: '15%', right: '15%', top: '15%', bottom: '15%' };
-              case 'folder': return { left: '15%', right: '15%', top: '30%', bottom: '20%' };
-              case 'sun': return { left: '30%', right: '30%', top: '30%', bottom: '30%' };
-              case 'moon': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              
-              case 'lightbulb': return { left: '25%', right: '25%', top: '20%', bottom: '30%' };
-              case 'sticky': return { left: '15%', right: '15%', top: '15%', bottom: '15%' };
-              case 'target': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'funnel': return { left: '25%', right: '25%', top: '15%', bottom: '50%' };
-              case 'magnet': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              case 'puzzle': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'gear': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              
-              case 'terminal': return { left: '15%', right: '15%', top: '35%', bottom: '15%' };
-              case 'brackets': return { left: '20%', right: '20%', top: '15%', bottom: '15%' };
-              case 'api': return { left: '15%', right: '15%', top: '20%', bottom: '20%' };
-              case 'server': return { left: '20%', right: '20%', top: '15%', bottom: '15%' };
-              case 'cube': return { left: '20%', right: '20%', top: '30%', bottom: '25%' };
-              case 'branch': return { left: '35%', right: '15%', top: '20%', bottom: '20%' };
-              case 'terminal-prompt': return { left: '35%', right: '15%', top: '20%', bottom: '20%' };
-              case 'cpu': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              case 'globe': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'key': return { left: '35%', right: '15%', top: '20%', bottom: '20%' };
-              
-              case 'smile': return { left: '20%', right: '20%', top: '20%', bottom: '35%' };
-              case 'thumbs-up': return { left: '30%', right: '15%', top: '35%', bottom: '20%' };
-              case 'thumbs-down': return { left: '30%', right: '15%', top: '20%', bottom: '35%' };
-              case 'flower': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              case 'sparkles': return { left: '30%', right: '30%', top: '30%', bottom: '30%' };
-              case 'trophy': return { left: '25%', right: '25%', top: '20%', bottom: '35%' };
-              case 'medal': return { left: '20%', right: '20%', top: '40%', bottom: '20%' };
-              case 'gift': return { left: '20%', right: '20%', top: '35%', bottom: '20%' };
-              case 'balloon': return { left: '20%', right: '20%', top: '15%', bottom: '35%' };
-              case 'clapping': return { left: '25%', right: '25%', top: '40%', bottom: '20%' };
-              case 'coffee': return { left: '25%', right: '25%', top: '35%', bottom: '25%' };
-              case 'check-circle': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'cross-circle': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              
-              case 'user': return { left: '20%', right: '20%', top: '50%', bottom: '20%' };
-              case 'clock': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'calendar': return { left: '15%', right: '15%', top: '35%', bottom: '15%' };
-              case 'card': return { left: '15%', right: '15%', top: '40%', bottom: '20%' };
-              case 'chart': return { left: '15%', right: '15%', top: '15%', bottom: '15%' };
-              case 'cart': return { left: '20%', right: '20%', top: '30%', bottom: '35%' };
-              case 'play': return { left: '30%', right: '20%', top: '20%', bottom: '20%' };
-              case 'pause': return { left: '30%', right: '30%', top: '20%', bottom: '20%' };
-              case 'stop': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'infinity': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              
-              // Story shapes
-              case 'beat': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'scene': return { left: '15%', right: '15%', top: '35%', bottom: '15%' };
-              case 'arc': return { left: '20%', right: '20%', top: '40%', bottom: '20%' };
-              case 'twist': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'stakes': return { left: '25%', right: '25%', top: '20%', bottom: '45%' };
-              case 'character': return { left: '20%', right: '20%', top: '45%', bottom: '20%' };
-              case 'whisper': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'foreshadow': return { left: '15%', right: '15%', top: '20%', bottom: '20%' };
-              case 'world': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'voice': return { left: '30%', right: '15%', top: '20%', bottom: '20%' };
-              
-              // Extended Tech shapes
-              case 'queue': return { left: '15%', right: '15%', top: '35%', bottom: '35%' };
-              case 'webhook': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'cache': return { left: '15%', right: '15%', top: '25%', bottom: '25%' };
-              case 'event': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              case 'pipeline': return { left: '15%', right: '15%', top: '35%', bottom: '35%' };
-              case 'auth': return { left: '20%', right: '20%', top: '40%', bottom: '20%' };
-              case 'diff': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'hash': return { left: '22%', right: '22%', top: '22%', bottom: '22%' };
-              case 'branch-merge': return { left: '25%', right: '25%', top: '20%', bottom: '20%' };
-              case 'token': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-
-              // System shapes
-              case 'feedback': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'bottleneck': return { left: '25%', right: '25%', top: '20%', bottom: '45%' };
-              case 'cascade': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'threshold': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'trade-off': return { left: '25%', right: '15%', top: '15%', bottom: '25%' };
-              case 'pareto': return { left: '15%', right: '15%', top: '20%', bottom: '35%' };
-              case 'pivot': return { left: '20%', right: '20%', top: '35%', bottom: '20%' };
-              case 'lever': return { left: '20%', right: '20%', top: '20%', bottom: '35%' };
-              case 'compound': return { left: '25%', right: '15%', top: '40%', bottom: '20%' };
-              case 'risk': return { left: '25%', right: '25%', top: '40%', bottom: '15%' };
-              
-              default: return { left: '10%', right: '10%', top: '10%', bottom: '10%' };
-            }
-          };
-
-          const pad = getShapePadding(shapeType);
-          
           return (
             <div
               className={`shape-container ${shapeType}`}
@@ -4235,59 +4159,11 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                 )}
               </div>
               
-              {/* Inner Content Area */}
-              <div 
-                className="absolute flex items-center justify-center text-center z-10"
-                style={{
-                  left: pad.left,
-                  right: pad.right,
-                  top: pad.top,
-                  bottom: pad.bottom,
-                  overflow: 'hidden',
-                }}
-              >
-                {isShapeEditing ? (
-                  <div
-                    key="edit"
-                    ref={contentRef}
-                    contentEditable={isShapeEditing}
-                    suppressContentEditableWarning
-                    onBlur={handleBlur}
-                    className="text-block-editable w-full max-h-full overflow-y-auto text-center custom-scrollbar"
-                    data-placeholder="Type inside..."
-                    style={{
-                      fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '14px',
-                      fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
-                      lineHeight: '1.4',
-                      color: 'var(--text-primary)',
-                      display: 'inline-block',
-                      verticalAlign: 'middle',
-                    }}
-                  />
-                ) : (
-                  <div
-                    key="display"
-                    className="text-block-display select-none w-full max-h-full overflow-hidden text-ellipsis text-center"
-                    style={{
-                      fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '14px',
-                      fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
-                      lineHeight: '1.4',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      color: 'var(--text-primary)',
-                      alignSelf: 'center',
-                    }}
-                    onClick={(e) => {
-                      if (isSelected) {
-                        e.stopPropagation();
-                        setEditingId(obj.id);
-                      }
-                    }}
-                  >
-                    {obj.content || ''}
-                  </div>
-                )}
-              </div>
+              {/* A shape is a shape. Dropping one used to open a caret inside
+                  it, so every star, gear and lightning bolt arrived wearing an
+                  empty "Type inside…" box that fought the artwork it sat on and
+                  clipped anything longer than a word. Shapes are pure marks
+                  now — put words in a text block on top if you want them. */}
             </div>
           );
         }
@@ -4889,20 +4765,25 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                 e.stopPropagation();
                 e.preventDefault();
                 if (obj.style?.comment !== undefined && obj.style?.comment !== null) {
-                  setEditingCommentId(obj.id);
+                  // Second press puts the note away again rather than
+                  // re-opening the caret on a note you're already looking at.
+                  setEditingCommentId(editingCommentId === obj.id ? null : obj.id);
                 } else {
-                  // Initialize a new empty comment
-                  updateObject(obj.id, { 
-                    style: { 
-                      ...obj.style, 
+                  /* A new note lands just off the block's top-right corner and
+                     ABOVE it — the old default (`y: -20` from the block's own
+                     origin, then centred on itself) parked the card straight
+                     over the first line of whatever it was commenting on. */
+                  updateObject(obj.id, {
+                    style: {
+                      ...obj.style,
                       comment: '',
-                      commentOffset: { x: obj.width + 20, y: -20 }
-                    } 
+                      commentOffset: { x: obj.width + 105, y: -70 },
+                    }
                   });
                   setEditingCommentId(obj.id);
                 }
               }}
-              title="Add Comment"
+              title={obj.style?.comment ? 'Edit note' : 'Add a note'}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -4946,11 +4827,19 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         </div>
       )}
 
-      {/* Comment Bubble (Attached & Movable) */}
+      {/* Comment note (attached, movable, resizable). It fades in with the
+          block's own hover chrome instead of hanging over the board forever —
+          a note is an aside about this block, not part of the canvas.
+          Hover-only, deliberately NOT tied to selection: a block stays
+          "selected" long after you've moved on to something else, and a note
+          that rode along with selection would just be the old always-on bug
+          wearing a new condition. (Actively editing the note, or hovering the
+          note card itself, still keeps it open — see CommentBubble's `show`.) */}
       {obj.type !== 'shape' && obj.type !== 'arrow' && (obj.style?.comment !== undefined && obj.style?.comment !== null) && (
         <CommentBubble
           obj={obj}
           isEditing={editingCommentId === obj.id}
+          visible={isHovered && !isDragging}
           onStartEditing={() => setEditingCommentId(obj.id)}
           onStopEditing={() => setEditingCommentId(null)}
         />
