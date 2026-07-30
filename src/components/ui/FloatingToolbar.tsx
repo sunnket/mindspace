@@ -7,13 +7,8 @@ import { useAgentChatStore } from '@/store/agentChatStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import WorkflowMenu from './WorkflowMenu';
-import FlowModePanel, { FlowIcon } from './FlowModePanel';
-import { useFlowStore } from '@/store/flowStore';
-import CanvasBackgroundPanel from './CanvasBackgroundPanel';
 import BrainstormPanel, { PinIcon } from './BrainstormPanel';
 import ShapePreview from '@/components/canvas/ShapePreview';
-import { RELAX_EFFECTS, RELAX_EFFECT_LIST } from '@/lib/relaxEffects';
-import RelaxIcon from './RelaxIcons';
 import { FRAME_KINDS, frameKindMeta } from '@/lib/frames';
 
 const FRAME_COLORS = [
@@ -25,82 +20,27 @@ const FRAME_COLORS = [
   { name: 'Charcoal', hex: '#2D2A26' },
 ];
 
+/* Ten, and the same ten families the selection panel offers, so a drawn line
+   and a written word can be the same colour without hunting for it twice.
+   This was twenty-one swatches in five commented rows ("Neons", "Pastels"…) —
+   a palette nobody picks from, on top of a hex box, an RGB pad and an HSL pad
+   that all set the identical value. */
 const DRAW_COLORS = [
-  '#FFFFFF', '#2D2A26', '#0B57D0', '#D93025', '#188038', // Classics
-  '#FFB300', '#FF7043', '#D81B60', '#9B59B6', // Warm creative
-  '#3F51B5', '#00ACC1', '#8EAC8A', '#4E342E', // Cool earth
-  '#F48FB1', '#FFF59D', '#A5D6A7', '#B39DDB', // Pastels
-  '#00E5FF', '#D500F9', '#00E676', '#FF3D00'  // Neons
+  '#2D2A26', '#FFFFFF', '#D64545', '#E67E22', '#F5B70A',
+  '#2F9E6E', '#00A5B5', '#3E63DD', '#8B5FBF', '#E93D82',
 ];
 
-const DRAW_SIZES = [2, 4, 6, 10, 16];
-
-const hexToRgb = (hex: string): { r: number; g: number; b: number } => {
-  if (!hex || typeof hex !== 'string' || hex.startsWith('url(')) return { r: 0, g: 0, b: 0 };
-  const clean = hex.replace('#', '');
-  const r = parseInt(clean.substring(0, 2), 16) || 0;
-  const g = parseInt(clean.substring(2, 4), 16) || 0;
-  const b = parseInt(clean.substring(4, 6), 16) || 0;
-  return { r, g, b };
-};
-
-const rgbToHex = (r: number, g: number, b: number): string => {
-  const toHex = (c: number) => {
-    const clamped = Math.min(255, Math.max(0, c));
-    return clamped.toString(16).padStart(2, '0');
-  };
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-};
-
-const rgbToHsl = (r: number, g: number, b: number): { h: number; s: number; l: number } => {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  let h = 0, s = 0;
-  const l = (max + min) / 2;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    if (max === r) {
-      h = (g - b) / d + (g < b ? 6 : 0);
-    } else if (max === g) {
-      h = (b - r) / d + 2;
-    } else {
-      h = (r - g) / d + 4;
-    }
-    h /= 6;
-  }
-  return {
-    h: Math.round(h * 360),
-    s: Math.round(s * 100),
-    l: Math.round(l * 100)
-  };
-};
-
-const hslToHex = (h: number, s: number, l: number): string => {
-  s /= 100;
-  l /= 100;
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
-  const m = l - c / 2;
-  let r = 0, g = 0, b = 0;
-  if (0 <= h && h < 60) { r = c; g = x; b = 0; }
-  else if (60 <= h && h < 120) { r = x; g = c; b = 0; }
-  else if (120 <= h && h < 180) { r = 0; g = c; b = x; }
-  else if (180 <= h && h < 240) { r = 0; g = x; b = c; }
-  else if (240 <= h && h < 300) { r = x; g = 0; b = c; }
-  else if (300 <= h && h < 360) { r = c; g = 0; b = x; }
-  const red = Math.round((r + m) * 255);
-  const green = Math.round((g + m) * 255);
-  const blue = Math.round((b + m) * 255);
-  const toHex = (num: number) => num.toString(16).padStart(2, '0');
-  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
-};
+const DRAW_GRADIENTS = [
+  { id: 'url(#sunset-grad)', css: 'linear-gradient(135deg, #FF512F 0%, #DD2476 100%)', label: 'Sunset' },
+  { id: 'url(#ocean-grad)', css: 'linear-gradient(135deg, #02AAB0 0%, #00CDAC 100%)', label: 'Ocean' },
+  { id: 'url(#fire-grad)', css: 'linear-gradient(135deg, #F5576C 0%, #F08080 100%)', label: 'Fire' },
+  { id: 'url(#lavender-grad)', css: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)', label: 'Lavender' },
+  { id: 'url(#cosmic-grad)', css: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)', label: 'Cosmic' },
+];
 
 export default function FloatingToolbar() {
   const mode = useCanvasStore((s) => s.mode);
   const setMode = useCanvasStore((s) => s.setMode);
-  const viewLocked = useCanvasStore((s) => s.viewLocked);
-  const toggleViewLocked = useCanvasStore((s) => s.toggleViewLocked);
   const drawColor = useCanvasStore((s) => s.drawColor);
   const setDrawColor = useCanvasStore((s) => s.setDrawColor);
   const drawSize = useCanvasStore((s) => s.drawSize);
@@ -142,8 +82,6 @@ export default function FloatingToolbar() {
   const setSelectedId = useCanvasStore((s) => s.setSelectedId);
   const selectedObject = objects.find(o => o.id === selectedId);
   const camera = useCanvasStore((s) => s.camera);
-  const checkpoint = useCanvasStore((s) => s.checkpoint);
-  const setCheckpoint = useCanvasStore((s) => s.setCheckpoint);
   const setCommentMode = useCanvasStore((s) => s.setCommentMode);
   const setThreadsSidebarOpen = useCanvasStore((s) => s.setThreadsSidebarOpen);
   /* The AI agent chat now owns this slot. Human↔human DMs used to be here, but
@@ -158,43 +96,17 @@ export default function FloatingToolbar() {
   const [showAdvancedDraw, setShowAdvancedDraw] = useState(false);
 
   const [showShapeOptions, setShowShapeOptions] = useState(false);
-  const [showArrowOptions, setShowArrowOptions] = useState(false);
   const [showFrameOptions, setShowFrameOptions] = useState(false);
   const [showBrainstormOptions, setShowBrainstormOptions] = useState(false);
   const [showWorkflowMenu, setShowWorkflowMenu] = useState(false);
-  const [showBgOptions, setShowBgOptions] = useState(false);
-  const [showRelaxOptions, setShowRelaxOptions] = useState(false);
-  const [showFlow, setShowFlow] = useState(false);
-  const flowEnabled = useFlowStore((s) => s.enabled);
-
-  const relaxEffect = useCanvasStore((s) => s.relaxEffect);
-  const setRelaxEffect = useCanvasStore((s) => s.setRelaxEffect);
-  const activeRelax = relaxEffect ? RELAX_EFFECTS[relaxEffect] : null;
-
-  // Touching the canvas dismisses the picker on the spot — nobody wants to play
-  // with an effect through a panel sitting on top of it.
-  useEffect(() => {
-    if (!showRelaxOptions) return;
-    const dismiss = (e: MouseEvent) => {
-      if ((e.target as HTMLElement | null)?.closest?.('.canvas-container')) {
-        setShowRelaxOptions(false);
-      }
-    };
-    window.addEventListener('mousedown', dismiss);
-    return () => window.removeEventListener('mousedown', dismiss);
-  }, [showRelaxOptions]);
 
   /** Shut every toolbar flyout. One tool's panel is never open beside another's. */
   const closeAllPanels = React.useCallback(() => {
     setShowDrawOptions(false);
     setShowShapeOptions(false);
-    setShowArrowOptions(false);
     setShowFrameOptions(false);
     setShowBrainstormOptions(false);
-    setShowBgOptions(false);
-    setShowRelaxOptions(false);
     setShowWorkflowMenu(false);
-    setShowFlow(false);
   }, []);
 
   /* A mode can also be entered from the keyboard (D, S, R, V…) or by the canvas
@@ -211,16 +123,12 @@ export default function FloatingToolbar() {
     setShowShapeOptions(mode === 'shape');
     setShowFrameOptions(mode === 'frame');
     setShowBrainstormOptions(mode === 'brainstorm');
-    setShowRelaxOptions(mode === 'relax');
-    setShowBgOptions(false);
     setShowWorkflowMenu(false);
   }, [mode]);
 
   const [selectedShapeDomain, setSelectedShapeDomain] = useState<'all' | 'brainstorm' | 'code' | 'love' | 'usecase' | 'story' | 'system'>('all');
   const selectedShapeType = useCanvasStore((s) => s.selectedShapeType);
   const setSelectedShapeType = useCanvasStore((s) => s.setSelectedShapeType);
-  const selectedArrowPointerType = useCanvasStore((s) => s.selectedArrowPointerType);
-  const setSelectedArrowPointerType = useCanvasStore((s) => s.setSelectedArrowPointerType);
 
   // When selectedObject changes, sync the toolbar state (but don't auto-open)
   React.useEffect(() => {
@@ -230,13 +138,6 @@ export default function FloatingToolbar() {
       }
     }
   }, [selectedObject, textSize, setTextSize]);
-
-  const handleSizeChange = (size: number) => {
-    setTextSize(size);
-    if (selectedId && selectedObject) {
-      updateObject(selectedId, { style: { ...selectedObject.style, fontSize: size } });
-    }
-  };
 
   const tools: { id: InteractionMode | 'workflow'; icon: React.ReactNode; label: string }[] = [
     {
@@ -323,19 +224,6 @@ export default function FloatingToolbar() {
       label: 'Brainstorm — pins, clips & thread',
       icon: <PinIcon size={17} />,
     },
-    {
-      id: 'relax',
-      label: 'Stress Reliefer',
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <ellipse cx="11" cy="12.5" rx="7.2" ry="3.8" transform="rotate(20 11 12.5)" />
-          <ellipse cx="13" cy="11.5" rx="6.8" ry="4.2" transform="rotate(-40 13 11.5)" />
-          <ellipse cx="12" cy="12" rx="7.5" ry="3.5" transform="rotate(70 12 12)" />
-          <ellipse cx="11.5" cy="11" rx="6.2" ry="3.2" transform="rotate(-75 11.5 11)" />
-          <ellipse cx="12.5" cy="13" rx="5.5" ry="2.8" transform="rotate(130 12.5 13)" />
-        </svg>
-      ),
-    },
   ];
 
   const { isListening } = useVoiceStore();
@@ -370,22 +258,6 @@ export default function FloatingToolbar() {
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
           >
             <BrainstormPanel />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Flow Mode panel */}
-      <AnimatePresence>
-        {showFlow && (
-          <motion.div
-            key="flow-panel"
-            className="absolute bottom-16 right-0 z-[100]"
-            initial={{ opacity: 0, y: 15, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 15, scale: 0.95 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <FlowModePanel onClose={() => setShowFlow(false)} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -454,8 +326,7 @@ export default function FloatingToolbar() {
                   (tool.id === 'draw' && showDrawOptions) ||
                   (tool.id === 'shape' && showShapeOptions) ||
                   (tool.id === 'frame' && showFrameOptions) ||
-                  (tool.id === 'brainstorm' && showBrainstormOptions) ||
-                  (tool.id === 'relax' && showRelaxOptions);
+                  (tool.id === 'brainstorm' && showBrainstormOptions);
 
                 if (mode === (tool.id as InteractionMode) && panelOpen) {
                   closeAllPanels();
@@ -469,7 +340,6 @@ export default function FloatingToolbar() {
                 else if (tool.id === 'shape') setShowShapeOptions(true);
                 else if (tool.id === 'frame') setShowFrameOptions(true);
                 else if (tool.id === 'brainstorm') setShowBrainstormOptions(true);
-                else if (tool.id === 'relax') setShowRelaxOptions(true);
               }}
               className={`relative w-9 h-9 rounded-lg flex items-center justify-center text-sm font-medium transition-all ${
                 active
@@ -490,109 +360,12 @@ export default function FloatingToolbar() {
           );
         })}
 
-        {/* Lock-in mode — where Pan used to live. Freezes the viewport into the
-            user's own space (no scroll/pan, no stray block on empty canvas) while
-            zoom + editing stay live. A padlock that visibly opens/shuts. */}
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => { closeAllPanels(); toggleViewLocked(); }}
-          className={`relative w-9 h-9 rounded-lg flex items-center justify-center text-sm font-medium transition-all ${
-            viewLocked ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-          }`}
-          title={viewLocked ? 'Unlock the canvas view' : 'Lock the view — freeze this as your space'}
-        >
-          {viewLocked && (
-            <motion.span
-              layoutId="toolbar-active"
-              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-              className="absolute inset-0 rounded-lg clay-inset"
-            />
-          )}
-          <span className="relative flex items-center justify-center">
-            {viewLocked ? (
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4.5" y="11" width="15" height="9" rx="2" />
-                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-              </svg>
-            ) : (
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4.5" y="11" width="15" height="9" rx="2" />
-                <path d="M8 11V7a4 4 0 0 1 7.5-1.3" />
-              </svg>
-            )}
-          </span>
-        </motion.button>
-
-        {/* Canvas background / color mode — sits right beside Frame */}
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => {
-            const wasOpen = showBgOptions;
-            closeAllPanels();
-            setCommentMode(false);
-            setThreadsSidebarOpen(false);
-            if (!wasOpen) setShowBgOptions(true);
-          }}
-          className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
-            showBgOptions
-              ? 'text-[var(--accent)]'
-              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-          }`}
-          title="Canvas background & color modes"
-        >
-          {showBgOptions && (
-            <motion.span
-              layoutId="toolbar-active"
-              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-              className="absolute inset-0 rounded-lg clay-inset"
-            />
-          )}
-          <span className="relative flex items-center justify-center">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
-            </svg>
-          </span>
-        </motion.button>
-
-        {/* Plugins used to live here. It moved to the canvas-title header,
-            alongside Share, Skill Set and Collaborate — board-level actions
-            belong with the board's name, not in the drawing toolbar. */}
-
-        {/* Flow Mode — cinematic focus writing (spotlight, semantic weather, progress) */}
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => {
-            const wasOpen = showFlow;
-            closeAllPanels();
-            setCommentMode(false);
-            setThreadsSidebarOpen(false);
-            if (!wasOpen) setShowFlow(true);
-          }}
-          className={`relative w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
-            showFlow || flowEnabled
-              ? 'text-[var(--accent)]'
-              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-          }`}
-          title="Flow Mode — cinematic focus writing"
-        >
-          {showFlow && (
-            <motion.span
-              layoutId="toolbar-active"
-              transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-              className="absolute inset-0 rounded-lg clay-inset"
-            />
-          )}
-          {flowEnabled && !showFlow && (
-            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--accent)] shadow-[0_0_6px_var(--accent)]" />
-          )}
-          <span className="relative flex items-center justify-center">
-            <FlowIcon size={18} />
-          </span>
-        </motion.button>
+        {/* This bar is TOOLS — the things that make a mark on the board. Four
+            board-level modes used to sit out here and diluted that: Plugins,
+            Canvas background, Stress Reliefer and Flow Mode. They're all
+            properties of the board rather than something you draw with, so
+            they live in the ▾ menu beside the board's name now. Lock-the-view
+            is gone entirely. */}
 
         {/* AI Agent chat — opens the resizable panel on the right. This is the
             slot the DM chat used to hold; the agent earns it because it's the
@@ -670,561 +443,288 @@ export default function FloatingToolbar() {
         </motion.button>
       </motion.div>
 
-      {/* Draw options panel */}
+      {/* Draw options panel — brush, colour, size. That's the whole of what a
+          pen needs to be picked up. Everything else (opacity, flow, hardness,
+          texture, blend, pressure, gradients) is real but rare, so it sits
+          behind one "More" line instead of an 840px three-column control desk
+          that opened over the drawing. */}
       <AnimatePresence>
         {showDrawOptions && mode === 'draw' && (
           <motion.div
-            style={{ padding: 16 }}
-            className={`tool-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-              showAdvancedDraw
-                ? 'w-[840px] max-w-[95vw]'
-                : 'w-[270px]'
-            }`}
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            style={{ padding: 14, width: 300 }}
+            className="tool-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 max-w-[92vw]"
+            initial={{ opacity: 0, y: 10, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            exit={{ opacity: 0, y: 10, scale: 0.97 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
           >
-            {!showAdvancedDraw ? (
-              <>
-                {/* Header / Title */}
-                <div className="flex justify-between items-center px-1">
-                  <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-[0.16em] select-none">
-                    {eraserMode ? 'Eraser' : highlighterMode ? 'Highlighter' : 'Pen'} Brush
-                  </span>
+            {/* Brush. The lit segment names the tool, so the "Pen Brush"
+                heading that used to sit above it was saying it twice. */}
+            <div className="flex rounded-xl gap-0.5" style={{ padding: 3, background: 'var(--well)' }}>
+              {([
+                ['pen', 'Pen'],
+                ['highlighter', 'Highlighter'],
+                ['eraser', 'Eraser'],
+              ] as const).map(([id, label]) => {
+                const active =
+                  id === 'pen' ? (!eraserMode && !highlighterMode)
+                  : id === 'highlighter' ? highlighterMode
+                  : eraserMode;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => { setEraserMode(id === 'eraser'); setHighlighterMode(id === 'highlighter'); }}
+                    aria-pressed={active}
+                    style={{ padding: '6px 4px' }}
+                    className={`flex-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer active:scale-95 ${
+                      active ? 'clay-inset text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Colour: the house palette on one line, then the two escapes —
+                any colour at all, and a pixel off the screen. The 20-swatch
+                block plus RGB and HSL number pads it replaces were three
+                different ways of typing the same value. */}
+            {!eraserMode && (
+              <div className="flex items-center gap-2">
+                <div className="grid gap-[3px] flex-1 min-w-0" style={{ gridTemplateColumns: 'repeat(10, minmax(0, 1fr))' }}>
+                  {DRAW_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => setDrawColor(color)}
+                      title={color}
+                      aria-label={color}
+                      className="w-full rounded-full transition-transform duration-100 hover:scale-[1.18] active:scale-95 cursor-pointer"
+                      style={{
+                        aspectRatio: '1 / 1',
+                        background: color,
+                        boxShadow: drawColor === color
+                          ? '0 0 0 2px var(--accent), 0 0 0 3.5px var(--accent-subtle)'
+                          : 'inset 0 0 0 1px rgba(128,128,128,0.28)',
+                      }}
+                    />
+                  ))}
                 </div>
 
-                {/* Tool Switcher */}
-                <div className="flex bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border)] gap-1 shrink-0" style={{ padding: 3 }}>
-                  <button
-                    onClick={() => {
-                      setEraserMode(false);
-                      setHighlighterMode(false);
-                    }}
-                    style={{ padding: '6px 8px' }}
-                    className={`flex-1 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                      !eraserMode && !highlighterMode
-                        ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 20h9" />
-                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                    </svg>
-                    Pen
-                  </button>
-                  <button
-                    onClick={() => {
-                      setHighlighterMode(true);
-                      setEraserMode(false);
-                    }}
-                    style={{ padding: '6px 8px' }}
-                    className={`flex-1 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                      highlighterMode
-                        ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M9 11l-6 6v3h9l3-3" />
-                      <path d="M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
-                    </svg>
-                    Highlighter
-                  </button>
-                  <button
-                    onClick={() => {
-                      setEraserMode(true);
-                      setHighlighterMode(false);
-                    }}
-                    style={{ padding: '6px 8px' }}
-                    className={`flex-1 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                      eraserMode
-                        ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                  >
-                    <span>⌫</span> Eraser
-                  </button>
-                </div>
+                <label
+                  title="Any colour"
+                  className="w-6 h-6 shrink-0 rounded-lg cursor-pointer relative overflow-hidden"
+                  style={{ background: 'conic-gradient(#F00,#FF0,#0F0,#0FF,#00F,#F0F,#F00)' }}
+                >
+                  <input
+                    type="color"
+                    value={/^#[0-9a-fA-F]{6}$/.test(drawColor) ? drawColor : '#2D2A26'}
+                    onChange={(e) => setDrawColor(e.target.value)}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                    aria-label="Pick any colour"
+                  />
+                </label>
 
-                {/* Colors (Pen / Highlighter only) */}
-                {!eraserMode && (
-                  <div className="flex flex-col gap-2 shrink-0">
-                    {/* Standard Swatches */}
-                    <div className="grid grid-cols-10 gap-1 justify-center">
-                      {DRAW_COLORS.map((color) => (
-                        <button
-                          key={color}
-                          onClick={() => {
-                            setDrawColor(color);
-                          }}
-                          className="w-5.5 h-5.5 rounded-full border transition-all hover:scale-110 cursor-pointer"
-                          style={{
-                            background: color,
-                            borderColor: drawColor === color ? 'var(--accent)' : 'transparent',
-                            boxShadow: drawColor === color ? '0 0 0 1.5px var(--accent-subtle)' : 'none',
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
+                {typeof window !== 'undefined' && 'EyeDropper' in window && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const Ctor = (window as unknown as { EyeDropper: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
+                        const { sRGBHex } = await new Ctor().open();
+                        if (sRGBHex) setDrawColor(sRGBHex.toUpperCase());
+                      } catch {
+                        /* Escape — not an error */
+                      }
+                    }}
+                    title="Eyedropper — sample any colour on screen"
+                    aria-label="Eyedropper"
+                    className="w-6 h-6 shrink-0 rounded-lg flex items-center justify-center bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer active:scale-95"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="m2 22 1-1h3l9-9 3 3-9 9H3l-1-1Z" />
+                      <path d="M19 11l-4-4" /><path d="M15 3h6v6" />
+                    </svg>
+                  </button>
                 )}
+              </div>
+            )}
 
-                {/* Sizes (Quick bar in simple mode) */}
-                <div className="flex items-center justify-between gap-2 border-t border-[var(--border)] pt-2 mt-0.5 shrink-0">
-                  <span className="text-[10px] text-[var(--text-muted)] font-medium">Quick Sizes</span>
-                  <div className="flex gap-1.5">
-                    {DRAW_SIZES.map((size) => (
-                      <button
-                        key={size}
-                        onClick={() => setDrawSize(size)}
-                        className={`flex items-center justify-center w-7 h-7 rounded-lg transition-all cursor-pointer ${
-                          drawSize === size
-                            ? 'bg-[var(--accent-subtle)]'
-                            : 'hover:bg-[var(--bg-tertiary)]'
-                        }`}
-                      >
-                        <div
-                          className="rounded-full bg-current"
-                          style={{
-                            width: Math.max(3, size / 1.5),
-                            height: Math.max(3, size / 1.5),
-                            color: eraserMode ? 'var(--text-secondary)' : drawColor.startsWith('url(') ? 'var(--accent)' : drawColor,
-                            opacity: highlighterMode ? 0.35 : 1,
-                          }}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            ) : (
-              // Extended / Advanced horizontal layout spanning the yellow area!
-              <div className="flex gap-5 items-stretch min-h-[220px] min-w-0">
-                {/* Column 1: Tools & Swatches */}
-                <div className="w-[230px] flex flex-col gap-3 shrink-0 pr-3 border-r border-[var(--border)]">
-                  <div className="flex justify-between items-center px-1">
-                    <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-[0.16em] select-none">
-                      Brush & Palette
-                    </span>
-                  </div>
+            {/* Size: one slider, with a dot drawn at the true nib size. The old
+                panel had five preset buttons here AND a size slider hidden in
+                advanced mode, which could disagree with each other. */}
+            <div className="flex items-center gap-2.5">
+              <span className="flex items-center justify-center shrink-0" style={{ width: 22, height: 22 }}>
+                <span
+                  className="rounded-full"
+                  style={{
+                    width: Math.max(3, Math.min(20, drawSize)),
+                    height: Math.max(3, Math.min(20, drawSize)),
+                    background: eraserMode || drawColor.startsWith('url(') ? 'var(--text-secondary)' : drawColor,
+                    opacity: highlighterMode ? 0.4 : 1,
+                    boxShadow: 'inset 0 0 0 1px rgba(128,128,128,0.28)',
+                  }}
+                />
+              </span>
+              <input
+                type="range"
+                min={1}
+                max={60}
+                value={Math.min(60, drawSize)}
+                onChange={(e) => setDrawSize(parseInt(e.target.value))}
+                className="flex-1 accent-[var(--accent)] cursor-pointer"
+                style={{ height: 4 }}
+                aria-label="Brush size"
+              />
+              <span className="text-[10px] font-bold tabular-nums text-[var(--text-secondary)] text-right shrink-0" style={{ width: 24 }}>
+                {drawSize}
+              </span>
+            </div>
 
-                  {/* Tool Switcher */}
-                  <div className="flex bg-[var(--bg-tertiary)] p-1 rounded-lg border border-[var(--border)] gap-1 shrink-0">
-                    <button
-                      onClick={() => {
-                        setEraserMode(false);
-                        setHighlighterMode(false);
-                      }}
-                      className={`flex-1 py-1 px-1 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                        !eraserMode && !highlighterMode
-                          ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      Pen
-                    </button>
-                    <button
-                      onClick={() => {
-                        setHighlighterMode(true);
-                        setEraserMode(false);
-                      }}
-                      className={`flex-1 py-1 px-1 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                        highlighterMode
-                          ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      Highlighter
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEraserMode(true);
-                        setHighlighterMode(false);
-                      }}
-                      className={`flex-1 py-1 px-1 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                        eraserMode
-                          ? 'bg-white dark:bg-white/15 text-[var(--accent)] shadow-sm'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      Eraser
-                    </button>
-                  </div>
+            {/* The one line that reveals the rest. A quiet text row, not a
+                filled accent bar — it's a disclosure, not the main action. */}
+            <button
+              onClick={() => setShowAdvancedDraw(!showAdvancedDraw)}
+              style={{ padding: '5px 6px' }}
+              className="flex items-center justify-center gap-1 rounded-lg text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+            >
+              {showAdvancedDraw ? 'Less' : 'More'}
+              <motion.span animate={{ rotate: showAdvancedDraw ? 180 : 0 }} transition={{ duration: 0.2 }} className="flex">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="6 15 12 9 18 15" />
+                </svg>
+              </motion.span>
+            </button>
 
-                  {/* Quick Color Swatches */}
+            <AnimatePresence initial={false}>
+              {showAdvancedDraw && (
+                <motion.div
+                  key="draw-more"
+                  className="flex flex-col gap-3"
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.16 }}
+                >
+                  <div className="w-full h-px bg-[var(--border)]" />
+
                   {!eraserMode && (
-                    <div className="flex flex-col gap-2 shrink-0">
-                      <div className="grid grid-cols-5 gap-1.5 justify-center">
-                        {DRAW_COLORS.map((color) => (
+                    <div className="grid gap-x-3 gap-y-2.5" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+                      {([
+                        ['Opacity', drawOpacity, setDrawOpacity, 0.05],
+                        ['Flow', drawFlow, setDrawFlow, 0.05],
+                        ['Hardness', drawHardness, setDrawHardness, 0.1],
+                        ['Smooth', drawSmoothing, setDrawSmoothing, 0],
+                        ['Stabilize', drawStabilization, setDrawStabilization, 0],
+                      ] as const).map(([label, val, set, min]) => (
+                        <div key={label} className="flex flex-col gap-0.5 min-w-0">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[9px] uppercase font-extrabold tracking-[0.1em] text-[var(--text-tertiary)]">{label}</span>
+                            <span className="text-[9px] font-bold tabular-nums text-[var(--text-secondary)]">{Math.round(val * 100)}%</span>
+                          </div>
+                          <input
+                            type="range" min={min} max={1} step={0.01} value={val}
+                            onChange={(e) => set(parseFloat(e.target.value))}
+                            className="w-full accent-[var(--accent)] cursor-pointer"
+                            style={{ height: 3 }}
+                          />
+                        </div>
+                      ))}
+
+                      <div className="flex flex-col gap-0.5 min-w-0 justify-end">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] uppercase font-extrabold tracking-[0.1em] text-[var(--text-tertiary)]">Pressure</span>
                           <button
-                            key={color}
-                            onClick={() => {
-                              setDrawColor(color);
-                            }}
-                            className="w-[34px] h-[22px] rounded-md border transition-all hover:scale-105 cursor-pointer"
+                            onClick={() => setDrawPressure(!drawPressure)}
+                            role="switch"
+                            aria-checked={drawPressure}
+                            className="relative shrink-0 transition-colors duration-200 cursor-pointer"
                             style={{
-                              background: color,
-                              borderColor: drawColor === color ? 'var(--accent)' : 'transparent',
-                              boxShadow: drawColor === color ? '0 0 0 1.5px var(--accent-subtle)' : 'none',
+                              width: 28, height: 16, borderRadius: 999,
+                              background: drawPressure ? 'var(--accent)' : 'var(--well)',
+                              boxShadow: drawPressure ? 'none' : 'inset 0 1px 3px rgba(90,62,40,0.18)',
+                            }}
+                          >
+                            <span
+                              className="absolute top-1/2 transition-transform duration-200"
+                              style={{
+                                width: 12, height: 12, borderRadius: '50%', background: '#fff', left: 2,
+                                transform: `translateY(-50%) translateX(${drawPressure ? 12 : 0}px)`,
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
+                              }}
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!eraserMode && (
+                    <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+                      <label className="flex flex-col gap-1 min-w-0">
+                        <span className="text-[9px] uppercase font-extrabold tracking-[0.1em] text-[var(--text-tertiary)]">Texture</span>
+                        <select
+                          value={drawTexture}
+                          onChange={(e) => setDrawTexture(e.target.value as 'none' | 'chalk' | 'watercolor' | 'noise' | 'splatter')}
+                          style={{ padding: '4px 6px' }}
+                          className="w-full bg-[var(--well)] text-[var(--text-primary)] rounded-lg outline-none text-[11px] font-semibold cursor-pointer"
+                        >
+                          <option value="none">None</option>
+                          <option value="chalk">Chalk</option>
+                          <option value="watercolor">Watercolour</option>
+                          <option value="noise">Grain</option>
+                          <option value="splatter">Splatter</option>
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1 min-w-0">
+                        <span className="text-[9px] uppercase font-extrabold tracking-[0.1em] text-[var(--text-tertiary)]">Blend</span>
+                        <select
+                          value={drawBlendMode}
+                          onChange={(e) => setDrawBlendMode(e.target.value as 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten')}
+                          style={{ padding: '4px 6px' }}
+                          className="w-full bg-[var(--well)] text-[var(--text-primary)] rounded-lg outline-none text-[11px] font-semibold cursor-pointer"
+                        >
+                          <option value="normal">Normal</option>
+                          <option value="multiply">Multiply</option>
+                          <option value="screen">Screen</option>
+                          <option value="overlay">Overlay</option>
+                          <option value="darken">Darken</option>
+                          <option value="lighten">Lighten</option>
+                        </select>
+                      </label>
+                    </div>
+                  )}
+
+                  {!eraserMode && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] uppercase font-extrabold tracking-[0.1em] text-[var(--text-tertiary)] shrink-0">Gradient</span>
+                      <div className="flex gap-1.5">
+                        {DRAW_GRADIENTS.map((grad) => (
+                          <button
+                            key={grad.id}
+                            onClick={() => setDrawColor(grad.id)}
+                            title={grad.label}
+                            aria-label={grad.label}
+                            className="w-5 h-5 rounded-full transition-transform duration-100 hover:scale-110 active:scale-95 cursor-pointer"
+                            style={{
+                              background: grad.css,
+                              boxShadow: drawColor === grad.id
+                                ? '0 0 0 2px var(--accent), 0 0 0 3.5px var(--accent-subtle)'
+                                : 'inset 0 0 0 1px rgba(128,128,128,0.28)',
                             }}
                           />
                         ))}
                       </div>
                     </div>
                   )}
-                </div>
 
-                {/* Column 2: Advanced Custom Colors (HEX/RGB/HSL/Gradients) */}
-                <div className="w-[260px] flex flex-col gap-2.5 shrink-0 pr-3 border-r border-[var(--border)]">
-                  {!eraserMode ? (() => {
-                    const { r, g, b } = hexToRgb(drawColor);
-                    const { h, s, l } = rgbToHsl(r, g, b);
-                    return (
-                      <>
-                        <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-[0.16em] select-none px-1">
-                          Custom Color
-                        </span>
-                        
-                        {/* HEX & Eyedropper */}
-                        <div className="flex items-center gap-1.5">
-                          <div className="flex-1 flex items-center bg-[var(--bg-tertiary)] px-2.5 py-1 rounded-lg border border-[var(--border)] gap-1.5">
-                            <span className="text-[9px] text-[var(--text-muted)] font-bold tracking-wider">HEX</span>
-                            <input
-                              type="text"
-                              className="w-full bg-transparent outline-none text-xs text-[var(--text-primary)] font-mono"
-                              value={drawColor.startsWith('url(') ? '#FFFFFF' : drawColor}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                if (val.match(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)) {
-                                  setDrawColor(val);
-                                } else if (!val.startsWith('#') && val.match(/^([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)) {
-                                  setDrawColor('#' + val);
-                                }
-                              }}
-                            />
-                          </div>
-                          {typeof window !== 'undefined' && 'EyeDropper' in window && (
-                            <button
-                              onClick={async () => {
-                                try {
-                                  const EyeDropperCtor = (window as unknown as { EyeDropper: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
-                                  const eyeDropper = new EyeDropperCtor();
-                                  const result = await eyeDropper.open();
-                                  setDrawColor(result.sRGBHex);
-                                } catch {
-                                  // ignore
-                                }
-                              }}
-                              title="Eyedropper tool"
-                              className="w-7 h-7 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] border border-[var(--border)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
-                            >
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="m2 22 1-1h3l9-9 3 3-9 9H3l-1-1Z" />
-                                <path d="M19 11l-4-4" />
-                                <path d="M15 3h6v6" />
-                              </svg>
-                            </button>
-                          )}
-                        </div>
-
-                        {/* RGB inputs */}
-                        <div className="grid grid-cols-3 bg-[var(--bg-tertiary)] p-1 rounded-lg border border-[var(--border)] text-center text-[9px]">
-                          <div className="flex flex-col">
-                            <span className="text-[8px] text-[var(--text-muted)] font-bold">R</span>
-                            <input
-                              type="number"
-                              min="0"
-                              max="255"
-                              className="w-full bg-transparent text-center text-xs text-[var(--text-primary)] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-semibold"
-                              value={r}
-                              onChange={(e) => {
-                                const newR = Math.min(255, Math.max(0, parseInt(e.target.value) || 0));
-                                setDrawColor(rgbToHex(newR, g, b));
-                              }}
-                            />
-                          </div>
-                          <div className="flex flex-col border-l border-[var(--border)]">
-                            <span className="text-[8px] text-[var(--text-muted)] font-bold">G</span>
-                            <input
-                              type="number"
-                              min="0"
-                              max="255"
-                              className="w-full bg-transparent text-center text-xs text-[var(--text-primary)] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-semibold"
-                              value={g}
-                              onChange={(e) => {
-                                const newG = Math.min(255, Math.max(0, parseInt(e.target.value) || 0));
-                                setDrawColor(rgbToHex(r, newG, b));
-                              }}
-                            />
-                          </div>
-                          <div className="flex flex-col border-l border-[var(--border)]">
-                            <span className="text-[8px] text-[var(--text-muted)] font-bold">B</span>
-                            <input
-                              type="number"
-                              min="0"
-                              max="255"
-                              className="w-full bg-transparent text-center text-xs text-[var(--text-primary)] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-semibold"
-                              value={b}
-                              onChange={(e) => {
-                                const newB = Math.min(255, Math.max(0, parseInt(e.target.value) || 0));
-                                setDrawColor(rgbToHex(r, g, newB));
-                              }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* HSL inputs */}
-                        <div className="grid grid-cols-3 bg-[var(--bg-tertiary)] p-1 rounded-lg border border-[var(--border)] text-center text-[9px]">
-                          <div className="flex flex-col">
-                            <span className="text-[8px] text-[var(--text-muted)] font-bold">H</span>
-                            <input
-                              type="number"
-                              min="0"
-                              max="360"
-                              className="w-full bg-transparent text-center text-xs text-[var(--text-primary)] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-semibold"
-                              value={h}
-                              onChange={(e) => {
-                                const newH = Math.min(360, Math.max(0, parseInt(e.target.value) || 0));
-                                setDrawColor(hslToHex(newH, s, l));
-                              }}
-                            />
-                          </div>
-                          <div className="flex flex-col border-l border-[var(--border)]">
-                            <span className="text-[8px] text-[var(--text-muted)] font-bold">S</span>
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              className="w-full bg-transparent text-center text-xs text-[var(--text-primary)] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-semibold"
-                              value={s}
-                              onChange={(e) => {
-                                const newS = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                                setDrawColor(hslToHex(h, newS, l));
-                              }}
-                            />
-                          </div>
-                          <div className="flex flex-col border-l border-[var(--border)]">
-                            <span className="text-[8px] text-[var(--text-muted)] font-bold">L</span>
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              className="w-full bg-transparent text-center text-xs text-[var(--text-primary)] outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-semibold"
-                              value={l}
-                              onChange={(e) => {
-                                const newL = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                                setDrawColor(hslToHex(h, s, newL));
-                              }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Gradients */}
-                        <div className="flex flex-col gap-1 border-t border-[var(--border)]/60 pt-2">
-                          <span className="text-[8px] uppercase font-bold text-[var(--text-muted)] tracking-wider px-0.5">Gradients</span>
-                          <div className="flex gap-1.5">
-                            {[
-                              { id: 'url(#sunset-grad)', css: 'linear-gradient(135deg, #FF512F 0%, #DD2476 100%)', label: 'Sunset' },
-                              { id: 'url(#ocean-grad)', css: 'linear-gradient(135deg, #02AAB0 0%, #00CDAC 100%)', label: 'Ocean' },
-                              { id: 'url(#fire-grad)', css: 'linear-gradient(135deg, #F5576C 0%, #F08080 100%)', label: 'Fire' },
-                              { id: 'url(#lavender-grad)', css: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)', label: 'Lavender' },
-                              { id: 'url(#cosmic-grad)', css: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)', label: 'Cosmic' }
-                            ].map((grad) => (
-                              <button
-                                key={grad.id}
-                                onClick={() => setDrawColor(grad.id)}
-                                title={grad.label}
-                                className="w-5.5 h-5.5 rounded-full border transition-all hover:scale-110 cursor-pointer"
-                                style={{
-                                  background: grad.css,
-                                  borderColor: drawColor === grad.id ? 'var(--accent)' : 'transparent',
-                                  boxShadow: drawColor === grad.id ? '0 0 0 1.5px var(--accent-subtle)' : 'none',
-                                }}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    );
-                  })() : (
-                    <div className="flex items-center justify-center h-full text-xs text-[var(--text-muted)] italic select-none">
-                      Eraser selected — no color parameters needed.
-                    </div>
+                  {eraserMode && (
+                    <p className="text-[10px] text-[var(--text-tertiary)] text-center leading-relaxed">
+                      The eraser only takes a size. Switch to Pen or Highlighter for colour and brush settings.
+                    </p>
                   )}
-                </div>
-
-                {/* Column 3: Advanced Brush Slider controls (2-column layout to fit horizontally!) */}
-                <div className="flex-1 flex flex-col gap-2 min-w-0 pr-1 overflow-y-auto">
-                  <span className="text-[10px] uppercase font-bold text-[var(--text-secondary)] tracking-[0.16em] select-none px-1">
-                    Brush Settings
-                  </span>
-
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-[10px] bg-[var(--bg-secondary)]/50 p-2.5 rounded-xl border border-[var(--border)]">
-                    {/* Size */}
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[var(--text-secondary)] font-semibold">Size</span>
-                        <span className="text-[var(--text-muted)] font-mono">{drawSize}px</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="1"
-                        max="100"
-                        className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
-                        value={drawSize}
-                        onChange={(e) => setDrawSize(parseInt(e.target.value))}
-                      />
-                    </div>
-
-                    {/* Hardness */}
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[var(--text-secondary)] font-semibold">Hardness</span>
-                        <span className="text-[var(--text-muted)] font-mono">{Math.round(drawHardness * 100)}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0.1"
-                        max="1.0"
-                        step="0.01"
-                        className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
-                        value={drawHardness}
-                        onChange={(e) => setDrawHardness(parseFloat(e.target.value))}
-                      />
-                    </div>
-
-                    {/* Opacity */}
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[var(--text-secondary)] font-semibold">Opacity</span>
-                        <span className="text-[var(--text-muted)] font-mono">{Math.round(drawOpacity * 100)}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0.05"
-                        max="1.0"
-                        step="0.01"
-                        className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
-                        value={drawOpacity}
-                        onChange={(e) => setDrawOpacity(parseFloat(e.target.value))}
-                      />
-                    </div>
-
-                    {/* Flow */}
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[var(--text-secondary)] font-semibold">Flow</span>
-                        <span className="text-[var(--text-muted)] font-mono">{Math.round(drawFlow * 100)}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0.05"
-                        max="1.0"
-                        step="0.01"
-                        className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
-                        value={drawFlow}
-                        onChange={(e) => setDrawFlow(parseFloat(e.target.value))}
-                      />
-                    </div>
-
-                    {/* Stabilization */}
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[var(--text-secondary)] font-semibold">Stabilize</span>
-                        <span className="text-[var(--text-muted)] font-mono">{Math.round(drawStabilization * 100)}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0.0"
-                        max="1.0"
-                        step="0.01"
-                        className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
-                        value={drawStabilization}
-                        onChange={(e) => setDrawStabilization(parseFloat(e.target.value))}
-                      />
-                    </div>
-
-                    {/* Smoothing */}
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[var(--text-secondary)] font-semibold">Smooth</span>
-                        <span className="text-[var(--text-muted)] font-mono">{Math.round(drawSmoothing * 100)}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0.0"
-                        max="1.0"
-                        step="0.01"
-                        className="w-full accent-[var(--accent)] cursor-pointer h-1 rounded"
-                        value={drawSmoothing}
-                        onChange={(e) => setDrawSmoothing(parseFloat(e.target.value))}
-                      />
-                    </div>
-
-                    {/* Texture Select */}
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-[var(--text-secondary)] font-semibold">Texture</span>
-                      <select
-                        value={drawTexture}
-                        onChange={(e) => setDrawTexture(e.target.value as 'none' | 'chalk' | 'watercolor' | 'noise' | 'splatter')}
-                        className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] text-[var(--text-primary)] rounded-lg px-2 py-0.5 outline-none text-[11px] cursor-pointer"
-                      >
-                        <option value="none">None</option>
-                        <option value="chalk">Chalk</option>
-                        <option value="watercolor">Watercolor</option>
-                        <option value="noise">Noise Grain</option>
-                        <option value="splatter">Splatter</option>
-                      </select>
-                    </div>
-
-                    {/* Blend Mode Select */}
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-[var(--text-secondary)] font-semibold">Blend Mode</span>
-                      <select
-                        value={drawBlendMode}
-                        onChange={(e) => setDrawBlendMode(e.target.value as 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten')}
-                        className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] text-[var(--text-primary)] rounded-lg px-2 py-0.5 outline-none text-[11px] cursor-pointer"
-                      >
-                        <option value="normal">Normal</option>
-                        <option value="multiply">Multiply</option>
-                        <option value="screen">Screen</option>
-                        <option value="overlay">Overlay</option>
-                        <option value="darken">Darken</option>
-                        <option value="lighten">Lighten</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Pressure Sensitivity Toggle */}
-                  <div className="flex items-center justify-between py-1 px-1 bg-[var(--bg-secondary)]/50 rounded-lg border border-[var(--border)] text-[10px] shrink-0 mt-0.5">
-                    <span className="text-[var(--text-secondary)] font-semibold">Pressure Sensitivity</span>
-                    <button
-                      onClick={() => setDrawPressure(!drawPressure)}
-                      className={`relative inline-flex h-4 w-8 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out outline-none ${
-                        drawPressure ? 'bg-[var(--accent)]' : 'bg-[var(--bg-tertiary)]'
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                          drawPressure ? 'translate-x-3.5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Toggle advanced settings button */}
-            <button
-              onClick={() => setShowAdvancedDraw(!showAdvancedDraw)}
-              style={{ padding: '7px 12px' }}
-              className="rounded-lg bg-[rgba(var(--accent-rgb),0.08)] hover:bg-[rgba(var(--accent-rgb),0.13)] text-[var(--accent)] text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 w-full"
-            >
-              <span>{showAdvancedDraw ? 'Simple Settings' : 'Advanced Mode →'}</span>
-            </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1604,130 +1104,6 @@ export default function FloatingToolbar() {
         )}
       </AnimatePresence>
 
-      {/* Arrow options are now handled entirely by the left SelectionPanel
-          (both the tool defaults in arrow mode and editing a selected arrow). */}
-      <AnimatePresence>
-        {false && (
-          <motion.div
-            className="tool-panel absolute bottom-14 left-1/2 -translate-x-1/2 p-4 flex flex-col gap-3 min-w-[240px]"
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider px-1">Pointer Type</span>
-            <div className="grid grid-cols-4 gap-2 justify-center">
-              {[
-                {
-                  id: 'line',
-                  label: 'Line',
-                  icon: (
-                    <svg width="22" height="14" viewBox="0 0 24 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                      <line x1="2" y1="7" x2="22" y2="7" />
-                    </svg>
-                  ),
-                },
-                {
-                  id: 'arrow',
-                  label: 'Arrow',
-                  icon: (
-                    <svg width="22" height="14" viewBox="0 0 24 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <line x1="2" y1="7" x2="19" y2="7" />
-                      <polyline points="14 2 20 7 14 12" />
-                    </svg>
-                  ),
-                },
-                {
-                  id: 'dot',
-                  label: 'Dot',
-                  icon: (
-                    <svg width="22" height="14" viewBox="0 0 24 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                      <line x1="2" y1="7" x2="16" y2="7" />
-                      <circle cx="19.5" cy="7" r="3" fill="currentColor" stroke="none" />
-                    </svg>
-                  ),
-                },
-                {
-                  id: 'diamond',
-                  label: 'Diamond',
-                  icon: (
-                    <svg width="22" height="14" viewBox="0 0 24 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <line x1="2" y1="7" x2="15" y2="7" />
-                      <polygon points="18.5 3.5 22 7 18.5 10.5 15 7" fill="currentColor" stroke="none" />
-                    </svg>
-                  ),
-                },
-              ].map((aOption) => (
-                <button
-                  key={aOption.id}
-                  onClick={() => {
-                    setSelectedArrowPointerType(aOption.id as typeof selectedArrowPointerType);
-                    // If an arrow object is currently selected, instantly update its pointer head style
-                    if (selectedId && selectedObject && selectedObject.type === 'arrow') {
-                      updateObject(selectedId, {
-                        style: {
-                          ...selectedObject.style,
-                          pointerType: aOption.id,
-                        }
-                      });
-                    }
-                  }}
-                  className={`flex flex-col items-center justify-center w-13 h-13 rounded-xl border transition-all ${
-                    (selectedObject?.style?.pointerType === aOption.id || (!selectedObject && selectedArrowPointerType === aOption.id))
-                      ? 'border-[var(--accent)] bg-[var(--accent-subtle)] text-[var(--accent)] shadow-sm'
-                      : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                  }`}
-                  title={aOption.label}
-                >
-                  <span className="mb-0.5 flex items-center justify-center">{aOption.icon}</span>
-                  <span className="text-[7.5px] uppercase tracking-wider font-semibold">{aOption.label}</span>
-                </button>
-              ))}
-            </div>
-            
-            {/* Style options for colors */}
-            <div className="w-full h-px bg-[var(--border)] my-1" />
-            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider px-1">Arrow Style</span>
-            <div className="flex gap-1.5 justify-center">
-              {[
-                { name: 'Red', hex: '#D64545' },
-                { name: 'Peach', hex: '#E67E22' },
-                { name: 'Sage', hex: '#45B761' },
-                { name: 'Sky', hex: '#4A90D9' },
-                { name: 'Amethyst', hex: '#9B59B6' },
-                { name: 'Classic', hex: '#2D2A26' }
-              ].map((colorOption) => {
-                const isActive = selectedObject?.style?.color === colorOption.hex || (!selectedObject && drawColor === colorOption.hex);
-                return (
-                  <button
-                    key={colorOption.name}
-                    onClick={() => {
-                      setDrawColor(colorOption.hex);
-                      if (selectedId && selectedObject && selectedObject.type === 'arrow') {
-                        updateObject(selectedId, {
-                          style: {
-                            ...selectedObject.style,
-                            color: colorOption.hex,
-                          }
-                        });
-                      }
-                    }}
-                    className="w-6.5 h-6.5 rounded-full border transition-all hover:scale-110"
-                    style={{
-                      background: colorOption.hex,
-                      borderColor: isActive ? 'var(--accent)' : 'var(--border)',
-                      borderWidth: isActive ? '2px' : '1px',
-                      boxShadow: isActive ? '0 0 0 2px var(--accent-subtle)' : 'none',
-                    }}
-                    title={colorOption.name}
-                  />
-                );
-              })}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Frame options panel — only while placing a new frame; editing an
           existing frame is handled by the left SelectionPanel. */}
       <AnimatePresence>
@@ -1805,72 +1181,6 @@ export default function FloatingToolbar() {
             <p className="text-[10px] text-[var(--text-muted)] text-center leading-relaxed">
               Click to place it, then click its title tab to name it.
             </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Relax options panel */}
-      <AnimatePresence>
-        {showRelaxOptions && mode === 'relax' && (
-          <motion.div
-            style={{ padding: 16 }}
-            className="glass-panel absolute bottom-14 left-1/2 -translate-x-1/2 flex flex-col gap-3 min-w-[240px]"
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
-              Stress Reliefer
-            </span>
-
-            <div className="grid grid-cols-3 gap-1.5">
-              {RELAX_EFFECT_LIST.map((fx) => {
-                const active = relaxEffect === fx.id;
-                return (
-                  <button
-                    key={fx.id}
-                    title={fx.label}
-                    onClick={() => {
-                      setRelaxEffect(fx.id);
-                      // Get out of the way immediately — the canvas is the point.
-                      setShowRelaxOptions(false);
-                    }}
-                    style={{ padding: '10px 8px' }}
-                    className={`flex flex-col items-center gap-1 rounded-lg border transition-all cursor-pointer ${
-                      active
-                        ? 'bg-[var(--accent-subtle)] text-[var(--accent)] border-[var(--accent-light)] shadow-sm'
-                        : 'bg-transparent text-[var(--text-secondary)] border-transparent hover:bg-[var(--bg-tertiary)]'
-                    }`}
-                  >
-                    <RelaxIcon id={fx.id} />
-                    <span className="text-[9px] font-semibold leading-tight text-center">{fx.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <p className="text-[10px] text-[var(--text-muted)] text-center leading-relaxed">
-              {activeRelax
-                ? activeRelax.blurb
-                : 'Pick an effect, then click anywhere on the canvas to let it go.'}
-            </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Canvas background / color-mode panel */}
-      <AnimatePresence>
-        {showBgOptions && (
-          <motion.div
-            style={{ padding: 16 }}
-            className="tool-panel absolute bottom-14 left-1/2 -translate-x-1/2"
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <CanvasBackgroundPanel onPick={() => setShowBgOptions(false)} />
           </motion.div>
         )}
       </AnimatePresence>

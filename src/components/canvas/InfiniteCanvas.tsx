@@ -57,6 +57,10 @@ import ChatLauncher from '@/components/chat/ChatLauncher';
 import AgentChatPanel from '@/components/chat/AgentChatPanel';
 import CollabBar from '@/components/collab/CollabBar';
 import PluginsPanel from '@/components/ui/PluginsPanel';
+import CanvasBackgroundPanel from '@/components/ui/CanvasBackgroundPanel';
+import RelaxPanel from '@/components/ui/RelaxPanel';
+import FlowModePanel from '@/components/ui/FlowModePanel';
+import { useFlowStore } from '@/store/flowStore';
 import CollabCursors from '@/components/collab/CollabCursors';
 import AgentCursor from '@/components/canvas/AgentCursor';
 import CollabModal from '@/components/collab/CollabModal';
@@ -200,7 +204,6 @@ export default function InfiniteCanvas() {
   const strokes = useCanvasStore((s) => s.strokes);
   const setStrokes = useCanvasStore((s) => s.setStrokes);
   const mode = useCanvasStore((s) => s.mode);
-  const viewLocked = useCanvasStore((s) => s.viewLocked);
   const relaxEffect = useCanvasStore((s) => s.relaxEffect);
   const brainstormTool = useCanvasStore((s) => s.brainstormTool);
   const threadAnchorId = useCanvasStore((s) => s.threadAnchorId);
@@ -237,10 +240,19 @@ export default function InfiniteCanvas() {
   const setSkillSetPanelOpen = useCanvasStore((s) => s.setSkillSetPanelOpen);
   const pluginsPanelOpen = useCanvasStore((s) => s.pluginsPanelOpen);
   const setPluginsPanelOpen = useCanvasStore((s) => s.setPluginsPanelOpen);
-  /** The ▾ board menu beside the canvas name (Scenes / Share / Skill Set / Plugins / Collaborate). */
+  /** The ▾ board menu beside the canvas name — everything that belongs to the
+      BOARD rather than to the pen in your hand. */
   const [boardMenuOpen, setBoardMenuOpen] = useState(false);
   /** Scenes moved out of its own top-right corner and into that menu. */
   const [scenesMenuOpen, setScenesMenuOpen] = useState(false);
+  /* Canvas background, Stress Reliefer and Flow Mode came in from the drawing
+     toolbar for the same reason Scenes did: none of them make a mark, they set
+     what the board IS while you work on it. Each hangs off the menu as its own
+     dropdown, exactly like Scenes and Plugins. */
+  const [bgMenuOpen, setBgMenuOpen] = useState(false);
+  const [relaxMenuOpen, setRelaxMenuOpen] = useState(false);
+  const [flowMenuOpen, setFlowMenuOpen] = useState(false);
+  const flowEnabled = useFlowStore((s) => s.enabled);
   const sceneCount = useCanvasStore((s) => s.scenes.length);
   // Collab lives in its own store; the header only needs "is a session running"
   // (to hide the idle entry point) and the way to start one.
@@ -569,9 +581,6 @@ export default function InfiniteCanvas() {
 
         setCamera({ x: newX, y: newY, zoom: newZoom });
       } else {
-        // Pan — disabled while the view is locked (zoom above still works, so the
-        // user can lean into their fixed space like an image without it drifting).
-        if (useCanvasStore.getState().viewLocked) return;
         setCamera({
           x: camera.x - e.deltaX,
           y: camera.y - e.deltaY,
@@ -634,20 +643,6 @@ export default function InfiniteCanvas() {
         return;
       }
 
-      /* Locked view = the user's fixed space. The board can't move — no pan
-         drag, no scroll (handleWheel), no middle-click pan — but a TAP still
-         drops a text box, so the frozen frame stays a place you write in.
-         Record the press so the tap check in handleMouseUp fires; handleMouseMove
-         refuses to pan while locked, so only a still tap (not a drag) creates. */
-      if (viewLocked) {
-        isPanningRef.current = true;
-        panStartRef.current = { x: e.clientX, y: e.clientY, camX: camera.x, camY: camera.y };
-        setSelectedId(null);
-        setEditingId(null);
-        useCanvasStore.getState().setSpreadStack(null);
-        return;
-      }
-
       if (mode === 'pan' || e.button === 1) {
         // Middle click or pan mode
         isPanningRef.current = true;
@@ -682,7 +677,7 @@ export default function InfiniteCanvas() {
          reaching here, so this only ever fires for a click that missed it. */
       useCanvasStore.getState().setSelectedConnectionId(null);
     },
-    [mode, viewLocked, camera, setSelectedId, setEditingId, plusMenuPos, setPlusMenuPos]
+    [mode, camera, setSelectedId, setEditingId, plusMenuPos, setPlusMenuPos]
   );
 
   const handleMouseMove = useCallback(
@@ -746,10 +741,9 @@ export default function InfiniteCanvas() {
       if (e.buttons === 0) isPanningRef.current = false;
       if (dragState.objectDrag) return;
 
-      if (isPanningRef.current && !useCanvasStore.getState().viewLocked) {
-        // If we are in select/text mode, and drag is large enough, switch to panning the canvas optionally?
-        // Wait, standard behavior: space to pan, or middle click. Left drag creates selection box (which we don't have yet), or just pans if empty canvas.
-        // Let's implement empty canvas drag = pan for simplicity! (Locked view never pans.)
+      if (isPanningRef.current) {
+        // Dragging empty board pans the viewport — the plainest possible
+        // reading of "grab the paper and move it".
         if (mode === 'select' || mode === 'text' || mode === 'pan' || mode === 'relax' || mode === 'brainstorm') {
           const dx = e.clientX - panStartRef.current.x;
           const dy = e.clientY - panStartRef.current.y;
@@ -876,8 +870,7 @@ export default function InfiniteCanvas() {
         // If it was a click (not a drag) on empty space in select/text/shape/arrow mode, create element!
         const target = e.target as HTMLElement;
         const isClickOnObject = target.closest('.canvas-object') || target.closest('.canvas-object-content');
-        const locked = useCanvasStore.getState().viewLocked;
-        if (!isClickOnObject && (locked || mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax' || mode === 'brainstorm')) {
+        if (!isClickOnObject && (mode === 'select' || mode === 'text' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax' || mode === 'brainstorm')) {
           const dx = Math.abs(e.clientX - panStartRef.current.x);
           const dy = Math.abs(e.clientY - panStartRef.current.y);
           if (dx < 5 && dy < 5) {
@@ -886,27 +879,13 @@ export default function InfiniteCanvas() {
 
             /* Far enough out that the board is a map: a click means "closer",
                not "start writing here". Only in select mode — every other tool
-               was picked up on purpose and gets to do its job at any zoom. And
-               not while the view is locked, where a tap is always a note. */
-            if (!locked && mode === 'select' && camera.zoom < DIVE_ZOOM) {
+               was picked up on purpose and gets to do its job at any zoom. */
+            if (mode === 'select' && camera.zoom < DIVE_ZOOM) {
               diveTo(worldPos);
               return;
             }
 
-            if (locked) {
-              // Locked view: a tap always drops a writable text box, whatever
-              // tool happens to be held — the whole point of the frozen space.
-              const ts = useCanvasStore.getState().textStyle;
-              const obj = addObject({
-                type: 'text', x: worldPos.x, y: worldPos.y, width: 160, height: 44, content: '',
-                style: {
-                  fontSize: ts.fontSize, fontFamily: ts.fontFamily, fontWeight: ts.fontWeight,
-                  textColor: ts.textColor, bgColor: ts.bgColor, textAlign: ts.textAlign, headingLevel: ts.headingLevel,
-                },
-              });
-              setSelectedId(obj.id);
-              setEditingId(obj.id);
-            } else if (mode === 'arrow') {
+            if (mode === 'arrow') {
               const aStyle = useCanvasStore.getState().arrowStyle;
               if (!activeArrowId) {
                 // First click: Create the arrow with the current tool defaults
@@ -1077,6 +1056,36 @@ export default function InfiniteCanvas() {
       window.removeEventListener('keydown', onKey);
     };
   }, [boardMenuOpen]);
+
+  /* Background, Stress Reliefer and Flow Mode share one contract: click outside
+     or press Escape to dismiss. The background and relax pickers additionally
+     close on any click that lands on the board — you're choosing how the canvas
+     LOOKS, and you can't judge that through a card sitting on top of it. Flow
+     Mode is a settings sheet, so it stays put until dismissed. */
+  useEffect(() => {
+    if (!bgMenuOpen && !relaxMenuOpen && !flowMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      const inside = (sel: string) => !!el?.closest?.(sel);
+      // Each row is excluded from its own dropdown's dismissal, or the mousedown
+      // would close it a beat before the click reopened it.
+      if (!inside('.bg-menu') && !inside('[data-bg-button]')) setBgMenuOpen(false);
+      if (!inside('.relax-menu') && !inside('[data-relax-button]')) setRelaxMenuOpen(false);
+      if (!inside('.flow-menu') && !inside('[data-flow-button]')) setFlowMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setBgMenuOpen(false);
+      setRelaxMenuOpen(false);
+      setFlowMenuOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [bgMenuOpen, relaxMenuOpen, flowMenuOpen]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1552,7 +1561,7 @@ export default function InfiniteCanvas() {
           /* The cursor is the whole tutorial for diving: out here it turns into
              a magnifier, so "click to get closer" is offered rather than
              explained. */
-          mode === 'select' && !viewLocked && camera.zoom < DIVE_ZOOM ? ' dive-ready' : ''
+          mode === 'select' && camera.zoom < DIVE_ZOOM ? ' dive-ready' : ''
         }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -1609,41 +1618,6 @@ export default function InfiniteCanvas() {
           )}
         </AnimatePresence>
       </div>
-
-      {/* Lock-in mode — a calm accent ring frames the viewport as "your space",
-          with a small pill that clicks to unlock. Pointer-events off on the ring
-          so it never eats a click meant for the board underneath. */}
-      <AnimatePresence>
-        {viewLocked && (
-          <>
-            <motion.div
-              key="lock-ring"
-              className="fixed inset-0 z-[95] pointer-events-none view-lock-ring"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.5 }}
-            />
-            <motion.button
-              key="lock-pill"
-              onClick={() => useCanvasStore.getState().setViewLocked(false)}
-              className="fixed top-16 left-1/2 -translate-x-1/2 z-[96] flex items-center gap-1.5 rounded-full clay-card cursor-pointer"
-              style={{ padding: '5px 12px 5px 10px' }}
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ type: 'spring', damping: 22, stiffness: 260 }}
-              title="Your view is locked — click to unlock"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4.5" y="11" width="15" height="9" rx="2" />
-                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-              </svg>
-              <span className="text-[11px] font-bold text-[var(--text-secondary)]">Locked view</span>
-            </motion.button>
-          </>
-        )}
-      </AnimatePresence>
 
       {/* Breadcrumb for nested canvases */}
       <AnimatePresence>
@@ -1816,7 +1790,8 @@ export default function InfiniteCanvas() {
               on is never buried in a closed menu. */}
           {!isEditingTitle && (() => {
             const skillActive = isSkillsetActive(skillset);
-            const anyActive = skillActive || pluginsPanelOpen || scenesMenuOpen;
+            const anyActive = skillActive || pluginsPanelOpen || scenesMenuOpen
+              || flowEnabled || !!relaxEffect || bgMenuOpen || relaxMenuOpen || flowMenuOpen;
             return (
               <button
                 data-board-menu-button
@@ -1867,11 +1842,57 @@ export default function InfiniteCanvas() {
                 exit={{ opacity: 0, y: -8, scale: 0.97 }}
                 transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
               >
-                <div className="tool-panel flex flex-col gap-0.5" style={{ padding: 7, width: 244 }}>
-                  {/* Scenes leads: it's the one row that opens a workspace of its
-                      own rather than firing an action. A dot says "there are
-                      scenes in here" — the exact number was noise, since the
-                      list itself is one click away. */}
+                <div className="tool-panel flex flex-col gap-0.5" style={{ padding: 7, width: 250 }}>
+                  {/* Two groups, and the separator between them is the whole
+                      reason this menu still reads at eight rows: how the board
+                      LOOKS and FEELS first (background, mood, focus), then what
+                      you DO with it (present, share, teach the agent, extend,
+                      invite). Nothing here draws — that's the toolbar's job. */}
+                  <MenuRow
+                    onClick={() => { close(); setRelaxMenuOpen(false); setFlowMenuOpen(false); setBgMenuOpen((v) => !v); }}
+                    label="Background"
+                    hint="Paper, colour & light for this board"
+                    active={bgMenuOpen}
+                    data-bg-button
+                  >
+                    {/* a paint drop over a filled half-disc — the same mark the
+                        toolbar button carried, so it's still recognisable */}
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+                  </MenuRow>
+
+                  <MenuRow
+                    onClick={() => { close(); setBgMenuOpen(false); setFlowMenuOpen(false); setRelaxMenuOpen((v) => !v); }}
+                    label="Stress Reliefer"
+                    hint="Fifteen ways to let a thought go"
+                    active={relaxMenuOpen}
+                    dot={!!relaxEffect}
+                    data-relax-button
+                  >
+                    <ellipse cx="11" cy="12.5" rx="7.2" ry="3.8" transform="rotate(20 11 12.5)" />
+                    <ellipse cx="13" cy="11.5" rx="6.8" ry="4.2" transform="rotate(-40 13 11.5)" />
+                    <ellipse cx="12" cy="12" rx="7.5" ry="3.5" transform="rotate(70 12 12)" />
+                  </MenuRow>
+
+                  <MenuRow
+                    onClick={() => { close(); setBgMenuOpen(false); setRelaxMenuOpen(false); setFlowMenuOpen((v) => !v); }}
+                    label="Flow Mode"
+                    hint="Cinematic focus writing"
+                    active={flowMenuOpen}
+                    dot={flowEnabled}
+                    data-flow-button
+                  >
+                    <path d="M5.4 6.6c2.2-2.3 4.4-2.3 6.6 0s4.4 2.3 6.6 0" opacity="0.5" />
+                    <path d="M3 12c3-3.1 6-3.1 9 0s6 3.1 9 0" />
+                    <path d="M5.4 17.4c2.2-2.3 4.4-2.3 6.6 0s4.4 2.3 6.6 0" opacity="0.5" />
+                  </MenuRow>
+
+                  <div className="w-full h-px shrink-0" style={{ background: 'var(--border)', margin: '5px 0' }} />
+
+                  {/* Scenes leads the second group: it's the one row that opens a
+                      workspace of its own rather than firing an action. A dot
+                      says "there are scenes in here" — the exact number was
+                      noise, since the list itself is one click away. */}
                   <MenuRow
                     onClick={() => { close(); setPluginsPanelOpen(false); setScenesMenuOpen((v) => !v); }}
                     label="Scenes"
@@ -1891,7 +1912,7 @@ export default function InfiniteCanvas() {
                   <MenuRow
                     onClick={() => { close(); setShowShare(true); }}
                     label="Share"
-                    hint="View-only link, or export as image / PDF"
+                    hint="View-only link, image or PDF"
                   >
                     <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
                     <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
@@ -1986,8 +2007,53 @@ export default function InfiniteCanvas() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Canvas background — same anchor, same motion, same dismissal as
+            Scenes and Plugins. It used to fly up out of the toolbar; hanging it
+            off the board's name puts the control next to the thing it changes. */}
+        <AnimatePresence>
+          {bgMenuOpen && (
+            <motion.div
+              key="bg-dropdown"
+              className="bg-menu absolute left-0 top-full z-[120]"
+              style={{ marginTop: 12 }}
+              initial={{ opacity: 0, y: -8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.97 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <div className="clay-card rounded-[24px]" style={{ padding: 16 }}>
+                <CanvasBackgroundPanel onPick={() => setBgMenuOpen(false)} />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {relaxMenuOpen && (
+            <div className="relax-menu absolute left-0 top-full z-[120]" style={{ marginTop: 12 }}>
+              <RelaxPanel onClose={() => setRelaxMenuOpen(false)} />
+            </div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {flowMenuOpen && (
+            <motion.div
+              key="flow-dropdown"
+              className="flow-menu absolute left-0 top-full z-[120]"
+              style={{ marginTop: 12 }}
+              initial={{ opacity: 0, y: -8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.97 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <FlowModePanel onClose={() => setFlowMenuOpen(false)} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-      
+
       {/* Flow Mode: cinematic focus-writing overlay (spotlight, weather, progress) */}
       <FlowModeLayer />
 
