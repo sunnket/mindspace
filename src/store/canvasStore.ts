@@ -8,6 +8,7 @@ import { CanvasSkillset, emptySkillset, makeRule, getPreset, installPreset } fro
 import { cameraForRect, objectsInFrame, strokesInFrame, type FrameKind } from '@/lib/frames';
 import { isStackable, stackIdOf, membersOf, stackSlots } from '@/lib/stacks';
 import { sameLink } from '@/lib/constellations';
+import { DEFAULT_CONNECTOR, type ConnectorStyle } from '@/lib/connectors';
 import {
   BrainstormTool,
   DEFAULT_PIN_COLOR,
@@ -470,11 +471,20 @@ interface CanvasStore {
   // Connections
   connections: ConnectionData[];
   setConnections: (conns: ConnectionData[]) => void;
-  addConnection: (fromId: string, toId: string, style?: Record<string, any>) => void;
+  addConnection: (fromId: string, toId: string, style?: Record<string, any>) => ConnectionData;
   removeConnection: (id: string) => void;
+  /** Restyle one connector in place (shape, ends, ink, label…). */
+  updateConnection: (id: string, stylePatch: Record<string, unknown>) => void;
   connectorSelectedIds: string[];
   toggleConnectorSelection: (id: string) => void;
   resetConnectorSelection: () => void;
+  /** The connector whose options panel is open. Independent of `selectedId`. */
+  selectedConnectionId: string | null;
+  setSelectedConnectionId: (id: string | null) => void;
+  /* The look given to the NEXT connector you draw — edited in the connector
+     panel while nothing is selected, exactly like arrowStyle/textStyle. */
+  connectorStyle: ConnectorStyle;
+  setConnectorStyle: (patch: Partial<ConnectorStyle>) => void;
 
   // Workflow settings
   activeWorkflowId: string | null;
@@ -1393,7 +1403,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     });
 
     blankObjects.forEach(o => state.removeObject(o.id));
-    set({ selectedId: id });
+    /* Selecting a block lets go of any selected connector. Two things selected
+       at once means two option panels claiming the screen, and a Delete key
+       with no obvious target. */
+    set(id ? { selectedId: id, selectedConnectionId: null } : { selectedId: id });
   },
 
   /* ---- Stacks ---------------------------------------------------------
@@ -1923,12 +1936,31 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     emitCollab({ kind: 'connection-add', connection: newConn });
     // Save to DB
     import('@/lib/db').then(({ saveConnection }) => saveConnection(newConn));
+    return newConn;
   },
   removeConnection: (id) => {
-    set((state) => ({ connections: state.connections.filter(c => c.id !== id), isDirty: true }));
+    set((state) => ({
+      connections: state.connections.filter(c => c.id !== id),
+      selectedConnectionId: state.selectedConnectionId === id ? null : state.selectedConnectionId,
+      isDirty: true,
+    }));
     emitCollab({ kind: 'connection-remove', id });
     // Delete from DB
     import('@/lib/db').then(({ deleteConnection }) => deleteConnection(id));
+  },
+  /* Restyle a live connector. There's no `connection-update` op: peers apply
+     `connection-add` as an upsert (it filters the id out before adding), so
+     re-broadcasting the whole connection is the update. */
+  updateConnection: (id, stylePatch) => {
+    const existing = get().connections.find((c) => c.id === id);
+    if (!existing) return;
+    const updated: ConnectionData = { ...existing, style: { ...(existing.style || {}), ...stylePatch } };
+    set((state) => ({
+      connections: state.connections.map((c) => (c.id === id ? updated : c)),
+      isDirty: true,
+    }));
+    emitCollab({ kind: 'connection-add', connection: updated });
+    import('@/lib/db').then(({ saveConnection }) => saveConnection(updated));
   },
   connectorSelectedIds: [],
   toggleConnectorSelection: (id) => {
@@ -1938,16 +1970,22 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     } else {
       const next = [...current, id];
       if (next.length === 2) {
-        // Connect them!
-        get().addConnection(next[0], next[1]);
-        set({ connectorSelectedIds: [] }); // Reset selection after connecting
-        console.log('Connected objects:', next[0], next[1]);
+        /* Both ends picked — draw it in whatever look the connector panel is
+           currently set to, then SELECT it, so the same panel you chose the
+           look in switches to editing the line you just made. */
+        const bag = { ...get().connectorStyle } as Record<string, unknown>;
+        const conn = get().addConnection(next[0], next[1], bag);
+        set({ connectorSelectedIds: [], selectedConnectionId: conn.id });
       } else {
         set({ connectorSelectedIds: next });
       }
     }
   },
   resetConnectorSelection: () => set({ connectorSelectedIds: [] }),
+  selectedConnectionId: null,
+  setSelectedConnectionId: (selectedConnectionId) => set({ selectedConnectionId }),
+  connectorStyle: { ...DEFAULT_CONNECTOR },
+  setConnectorStyle: (patch) => set((s) => ({ connectorStyle: { ...s.connectorStyle, ...patch } })),
 
   // Workflow settings
   activeWorkflowId: null,

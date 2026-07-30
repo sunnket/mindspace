@@ -1602,6 +1602,17 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         return;
       }
 
+      /* Tapped from a long way out, where this block is a 20px smudge. Nobody
+         aims at something that small to select it — they're asking to get to
+         it. So fly in and frame it, and leave it selected once you land. The
+         canvas owns the camera move (see `dive-to-object` in InfiniteCanvas);
+         the threshold is low enough that ordinary work is untouched. */
+      if (mode === 'select' && !dragMovedRef.current && useCanvasStore.getState().camera.zoom < 0.5) {
+        window.dispatchEvent(new CustomEvent('dive-to-object', { detail: { id: obj.id } }));
+        setSelectedId(obj.id);
+        return;
+      }
+
       /* Brainstorm kit routing. A tap in brainstorm mode means one of the three
          tools, never "edit this block":
            · clip   → fasten / unfasten a paper clip on this block

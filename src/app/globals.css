@@ -198,7 +198,7 @@ html, body {
 .tour-mode .canvas-chrome,
 .tour-mode .floating-toolbar,
 .tour-mode .minimap-container,
-.tour-mode .scenes-launcher,
+.tour-mode .connector-panel,
 .tour-mode .glow-cursor {
   opacity: 0 !important;
   pointer-events: none !important;
@@ -269,6 +269,13 @@ html, body {
 
 .canvas-container.mode-pan:active {
   cursor: grabbing;
+}
+
+/* Zoomed far enough out that a click dives in rather than creating anything.
+   Blocks set their own cursor inline, so this only ever shows over empty board
+   — which is exactly where the gesture applies. */
+.canvas-container.dive-ready {
+  cursor: zoom-in;
 }
 
 .canvas-container.mode-draw {

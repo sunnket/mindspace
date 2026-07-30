@@ -30,6 +30,7 @@ import FlowModeLayer from './FlowModeLayer';
 import PdfReaderLayer from './PdfReaderLayer';
 import DrawingLayer from './DrawingLayer';
 import ConnectionsLayer from './ConnectionsLayer';
+import ConnectorPanel from '@/components/ui/ConnectorPanel';
 import FloatingToolbar from '@/components/ui/FloatingToolbar';
 import SpatialSearch from '@/components/ui/SpatialSearch';
 import SingularitySearch from '@/components/ui/SingularitySearch';
@@ -50,7 +51,7 @@ import VoiceOrb from './VoiceOrb';
 import ShortcutsOverlay from './ShortcutsOverlay';
 import ShareModal from '@/components/ui/ShareModal';
 import Pocket from './Pocket';
-import ScenesPanel from './ScenesPanel';
+import ScenesPanel, { ScenesList } from './ScenesPanel';
 import FrameHUD from './FrameHUD';
 import ChatLauncher from '@/components/chat/ChatLauncher';
 import AgentChatPanel from '@/components/chat/AgentChatPanel';
@@ -105,7 +106,7 @@ function GlowCursor({ isDrawMode }: { isDrawMode: boolean }) {
  * for a label and a description instead of just a word.
  */
 function MenuRow({
-  onClick, label, hint, children, active = false, badge, ...rest
+  onClick, label, hint, children, active = false, badge, dot = false, ...rest
 }: {
   onClick: () => void;
   label: string;
@@ -113,6 +114,8 @@ function MenuRow({
   children: React.ReactNode;
   active?: boolean;
   badge?: number;
+  /** "There's something in here" — without spelling out how much. */
+  dot?: boolean;
 } & React.HTMLAttributes<HTMLButtonElement>) {
   return (
     <button
@@ -158,6 +161,13 @@ function MenuRow({
         >
           {badge}
         </span>
+      )}
+      {badge === undefined && dot && (
+        <span
+          aria-hidden="true"
+          className="shrink-0 rounded-full"
+          style={{ width: 6, height: 6, background: 'var(--accent)', marginRight: 3 }}
+        />
       )}
     </button>
   );
@@ -227,8 +237,11 @@ export default function InfiniteCanvas() {
   const setSkillSetPanelOpen = useCanvasStore((s) => s.setSkillSetPanelOpen);
   const pluginsPanelOpen = useCanvasStore((s) => s.pluginsPanelOpen);
   const setPluginsPanelOpen = useCanvasStore((s) => s.setPluginsPanelOpen);
-  /** The ▾ board menu beside the canvas name (Share / Skill Set / Plugins / Collaborate). */
+  /** The ▾ board menu beside the canvas name (Scenes / Share / Skill Set / Plugins / Collaborate). */
   const [boardMenuOpen, setBoardMenuOpen] = useState(false);
+  /** Scenes moved out of its own top-right corner and into that menu. */
+  const [scenesMenuOpen, setScenesMenuOpen] = useState(false);
+  const sceneCount = useCanvasStore((s) => s.scenes.length);
   // Collab lives in its own store; the header only needs "is a session running"
   // (to hide the idle entry point) and the way to start one.
   const collabStatus = useCollabStore((s) => s.status);
@@ -665,6 +678,9 @@ export default function InfiniteCanvas() {
       // …and an open pile gathers itself back up. Clicking away from a thing
       // is how you're done with it everywhere else on this canvas.
       useCanvasStore.getState().setSpreadStack(null);
+      /* A selected connector lets go too. Its own hit path stops mousedown from
+         reaching here, so this only ever fires for a click that missed it. */
+      useCanvasStore.getState().setSelectedConnectionId(null);
     },
     [mode, viewLocked, camera, setSelectedId, setEditingId, plusMenuPos, setPlusMenuPos]
   );
@@ -750,6 +766,108 @@ export default function InfiniteCanvas() {
     [mode, setCamera, activeArrowId, objects, updateObject]
   );
 
+  /* ------------------------------------------------------------------
+     Zoomed out, then clicked: dive in.
+
+     Below ~60% the board stops being a page and becomes a map. You can see
+     where everything is and read none of it, and the only ways in were the
+     wheel (which zooms around the cursor, so you overshoot and hunt) and the
+     minimap. Worse, a click out here used to DROP A TEXT BOX at 40% scale —
+     you asked to look closer and got a 6px caret instead.
+
+     So a click on empty board while zoomed out means "take me there", and two
+     bits of judgement make it land somewhere useful rather than technically
+     correct:
+
+       · It aims at CONTENT, not at the pixel. Whatever sits within reach of the
+         click is gathered up and framed as a group, so you arrive with the
+         cluster centred and whole instead of half a card filling the screen.
+         Click genuinely empty space and you simply get 100% at that point.
+       · It never zooms OUT. The fit is floored at a real magnification, so a
+         dive is always a dive.
+
+     And because a camera jump you didn't ask for is disorienting, the previous
+     view is kept for a few seconds behind one chip.
+     ------------------------------------------------------------------ */
+  /** Below this zoom, a click on empty canvas dives instead of creating. */
+  const DIVE_ZOOM = 0.62;
+  const [diveBack, setDiveBack] = useState<{ x: number; y: number; zoom: number } | null>(null);
+  const diveBackTimer = useRef<number | null>(null);
+
+  const rememberDive = useCallback((cam: { x: number; y: number; zoom: number }) => {
+    setDiveBack(cam);
+    if (diveBackTimer.current) window.clearTimeout(diveBackTimer.current);
+    diveBackTimer.current = window.setTimeout(() => setDiveBack(null), 9000);
+  }, []);
+  useEffect(() => () => { if (diveBackTimer.current) window.clearTimeout(diveBackTimer.current); }, []);
+
+  const diveTo = useCallback((world: { x: number; y: number }) => {
+    const store = useCanvasStore.getState();
+    const cam = store.camera;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    /** How far from the click still counts as "what you were pointing at". */
+    const REACH = 340;
+    const near = store.objects.filter((o) => {
+      if (o.style?.isMinimized) return false;
+      const dx = Math.max(o.x - world.x, 0, world.x - (o.x + o.width));
+      const dy = Math.max(o.y - world.y, 0, world.y - (o.y + o.height));
+      return Math.hypot(dx, dy) <= REACH;
+    });
+
+    let target: { x: number; y: number; zoom: number };
+    if (near.length > 0) {
+      const minX = Math.min(...near.map((o) => o.x));
+      const minY = Math.min(...near.map((o) => o.y));
+      const maxX = Math.max(...near.map((o) => o.x + o.width));
+      const maxY = Math.max(...near.map((o) => o.y + o.height));
+      const pad = 90;
+      const fit = Math.min(vw / (maxX - minX + pad * 2), vh / (maxY - minY + pad * 2));
+      // Never below a real magnification, never past 100% — you asked to read
+      // it, not to inspect the pixels.
+      const zoom = clamp(fit, Math.min(1, cam.zoom * 1.8), 1);
+      target = {
+        x: vw / 2 - (minX + (maxX - minX) / 2) * zoom,
+        y: vh / 2 - (minY + (maxY - minY) / 2) * zoom,
+        zoom,
+      };
+    } else {
+      target = { x: vw / 2 - world.x, y: vh / 2 - world.y, zoom: 1 };
+    }
+
+    rememberDive(cam);
+    store.animateCamera(target, 620);
+  }, [rememberDive]);
+
+  /** A block tapped from far out gets framed on its own — same idea, one card. */
+  const diveToObject = useCallback((id: string) => {
+    const store = useCanvasStore.getState();
+    const obj = store.objects.find((o) => o.id === id);
+    if (!obj) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const pad = 120;
+    const zoom = clamp(Math.min(vw / (obj.width + pad * 2), vh / (obj.height + pad * 2)), 0.4, 1);
+    rememberDive(store.camera);
+    store.animateCamera({
+      x: vw / 2 - (obj.x + obj.width / 2) * zoom,
+      y: vh / 2 - (obj.y + obj.height / 2) * zoom,
+      zoom,
+    }, 620);
+  }, [rememberDive]);
+
+  /* A block's own click handler can't reach these callbacks (it lives inside
+     CanvasObject, one tree away), so it asks for a dive by event. */
+  useEffect(() => {
+    const onDive = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id;
+      if (id) diveToObject(id);
+    };
+    window.addEventListener('dive-to-object', onDive as EventListener);
+    return () => window.removeEventListener('dive-to-object', onDive as EventListener);
+  }, [diveToObject]);
+
   const handleMouseUp = useCallback(
     (e: React.MouseEvent) => {
       if (isPanningRef.current) {
@@ -765,6 +883,15 @@ export default function InfiniteCanvas() {
           if (dx < 5 && dy < 5) {
             // It was a click
             const worldPos = screenToCanvas(e.clientX, e.clientY, camera);
+
+            /* Far enough out that the board is a map: a click means "closer",
+               not "start writing here". Only in select mode — every other tool
+               was picked up on purpose and gets to do its job at any zoom. And
+               not while the view is locked, where a tap is always a note. */
+            if (!locked && mode === 'select' && camera.zoom < DIVE_ZOOM) {
+              diveTo(worldPos);
+              return;
+            }
 
             if (locked) {
               // Locked view: a tap always drops a writable text box, whatever
@@ -895,7 +1022,7 @@ export default function InfiniteCanvas() {
         }
       }
     },
-    [mode, camera, addObject, setSelectedId, setEditingId, setMode, activeArrowId, setActiveArrowId]
+    [mode, camera, addObject, setSelectedId, setEditingId, setMode, activeArrowId, setActiveArrowId, diveTo]
   );
 
   /* Dismiss the Plugins dropdown on an outside click — same contract as the
@@ -913,6 +1040,25 @@ export default function InfiniteCanvas() {
     window.addEventListener('mousedown', onDown);
     return () => window.removeEventListener('mousedown', onDown);
   }, [pluginsPanelOpen, setPluginsPanelOpen]);
+
+  /* Scenes gets the same treatment. It's a workspace rather than a menu, so a
+     click inside it (renaming a scene, reordering, flying to one) must not
+     close it — only a click that lands outside does. */
+  useEffect(() => {
+    if (!scenesMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.('.scenes-menu') || el?.closest?.('[data-scenes-button]')) return;
+      setScenesMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setScenesMenuOpen(false); };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [scenesMenuOpen]);
 
   /* Same contract for the ▾ board menu, plus Escape — a menu opened by an
      explicit click needs an equally explicit way out. */
@@ -1051,6 +1197,12 @@ export default function InfiniteCanvas() {
 
       // Delete
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        // A selected connector is the smaller, more recent thing — it goes first.
+        const connId = useCanvasStore.getState().selectedConnectionId;
+        if (connId) {
+          useCanvasStore.getState().removeConnection(connId);
+          return;
+        }
         if (selectedId) {
           const obj = objects.find((o) => o.id === selectedId);
           if (obj) {
@@ -1396,7 +1548,12 @@ export default function InfiniteCanvas() {
         ref={containerRef}
         className={`canvas-container paper-texture mode-${mode}${
           mode === 'relax' && relaxEffect ? ` relax-${relaxEffect}` : ''
-        }${mode === 'brainstorm' ? ` tool-${brainstormTool}` : ''}`}
+        }${mode === 'brainstorm' ? ` tool-${brainstormTool}` : ''}${
+          /* The cursor is the whole tutorial for diving: out here it turns into
+             a magnifier, so "click to get closer" is offered rather than
+             explained. */
+          mode === 'select' && !viewLocked && camera.zoom < DIVE_ZOOM ? ' dive-ready' : ''
+        }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -1546,30 +1703,11 @@ export default function InfiniteCanvas() {
         )}
       </AnimatePresence>
 
-      {/* Connector Mode Exit UI */}
-      <AnimatePresence>
-        {mode === 'connector' && (
-          <motion.div
-            className="fixed top-12 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto"
-            initial={{ opacity: 0, y: -20, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.9 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-          >
-            <button
-              onClick={() => setMode('select')}
-              className="glass-panel px-5 py-2.5 flex items-center gap-3 group transition-all hover:border-[var(--accent)] hover:shadow-[0_0_20px_rgba(var(--accent-rgb),0.2)]"
-            >
-              <div className="w-5 h-5 rounded-full bg-[var(--accent-subtle)] flex items-center justify-center text-[var(--accent)] group-hover:bg-[var(--accent)] group-hover:text-white transition-colors">
-                <span className="text-xs">✕</span>
-              </div>
-              <span className="text-xs font-medium tracking-wide text-[var(--text-primary)] uppercase">
-                Exit Connector Mode
-              </span>
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Connectors: one panel at the top of the screen that is both the tool
+          (in connector mode) and the editor for whichever link is selected.
+          It replaced a bare "Exit Connector Mode" pill — the mode had a way
+          out and no way to say what kind of line you wanted. */}
+      <ConnectorPanel />
 
       {/* Brainstorm Mode HUD — names the active tool, guides the thread flow,
           and offers a one-click exit. Mirrors the connector-mode banner. */}
@@ -1678,7 +1816,7 @@ export default function InfiniteCanvas() {
               on is never buried in a closed menu. */}
           {!isEditingTitle && (() => {
             const skillActive = isSkillsetActive(skillset);
-            const anyActive = skillActive || pluginsPanelOpen;
+            const anyActive = skillActive || pluginsPanelOpen || scenesMenuOpen;
             return (
               <button
                 data-board-menu-button
@@ -1730,6 +1868,26 @@ export default function InfiniteCanvas() {
                 transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
               >
                 <div className="tool-panel flex flex-col gap-0.5" style={{ padding: 7, width: 244 }}>
+                  {/* Scenes leads: it's the one row that opens a workspace of its
+                      own rather than firing an action. A dot says "there are
+                      scenes in here" — the exact number was noise, since the
+                      list itself is one click away. */}
+                  <MenuRow
+                    onClick={() => { close(); setPluginsPanelOpen(false); setScenesMenuOpen((v) => !v); }}
+                    label="Scenes"
+                    hint="Present this board as a guided tour"
+                    active={scenesMenuOpen}
+                    dot={sceneCount > 0}
+                    data-scenes-button
+                  >
+                    {/* a slide with a play head on it, and the deck behind */}
+                    <path d="M6.5 18.5H5A1.5 1.5 0 0 1 3.5 17V7" opacity="0.45" />
+                    <rect x="6.5" y="4" width="14" height="12.5" rx="2" />
+                    <path d="M11.8 8.2v4.1l3.6-2.05z" fill="currentColor" stroke="none" />
+                    <path d="M13.5 16.5v3.2" />
+                    <path d="M10.6 20.4h5.8" />
+                  </MenuRow>
+
                   <MenuRow
                     onClick={() => { close(); setShowShare(true); }}
                     label="Share"
@@ -1792,6 +1950,24 @@ export default function InfiniteCanvas() {
           </button>
         )}
 
+        {/* Scenes, hanging off the board menu that opened it. Same anchor and
+            same dismissal contract as Plugins below. */}
+        <AnimatePresence>
+          {scenesMenuOpen && (
+            <motion.div
+              key="scenes-dropdown"
+              className="scenes-menu absolute left-0 top-full z-[120]"
+              style={{ marginTop: 12 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+            >
+              <ScenesList onPlay={() => setScenesMenuOpen(false)} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Plugins, as a dropdown hanging off its own pill — the same shape and
             dismissal contract as the insert (+) menu, rather than a panel
             floating up out of the toolbar. */}
@@ -1850,6 +2026,49 @@ export default function InfiniteCanvas() {
         <Minimap />
         {/* Scrolled off into empty space? One chip, pointing home. */}
         <ReturnToWork />
+
+        {/* Just dived in? The view you came from, held for a few seconds behind
+            one chip. A camera move the user didn't type has to be undoable, and
+            re-finding an overview by hand is the most annoying way to spend a
+            wheel. It sits in the same top-centre slot as ReturnToWork, which
+            can't be on screen at the same time — that one only appears when
+            NOTHING is in view, and a dive always lands on something. */}
+        <AnimatePresence>
+          {diveBack && (
+            <motion.button
+              key="dive-back"
+              onClick={() => {
+                useCanvasStore.getState().animateCamera(diveBack, 560);
+                setDiveBack(null);
+              }}
+              initial={{ opacity: 0, y: -12, scale: 0.94 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -12, scale: 0.94 }}
+              transition={{ type: 'spring', damping: 24, stiffness: 300 }}
+              className="fixed left-1/2 -translate-x-1/2 z-[144] flex items-center gap-2.5 rounded-full clay-card cursor-pointer pointer-events-auto group flow-hideable"
+              style={{ top: 16, padding: '7px 15px 7px 9px' }}
+              title="Return to the view you dived in from"
+            >
+              <span
+                className="flex items-center justify-center rounded-full shrink-0"
+                style={{ width: 24, height: 24, background: 'var(--accent-subtle)', color: 'var(--accent)' }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M8 11h6M20 20l-4.4-4.4" />
+                </svg>
+              </span>
+              <span className="flex flex-col items-start leading-none" style={{ gap: 2 }}>
+                <span className="text-[11.5px] font-extrabold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">
+                  Back to overview
+                </span>
+                <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--text-tertiary)]">
+                  {Math.round(diveBack.zoom * 100)}% view
+                </span>
+              </span>
+            </motion.button>
+          )}
+        </AnimatePresence>
         <CheckpointIndex />
         <SaveIndicator />
         <TrashPile />
@@ -1884,10 +2103,11 @@ export default function InfiniteCanvas() {
         <AgentChatPanel />
       </div>
 
-      {/* Scenes: cinematic camera tours. Deliberately OUTSIDE .canvas-chrome —
-          it renders the tour player itself, which must survive the very rule
-          that hides the chrome. Its launcher pill opts in separately via the
-          .scenes-launcher class. */}
+      {/* Scenes: the tour PLAYER, and nothing else. Deliberately outside
+          .canvas-chrome, because it must survive the very rule that hides the
+          chrome during a presentation. The scene list lives in the ▾ board menu
+          above, inside the wrapper, where it's hidden along with everything
+          else the moment a tour starts. */}
       <ScenesPanel />
     </>
   );

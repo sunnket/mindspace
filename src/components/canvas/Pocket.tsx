@@ -243,13 +243,15 @@ export default function Pocket() {
             )}
           </AnimatePresence>
 
+          {/* Just a dot. The exact number of carried blocks was a running tally
+              nobody was keeping — "there's something in the pocket" is the whole
+              message, and the tray itself shows what. */}
           {pocket.length > 0 && !dragActive && (
             <span
-              className="absolute -top-1 -right-1 min-w-[17px] h-[17px] rounded-full bg-[var(--accent)] text-white text-[9px] font-extrabold flex items-center justify-center tabular-nums shadow-sm"
-              style={{ padding: '0 4px' }}
-            >
-              {pocket.length}
-            </span>
+              aria-hidden="true"
+              className="absolute rounded-full bg-[var(--accent)] shadow-sm"
+              style={{ width: 8, height: 8, top: -1, right: -1, boxShadow: '0 0 0 2px var(--bg-primary)' }}
+            />
           )}
         </motion.button>
 
@@ -269,9 +271,6 @@ export default function Pocket() {
                 <h3 className="text-[10.5px] uppercase font-extrabold tracking-[0.16em] text-[var(--text-secondary)]">
                   Pocket
                 </h3>
-                <span className="text-[9.5px] font-bold text-[var(--text-tertiary)] tabular-nums">
-                  {pocket.length} carried
-                </span>
               </div>
 
               {pocket.length === 0 ? (

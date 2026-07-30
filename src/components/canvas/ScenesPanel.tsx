@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useCanvasStore, resolveParentId } from '@/store/canvasStore';
 import { CanvasObjectData, Scene } from '@/lib/db';
 import TourPlayer from './TourPlayer';
@@ -51,77 +51,37 @@ function ScenePreview({ scene, objects, w = 148, h = 92 }: { scene: Scene; objec
   );
 }
 
+/**
+ * Scenes lost its own corner.
+ *
+ * The launcher used to be an 11th floating control in the top-right, which put
+ * a board-level action (present this) in a third place, away from the other
+ * board-level actions. It's a row in the ▾ board menu now, and this component
+ * is only the TOUR PLAYER — deliberately so, because the player has to survive
+ * the rule that hides every other piece of chrome during a presentation.
+ *
+ * The list itself is <ScenesList>, rendered by the board menu's dropdown, and
+ * it starts a tour by firing `play-scene-tour` — the same event a scene frame's
+ * HUD already used, so there's one way in rather than two.
+ */
 export default function ScenesPanel() {
-  // Only subscribe to `scenes` at the top level — NOT `objects` — so this
-  // never re-renders during a canvas drag. The heavy list (which needs live
-  // objects for previews) lives in <SceneList>, mounted only when open.
   const scenes = useCanvasStore((s) => s.scenes);
-  const [open, setOpen] = useState(false);
   const [tourFrom, setTourFrom] = useState<number | null>(null);
 
   const ordered = [...scenes].sort((a, b) => a.order - b.order);
 
-  // A scene frame's HUD can start the tour without the panel being open.
   useEffect(() => {
-    const play = () => { setOpen(false); setTourFrom(0); };
+    const play = () => setTourFrom(0);
     window.addEventListener('play-scene-tour', play);
     return () => window.removeEventListener('play-scene-tour', play);
   }, []);
 
-  return (
-    <>
-      {/* Top-right corner — the slot the account avatar used to occupy. Scenes
-          is a "present this board" action, which belongs with the board-level
-          controls at the top of the screen rather than floating over the middle
-          of the left edge, where it also collided with the Pocket rail. */}
-      <div className="scenes-launcher fixed top-12 right-10 z-[130] flex flex-row-reverse items-start gap-3 pointer-events-auto">
-        {/* Launcher. The old icon was a sprocketed film strip — busy at 19px and
-            it read as "video file". A slide with a play head on it says
-            "present these views", which is what this actually does. */}
-        <motion.button
-          onClick={() => setOpen((o) => !o)}
-          whileHover={{ scale: 1.04 }}
-          whileTap={{ scale: 0.96 }}
-          transition={spring}
-          title="Scenes — present this board as a guided tour"
-          aria-label="Scenes"
-          aria-expanded={open}
-          className="clay-card w-11 h-11 rounded-2xl flex items-center justify-center transition-colors cursor-pointer relative shrink-0"
-          style={{ color: open ? 'var(--accent)' : 'var(--text-secondary)' }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            {/* the deck behind, so it reads as several slides */}
-            <path d="M6.5 18.5H5A1.5 1.5 0 0 1 3.5 17V7" opacity="0.45" strokeWidth="1.6" />
-            {/* the slide itself */}
-            <rect x="6.5" y="4" width="14" height="12.5" rx="2" strokeWidth="1.7" />
-            {/* the play head, solid so it holds at small sizes */}
-            <path d="M11.8 8.2v4.1l3.6-2.05z" fill="currentColor" stroke="none" />
-            {/* the stand — a presentation, not a photo */}
-            <path d="M13.5 16.5v3.2" strokeWidth="1.7" />
-            <path d="M10.6 20.4h5.8" strokeWidth="1.7" />
-          </svg>
-          {scenes.length > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accent)] text-white text-[9px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">
-              {scenes.length}
-            </span>
-          )}
-        </motion.button>
-
-        {/* Panel — mounted only when open, so `objects` isn't subscribed at rest */}
-        <AnimatePresence>
-          {open && <SceneList onPlay={() => { setOpen(false); setTourFrom(0); }} />}
-        </AnimatePresence>
-      </div>
-
-      {tourFrom !== null && ordered.length > 0 && (
-        <TourPlayer scenes={ordered} startIndex={tourFrom} onExit={() => setTourFrom(null)} />
-      )}
-    </>
-  );
+  if (tourFrom === null || ordered.length === 0) return null;
+  return <TourPlayer scenes={ordered} startIndex={tourFrom} onExit={() => setTourFrom(null)} />;
 }
 
-/** The heavy panel body — only mounted while the panel is open. */
-function SceneList({ onPlay }: { onPlay: () => void }) {
+/** The heavy panel body — only mounted while the board menu's Scenes tab is open. */
+export function ScenesList({ onPlay }: { onPlay?: () => void }) {
   const scenes = useCanvasStore((s) => s.scenes);
   const objects = useCanvasStore((s) => s.objects);
   const addScene = useCanvasStore((s) => s.addScene);
@@ -143,11 +103,11 @@ function SceneList({ onPlay }: { onPlay: () => void }) {
 
   return (
     <motion.div
-      /* Slides in from the right now that the launcher lives in that corner —
-         the panel opens toward the middle of the screen, not off the edge. */
-      initial={{ opacity: 0, x: 12, scale: 0.97 }}
-      animate={{ opacity: 1, x: 0, scale: 1 }}
-      exit={{ opacity: 0, x: 12, scale: 0.97 }}
+      /* Drops out of the board menu it was opened from, matching the Plugins
+         dropdown exactly — same anchor, same motion, same dismissal. */
+      initial={{ opacity: 0, y: -8, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -8, scale: 0.97 }}
       transition={spring}
       // Inline padding: Tailwind p-* is dead here (global `* { padding:0 }`
       // reset wins), and with zero padding the rounded corner clips the "S".
@@ -239,7 +199,7 @@ function SceneList({ onPlay }: { onPlay: () => void }) {
 
       {ordered.length > 0 && (
         <button
-          onClick={onPlay}
+          onClick={() => { onPlay?.(); window.dispatchEvent(new Event('play-scene-tour')); }}
           className="shrink-0 w-full py-2.5 rounded-full bg-[var(--accent)] text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer hover:brightness-105 transition-all shadow-[0_10px_22px_-8px_rgba(var(--accent-rgb),0.6),inset_0_1px_0_rgba(255,255,255,0.3)]"
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5l12 7-12 7z" /></svg>
