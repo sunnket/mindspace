@@ -94,7 +94,7 @@ export class PdfSession {
      few megabytes of bitmap. */
   private raster = new Map<string, { canvas: HTMLCanvasElement; width: number; height: number }>();
   private rasterJobs = new Map<string, Promise<{ canvas: HTMLCanvasElement; width: number; height: number }>>();
-  private static RASTER_MAX = 10;
+  private static RASTER_MAX = 40;
 
   private constructor(doc: PdfDoc) {
     this.doc = doc;
@@ -150,6 +150,23 @@ export class PdfSession {
     return this.raster.has(this.rasterKey(n, targetWidth, Math.min(2, dpr)));
   }
 
+  /** Synchronously return a copy of the rendered page canvas if already cached. */
+  renderPageSync(n: number, targetWidth: number, dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1): RenderedPage | null {
+    const d = Math.min(2, dpr);
+    const key = this.rasterKey(n, targetWidth, d);
+    const master = this.raster.get(key);
+    if (!master) return null;
+
+    this.raster.delete(key);
+    this.raster.set(key, master);
+
+    const copy = document.createElement('canvas');
+    copy.width = master.canvas.width;
+    copy.height = master.canvas.height;
+    copy.getContext('2d', { alpha: false })?.drawImage(master.canvas, 0, 0);
+    return { canvas: copy, width: master.width, height: master.height };
+  }
+
   /**
    * Render page `n` into a canvas sized to fit `targetWidth` CSS px.
    *
@@ -160,6 +177,9 @@ export class PdfSession {
    * main-thread work, and it now happens once per page per size.
    */
   async renderPage(n: number, targetWidth: number, dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1): Promise<RenderedPage> {
+    const syncRes = this.renderPageSync(n, targetWidth, dpr);
+    if (syncRes) return syncRes;
+
     const d = Math.min(2, dpr);
     const key = this.rasterKey(n, targetWidth, d);
 
@@ -173,8 +193,6 @@ export class PdfSession {
       }
       master = await job;
       this.raster.set(key, master);
-      // Oldest out first. Map preserves insertion order, and a re-read below
-      // re-inserts, so this is a plain LRU.
       while (this.raster.size > PdfSession.RASTER_MAX) {
         const oldest = this.raster.keys().next().value;
         if (oldest === undefined) break;

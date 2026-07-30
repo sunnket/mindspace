@@ -61,8 +61,9 @@ type BookAnim =
   | { kind: 'back'; dir: 'open' | 'close' };
 
 /** Must match the animation durations in pdf-reader.css. */
-const LEAF_MS = 820;
-const COVER_MS = 900;
+const LEAF_MS = 420;
+const COVER_MS = 450;
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect;
 /** A spread always begins on an odd page — (1,2), (3,4), … as a book is set. */
 const oddLeft = (p: number) => Math.max(1, p % 2 === 1 ? p : p - 1);
 
@@ -462,17 +463,12 @@ function Reader({ objId }: { objId: string }) {
    * the animation and the sound together. This is the fix for pages appearing
    * white mid-flight — a turn no longer races the rasteriser.
    */
-  const armLeaf = useCallback(async (leaf: Leaf, start: (a: BookAnim, ms: number, done: () => void) => void) => {
+  const armLeaf = useCallback((leaf: Leaf, start: (a: BookAnim, ms: number, done: () => void) => void) => {
     const w = pageWRef.current;
     if (session && w > 0) {
       const dpr = Math.min(2, (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1);
       const need = [leaf.front, leaf.back, leaf.leftShown, leaf.rightShown];
-      if (!need.every((n) => session.isRendered(n, w, dpr))) {
-        /* Never hold the gesture hostage: if a page is genuinely slow the leaf
-           turns anyway and that page paints while it's edge-on to the viewer,
-           which nobody can see. */
-        await Promise.race([session.warm(need, w, dpr), wait(260)]);
-      }
+      void session.warm(need, w, dpr);
     }
     try { playPageTurn(0.55, leaf.dir); } catch { /* ignore */ }
     start({ kind: 'leaf', leaf }, LEAF_MS, () => set({ page: leaf.target }));
@@ -728,8 +724,8 @@ function Reader({ objId }: { objId: string }) {
     const dpr = Math.min(2, (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1);
     const left = oddLeft(st.page);
     const t = window.setTimeout(() => {
-      void session.warm([left, left + 1, left + 2, left + 3, left - 1, left - 2], sizing.pageW, dpr);
-    }, 120);
+      void session.warm([left, left + 1, left + 2, left + 3, left + 4, left + 5, left - 1, left - 2, left - 3], sizing.pageW, dpr);
+    }, 40);
     return () => window.clearTimeout(t);
   }, [session, st.page, st.layout, sizing.pageW]);
 
@@ -1358,10 +1354,18 @@ function Page(props: PageSharedProps & { page: number; width: number; interactiv
     return () => ro.disconnect();
   }, []);
 
-  useEffect(() => {
-    if (!session) return;
-    let cancelled = false;
+  useIsomorphicLayoutEffect(() => {
+    if (!session || !holder.current) return;
     const dpr = Math.min(2, (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1);
+
+    const syncRes = session.renderPageSync(page, width, dpr);
+    if (syncRes) {
+      holder.current.replaceChildren(syncRes.canvas);
+      setAspect(syncRes.height / width);
+      return;
+    }
+
+    let cancelled = false;
     session.renderPage(page, width, dpr).then(({ canvas, height }) => {
       if (cancelled || !holder.current) return;
       holder.current.replaceChildren(canvas);
