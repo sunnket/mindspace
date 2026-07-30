@@ -475,7 +475,7 @@
 .pdfr-root[data-zen="1"][data-chrome="0"] .pdfr-toolbar,
 .pdfr-root[data-zen="1"][data-chrome="0"] .pdfr-speakbar { opacity: 0; pointer-events: none; }
 .pdfr-dock, .pdfr-close, .pdfr-toolbar, .pdfr-speakbar { transition: opacity 420ms ease, transform 420ms cubic-bezier(.16,1,.3,1); }
-.pdfr-root[data-zen="1"] .pdfr-stage { bottom: 30px !important; }
+.pdfr-root[data-zen="1"] .pdfr-stage { top: 0 !important; bottom: 0 !important; padding: 4px 8px !important; }
 .pdfr-zenhint { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 19;
   font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0; pointer-events: none;
   transition: opacity 500ms ease; }

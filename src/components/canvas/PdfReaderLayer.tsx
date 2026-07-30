@@ -595,7 +595,34 @@ function Reader({ objId }: { objId: string }) {
   }, [set, st.page]);
 
   /* Leaving zen always brings the furniture straight back. */
-  const setZen = useCallback((on: boolean) => { setChrome(!on); set({ zen: on }); }, [set]);
+  const setZen = useCallback((on: boolean) => {
+    setChrome(!on);
+    set({ zen: on });
+    try {
+      if (on) {
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+          void document.documentElement.requestFullscreen().catch(() => { /* ignore */ });
+        }
+      } else {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          void document.exitFullscreen().catch(() => { /* ignore */ });
+        }
+      }
+    } catch {
+      /* ignore browser restriction */
+    }
+  }, [set]);
+
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement && stRef.current.zen) {
+        setChrome(true);
+        set({ zen: false });
+      }
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, [set]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -708,11 +735,11 @@ function Reader({ objId }: { objId: string }) {
 
   /* -- page sizing (fit fully; no zoom) ---------------------------------- */
   const sizing = useMemo(() => {
-    const availH = Math.max(300, win.h - (st.strip ? 220 : 116));
-    const availW = Math.max(320, win.w - 80);
-    if (st.layout === 'book') return { pageW: Math.max(200, Math.min((availH - 40) / aspect, (availW - 96) / 2)) };
-    return { pageW: Math.max(280, Math.min(availH / aspect, availW * 0.94)) };
-  }, [win, aspect, st.layout, st.strip]);
+    const availH = Math.max(300, win.h - (st.zen ? 16 : st.strip ? 220 : 116));
+    const availW = Math.max(320, win.w - (st.zen ? 24 : 80));
+    if (st.layout === 'book') return { pageW: Math.max(200, Math.min((availH - (st.zen ? 12 : 40)) / aspect, (availW - (st.zen ? 32 : 96)) / 2)) };
+    return { pageW: Math.max(280, Math.min(availH / aspect, availW * (st.zen ? 0.98 : 0.94))) };
+  }, [win, aspect, st.layout, st.strip, st.zen]);
 
   useEffect(() => { pageWRef.current = sizing.pageW; }, [sizing]);
 
@@ -787,7 +814,7 @@ function Reader({ objId }: { objId: string }) {
 
       {/* stage */}
       <div className="pdfr-stage" data-define={define ? '1' : '0'}
-        style={{ position: 'absolute', inset: 0, top: 14, bottom: stripShown ? 190 : 82, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto', padding: '10px 22px', zIndex: 5 }}
+        style={{ position: 'absolute', inset: 0, top: st.zen ? 0 : 14, bottom: st.zen ? 0 : stripShown ? 190 : 82, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto', padding: st.zen ? '4px 8px' : '10px 22px', zIndex: 5 }}
         onClick={onStageClick}
         onMouseMove={st.ruler ? (e) => setRulerY(e.clientY / Math.max(1, window.innerHeight)) : undefined}>
         {loadErr ? (
