@@ -1842,12 +1842,11 @@ export default function InfiniteCanvas() {
                 exit={{ opacity: 0, y: -8, scale: 0.97 }}
                 transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
               >
-                <div className="tool-panel flex flex-col gap-0.5" style={{ padding: 7, width: 250 }}>
-                  {/* Two groups, and the separator between them is the whole
-                      reason this menu still reads at eight rows: how the board
-                      LOOKS and FEELS first (background, mood, focus), then what
-                      you DO with it (present, share, teach the agent, extend,
-                      invite). Nothing here draws — that's the toolbar's job. */}
+                <div className="tool-panel flex flex-col gap-0.5" style={{ padding: 7, width: 244 }}>
+                  {/* Two groups, and the separator between them is what keeps
+                      this readable at eight rows: how the board LOOKS and FEELS
+                      first (background, mood, focus — the three that came in
+                      from the drawing toolbar), then what you DO with it. */}
                   <MenuRow
                     onClick={() => { close(); setRelaxMenuOpen(false); setFlowMenuOpen(false); setBgMenuOpen((v) => !v); }}
                     label="Background"
@@ -1912,7 +1911,7 @@ export default function InfiniteCanvas() {
                   <MenuRow
                     onClick={() => { close(); setShowShare(true); }}
                     label="Share"
-                    hint="View-only link, image or PDF"
+                    hint="View-only link, or export as image / PDF"
                   >
                     <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
                     <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
@@ -2022,7 +2021,9 @@ export default function InfiniteCanvas() {
               exit={{ opacity: 0, y: -8, scale: 0.97 }}
               transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             >
-              <div className="clay-card rounded-[24px]" style={{ padding: 16 }}>
+              {/* Same `tool-panel` surface and padding it had in the toolbar —
+                  only the anchor moved. */}
+              <div className="tool-panel" style={{ padding: 16 }}>
                 <CanvasBackgroundPanel onPick={() => setBgMenuOpen(false)} />
               </div>
             </motion.div>

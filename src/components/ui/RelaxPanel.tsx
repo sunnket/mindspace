@@ -7,15 +7,17 @@ import { RELAX_EFFECTS, RELAX_EFFECT_LIST } from '@/lib/relaxEffects';
 import RelaxIcon from './RelaxIcons';
 
 /**
- * The Stress Reliefer picker, as a dropdown off the ▾ board menu.
+ * The Stress Reliefer picker, lifted out of the toolbar and hung off the ▾
+ * board menu instead — it isn't something you draw with, it's a state the
+ * board is in, like its background.
  *
- * It used to be a toolbar tool, which put a whole mood on the same shelf as
- * the pen and the shape stamp. It isn't something you draw with — it's a state
- * the board is in, like its background, so it lives with the board's own menu.
+ * Deliberately the SAME panel it always was: same glass surface, same 3×5 grid,
+ * same blurb line. Only the anchor moved.
  *
- * Picking an effect ARMS it: the canvas enters relax mode, and every click
- * spills that effect. "Off" is a first-class tile rather than a hidden gesture,
- * because the way out of a mood has to be as obvious as the way in.
+ * Picking an effect arms it — the canvas enters relax mode and every click
+ * spills that effect. "Turn off" keys off the stored effect rather than the
+ * mode, because the effect outlives the mode: pick up the pen and it's still
+ * remembered and still drawn as the lit tile.
  */
 export default function RelaxPanel({ onClose }: { onClose: () => void }) {
   const relaxEffect = useCanvasStore((s) => s.relaxEffect);
@@ -23,72 +25,68 @@ export default function RelaxPanel({ onClose }: { onClose: () => void }) {
   const setMode = useCanvasStore((s) => s.setMode);
   const mode = useCanvasStore((s) => s.mode);
 
-  const active = relaxEffect ? RELAX_EFFECTS[relaxEffect] : null;
+  const activeRelax = relaxEffect ? RELAX_EFFECTS[relaxEffect] : null;
 
   return (
     <motion.div
       initial={{ opacity: 0, y: -8, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -8, scale: 0.97 }}
-      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-      /* Inline padding — Tailwind's p-* is neutralised by the global reset, and
-         at zero the rounded corner clips the heading's first letter. */
-      style={{ padding: 16, width: 288 }}
-      className="clay-card rounded-[24px] flex flex-col gap-3 max-w-[92vw]"
+      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+      style={{ padding: 16 }}
+      /* `tool-panel`, not the `glass-panel` this had in the toolbar. Glass is a
+         translucent blur, which read fine floating over empty canvas at the
+         bottom of the screen but turns unreadable up here, where the dropdown
+         lands on top of actual cards. Same opaque surface as the Background
+         dropdown beside it; the contents are untouched. */
+      className="tool-panel flex flex-col gap-3 min-w-[240px]"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex items-center justify-between shrink-0">
-        <h3 className="text-[11px] uppercase font-extrabold tracking-[0.16em] text-[var(--text-secondary)]">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
           Stress Reliefer
-        </h3>
-        {/* Keyed off the stored effect, NOT off being in relax mode. The effect
-            outlives the mode — pick up the pen and it's still remembered, still
-            drawn as the lit tile — so tying the way out to the mode left a tile
-            looking chosen with no way to unchoose it. */}
+        </span>
         {!!relaxEffect && (
           <button
             onClick={() => { setRelaxEffect(null); if (mode === 'relax') setMode('select'); }}
-            className="text-[10px] font-bold text-[var(--text-tertiary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+            className="text-[10px] font-semibold text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors cursor-pointer"
           >
             Turn off
           </button>
         )}
       </div>
 
-      {/* Three across, not four. At four the cells were narrow enough that
-          "Gate of Stillness" and "Breathing Sphere" both ellipsised — and a
-          picker whose labels you can't read is a grid of riddles. */}
-      <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+      <div className="grid grid-cols-3 gap-1.5">
         {RELAX_EFFECT_LIST.map((fx) => {
-          const on = relaxEffect === fx.id;
+          const active = relaxEffect === fx.id;
           return (
             <button
               key={fx.id}
-              title={fx.blurb}
+              title={fx.label}
               onClick={() => {
                 setRelaxEffect(fx.id);
                 setMode('relax');
-                // Get out of the way — the canvas is the point.
+                // Get out of the way immediately — the canvas is the point.
                 onClose();
               }}
-              style={{ padding: '8px 2px' }}
-              className={`flex flex-col items-center gap-1 rounded-xl transition-all cursor-pointer active:scale-95 ${
-                on
-                  ? 'clay-inset text-[var(--accent)]'
-                  : 'text-[var(--text-secondary)] hover:bg-[var(--well)] hover:text-[var(--text-primary)]'
+              style={{ padding: '10px 8px' }}
+              className={`flex flex-col items-center gap-1 rounded-lg border transition-all cursor-pointer ${
+                active
+                  ? 'bg-[var(--accent-subtle)] text-[var(--accent)] border-[var(--accent-light)] shadow-sm'
+                  : 'bg-transparent text-[var(--text-secondary)] border-transparent hover:bg-[var(--bg-tertiary)]'
               }`}
             >
               <RelaxIcon id={fx.id} />
-              <span className="text-[9px] font-bold leading-tight text-center">{fx.label}</span>
+              <span className="text-[9px] font-semibold leading-tight text-center">{fx.label}</span>
             </button>
           );
         })}
       </div>
 
-      <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed">
-        {active
-          ? active.blurb
-          : 'Pick an effect, then click anywhere on the board to let it go.'}
+      <p className="text-[10px] text-[var(--text-muted)] text-center leading-relaxed">
+        {activeRelax
+          ? activeRelax.blurb
+          : 'Pick an effect, then click anywhere on the canvas to let it go.'}
       </p>
     </motion.div>
   );

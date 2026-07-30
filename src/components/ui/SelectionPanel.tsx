@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import TextAnimPanel, { LetterSparkIcon } from './TextAnimPanel';
 import type { TextAnimConfig } from '@/lib/textAnim';
-import { getFrameKind, frameTitle } from '@/lib/frames';
+import { getFrameKind, frameKindMeta, frameTitle } from '@/lib/frames';
 
 /**
  * Contextual properties panel — a compact horizontal strip that appears just
@@ -18,28 +18,25 @@ import { getFrameKind, frameTitle } from '@/lib/frames';
 const spring = { type: 'spring' as const, stiffness: 360, damping: 32 };
 
 /* ---- option palettes ---- */
+const TEXT_COLORS = ['#FFFFFF', '#2D2A26', '#D64545', '#E67E22', '#2F9E6E', '#3E63DD', '#8B5FBF', '#E93D82'];
 
 /**
- * Ten hues, one row. This replaced a 64-swatch grid — eight hue families × eight
- * steps of lightness — that sat under "more options" for every colour on every
- * object. Sixty-four chips is not a richer palette, it's a colour-picker
- * homework problem: the steps within a family are near-indistinguishable at
- * 14px, and picking from it is scanning, not choosing.
+ * The full picker: eight hue families × eight steps, light to dark.
  *
- * A designed set of ten covers the decisions people actually make, and the two
- * escapes next to it — the OS picker and the eyedropper — cover the other
- * 16.7 million without pretending to enumerate them.
- *
- * Same ten as the draw palette, so a drawn line and a written word can be the
- * same colour without hunting for it twice.
+ * The quick strip in the collapsed bar is still eight one-tap favourites — this
+ * is what "more options" is for. Laid out as a grid rather than a wrapped row
+ * so a colour is found by aiming (this hue, that darkness) instead of scanning.
  */
-const PALETTE = [
-  '#2D2A26', '#FFFFFF', '#D64545', '#E67E22', '#F5B70A',
-  '#2F9E6E', '#00A5B5', '#3E63DD', '#8B5FBF', '#E93D82',
+const SWATCH_GRID: string[][] = [
+  ['#FFFFFF', '#F1EDE7', '#D6D0C7', '#A9A199', '#78706A', '#4A443F', '#2D2A26', '#000000'],
+  ['#FDECEC', '#F9C9C9', '#F09393', '#E45C5C', '#D64545', '#B32E2E', '#8A2020', '#5C1414'],
+  ['#FDF0E4', '#F8D9B6', '#F0B87A', '#E89B4A', '#C97B4B', '#A65F30', '#7E4620', '#552E14'],
+  ['#FFF9E0', '#FBEFB0', '#F5DE6B', '#E6C433', '#C9A81F', '#A08616', '#75620F', '#4C3F09'],
+  ['#E9F7EF', '#C0E9D2', '#87D4AC', '#4CBA84', '#2F9E6E', '#237C56', '#19593D', '#0F3A28'],
+  ['#E7F0FB', '#C3DBF6', '#8FBCEE', '#5A93E0', '#3E63DD', '#2E4CB0', '#213781', '#152354'],
+  ['#F1EAFB', '#DBC8F4', '#BE9DEA', '#9E70DC', '#8B5FBF', '#6C4699', '#4E3170', '#331F4A'],
+  ['#FCE8F1', '#F7C4DC', '#EF93BF', '#E4629F', '#E93D82', '#BC2A66', '#8C1C4A', '#5C0F2F'],
 ];
-
-/** The six that earn a permanent slot in the collapsed bar. */
-const QUICK_COLORS = ['#2D2A26', '#D64545', '#E67E22', '#2F9E6E', '#3E63DD', '#8B5FBF'];
 
 /* Recently used colours, shared by every field and persisted so a palette
    built up over a session survives a reload. */
@@ -84,6 +81,9 @@ function normalizeHex(input: string): string | null {
   const full = body.length === 3 ? body.split('').map((c) => c + c).join('') : body;
   return `#${full.toUpperCase()}`;
 }
+const STROKE_COLORS = ['#FFFFFF', '#2D2A26', '#D64545', '#2F9E6E', '#3E63DD', '#E67E22', '#8B5FBF'];
+const ARROW_COLORS = ['#2D2A26', '#D64545', '#E67E22', '#2F9E6E', '#3E63DD', '#8B5FBF'];
+
 const FONTS: { label: string; value: string }[] = [
   { label: 'Inter', value: "'Inter', sans-serif" },
   { label: 'Outfit', value: "'Outfit', sans-serif" },
@@ -166,9 +166,9 @@ function Swatch({ color, active, onClick }: { color: string; active: boolean; on
 }
 
 /**
- * A full colour control in two lines: the ten-hue palette, then hex + the OS
- * dialog + an eyedropper that samples any pixel on the screen. Your recents sit
- * between them, and only when you have some.
+ * A full colour control: the 64-swatch grid, your recents, a hex field, the
+ * OS colour dialog, and — where the browser supports it — a real eyedropper
+ * that samples any pixel on the screen.
  *
  * All four ways of choosing feed the same `onChange`, and every committed
  * colour lands in recents, so the palette you actually use accumulates instead
@@ -223,18 +223,15 @@ function ColorField({
   };
 
   const hasEyeDropper = !!getEyeDropper();
-  /* Fixed 22px, not a stretched grid cell. A swatch that resizes with the panel
-     turns into a colour BLOCK at full width — which is exactly the "big colour
-     option" that made this panel feel shouty. A dot is a dot at any width. */
   const swatch = (c: string, key: string) => (
     <button
       key={key}
       onClick={() => commit(c)}
       title={c}
       aria-label={c}
-      className="shrink-0 rounded-full transition-transform duration-100 hover:scale-[1.15] active:scale-95 cursor-pointer"
+      className="w-full rounded-[5px] transition-transform duration-100 hover:scale-[1.18] active:scale-95 cursor-pointer"
       style={{
-        width: 22, height: 22,
+        aspectRatio: '1 / 1',
         background: c,
         boxShadow: (value || '').toLowerCase() === c.toLowerCase()
           ? '0 0 0 2px var(--accent), 0 0 0 3.5px var(--accent-subtle)'
@@ -245,14 +242,19 @@ function ColorField({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center" style={{ gap: 7 }}>
-        {PALETTE.map((c, i) => swatch(c, `p-${i}`))}
+      {/* flatMap, not nested map: the rows are a layout convenience, and
+          returning arrays-of-arrays leaves React without keys on the outer
+          level. The grid does the wrapping. */}
+      <div className="grid gap-[3px]" style={{ gridTemplateColumns: 'repeat(8, minmax(0, 1fr))' }}>
+        {SWATCH_GRID.flatMap((row, ri) => row.map((c, ci) => swatch(c, `${ri}-${ci}`)))}
       </div>
 
       {recents.length > 0 && (
-        <div className="flex items-center" style={{ gap: 7 }}>
-          <span className="text-[8.5px] uppercase font-extrabold tracking-[0.13em] text-[var(--text-tertiary)] shrink-0">Recent</span>
-          {recents.slice(0, 8).map((c, i) => swatch(c, `r-${i}`))}
+        <div className="flex flex-col gap-1">
+          <span className="text-[8.5px] uppercase font-extrabold tracking-[0.13em] text-[var(--text-tertiary)]">Recent</span>
+          <div className="grid gap-[3px]" style={{ gridTemplateColumns: 'repeat(12, minmax(0, 1fr))' }}>
+            {recents.map((c, i) => swatch(c, `r-${i}`))}
+          </div>
         </div>
       )}
 
@@ -528,12 +530,33 @@ export default function SelectionPanel() {
         className="fixed bottom-[80px] left-1/2 -translate-x-1/2 z-[140] pointer-events-auto flow-hideable"
         style={{ fontFamily: "'Outfit', sans-serif" }}
       >
-        {/* --- Compact collapsed strip ---
-            No "TEXT" / "SHAPE" / "ARROW" chip in the left corner any more. The
-            bar only ever appears attached to a selection, and its own controls
-            say what kind of thing that is — H1…Body means text, an arrowhead
-            row means an arrow. Labelling it was the panel narrating itself. */}
+        {/* --- Compact collapsed strip --- */}
         <div className="clay-card rounded-2xl px-3 py-2 flex items-center gap-1.5 max-w-[92vw] overflow-x-auto custom-scrollbar">
+          {/* Panel label */}
+          {textDefault && (
+            <>
+              <span className="text-[9px] uppercase font-extrabold tracking-wider text-[var(--text-tertiary)] whitespace-nowrap mr-1">Text</span>
+              <VDivider />
+            </>
+          )}
+          {arrowDefault && (
+            <>
+              <span className="text-[9px] uppercase font-extrabold tracking-wider text-[var(--text-tertiary)] whitespace-nowrap mr-1">Arrow</span>
+              <VDivider />
+            </>
+          )}
+          {obj && (
+            <>
+              <span className="text-[9px] uppercase font-extrabold tracking-wider text-[var(--text-tertiary)] whitespace-nowrap mr-1">
+                {t === 'shape' ? 'Shape'
+                  : t === 'arrow' ? 'Arrow'
+                  : t === 'frame' ? `${frameKindMeta(getFrameKind(obj)).label} frame`
+                  : 'Text'}
+              </span>
+              <VDivider />
+            </>
+          )}
+
           {/* Quick heading presets (text-like) */}
           {isHeadingCapable && (
             <>
@@ -548,7 +571,7 @@ export default function SelectionPanel() {
           )}
 
           {/* Quick color swatches (text color / stroke / arrow color) */}
-          {(isTextLike || t === 'arrow' || t === 'shape' ? QUICK_COLORS : []).map((c) => {
+          {(isTextLike ? TEXT_COLORS : t === 'arrow' ? ARROW_COLORS : t === 'shape' ? STROKE_COLORS : []).slice(0, 6).map((c) => {
             const current = isTextLike ? S.textColor : t === 'arrow' ? S.color : S.borderColor;
             const isActive = current === c || (!current && isTextLike && c === '#2D2A26') || (!current && t === 'arrow' && c === '#2D2A26');
             return (
@@ -711,14 +734,11 @@ export default function SelectionPanel() {
                  `* { padding: 0 }` reset wins), so the content sat flush against
                  the card's 16px rounded corner and the corner ate the first
                  letter of the top-left heading — "BACKGROUND" rendered as
-                 "ACKGROUND". Same reason `mt-2` never applied. Both are inline.
-
-                 380, down from 640. The width existed to carry a 64-swatch
-                 colour grid; without it, a 640px sheet held one narrow column of
-                 controls floating in space. A properties sheet should be the
-                 size of its properties. */
-              style={{ padding: 16, marginTop: 8, width: 380 }}
-              className="clay-card rounded-2xl max-w-[94vw] mx-auto max-h-[54vh] overflow-y-auto custom-scrollbar"
+                 "ACKGROUND". Same reason `mt-2` never applied. Both are inline
+                 now. Wider too (640 vs 480), with the sections in two columns so
+                 the extra width buys layout instead of just stretching rows. */
+              style={{ padding: 16, marginTop: 8 }}
+              className="clay-card rounded-2xl max-w-[640px] w-[94vw] mx-auto max-h-[52vh] overflow-y-auto custom-scrollbar"
             >
               <div className="flex flex-col gap-3.5">
 
@@ -772,7 +792,7 @@ export default function SelectionPanel() {
 
                     {/* FONT SIZE */}
                     <Section label="Size">
-                      <div className="flex items-center flex-wrap gap-1">
+                      <div className="flex items-center gap-1">
                         <button onClick={() => patch({ fontSize: Math.max(6, ((S.fontSize as number) || 15) - 1) })}
                           className="w-6 h-6 rounded-lg bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
                           <Icon size={12}><line x1="5" y1="12" x2="19" y2="12" /></Icon>
@@ -787,7 +807,7 @@ export default function SelectionPanel() {
                           className="w-6 h-6 rounded-lg bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
                           <Icon size={12}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Icon>
                         </button>
-                        <div className="flex flex-wrap gap-1" style={{ marginLeft: 4 }}>
+                        <div className="flex gap-1 ml-1">
                           {SIZE_PRESETS.map((s) => (
                             <OptBtn key={s} active={Math.round((S.fontSize as number) || 15) === s} onClick={() => patch({ fontSize: s })}>
                               <span className="text-[9px] tabular-nums">{s}</span>
