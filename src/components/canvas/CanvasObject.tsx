@@ -845,26 +845,30 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       // while it is (see dragState in lib/utils).
       dragState.objectDrag = true;
 
-      // Top-left drop dock: the upper zone MINIMIZES the object into the shelf;
-      // the zone below that WARPS it to another canvas; the zone below THAT
-      // sends it to an open chat. Tracked as plain closure variables (not
-      // React state) so the frequent mousemove never re-renders.
-      let overMinimizeZone = false;
-      let overWarpZone = false;
+      /* Drop targets that aren't the canvas: the Pocket rail on the left edge,
+         and either chat panel if one is open. Tracked as plain closure
+         variables (not React state) so the frequent mousemove never re-renders.
+
+         There used to be two stacked left-edge zones — "minimize" above "warp
+         to canvas" — which meant a 160px-tall target for one action sitting
+         directly on top of a 164px target for a different, irreversible one.
+         The Pocket is a single zone that does the job of both. */
+      let overPocketZone = false;
       let overChatZone = false;
       let overAgentChatZone = false;
       let draggedFar = false;
       /* A DELIBERATE drag — moved well past the 8px that merely distinguishes a
-         drag from a tap. The destructive drops (minimize into the shelf, warp
-         to another canvas, send to chat, file into a binder, pile onto another
-         note) all wait for this, so a tiny shaky nudge on a block near the left
-         edge or beside another note can no longer make it vanish. That was the
-         "I touched it and it disappeared" bug. */
+         drag from a tap. The destructive drops (into the pocket, send to chat,
+         file into a binder, pile onto another note) all wait for this, so a
+         tiny shaky nudge on a block near the left edge or beside another note
+         can no longer make it vanish. That was the "I touched it and it
+         disappeared" bug. */
       let committedDrag = false;
       const COMMIT_DIST = 26;
       /** Set once a card has actually been pulled clear of an open pile. */
       let detached = false;
-      const HOTZONE_W = 210;
+      /** Last state pushed to the Pocket rail, so we only notify on a change. */
+      let pocketSignal = '';
 
       /* --- Edge auto-pan while dragging -----------------------------------
          The camera at grab time, the fixed zoom, and the latest cursor. When the
@@ -1013,21 +1017,43 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         if (Math.hypot(moveE.clientX - dragStart.current.x, moveE.clientY - dragStart.current.y) > COMMIT_DIST) {
           committedDrag = true;
         }
-        const inLeftCol = committedDrag && moveE.clientX < HOTZONE_W;
-        // Frames/arrows can't be warped/sent meaningfully — neither has a
-        // standalone snapshot that makes sense outside its canvas context.
-        const warpable = dragObj.type !== 'frame' && dragObj.type !== 'arrow';
-        // Warping is additionally disabled for a guest inside someone else's
-        // live session: teleportObject broadcasts a remove op, which would
-        // delete the object from the HOST's real canvas — sending to chat
-        // doesn't touch canvas state at all, so it stays allowed here.
-        const canWarp = warpable && !useCollabStore.getState().guestOriginView;
-        overMinimizeZone = inLeftCol && moveE.clientY >= 72 && moveE.clientY < 232;
-        overWarpZone = canWarp && inLeftCol && moveE.clientY >= 240 && moveE.clientY < 404;
+        /* Frames/arrows can't be pocketed or sent meaningfully — neither has a
+           standalone snapshot that makes sense outside its canvas context. */
+        const portable = dragObj.type !== 'frame' && dragObj.type !== 'arrow';
+        /* Pocketing is additionally disabled for a guest inside someone else's
+           live session: it broadcasts a remove op, which would delete the
+           object from the HOST's real canvas — sending to chat doesn't touch
+           canvas state at all, so that stays allowed here. */
+        const canPocket = portable && !useCollabStore.getState().guestOriginView;
+
+        /* Hit-test the rail's real rectangle rather than hard-coded pixel bands.
+           The old zones were two fixed 160px strips at y 72–232 and 240–404, so
+           they drifted out of alignment with the chrome they were supposed to
+           represent the moment either moved. */
+        const railEl = document.getElementById('pocket-hotzone');
+        if (railEl && canPocket && committedDrag) {
+          const r = railEl.getBoundingClientRect();
+          const PAD = 26; // a forgiving target — you're aiming while dragging
+          overPocketZone =
+            moveE.clientX >= r.left - PAD && moveE.clientX <= r.right + PAD &&
+            moveE.clientY >= r.top - PAD && moveE.clientY <= r.bottom + PAD;
+        } else {
+          overPocketZone = false;
+        }
+
+        /* Tell the rail to open up and light itself. Only on an actual change,
+           so this is a handful of events per drag rather than one per mousemove. */
+        const signal = `${committedDrag && canPocket}|${overPocketZone}`;
+        if (signal !== pocketSignal) {
+          pocketSignal = signal;
+          window.dispatchEvent(new CustomEvent('pocket-drag-state', {
+            detail: { active: committedDrag && canPocket, over: overPocketZone },
+          }));
+        }
 
         // Dropping a block onto the AI agent chat adds it as context there.
         const agentPanel = document.getElementById('agent-chat-panel');
-        if (agentPanel && warpable && committedDrag) {
+        if (agentPanel && portable && committedDrag) {
           const rect = agentPanel.getBoundingClientRect();
           overAgentChatZone = moveE.clientX >= rect.left && moveE.clientX <= rect.right &&
                               moveE.clientY >= rect.top && moveE.clientY <= rect.bottom;
@@ -1037,7 +1063,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         }
 
         const chatPanel = document.getElementById('chat-panel-container');
-        if (chatPanel && warpable && committedDrag) {
+        if (chatPanel && portable && committedDrag) {
           const rect = chatPanel.getBoundingClientRect();
           overChatZone = moveE.clientX >= rect.left && moveE.clientX <= rect.right &&
                          moveE.clientY >= rect.top && moveE.clientY <= rect.bottom;
@@ -1046,27 +1072,10 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           overChatZone = false;
         }
 
-        const zone = document.getElementById('minimize-hotzone');
-        const label = document.getElementById('minimize-hotzone-label');
-        if (zone) {
-          zone.style.borderColor = overMinimizeZone ? 'var(--accent)' : 'transparent';
-          zone.style.background = overMinimizeZone ? 'rgba(var(--accent-rgb),0.08)' : 'transparent';
-        }
-        if (label) label.style.opacity = overMinimizeZone ? '1' : '0';
-
-        const wzone = document.getElementById('warp-hotzone');
-        const wlabel = document.getElementById('warp-hotzone-label');
-        if (wzone) {
-          wzone.style.opacity = committedDrag && canWarp ? '1' : '0';
-          wzone.style.borderColor = overWarpZone ? 'var(--accent)' : 'rgba(var(--accent-rgb),0.28)';
-          wzone.style.background = overWarpZone ? 'rgba(var(--accent-rgb),0.12)' : 'transparent';
-        }
-        if (wlabel) wlabel.style.opacity = overWarpZone ? '1' : '0.55';
-
-        // Remember the cursor + whether a dock zone owns it, then place the
+        // Remember the cursor + whether a drop target owns it, then place the
         // block. The edge-pan loop reuses lastCursor to keep scrolling when the
         // cursor is held still against an edge.
-        overAnyHotzone = overMinimizeZone || overWarpZone || overChatZone || overAgentChatZone;
+        overAnyHotzone = overPocketZone || overChatZone || overAgentChatZone;
         lastCursor = { x: moveE.clientX, y: moveE.clientY };
         positionAt(moveE.clientX, moveE.clientY);
       };
@@ -1092,15 +1101,17 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         if (dragMovedRef.current) setTimeout(() => { dragMovedRef.current = false; }, 0);
         // Any hover chrome the drag lit up has to go out with it.
         for (const [id, reset] of [
-          ['minimize-hotzone', (el: HTMLElement) => { el.style.borderColor = 'transparent'; el.style.background = 'transparent'; }],
-          ['minimize-hotzone-label', (el: HTMLElement) => { el.style.opacity = '0'; }],
-          ['warp-hotzone', (el: HTMLElement) => { el.style.opacity = '0'; el.style.borderColor = 'rgba(var(--accent-rgb),0.28)'; el.style.background = 'transparent'; }],
-          ['warp-hotzone-label', (el: HTMLElement) => { el.style.opacity = '0.55'; }],
           ['chat-panel-container', (el: HTMLElement) => { el.style.transform = 'scale(1)'; }],
           ['agent-chat-panel', (el: HTMLElement) => { el.style.boxShadow = ''; }],
         ] as [string, (el: HTMLElement) => void][]) {
           const el = document.getElementById(id);
           if (el) reset(el);
+        }
+        /* The Pocket rail styles itself from React state, so it needs telling
+           the drag is over — otherwise it stays expanded and lit for good. */
+        if (pocketSignal !== '') {
+          pocketSignal = '';
+          window.dispatchEvent(new CustomEvent('pocket-drag-state', { detail: { active: false, over: false } }));
         }
         return true;
       };
@@ -1118,8 +1129,11 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       const handleMouseUp = () => {
         if (!teardown()) return;
 
-        if (overMinimizeZone) {
-          useCanvasStore.getState().minimizeObject(dragObj.id);
+        // Into the Pocket: off this canvas, into the tray, ready to be carried
+        // to any other board. This one gesture replaced both the old "minimize"
+        // shelf and Warp's destination modal.
+        if (overPocketZone) {
+          useCanvasStore.getState().pocketObject(dragObj.id);
           return;
         }
 
@@ -1133,15 +1147,6 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
               label,
             },
           }));
-          return;
-        }
-
-        // Warp: hand off to the portal picker to teleport this object to
-        // another canvas. Snap it back to where the drag started first so it
-        // doesn't linger over the dock if the user cancels.
-        if (overWarpZone) {
-          updateObject(dragObj.id, { x: before.x, y: before.y });
-          window.dispatchEvent(new CustomEvent('open-warp', { detail: { objectId: dragObj.id } }));
           return;
         }
 

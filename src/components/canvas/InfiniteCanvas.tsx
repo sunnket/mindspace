@@ -49,8 +49,7 @@ import TrashPile from '@/components/ui/TrashPile';
 import VoiceOrb from './VoiceOrb';
 import ShortcutsOverlay from './ShortcutsOverlay';
 import ShareModal from '@/components/ui/ShareModal';
-import MinimizeDock from './MinimizeDock';
-import WarpPortal from './WarpPortal';
+import Pocket from './Pocket';
 import ScenesPanel from './ScenesPanel';
 import FrameHUD from './FrameHUD';
 import ChatLauncher from '@/components/chat/ChatLauncher';
@@ -95,24 +94,22 @@ function GlowCursor({ isDrawMode }: { isDrawMode: boolean }) {
 }
 
 /**
- * One pill, four board actions — Share, Skill Set, Plugins, Collaborate.
+ * One row of the board menu — Share, Skill Set, Plugins, Collaborate.
  *
- * These used to be three different components in three different places (an
- * always-on Share button, a hover-revealed Skill Set, a toolbar icon, and a
- * top-centre Collaborate bar), each with its own background, padding and
- * border. Sharing the surface here is what makes the row read as one control
- * cluster instead of four unrelated buttons that happen to sit near each other.
- *
- * Hidden until the canvas name is hovered, unless `active` — a pill reporting
- * live state (a skill set is applied, a panel is open) must stay visible, or
- * the user loses track of something they turned on.
+ * These four used to be pills laid out HORIZONTALLY beside the canvas name,
+ * revealed by hovering it. Two problems with that: a hover-only control is
+ * invisible until you happen to sweep the title (nothing said it was there),
+ * and four pills in a row pushed the cluster far across the top of the board.
+ * They're now rows in a proper dropdown behind an explicit ▾ button, so the
+ * affordance is visible, the list reads top-to-bottom, and each row has room
+ * for a label and a description instead of just a word.
  */
-function HeaderPill({
-  onClick, title, label, children, active = false, badge, ...rest
+function MenuRow({
+  onClick, label, hint, children, active = false, badge, ...rest
 }: {
   onClick: () => void;
-  title: string;
   label: string;
+  hint: string;
   children: React.ReactNode;
   active?: boolean;
   badge?: number;
@@ -120,31 +117,44 @@ function HeaderPill({
   return (
     <button
       onClick={onClick}
-      title={title}
       aria-pressed={active}
-      className={`flex items-center gap-1.5 rounded-full border shadow-sm backdrop-blur-md transition-all duration-200 cursor-pointer ${
-        active
-          ? 'opacity-100 translate-x-0'
-          : 'opacity-0 -translate-x-1 pointer-events-none group-hover/head:opacity-100 group-hover/head:translate-x-0 group-hover/head:pointer-events-auto'
-      }`}
+      className="w-full flex items-center gap-2.5 rounded-xl transition-colors cursor-pointer text-left group/row"
       style={{
-        padding: '5px 11px',
-        background: active ? 'var(--accent-subtle)' : 'var(--bg-glass)',
-        borderColor: active ? 'rgba(var(--accent-rgb),0.4)' : 'var(--border)',
+        padding: '8px 9px',
+        background: active ? 'var(--accent-subtle)' : 'transparent',
         color: active ? 'var(--accent)' : 'var(--text-secondary)',
       }}
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--well)'; }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
       {...rest}
     >
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        {children}
-      </svg>
-      <span className="text-[11px] font-semibold whitespace-nowrap" style={{ fontFamily: "'Outfit', sans-serif" }}>
-        {label}
+      <span
+        className="shrink-0 flex items-center justify-center rounded-lg"
+        style={{
+          width: 28, height: 28,
+          background: active ? 'rgba(var(--accent-rgb),0.18)' : 'var(--well)',
+          color: active ? 'var(--accent)' : 'var(--text-secondary)',
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          {children}
+        </svg>
+      </span>
+      <span className="flex flex-col min-w-0 flex-1" style={{ gap: 1 }}>
+        <span
+          className="text-[12px] font-bold leading-tight text-[var(--text-primary)] group-hover/row:text-[var(--accent)] transition-colors"
+          style={{ fontFamily: "'Outfit', sans-serif", color: active ? 'var(--accent)' : undefined }}
+        >
+          {label}
+        </span>
+        <span className="text-[9.5px] font-medium leading-tight text-[var(--text-tertiary)] truncate">
+          {hint}
+        </span>
       </span>
       {badge !== undefined && (
         <span
-          className="flex items-center justify-center text-[9px] font-bold text-white rounded-full"
-          style={{ minWidth: 15, height: 15, padding: '0 4px', background: 'var(--accent)' }}
+          className="shrink-0 flex items-center justify-center text-[9px] font-bold text-white rounded-full tabular-nums"
+          style={{ minWidth: 16, height: 16, padding: '0 4px', background: 'var(--accent)' }}
         >
           {badge}
         </span>
@@ -217,6 +227,8 @@ export default function InfiniteCanvas() {
   const setSkillSetPanelOpen = useCanvasStore((s) => s.setSkillSetPanelOpen);
   const pluginsPanelOpen = useCanvasStore((s) => s.pluginsPanelOpen);
   const setPluginsPanelOpen = useCanvasStore((s) => s.setPluginsPanelOpen);
+  /** The ▾ board menu beside the canvas name (Share / Skill Set / Plugins / Collaborate). */
+  const [boardMenuOpen, setBoardMenuOpen] = useState(false);
   // Collab lives in its own store; the header only needs "is a session running"
   // (to hide the idle entry point) and the way to start one.
   const collabStatus = useCollabStore((s) => s.status);
@@ -271,6 +283,12 @@ export default function InfiniteCanvas() {
   }, [effectiveCanvasId, setUrlCanvasId]);
 
   // Load from IndexedDB
+  /* The Pocket is read ONCE per mount, not per canvas: it deliberately belongs
+     to no board, so navigating between canvases must leave it exactly as it is. */
+  useEffect(() => {
+    void useCanvasStore.getState().loadPocket();
+  }, []);
+
   useEffect(() => {
     async function load() {
       // In flight, this canvas's store contents are not its own yet — nothing
@@ -479,6 +497,40 @@ export default function InfiniteCanvas() {
   // Wheel zoom
   const handleWheel = useCallback(
     (e: WheelEvent) => {
+      /* ---- Give the scroll to a scrollable block first -------------------
+         The canvas used to swallow EVERY wheel event (preventDefault before
+         anything else), so a long checklist, a tall table, a repo tree or a
+         transcript could never be scrolled with the wheel — the board panned
+         underneath instead and the content stayed put. Blocks tried to fix this
+         individually with `onWheel={e => e.stopPropagation()}`, which cannot
+         work: React delegates its listeners to the root container, an ANCESTOR
+         of this one, so by the time a synthetic handler runs, this native
+         listener has already cancelled the event.
+
+         One check here fixes all of them, including blocks added later. Walk up
+         from whatever the cursor is over, stopping at the canvas itself, and if
+         some element on the way can genuinely scroll along the wheel's dominant
+         axis, leave the event completely alone: no preventDefault, no camera
+         change, and the browser performs its ordinary, momentum-correct scroll.
+         Only the inner region moves — never the whole board. */
+      const container = containerRef.current;
+      const wantsY = Math.abs(e.deltaY) >= Math.abs(e.deltaX);
+      let node = e.target as HTMLElement | null;
+      while (node && node !== container) {
+        // Text inputs and the like have no layout box worth testing.
+        if (node.nodeType === 1) {
+          const cs = getComputedStyle(node);
+          const overflow = wantsY ? cs.overflowY : cs.overflowX;
+          if (overflow === 'auto' || overflow === 'scroll' || overflow === 'overlay') {
+            const scrollable = wantsY
+              ? node.scrollHeight > node.clientHeight + 1
+              : node.scrollWidth > node.clientWidth + 1;
+            if (scrollable) return;
+          }
+        }
+        node = node.parentElement;
+      }
+
       e.preventDefault();
 
       /* A tour is a slideshow, not a canvas. Scrolling during one dragged the
@@ -861,6 +913,24 @@ export default function InfiniteCanvas() {
     window.addEventListener('mousedown', onDown);
     return () => window.removeEventListener('mousedown', onDown);
   }, [pluginsPanelOpen, setPluginsPanelOpen]);
+
+  /* Same contract for the ▾ board menu, plus Escape — a menu opened by an
+     explicit click needs an equally explicit way out. */
+  useEffect(() => {
+    if (!boardMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.('.board-menu') || el?.closest?.('[data-board-menu-button]')) return;
+      setBoardMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setBoardMenuOpen(false); };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [boardMenuOpen]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1601,59 +1671,118 @@ export default function InfiniteCanvas() {
             </button>
           )}
 
-          {/* Board actions. All four live here, all reveal together on hovering
-              the canvas name, and all share one pill so the row reads as a set
-              rather than four separately-designed buttons. A pill only stays
-              pinned when it's reporting live state the user must not lose track
-              of — an applied skill set, an open panel. */}
+          {/* The board menu's handle: a plain ▾ next to the name. Visible at all
+              times (it no longer hides behind a hover on the title), it rotates
+              to ▴ while open, and shows an accent dot when something inside is
+              live — a skill set applied, a panel open — so state the user turned
+              on is never buried in a closed menu. */}
           {!isEditingTitle && (() => {
             const skillActive = isSkillsetActive(skillset);
-            const ruleCount = activeRuleCount(skillset);
+            const anyActive = skillActive || pluginsPanelOpen;
             return (
-              <>
-                <HeaderPill onClick={() => setShowShare(true)} title="Share a view-only link or export as image / PDF" label="Share">
-                  <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
-                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                </HeaderPill>
-
-                <HeaderPill
-                  onClick={() => setSkillSetPanelOpen(true)}
-                  title="Skill Set — rules the agent follows in this canvas"
-                  label="Skill Set"
-                  active={skillActive}
-                  badge={skillActive && ruleCount > 0 ? ruleCount : undefined}
+              <button
+                data-board-menu-button
+                onClick={() => setBoardMenuOpen((v) => !v)}
+                title="Board actions — share, skill set, plugins, collaborate"
+                aria-label="Board actions"
+                aria-expanded={boardMenuOpen}
+                className="relative shrink-0 flex items-center justify-center rounded-full border transition-all duration-200 cursor-pointer"
+                style={{
+                  width: 24, height: 24,
+                  background: boardMenuOpen ? 'var(--accent-subtle)' : 'var(--bg-glass)',
+                  borderColor: boardMenuOpen ? 'rgba(var(--accent-rgb),0.45)' : 'var(--border)',
+                  color: boardMenuOpen ? 'var(--accent)' : 'var(--text-secondary)',
+                }}
+              >
+                <motion.svg
+                  width="11" height="11" viewBox="0 0 24 24" fill="currentColor"
+                  aria-hidden="true"
+                  animate={{ rotate: boardMenuOpen ? 180 : 0 }}
+                  transition={{ type: 'spring', damping: 22, stiffness: 300 }}
                 >
-                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                  <path d="M9 7h7M9 11h5" />
-                </HeaderPill>
-
-                <HeaderPill
-                  onClick={() => setPluginsPanelOpen(!pluginsPanelOpen)}
-                  title="Plugins — embeds, GitHub & more"
-                  label="Plugins"
-                  active={pluginsPanelOpen}
-                  data-plugins-button
-                >
-                  <path d="m19 5 2.5-2.5" /><path d="m2.5 21.5 2.5-2.5" />
-                  <path d="M6.8 20.4a2.4 2.4 0 0 0 3.4 0l2.3-2.3-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z" />
-                  <path d="m7.5 13.5 2-2" /><path d="m10.5 16.5 2-2" />
-                  <path d="M12 6l6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z" />
-                </HeaderPill>
-
-                {/* Only the idle entry point lives here. Once a session is live,
-                    CollabBar takes over with its own top-centre status bar —
-                    that one must stay visible, not hide behind a hover. */}
-                {!collabActive && (
-                  <HeaderPill onClick={() => openCollabModal()} title="Collaborate live on this canvas" label="Collaborate">
-                    <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
-                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                  </HeaderPill>
+                  <path d="M12 16.5 4.5 8h15z" />
+                </motion.svg>
+                {anyActive && !boardMenuOpen && (
+                  <span
+                    className="absolute -top-0.5 -right-0.5 rounded-full"
+                    style={{ width: 7, height: 7, background: 'var(--accent)', boxShadow: '0 0 0 2px var(--bg-primary)' }}
+                  />
                 )}
-              </>
+              </button>
             );
           })()}
         </div>
+
+        {/* Board actions, vertically. Anchored under the title row. */}
+        <AnimatePresence>
+          {boardMenuOpen && !isEditingTitle && (() => {
+            const skillActive = isSkillsetActive(skillset);
+            const ruleCount = activeRuleCount(skillset);
+            const close = () => setBoardMenuOpen(false);
+            return (
+              <motion.div
+                key="board-menu"
+                className="board-menu absolute left-0 top-full z-[120]"
+                style={{ marginTop: 10 }}
+                initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <div className="tool-panel flex flex-col gap-0.5" style={{ padding: 7, width: 244 }}>
+                  <MenuRow
+                    onClick={() => { close(); setShowShare(true); }}
+                    label="Share"
+                    hint="View-only link, or export as image / PDF"
+                  >
+                    <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  </MenuRow>
+
+                  <MenuRow
+                    onClick={() => { close(); setSkillSetPanelOpen(true); }}
+                    label="Skill Set"
+                    hint="Rules the agent follows on this canvas"
+                    active={skillActive}
+                    badge={skillActive && ruleCount > 0 ? ruleCount : undefined}
+                  >
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                    <path d="M9 7h7M9 11h5" />
+                  </MenuRow>
+
+                  <MenuRow
+                    onClick={() => { close(); setPluginsPanelOpen(!pluginsPanelOpen); }}
+                    label="Plugins"
+                    hint="Embeds, GitHub & more"
+                    active={pluginsPanelOpen}
+                    data-plugins-button
+                  >
+                    <path d="m19 5 2.5-2.5" /><path d="m2.5 21.5 2.5-2.5" />
+                    <path d="M6.8 20.4a2.4 2.4 0 0 0 3.4 0l2.3-2.3-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z" />
+                    <path d="m7.5 13.5 2-2" /><path d="m10.5 16.5 2-2" />
+                    <path d="M12 6l6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z" />
+                  </MenuRow>
+
+                  {/* Only the idle entry point lives here. Once a session is
+                      live, CollabBar takes over with its own top-centre status
+                      bar — that one must stay visible, not sit behind a menu. */}
+                  {!collabActive && (
+                    <MenuRow
+                      onClick={() => { close(); openCollabModal(); }}
+                      label="Collaborate"
+                      hint="Work on this canvas live, together"
+                    >
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                    </MenuRow>
+                  )}
+                </div>
+              </motion.div>
+            );
+          })()}
+        </AnimatePresence>
         {canvasStack.length > 0 && (
           <button
             onClick={() => popCanvas()}
@@ -1744,11 +1873,10 @@ export default function InfiniteCanvas() {
         {/* Share & export */}
         {showShare && <ShareModal onClose={() => setShowShare(false)} />}
 
-        {/* Minimize shelf: drag any object into the top-left corner to dock it */}
-        <MinimizeDock />
-
-        {/* Warp: teleport objects to other canvases via portals */}
-        <WarpPortal />
+        {/* The Pocket: a board-independent tray. Drag a block onto the rail to
+            carry it, open any other canvas, drag it back out there. Replaced
+            both the per-canvas minimize shelf and the Warp destination modal. */}
+        <Pocket />
 
         {/* Human↔human DM chat (launched from the toolbar's Messages button) */}
         <ChatLauncher />

@@ -1432,7 +1432,13 @@ export default function CanvasResident() {
             className="w-full text-left text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-lg cursor-pointer flex items-center gap-2"
             style={{ padding: '6px 8px', background: 'var(--bg-inset, rgba(0,0,0,0.05))', marginBottom: 5 }}
           >
-            <span aria-hidden="true">🌙</span> Go to sleep
+            {/* Line-art crescent instead of the 🌙 emoji — it inherits the row's
+                colour and weight, so it belongs to the menu rather than sitting
+                on top of it as a foreign cartoon. */}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+            Go to sleep
           </button>
 
           <button
@@ -1444,7 +1450,11 @@ export default function CanvasResident() {
               color: laserOn ? '#D93B3B' : 'var(--text-secondary)',
             }}
           >
-            <span aria-hidden="true">🔴</span> {laserOn ? 'Stop the laser' : 'Laser pointer'}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none" />
+              <path d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7" opacity="0.75" />
+            </svg>
+            {laserOn ? 'Stop the laser' : 'Laser pointer'}
           </button>
         </div>
       )}

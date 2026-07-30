@@ -18,6 +18,20 @@ import {
 
 export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax' | 'brainstorm';
 
+/**
+ * The Pocket's home in storage.
+ *
+ * A pocketed block is re-homed under this sentinel parentId, which is not a
+ * canvas and never will be. That single fact is what makes the Pocket work
+ * ACROSS boards: `getAllObjects(undefined)` keeps only rows with no parent (so
+ * the root board never sees it), every real canvas reads its own id, and the
+ * landing gallery walks actual canvas states — so a pocketed block belongs to
+ * no board at all until you drop it onto one. It is the same primitive Warp
+ * used to teleport with, minus the destination picker: the Pocket IS the
+ * destination, and the drop chooses the board.
+ */
+export const POCKET_PARENT = '__pocket__';
+
 /* ------------------------------------------------------------------
    Collaboration bridge — inert unless a live session sets these.
    When solo, collabEmitter is null (no broadcast) and collabAuthor is
@@ -196,12 +210,27 @@ interface CanvasStore {
   bringForward: (id: string) => void;
   sendBackward: (id: string) => void;
 
-  // Minimize dock — slide any object into the corner shelf, drag it back out anywhere
-  minimizeObject: (id: string) => void;
-  restoreMinimized: (id: string, worldX: number, worldY: number) => void;
+  /* The Pocket — a board-independent tray you can carry blocks in.
+     Pocketed blocks live under POCKET_PARENT rather than any canvas, so the
+     tray looks identical on every board: pocket something here, open another
+     canvas, drop it there. This replaced both the old corner "minimize" shelf
+     (which was per-canvas, so the chips vanished the moment you navigated) and
+     Warp's separate hot zone + destination picker. */
+  pocket: CanvasObjectData[];
+  /** Replace the tray wholesale — used once on load. */
+  setPocket: (items: CanvasObjectData[]) => void;
+  /** Read the tray out of storage. Safe to call repeatedly. */
+  loadPocket: () => Promise<void>;
+  /** Take a block off this canvas and into the tray. */
+  pocketObject: (id: string) => void;
+  /** Drop a pocketed block onto the CURRENT canvas at a world point. */
+  restoreFromPocket: (id: string, worldX: number, worldY: number) => void;
+  /** Throw a pocketed block away for good. */
+  discardFromPocket: (id: string) => void;
 
-  // Warp — teleport an object to another canvas/board (changes its parentId,
-  // persists under the new parent, and removes it from the current canvas).
+  // Teleport an object to another canvas/board (changes its parentId, persists
+  // under the new parent, and removes it from the current canvas). Still the
+  // primitive behind filing a block into a binder.
   teleportObject: (id: string, targetParentId: string) => void;
 
   // Strokes
@@ -1078,34 +1107,118 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     get().updateObject(id, { zIndex: (obj.zIndex ?? 0) - 1 });
   },
 
-  minimizeObject: (id) => {
-    const obj = get().objects.find((o) => o.id === id);
-    if (!obj) return;
-    get().updateObject(id, {
-      style: {
-        ...obj.style,
-        isMinimized: true,
-        minimizedAt: Date.now(),
-        preMinimizeWidth: obj.width,
-        preMinimizeHeight: obj.height,
-      },
-    });
-    if (get().selectedId === id) set({ selectedId: null });
-    if (get().editingId === id) set({ editingId: null });
+  /* ---- The Pocket ---------------------------------------------------------
+     A pocketed block leaves this canvas entirely (parentId → POCKET_PARENT) and
+     is held in its own list. The old dock kept it in `objects` behind an
+     `isMinimized` flag, which is why it never survived navigating: `objects` is
+     replaced wholesale by every canvas load. */
+  pocket: [],
+
+  setPocket: (items) => set({ pocket: items }),
+
+  loadPocket: async () => {
+    try {
+      const { getAllObjects } = await import('@/lib/db');
+      const items = await getAllObjects(POCKET_PARENT);
+      set({
+        pocket: items.sort(
+          (a, b) => ((a.style?.pocketedAt as number) || 0) - ((b.style?.pocketedAt as number) || 0),
+        ),
+      });
+    } catch (err) {
+      console.error('Failed to load the pocket:', err);
+    }
   },
 
-  restoreMinimized: (id, worldX, worldY) => {
+  pocketObject: (id) => {
     const obj = get().objects.find((o) => o.id === id);
     if (!obj) return;
-    const width = (obj.style?.preMinimizeWidth as number) || obj.width;
-    const height = (obj.style?.preMinimizeHeight as number) || obj.height;
-    get().updateObject(id, {
+
+    /* Its connections don't come along — they describe a relationship between
+       two blocks on ONE board, and the pocket is not a board. Dropping the
+       block somewhere else can't recreate a link to a node that isn't there. */
+    const relatedConns = get().connections.filter((c) => c.fromId === id || c.toId === id);
+
+    const stashed: CanvasObjectData = {
+      ...obj,
+      parentId: POCKET_PARENT,
+      style: {
+        ...obj.style,
+        // Where it came from, so "send back" can put it home again.
+        pocketedFrom: obj.parentId ?? 'root',
+        pocketedAt: Date.now(),
+        // The dock used to leave these behind; the pocket restores real size.
+        pocketWidth: obj.width,
+        pocketHeight: obj.height,
+        // Never carry per-board scaffolding into the tray.
+        frameParentId: undefined,
+        isMinimized: undefined,
+      },
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      objects: state.objects.filter((o) => o.id !== id),
+      connections: state.connections.filter((c) => c.fromId !== id && c.toId !== id),
+      pocket: [...state.pocket, stashed],
+      selectedId: state.selectedId === id ? null : state.selectedId,
+      editingId: state.editingId === id ? null : state.editingId,
+      isDirty: true,
+    }));
+    emitCollab({ kind: 'remove', id });
+
+    import('@/lib/db').then(({ saveObject, deleteConnection }) => {
+      saveObject(stashed).catch((err) => console.error('Failed to persist pocketed object:', err));
+      relatedConns.forEach((c) =>
+        deleteConnection(c.id).catch((err) => console.error('Failed to delete connection:', err)),
+      );
+    });
+  },
+
+  restoreFromPocket: (id, worldX, worldY) => {
+    const obj = get().pocket.find((o) => o.id === id);
+    if (!obj) return;
+
+    const width = (obj.style?.pocketWidth as number) || obj.width;
+    const height = (obj.style?.pocketHeight as number) || obj.height;
+    // Whichever board is on screen right now takes it — that's the whole point.
+    const parent = resolveParentId(get().canvasStack, get().urlCanvasId);
+
+    const dropped: CanvasObjectData = {
+      ...obj,
+      parentId: parent,
       x: worldX - width / 2,
       y: worldY - height / 2,
       width,
       height,
       zIndex: get().getNextZIndex(),
-      style: { ...obj.style, isMinimized: false },
+      style: {
+        ...obj.style,
+        pocketedFrom: undefined,
+        pocketedAt: undefined,
+        pocketWidth: undefined,
+        pocketHeight: undefined,
+      },
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      pocket: state.pocket.filter((o) => o.id !== id),
+      objects: [...state.objects, dropped],
+      selectedId: dropped.id,
+      isDirty: true,
+    }));
+    emitCollab({ kind: 'add', object: dropped });
+
+    import('@/lib/db').then(({ saveObject }) => {
+      saveObject(dropped).catch((err) => console.error('Failed to persist restored object:', err));
+    });
+  },
+
+  discardFromPocket: (id) => {
+    set((state) => ({ pocket: state.pocket.filter((o) => o.id !== id) }));
+    import('@/lib/db').then(({ deleteObject }) => {
+      deleteObject(id).catch((err) => console.error('Failed to discard pocketed object:', err));
     });
   },
 

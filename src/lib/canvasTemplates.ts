@@ -477,7 +477,6 @@ export interface CanvasTemplate {
   blurb: string;
   category: TemplateCategory;
   accent: string;
-  emoji: string;
   /** id of a canvasTheme preset — the paper this board is designed on. */
   backgroundId: string;
   /** id of a SKILL_PRESETS pack installed into the copy's Skill Set. */
@@ -512,7 +511,6 @@ const startupWarRoom: CanvasTemplate = {
     'North star, market map, 90-day roadmap, live metrics, GTM funnel and a risk register — the whole company state in a single board you can walk a room through.',
   category: 'Business',
   accent: '#C97B4B',
-  emoji: '🚀',
   backgroundId: 'cream',
   skillPresetId: 'startup-war-room',
   highlights: ['6 framed sections', 'Timeline + countdown', 'Live metrics & charts', 'Risk register table', 'Present-mode tour'],
@@ -812,7 +810,6 @@ const designSprint: CanvasTemplate = {
     'A real sprint week with real artefacts: a user map, a wall of How-Might-We notes, dot voting, a storyboard, a test script and the findings that came back.',
   category: 'Design',
   accent: '#E0567F',
-  emoji: '🎨',
   backgroundId: 'linen',
   skillPresetId: 'design-studio',
   highlights: ['Day-by-day frames', 'HMW sticky wall', 'Dot-vote poll', 'Storyboard + whiteboard', 'Findings table'],
@@ -1042,7 +1039,6 @@ const researchLab: CanvasTemplate = {
     'A working research board: a literature matrix, a hypothesis with its own falsifier, a method diagram, real result charts with the analysis script beside them, and a chapter binder.',
   category: 'Academic',
   accent: '#3E63DD',
-  emoji: '🔬',
   backgroundId: 'sky',
   skillPresetId: 'research-lab',
   highlights: ['Literature matrix', 'Method diagram', 'Result charts + script', 'Chapter binder', 'Citation stickies'],
@@ -1290,7 +1286,6 @@ const creatorStudio: CanvasTemplate = {
     'The full production line for a channel: an idea bank scored against effort, a scripting frame, a shoot checklist, a publishing calendar, and the performance board that decides what gets made next.',
   category: 'Creative',
   accent: '#C08AE6',
-  emoji: '🎬',
   backgroundId: 'plum',
   skillPresetId: 'content-kitchen',
   highlights: ['Idea bank + scoring', 'Script frame', 'Shoot checklist', 'Publishing calendar', 'Performance charts'],
@@ -1519,7 +1514,6 @@ const lifeOS: CanvasTemplate = {
     'A calm personal operating board: a weekly review, habit rings, a money snapshot, a reading shelf, and a Sunday ritual you can run in twenty minutes.',
   category: 'Personal',
   accent: '#2F9E6E',
-  emoji: '🌿',
   backgroundId: 'mint',
   skillPresetId: 'zen-minimalist',
   highlights: ['Habit rings & streaks', 'Money snapshot', 'Weekly review ritual', 'Reading shelf', 'Focus timer'],
@@ -1738,7 +1732,6 @@ const systemDesign: CanvasTemplate = {
     'An engineering design doc that lives on a canvas: architecture diagram, endpoint table, schema, capacity numbers, a failure-mode register and a staged rollout with its own kill switch.',
   category: 'Engineering',
   accent: '#5B8DEF',
-  emoji: '⚙️',
   backgroundId: 'midnight',
   skillPresetId: 'code-architect',
   highlights: ['Mermaid architecture', 'API + schema tables', 'Capacity math', 'Failure-mode register', 'Staged rollout'],
@@ -2007,7 +2000,6 @@ const tripAtlas: CanvasTemplate = {
     'A travel board with live maps pinned to the places you are actually going, a budget that adds up, a packing list, and a day plan with the gaps deliberately left in.',
   category: 'Personal',
   accent: '#C97B4B',
-  emoji: '🗺️',
   backgroundId: 'cream',
   highlights: ['Live map blocks', 'Budget table + chart', 'Day-by-day timeline', 'Packing checklist', 'Place stickies'],
   build(b) {

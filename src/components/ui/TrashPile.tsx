@@ -19,7 +19,12 @@ import { useCanvasStore } from '@/store/canvasStore';
    ─────────────────────────────────────────────────────────────────────────── */
 const BIN_LEFT = 16;        // container's `left`
 const BIN_SIZE = 64;        // the bin button is 64×64
-const BIN_SUNK = 30;        // px of the bin hidden below the viewport at rest
+/* px of the bin hidden below the viewport at rest.
+   At 30 a good third of the barrel stood above the floor line, which read as a
+   bin parked on the board rather than one just out of frame. 44 leaves ~20px —
+   the lip and a sliver of the body, nothing more. Hovering still lifts the
+   whole thing into view, so the click target never shrinks with it. */
+const BIN_SUNK = 44;
 /** Mouth centre inside the 72-unit viewBox, as a fraction of the bin's height. */
 const MOUTH_AT = 14.6 / 72;
 

@@ -17,6 +17,7 @@ import {
 import DataToolbar from './DataToolbar';
 import { useDataView, requestAiFill } from '@/lib/useDataView';
 import { DataColumn, DataRow, applyView } from '@/lib/dataTools';
+import { useDragReorder, moveItem } from '@/hooks/useDragReorder';
 
 /* ============================================================
    Shared bits — every block is a light "clay" tile that matches
@@ -2298,8 +2299,25 @@ export function TableBlock({ obj }: { obj: CanvasObjectData }) {
     }
   };
 
-  const template = `repeat(${visibleColIdx.length}, minmax(${CELL_MIN_W}px, 1fr)) 26px`;
-  const minW = visibleColIdx.length * CELL_MIN_W + 26;
+  /* Rows are draggable ONLY when what you see is what's stored: no sort, and
+     nothing filtered out. A sorted or searched table is a lens over the data
+     (that's a deliberate design rule here), so "drag row 3 above row 1" has no
+     single honest meaning while a lens is on — the grip stays hidden instead of
+     silently rearranging rows you can't see. */
+  const canReorder = !view.sort && visible.length === rows.length;
+
+  const { dragIndex, dropIndex, startDrag } = useDragReorder(
+    rootRef,
+    useCallback((from: number, to: number) => {
+      const live = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+      const cur = Array.isArray(live?.style?.tableRows) ? (live!.style!.tableRows as string[][]) : rows;
+      updateObject(obj.id, { style: { ...(live?.style || obj.style), tableRows: moveItem(cur, from, to) } });
+    }, [obj.id, obj.style, rows, updateObject]),
+  );
+
+  const GRIP_W = 18;
+  const template = `${canReorder ? `${GRIP_W}px ` : ''}repeat(${visibleColIdx.length}, minmax(${CELL_MIN_W}px, 1fr)) 26px`;
+  const minW = visibleColIdx.length * CELL_MIN_W + 26 + (canReorder ? GRIP_W : 0);
   const filled = rows.reduce((n, row) => n + (row.some((cell) => cell.trim() !== '') ? 1 : 0), 0);
   const hiddenRows = rows.length - visible.length;
 
@@ -2340,6 +2358,8 @@ export function TableBlock({ obj }: { obj: CanvasObjectData }) {
             className="sticky top-0 z-10 grid bg-[#F5EFE7] dark:bg-[#26221E] border-b border-[var(--border-strong)]"
             style={{ gridTemplateColumns: template }}
           >
+            {/* Spacer above the grip column, so headers stay over their cells */}
+            {canReorder && <div aria-hidden="true" />}
             {visibleColIdx.map((c) => (
               <div key={c} className="group/th relative flex items-center border-r border-[var(--border)] last:border-r-0">
                 <input
@@ -2406,12 +2426,50 @@ export function TableBlock({ obj }: { obj: CanvasObjectData }) {
               the stored array. A sorted view is a lens, never a reordering. */}
           {visible.map(({ index: r }, n) => {
             const row = rows[r];
+            const isDragging = canReorder && dragIndex === r;
+            const showDropLine = canReorder && dragIndex !== null && dropIndex === r && dragIndex !== r;
             return (
               <div
                 key={r}
-                className="group/tr grid border-b border-[var(--border)] last:border-b-0 hover:bg-[rgba(139,95,191,0.045)] transition-colors"
-                style={{ gridTemplateColumns: template, background: n % 2 === 1 ? 'rgba(90,62,40,0.025)' : undefined }}
+                // Only tagged when reordering is honest, so the hook can't pick
+                // up rows whose visual order isn't the stored order.
+                data-reorder-index={canReorder ? r : undefined}
+                className="group/tr grid border-b border-[var(--border)] last:border-b-0 hover:bg-[rgba(139,95,191,0.045)] transition-colors relative"
+                style={{
+                  gridTemplateColumns: template,
+                  background: n % 2 === 1 ? 'rgba(90,62,40,0.025)' : undefined,
+                  opacity: isDragging ? 0.4 : 1,
+                }}
               >
+                {showDropLine && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 right-0 rounded-full z-20"
+                    style={{
+                      height: 2,
+                      background: 'var(--accent)',
+                      boxShadow: '0 0 6px rgba(var(--accent-rgb),0.7)',
+                      ...(dragIndex! > r ? { top: -1 } : { bottom: -1 }),
+                    }}
+                  />
+                )}
+                {canReorder && (
+                  <button
+                    onPointerDown={(e) => startDrag(e, r)}
+                    onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                    onClick={stop}
+                    title="Drag to reorder this row"
+                    aria-label="Reorder this row"
+                    className="flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] opacity-0 group-hover/tr:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+                    style={{ touchAction: 'none' }}
+                  >
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <circle cx="9" cy="6" r="1.7" /><circle cx="15" cy="6" r="1.7" />
+                      <circle cx="9" cy="12" r="1.7" /><circle cx="15" cy="12" r="1.7" />
+                      <circle cx="9" cy="18" r="1.7" /><circle cx="15" cy="18" r="1.7" />
+                    </svg>
+                  </button>
+                )}
                 {visibleColIdx.map((c) => (
                   <div key={c} className="flex items-center border-r border-[var(--border)] last:border-r-0 min-w-0">
                     <input

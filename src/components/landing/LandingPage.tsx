@@ -22,6 +22,7 @@ import { useRouter } from 'next/navigation';
 import AuthButton from '@/components/ui/AuthButton';
 import ChatPanel from '@/components/chat/ChatPanel';
 import { useChatUnreadTotal } from '@/store/chatStore';
+import { useAuthStore } from '@/store/authStore';
 import { exportBoardById } from '@/lib/boardIO';
 import { applyCanvasTheme, resetCanvasTheme, presetById, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 import { gistOf, rankForPreview, effectiveFontSize, textRole, isSemanticCandidate } from '@/lib/semanticZoom';
@@ -376,6 +377,11 @@ export default function LandingPage() {
   // Templates
   const [templateCategory, setTemplateCategory] = useState<TemplateCategory | 'All'>('All');
   const [openingTemplate, setOpeningTemplate] = useState<string | null>(null);
+  /* Templates are a first-run aid, not permanent furniture. Once you're signed
+     in you have boards of your own, and "start from a template" was pushing them
+     down the page every single visit — so for a signed-in user templates live in
+     the Templates tab only, which is exactly where you'd go looking for one. */
+  const signedIn = !!useAuthStore((s) => s.user);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sortMenuRef = useRef<HTMLDivElement>(null);
@@ -997,8 +1003,10 @@ export default function LandingPage() {
             </section>
           )}
 
-          {/* ---------- HOME: Start from a template ---------- */}
-          {!isLoading && activeSidebarTab === 'home' && !searchQuery && (
+          {/* ---------- HOME: Start from a template (guests only) ----------
+              Signed in, this section is gone: templates live in the Templates
+              tab, reachable from the dock at any time. */}
+          {!isLoading && activeSidebarTab === 'home' && !searchQuery && !signedIn && (
             <section className="w-full flex flex-col gap-4">
               <div className="flex justify-between items-baseline gap-4">
                 <SectionHeading title="start from a template" sub="finished canvases, not empty shapes" />
@@ -1748,9 +1756,9 @@ function TemplateCard({
         >
           {template.category}
         </span>
-        <span className="absolute top-2 right-2.5 text-[19px] select-none" aria-hidden="true">
-          {template.emoji}
-        </span>
+        {/* The emoji that used to sit in this corner is gone — a 19px cartoon
+            glyph on top of a real board preview cheapened the card and said
+            nothing the category chip and the preview don't already say. */}
         <div
           className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
           style={{ background: 'rgba(0,0,0,0.24)' }}

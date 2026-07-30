@@ -70,22 +70,35 @@ export default function ScenesPanel() {
 
   return (
     <>
-      <div className="scenes-launcher fixed left-5 top-1/2 -translate-y-1/2 z-[130] flex items-center gap-3 pointer-events-auto">
-        {/* Launcher pill */}
+      {/* Top-right corner — the slot the account avatar used to occupy. Scenes
+          is a "present this board" action, which belongs with the board-level
+          controls at the top of the screen rather than floating over the middle
+          of the left edge, where it also collided with the Pocket rail. */}
+      <div className="scenes-launcher fixed top-12 right-10 z-[130] flex flex-row-reverse items-start gap-3 pointer-events-auto">
+        {/* Launcher. The old icon was a sprocketed film strip — busy at 19px and
+            it read as "video file". A slide with a play head on it says
+            "present these views", which is what this actually does. */}
         <motion.button
           onClick={() => setOpen((o) => !o)}
           whileHover={{ scale: 1.04 }}
           whileTap={{ scale: 0.96 }}
           transition={spring}
-          title="Scenes — cinematic tours"
+          title="Scenes — present this board as a guided tour"
           aria-label="Scenes"
-          className="clay-card w-11 h-11 rounded-2xl flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer relative"
+          aria-expanded={open}
+          className="clay-card w-11 h-11 rounded-2xl flex items-center justify-center transition-colors cursor-pointer relative shrink-0"
+          style={{ color: open ? 'var(--accent)' : 'var(--text-secondary)' }}
         >
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="2" y="4" width="20" height="16" rx="2" />
-            <line x1="7" y1="4" x2="7" y2="20" /><line x1="17" y1="4" x2="17" y2="20" />
-            <line x1="2" y1="9" x2="7" y2="9" /><line x1="2" y1="15" x2="7" y2="15" />
-            <line x1="17" y1="9" x2="22" y2="9" /><line x1="17" y1="15" x2="22" y2="15" />
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {/* the deck behind, so it reads as several slides */}
+            <path d="M6.5 18.5H5A1.5 1.5 0 0 1 3.5 17V7" opacity="0.45" strokeWidth="1.6" />
+            {/* the slide itself */}
+            <rect x="6.5" y="4" width="14" height="12.5" rx="2" strokeWidth="1.7" />
+            {/* the play head, solid so it holds at small sizes */}
+            <path d="M11.8 8.2v4.1l3.6-2.05z" fill="currentColor" stroke="none" />
+            {/* the stand — a presentation, not a photo */}
+            <path d="M13.5 16.5v3.2" strokeWidth="1.7" />
+            <path d="M10.6 20.4h5.8" strokeWidth="1.7" />
           </svg>
           {scenes.length > 0 && (
             <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accent)] text-white text-[9px] font-extrabold flex items-center justify-center tabular-nums shadow-sm">
@@ -130,9 +143,11 @@ function SceneList({ onPlay }: { onPlay: () => void }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: -12, scale: 0.97 }}
+      /* Slides in from the right now that the launcher lives in that corner —
+         the panel opens toward the middle of the screen, not off the edge. */
+      initial={{ opacity: 0, x: 12, scale: 0.97 }}
       animate={{ opacity: 1, x: 0, scale: 1 }}
-      exit={{ opacity: 0, x: -12, scale: 0.97 }}
+      exit={{ opacity: 0, x: 12, scale: 0.97 }}
       transition={spring}
       // Inline padding: Tailwind p-* is dead here (global `* { padding:0 }`
       // reset wins), and with zero padding the rounded corner clips the "S".
