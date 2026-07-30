@@ -60,8 +60,14 @@ type BookAnim =
   | { kind: 'cover'; dir: 'open' | 'close' }
   | { kind: 'back'; dir: 'open' | 'close' };
 
+export type PhysicsMode = 'snappy' | 'curl' | 'glide';
+
 /** Must match the animation durations in pdf-reader.css. */
-const LEAF_MS = 420;
+const LEAF_MS_MAP: Record<PhysicsMode, number> = {
+  snappy: 280,
+  curl: 320,
+  glide: 200,
+};
 const COVER_MS = 450;
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect;
 /** A spread always begins on an odd page — (1,2), (3,4), … as a book is set. */
@@ -85,12 +91,12 @@ const TYPO: Typo = { font: 'literata', size: 20, leading: 1.62, measure: 66, jus
 
 interface ReaderState {
   page: number; layout: Layout; atmos: Atmos; aged: boolean; strip: boolean; sound: boolean;
-  zen: boolean; ruler: boolean; typo: Typo;
+  zen: boolean; ruler: boolean; typo: Typo; physics: PhysicsMode;
   bookmarks: number[]; highlights: Highlight[]; drawings: Stroke[]; stickies: Sticky[];
 }
 const DEFAULTS: ReaderState = {
   page: 1, layout: 'scroll', atmos: 'library', aged: false, strip: true, sound: false,
-  zen: false, ruler: false, typo: TYPO,
+  zen: false, ruler: false, typo: TYPO, physics: 'snappy',
   bookmarks: [], highlights: [], drawings: [], stickies: [],
 };
 function arr<T>(v: unknown): T[] { return Array.isArray(v) ? v as T[] : []; }
@@ -99,6 +105,7 @@ function initState(raw: unknown): ReaderState {
   return {
     ...DEFAULTS, ...r,
     atmos: isRoom(r.atmos) ? r.atmos : DEFAULTS.atmos,
+    physics: (r.physics === 'curl' || r.physics === 'glide') ? r.physics : 'snappy',
     sound: r.sound === true,
     zen: false,                                   // never start hidden — you'd think it broke
     typo: { ...TYPO, ...(r.typo && typeof r.typo === 'object' ? r.typo : {}) },
@@ -471,7 +478,8 @@ function Reader({ objId }: { objId: string }) {
       void session.warm(need, w, dpr);
     }
     try { playPageTurn(0.55, leaf.dir); } catch { /* ignore */ }
-    start({ kind: 'leaf', leaf }, LEAF_MS, () => set({ page: leaf.target }));
+    const leafMs = LEAF_MS_MAP[stRef.current.physics || 'snappy'];
+    start({ kind: 'leaf', leaf }, leafMs, () => set({ page: leaf.target }));
   }, [session, set]);
 
   /* -- navigation -------------------------------------------------------- */
@@ -793,6 +801,7 @@ function Reader({ objId }: { objId: string }) {
 
   return (
     <div className="pdfr-root" data-atmos={st.atmos} data-aged={st.aged ? '1' : '0'} data-tool={tool}
+      data-physics={st.physics || 'snappy'}
       data-chrome={chrome ? '1' : '0'} data-zen={st.zen ? '1' : '0'} onMouseUp={onStageMouseUp}
       style={{
         ['--accent' as string]: room.accent, ['--glow' as string]: String(room.glow ?? 0.4), color: room.ink || '#f4ece0',
@@ -937,13 +946,26 @@ function Reader({ objId }: { objId: string }) {
             ))}
           </div>
 
-          <div className="foot">
-            <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} onClick={once(() => set({ sound: !st.sound }))} title={room.sound ? '' : 'This room is a quiet one'}>
-              <Ico d={st.sound ? I.sound : I.mute} s={14} /> Ambient sound {st.sound ? 'on' : 'off'}
-            </button>
-            <button className={`pdfr-btn ${st.aged ? 'active' : ''}`} onClick={once(() => set({ aged: !st.aged }))}>
-              <Ico d={I.aged} s={14} /> Aged paper
-            </button>
+          <div className="foot" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', fontSize: 12 }}>
+              <span style={{ fontWeight: 600, opacity: 0.85 }}>Page Turn Physics</span>
+              <div className="pdfr-tabs" style={{ marginBottom: 0 }}>
+                {(['snappy', 'curl', 'glide'] as const).map((mode) => (
+                  <button key={mode} className={`pdfr-tab ${st.physics === mode ? 'active' : ''}`}
+                    onClick={once(() => set({ physics: mode }))}>
+                    {mode === 'snappy' ? '⚡ Fast' : mode === 'curl' ? '📖 Curl' : '🚀 Glide'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} onClick={once(() => set({ sound: !st.sound }))} title={room.sound ? '' : 'This room is a quiet one'}>
+                <Ico d={st.sound ? I.sound : I.mute} s={14} /> Ambient sound {st.sound ? 'on' : 'off'}
+              </button>
+              <button className={`pdfr-btn ${st.aged ? 'active' : ''}`} onClick={once(() => set({ aged: !st.aged }))}>
+                <Ico d={I.aged} s={14} /> Aged paper
+              </button>
+            </div>
           </div>
         </div>
       )}
