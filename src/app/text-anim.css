@@ -325,6 +325,198 @@
 .ct-rainbow-letters       { --kf: ctHueCycle; --ct-ease: linear; }
 .ct-rainbow-letters .ct-u { color: #ff5d5d; }
 
+/* =========================== GOD MODE =========================== */
+@keyframes ctSupernova {
+  0% { opacity:0; transform: scale(.1) rotate(-35deg); filter: brightness(3) blur(12px); }
+  50% { opacity:1; transform: scale(1.35) rotate(5deg); filter: brightness(2.5) blur(2px); text-shadow: 0 0 35px #00f0ff, 0 0 70px #ffd700; }
+  100% { transform: scale(1) rotate(0); filter: brightness(1) blur(0); text-shadow: none; }
+}
+@keyframes ctHyperdrive {
+  0% { opacity:0; transform: perspective(600px) translateZ(500px) scale(3); filter: blur(20px); letter-spacing: 0.5em; }
+  60% { opacity:1; transform: perspective(600px) translateZ(-40px) scale(.9); filter: blur(0); letter-spacing: 0.05em; }
+  100% { transform: perspective(600px) translateZ(0) scale(1); letter-spacing: normal; }
+}
+@keyframes ctGodRay {
+  0%,100% { text-shadow: 0 0 20px #ffd700, 0 0 40px rgba(255,215,0,0.6), 0 0 80px rgba(255,230,120,0.3); filter: brightness(1.2); }
+  50% { text-shadow: 0 0 40px #ffea70, 0 0 80px rgba(255,235,140,0.8), 0 0 120px rgba(255,255,255,0.6); filter: brightness(1.6); }
+}
+@keyframes ctQuantumFlux {
+  0%,100% { transform: translate(0,0) scale(1); text-shadow: -2px -2px 8px #00f0ff, 2px 2px 8px #a000ff; }
+  25% { transform: translate(-1.5px,1.5px) scale(1.03); text-shadow: 2px -2px 12px #00f0ff, -2px 2px 12px #a000ff; }
+  50% { transform: translate(1.5px,-1px) scale(.98); text-shadow: -3px 1px 16px #00f0ff, 3px -1px 16px #a000ff; }
+  75% { transform: translate(-1px,-1.5px) scale(1.02); text-shadow: 1px 3px 10px #00f0ff, -1px -3px 10px #a000ff; }
+}
+@keyframes ctSingularity {
+  0% { opacity:0; transform: scale(3) rotate(180deg); filter: blur(15px) contrast(3); }
+  45% { opacity:.9; transform: scale(.05) rotate(-90deg); filter: blur(0) contrast(1); }
+  70% { opacity:1; transform: scale(1.25) rotate(0deg); text-shadow: 0 0 30px #ffffff, 0 0 60px #ff0077; }
+  100% { transform: scale(1) rotate(0deg); text-shadow: none; }
+}
+@keyframes ctPlasmaStorm {
+  0%,100% { text-shadow: 0 0 10px #7000ff, 0 0 25px #00d4ff, 0 0 45px #00f0ff; filter: brightness(1.3); }
+  25% { text-shadow: 0 0 15px #ff00a0, 0 0 35px #7000ff, 0 0 60px #00d4ff; filter: brightness(1.6); }
+  50% { text-shadow: 0 0 8px #00f0ff, 0 0 20px #ff00a0, 0 0 40px #7000ff; filter: brightness(1.1); }
+  75% { text-shadow: 0 0 18px #00d4ff, 0 0 40px #ff00a0, 0 0 70px #00f0ff; filter: brightness(1.7); }
+}
+@keyframes ctThunderGod {
+  0% { opacity:0; transform: translateY(-1.8em) scaleY(2); filter: brightness(4); }
+  35% { opacity:1; transform: translateY(.1em) scaleY(.85); text-shadow: 0 0 40px #ffffff, 0 0 80px #ffd700; }
+  60% { transform: translateY(-.05em) scaleY(1.05); text-shadow: 0 0 20px #ffffff, 0 0 40px #ffd700; }
+  100% { transform: translateY(0) scaleY(1); text-shadow: none; }
+}
+@keyframes ctSolarFlare {
+  0% { background-position: 0% 50%; filter: brightness(1.2) drop-shadow(0 0 15px #ff4500); }
+  50% { background-position: 100% 50%; filter: brightness(1.7) drop-shadow(0 0 30px #ffaa00); }
+  100% { background-position: 0% 50%; filter: brightness(1.2) drop-shadow(0 0 15px #ff4500); }
+}
+@keyframes ctDimensionTear {
+  0%,100% { clip-path: inset(0 0 0 0); transform: skewX(0deg); text-shadow: -2px 0 #ff0055, 2px 0 #00f0ff; }
+  20% { clip-path: inset(20% 0 60% 0); transform: skewX(-12deg) translateX(4px); text-shadow: -4px 0 #ff0055, 4px 0 #00f0ff; }
+  40% { clip-path: inset(60% 0 10% 0); transform: skewX(8deg) translateX(-4px); text-shadow: 4px 0 #ff0055, -4px 0 #00f0ff; }
+  60% { clip-path: inset(10% 0 75% 0); transform: skewX(-5deg) translateX(2px); text-shadow: -3px 0 #ff0055, 3px 0 #00f0ff; }
+  80% { clip-path: inset(45% 0 30% 0); transform: skewX(6deg) translateX(-2px); text-shadow: 3px 0 #ff0055, -3px 0 #00f0ff; }
+}
+@keyframes ctChronoShift {
+  0% { opacity:0; transform: scale(.4) rotate(-20deg); filter: blur(10px); }
+  40% { opacity:.7; transform: scale(1.3) rotate(8deg); filter: blur(3px); }
+  70% { opacity:.9; transform: scale(.92) rotate(-3deg); filter: blur(1px); }
+  100% { opacity:1; transform: scale(1) rotate(0deg); filter: blur(0); }
+}
+@keyframes ctNebulaBloom {
+  0% { background-position: 0% 0%; filter: hue-rotate(0deg) saturate(1.8); }
+  50% { background-position: 100% 100%; filter: hue-rotate(180deg) saturate(2.4); }
+  100% { background-position: 0% 0%; filter: hue-rotate(360deg) saturate(1.8); }
+}
+@keyframes ctAstralShift {
+  0%,100% { text-shadow: 0 0 10px rgba(120,220,255,0.7), -10px -5px 20px rgba(180,100,255,0.4), 10px 5px 20px rgba(100,255,200,0.4); }
+  50% { text-shadow: 0 0 18px rgba(120,220,255,0.95), 12px 6px 30px rgba(180,100,255,0.7), -12px -6px 30px rgba(100,255,200,0.7); }
+}
+
+.ct-supernova        { --kf: ctSupernova; --ct-ease: cubic-bezier(.16,1,.3,1); }
+.ct-hyperdrive       { --kf: ctHyperdrive; --ct-ease: cubic-bezier(.15,1,.2,1); }
+.ct-god-ray          { --kf: ctGodRay; color: #fff3c4; }
+.ct-quantum-flux     { --kf: ctQuantumFlux; }
+.ct-singularity      { --kf: ctSingularity; --ct-ease: cubic-bezier(.2,1,.3,1); }
+.ct-plasma-storm     { --kf: ctPlasmaStorm; color: #e6f7ff; }
+.ct-thunder-god      { --kf: ctThunderGod; --ct-ease: cubic-bezier(.1,1,.25,1); }
+.ct-solar-flare {
+  background: linear-gradient(90deg, #ff2a00, #ffaa00, #fff700, #ffaa00, #ff2a00);
+  background-size: 250% 100%; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctSolarFlare; --ct-ease: linear;
+}
+.ct-dimension-tear   { --kf: ctDimensionTear; }
+.ct-chrono-shift     { --kf: ctChronoShift; --ct-ease: cubic-bezier(.2,.9,.3,1); }
+.ct-nebula-bloom {
+  background: radial-gradient(circle, #ff0077, #7000ff, #00f0ff, #ff0077);
+  background-size: 300% 300%; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctNebulaBloom; --ct-ease: ease-in-out;
+}
+.ct-astral-projection { --kf: ctAstralShift; color: #f0f9ff; }
+
+/* REVEAL EXPANSION */
+@keyframes ctOrigami { 0% { opacity:0; transform: perspective(400px) rotateX(-90deg) rotateY(45deg) scale(.5); } 100% { opacity:1; transform: perspective(400px) rotateX(0) rotateY(0) scale(1); } }
+@keyframes ctStardust { 0% { opacity:0; transform: translateY(-0.8em) scale(0); filter: blur(8px) brightness(2); } 60% { opacity:1; filter: blur(0) brightness(1.4); } 100% { transform: none; filter: brightness(1); } }
+@keyframes ctPrismSplit { 0% { opacity:0; transform: scale(1.4); text-shadow: -8px 0 #ff0055, 8px 0 #00f0ff; } 100% { opacity:1; transform: scale(1); text-shadow: none; } }
+@keyframes ctTelescope { 0% { opacity:0; transform: scale(3.5); filter: blur(12px); } 70% { opacity:1; transform: scale(.95); filter: blur(0); } 100% { transform: scale(1); } }
+@keyframes ctMiracleWave { 0% { opacity:0; transform: translateY(1.2em) rotate(-10deg); } 65% { opacity:1; transform: translateY(-.15em) rotate(3deg); } 100% { transform: none; } }
+@keyframes ctGhostFade { 0% { opacity:0; filter: blur(16px) saturate(0); transform: translateY(-.3em); } 100% { opacity:1; filter: blur(0) saturate(1); transform: none; } }
+@keyframes ctZDepthDrop { 0% { opacity:0; transform: perspective(500px) translateZ(400px); filter: blur(10px); } 100% { opacity:1; transform: perspective(500px) translateZ(0); filter: blur(0); } }
+@keyframes ctCurtainCall { 0% { opacity:0; clip-path: inset(0 50% 0 50%); transform: scaleX(.2); } 100% { opacity:1; clip-path: inset(0 0 0 0); transform: scaleX(1); } }
+
+.ct-origami        { --kf: ctOrigami; --ct-ease: cubic-bezier(.2,1,.3,1); }
+.ct-stardust       { --kf: ctStardust; }
+.ct-prism-split    { --kf: ctPrismSplit; --ct-ease: cubic-bezier(.16,1,.3,1); }
+.ct-telescope      { --kf: ctTelescope; }
+.ct-miracle-wave   { --kf: ctMiracleWave; --ct-ease: cubic-bezier(.34,1.4,.55,1); }
+.ct-ghost-fade     { --kf: ctGhostFade; }
+.ct-z-depth-drop   { --kf: ctZDepthDrop; }
+.ct-curtain-call   { --kf: ctCurtainCall; --ct-ease: cubic-bezier(.6,0,.2,1); }
+
+/* CAPTION EXPANSION */
+@keyframes ctFireflyBounce { 0% { opacity:.3; transform: translateY(0); } 50% { opacity:1; transform: translateY(-.3em) scale(1.15); text-shadow: 0 0 12px var(--accent); } 100% { opacity:.3; transform: translateY(0); } }
+@keyframes ctTargetScope { 0% { opacity:.2; transform: scale(.9); } 50% { opacity:1; transform: scale(1.12); outline: 2px dashed var(--accent); outline-offset: 4px; } 100% { opacity:.2; transform: scale(.9); } }
+@keyframes ctUnderlineFlame { 0% { opacity:.3; } 50% { opacity:1; border-bottom: 2px solid #ff4500; box-shadow: 0 4px 12px rgba(255,69,0,0.6); } 100% { opacity:.3; } }
+@keyframes ctScaleMagnifier { 0%,100% { transform: scale(1); opacity: .4; } 50% { transform: scale(1.3); opacity: 1; text-shadow: 0 4px 16px rgba(var(--accent-rgb),.6); } }
+@keyframes ctGlowFollower { 0%,100% { opacity: .3; filter: blur(1px); } 50% { opacity: 1; filter: blur(0); text-shadow: 0 0 16px rgba(var(--accent-rgb),.9); } }
+@keyframes ctPulseReader { 0%,100% { transform: scale(1); } 40% { transform: scale(1.22); color: var(--accent); } }
+
+.ct-firefly-bounce  { --kf: ctFireflyBounce; }
+.ct-target-scope    { --kf: ctTargetScope; }
+.ct-underline-flame { --kf: ctUnderlineFlame; }
+.ct-scale-magnifier { --kf: ctScaleMagnifier; --ct-ease: cubic-bezier(.34,1.5,.55,1); }
+.ct-glow-follower   { --kf: ctGlowFollower; }
+.ct-pulse-reader    { --kf: ctPulseReader; --ct-ease: cubic-bezier(.2,1.4,.3,1); }
+
+/* AMBIENT EXPANSION */
+@keyframes ctCosmicPulsar { 0%,100% { opacity: .85; text-shadow: 0 0 6px #00f0ff, 0 0 15px #7000ff; } 50% { opacity: 1; text-shadow: 0 0 20px #00f0ff, 0 0 40px #7000ff, 0 0 60px #ff00a0; } }
+@keyframes ctBiolume { 0%,100% { text-shadow: 0 0 8px rgba(0,255,200,.6); } 50% { text-shadow: 0 0 20px rgba(0,255,200,.95), 0 0 35px rgba(0,180,255,.6); } }
+@keyframes ctCrystalShimmer { 0% { background-position: -150% center; } 100% { background-position: 250% center; } }
+@keyframes ctCyberGrid { 0%,100% { border-bottom: 2px solid #ff0077; box-shadow: 0 4px 15px rgba(255,0,119,0.5); } 50% { border-bottom: 2px solid #00f0ff; box-shadow: 0 4px 15px rgba(0,240,255,0.5); } }
+@keyframes ctLavaWax { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+@keyframes ctStarfield { 0%,100% { text-shadow: 2px 2px 4px rgba(255,255,255,0.4), -2px -2px 4px rgba(255,215,0,0.3); } 50% { text-shadow: -2px 2px 10px rgba(255,255,255,0.9), 2px -2px 10px rgba(255,215,0,0.8); } }
+@keyframes ctNeonWireframe { 0%,100% { -webkit-text-stroke: 1.5px #00f0ff; color: transparent; text-shadow: 0 0 10px rgba(0,240,255,0.7); } 50% { -webkit-text-stroke: 1.5px #ff00a0; color: transparent; text-shadow: 0 0 15px rgba(255,0,160,0.8); } }
+@keyframes ctChromaWave { 0% { background-position: 0% center; } 100% { background-position: 300% center; } }
+
+.ct-cosmic-pulsar   { --kf: ctCosmicPulsar; }
+.ct-bioluminescence { --kf: ctBiolume; color: #a3ffed; }
+.ct-crystal-shimmer {
+  background: linear-gradient(100deg, currentColor 0%, currentColor 40%, #ffffff 50%, currentColor 60%, currentColor 100%);
+  background-size: 250% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; --kf: ctCrystalShimmer; --ct-ease: linear;
+}
+.ct-cyber-grid      { --kf: ctCyberGrid; }
+.ct-lava-lamp {
+  background: linear-gradient(120deg, #ff4e50, #f9d423, #e1eec3, #f05053);
+  background-size: 300% 300%; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctLavaWax; --ct-ease: ease-in-out;
+}
+.ct-starfield       { --kf: ctStarfield; }
+.ct-neon-wireframe  { --kf: ctNeonWireframe; }
+.ct-chroma-wave {
+  background: linear-gradient(90deg, #ff0055, #7000ff, #00f0ff, #00ff66, #ffbe0b, #ff0055);
+  background-size: 300% auto; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent; --kf: ctChromaWave; --ct-ease: linear;
+}
+
+/* SIGNATURE & PLAYFUL EXPANSION */
+@keyframes ctCyberBreach { 0%,92%,100% { transform: none; filter: none; } 94% { transform: skewX(-20deg) translateX(5px); filter: invert(.8); } 96% { transform: skewX(15deg) translateX(-5px); filter: hue-rotate(180deg); } }
+@keyframes ctPortalRing { 0% { opacity:0; transform: perspective(400px) rotateY(-180deg) scale(0); filter: brightness(2); } 100% { opacity:1; transform: perspective(400px) rotateY(0) scale(1); filter: brightness(1); } }
+@keyframes ctBlackHole { 0%,100% { transform: scale(1); text-shadow: 0 0 10px #000, 0 0 20px #7000ff; } 50% { transform: scale(.96); text-shadow: 0 0 25px #000, 0 0 45px #ff0055; } }
+@keyframes ctInfernoBlaze { 0%,100% { text-shadow: 0 -4px 10px #ff4500, 0 -8px 20px #ff8c00; transform: translateY(0); } 50% { text-shadow: 0 -6px 16px #ff4500, 0 -12px 28px #ffd700; transform: translateY(-2px); } }
+@keyframes ctArcCore { 0%,100% { text-shadow: 0 0 10px #00f0ff, 0 0 25px #00f0ff, 0 0 40px #fff; filter: brightness(1.2); } 50% { text-shadow: 0 0 20px #00f0ff, 0 0 45px #00f0ff, 0 0 70px #fff; filter: brightness(1.8); } }
+@keyframes ctNeuralSpark { 0% { opacity:0; transform: scale(.5); filter: brightness(3); } 60% { opacity:1; transform: scale(1.15); text-shadow: 0 0 15px #00f0ff; } 100% { transform: scale(1); text-shadow: none; } }
+@keyframes ctRetroWave { 0%,100% { background-position: 0% 50%; text-shadow: 0 4px 10px rgba(255,0,128,0.5); } 50% { background-position: 100% 50%; text-shadow: 0 4px 20px rgba(0,240,255,0.7); } }
+
+.ct-cyberpunk-hack  { --kf: ctCyberBreach; }
+.ct-portal-ring     { --kf: ctPortalRing; --ct-ease: cubic-bezier(.2,1,.3,1); }
+.ct-black-hole      { --kf: ctBlackHole; }
+.ct-infernal-blaze  { --kf: ctInfernoBlaze; color: #ffebcd; }
+.ct-arc-reactor     { --kf: ctArcCore; color: #e6ffff; }
+.ct-neural-pulse    { --kf: ctNeuralSpark; }
+.ct-retro-wave {
+  background: linear-gradient(180deg, #ff0077 0%, #ffb700 50%, #00f0ff 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
+  --kf: ctRetroWave;
+}
+
+@keyframes ctPopcorn { 0% { opacity:0; transform: translateY(.8em) scale(.3); } 60% { opacity:1; transform: translateY(-.25em) scale(1.2); } 100% { transform: none; } }
+@keyframes ctJellyJump { 0% { opacity:0; transform: translateY(.9em) scale(1.4,.6); } 50% { opacity:1; transform: translateY(-.2em) scale(.8,1.2); } 100% { transform: none; } }
+@keyframes ctTrampoline { 0% { opacity:0; transform: translateY(-1.5em); } 65% { opacity:1; transform: translateY(.2em) scale(1.2,.8); } 85% { transform: translateY(-.08em); } 100% { transform: none; } }
+@keyframes ctPinball { 0% { opacity:0; transform: scale(2) rotate(-25deg); } 60% { opacity:1; transform: scale(.9) rotate(5deg); } 100% { transform: none; } }
+@keyframes ctYoYo { 0% { opacity:0; transform: translateY(-1.6em); } 50% { opacity:.8; transform: translateY(.3em); } 75% { opacity:.95; transform: translateY(-.1em); } 100% { opacity:1; transform: none; } }
+@keyframes ctWigglePop { 0% { opacity:0; transform: scale(.4) rotate(-15deg); } 50% { transform: scale(1.15) rotate(10deg); } 75% { transform: scale(.95) rotate(-5deg); } 100% { opacity:1; transform: none; } }
+@keyframes ctSlimeSlide { 0% { opacity:0; transform: translateY(-1em) skewY(15deg) scaleY(1.4); } 70% { opacity:1; transform: translateY(.1em) skewY(-5deg) scaleY(.9); } 100% { transform: none; } }
+@keyframes ctBalloonInflate { 0% { opacity:0; transform: scale(0); } 70% { opacity:1; transform: scale(1.25); } 100% { transform: scale(1); } }
+
+.ct-popcorn         { --kf: ctPopcorn; --ct-ease: cubic-bezier(.34,1.56,.55,1); }
+.ct-jelly-jump      { --kf: ctJellyJump; --ct-ease: cubic-bezier(.34,1.4,.55,1); }
+.ct-trampoline      { --kf: ctTrampoline; --ct-ease: cubic-bezier(.16,1,.3,1); }
+.ct-pinball         { --kf: ctPinball; --ct-ease: cubic-bezier(.34,1.5,.55,1); }
+.ct-yo-yo           { --kf: ctYoYo; --ct-ease: cubic-bezier(.34,1.3,.55,1); }
+.ct-wiggle-pop      { --kf: ctWigglePop; --ct-ease: cubic-bezier(.34,1.5,.55,1); }
+.ct-slime-slide     { --kf: ctSlimeSlide; }
+.ct-balloon-inflate { --kf: ctBalloonInflate; --ct-ease: cubic-bezier(.34,1.5,.55,1); }
+
 /* =========================== REDUCED MOTION ========================== */
 /* The engine already returns the plain render for reduced-motion viewers; this is
    a CSS backstop so nothing animates or hides even if a node slips through. */
