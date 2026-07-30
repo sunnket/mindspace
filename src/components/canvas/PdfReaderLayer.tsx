@@ -620,6 +620,28 @@ function Reader({ objId }: { objId: string }) {
     el.style.setProperty('--cast-fall', f.castFall.toFixed(3));
   }, []);
 
+  /**
+   * Rewinding the sheet to flat is a note-to-self, not a paint.
+   *
+   * THIS IS THE FLASH AT THE END OF A TURN. Landing used to write `--t: 0`
+   * straight to the DOM in the same breath as `setTurning(null)` — but a direct
+   * style write lands NOW and a React state change lands whenever React gets
+   * round to it, which under concurrent rendering is a separate task, sometimes
+   * after the browser has painted. For that one frame the sheet was still in the
+   * DOM and had just been told it was flat, so it snapped back across the spine
+   * showing its FRONT face — the page you had just turned away from — over a
+   * spread that hadn't committed yet. A perfect flash of the previous page.
+   *
+   * So nothing outside the animation loop touches the DOM. `rewindLeaf` moves
+   * only the number, and the layout effect below writes it in the same commit
+   * that mounts or unmounts the sheet — after React's DOM mutations, before the
+   * browser paints, so there is no frame in between for anything to show
+   * through. Until then the landed sheet stays exactly where it landed, which is
+   * already showing precisely what the committed spread is about to.
+   */
+  const rewindLeaf = useCallback(() => { tRef.current = 0; }, []);
+  useIsomorphicLayoutEffect(() => { paintLeaf(tRef.current); }, [turning, paintLeaf]);
+
   const stopRaf = useCallback(() => {
     if (turnRaf.current !== null) { cancelAnimationFrame(turnRaf.current); turnRaf.current = null; }
   }, []);
@@ -694,17 +716,18 @@ function Reader({ objId }: { objId: string }) {
 
   const startLeafRef = useRef<((d: 'next' | 'prev', from: number) => boolean) | null>(null);
 
-  /** Land the sheet: commit the spread it was carrying and clear the leaf. */
+  /** Land the sheet: commit the spread it was carrying and clear the leaf.
+      The sheet is left lying where it landed — see `rewindLeaf`. */
   const settleLeaf = useCallback((leaf: Leaf) => {
     set({ page: leaf.target });
     setTurning(null);
     turningRef.current = null;
-    paintLeaf(0);
+    rewindLeaf();
     const q = queued.current;
     queued.current = null;
     // Straight on from the page we just landed on — no state round-trip.
     if (q && !startLeafRef.current?.(q, leaf.target)) turnRef.current?.(q);
-  }, [set, paintLeaf]);
+  }, [set, rewindLeaf]);
 
   /**
    * Cut a leaf and fly it. Returns false when there is no sheet to lift.
@@ -729,7 +752,9 @@ function Reader({ objId }: { objId: string }) {
     const next = { leaf, t: 0, dragging: false };
     setTurning(next);
     turningRef.current = next;
-    paintLeaf(0);
+    /* Note only — the DOM write happens in the same commit that mounts this
+       sheet. Doing it here would flatten the sheet that is still on screen. */
+    rewindLeaf();
 
     const launch = () => {
       // Still ours? A drag or another turn may have taken the sheet meanwhile.
@@ -739,7 +764,7 @@ function Reader({ objId }: { objId: string }) {
     if (leafIsWarm(leaf)) launch();
     else void Promise.race([warmLeaf(leaf), new Promise((r) => window.setTimeout(r, 120))]).then(launch);
     return true;
-  }, [leafFrom, warmLeaf, leafIsWarm, paintLeaf, glideTo, settleLeaf]);
+  }, [leafFrom, warmLeaf, leafIsWarm, rewindLeaf, glideTo, settleLeaf]);
   useEffect(() => { startLeafRef.current = startLeaf; }, [startLeaf]);
 
   /* -- navigation -------------------------------------------------------- */
@@ -857,8 +882,8 @@ function Reader({ objId }: { objId: string }) {
     const next = { leaf, t: 0, dragging: true };
     setTurning(next);
     turningRef.current = next;
-    paintLeaf(0);
-  }, [numPages, phase, leafFor, warmLeaf, paintLeaf]);
+    rewindLeaf();
+  }, [numPages, phase, leafFor, warmLeaf, rewindLeaf]);
 
   const moveDrag = useCallback((e: React.PointerEvent) => {
     const d = dragRef.current;
@@ -883,9 +908,9 @@ function Reader({ objId }: { objId: string }) {
       try { playPageTurn(0.55, d.leaf.dir); } catch { /* ignore */ }
       glideTo(1, () => settleLeaf(d.leaf));
     } else {
-      glideTo(0, () => { setTurning(null); turningRef.current = null; paintLeaf(0); });
+      glideTo(0, () => { setTurning(null); turningRef.current = null; rewindLeaf(); });
     }
-  }, [glideTo, settleLeaf, paintLeaf]);
+  }, [glideTo, settleLeaf, rewindLeaf]);
 
   useEffect(() => () => stopRaf(), [stopRaf]);
 
@@ -988,25 +1013,50 @@ function Reader({ objId }: { objId: string }) {
      never moves once it has. See useBookAspect. */
   const aspect = st.layout === 'book' ? bookAspect : pageAspect;
 
-  /* -- this page as prose ------------------------------------------------- *
-   * Both the typeset view and read-aloud want the same thing: the page as
-   * paragraphs, then sentences. Do it once. */
-  const [prose, setProse] = useState<{ page: number; paras: string[][] } | null>(null);
+  /* -- what's in front of you, as prose ------------------------------------ *
+   * Both the typeset view and read-aloud want the same thing: what you can
+   * currently see, as paragraphs and then sentences. Do it once.
+   *
+   * IN THE FLIPBOOK THAT IS A SPREAD, NOT A PAGE. `st.page` is normalised to the
+   * odd left-hand page (oddLeft), so reading `st.page` alone read the left page,
+   * announced itself finished, and turned the sheet — which advances by TWO —
+   * so every right-hand page in the book went unread. A spread is one thing you
+   * look at; it is one thing to read out, left page then right. */
+  const readPages = useMemo(() => {
+    if (!numPages) return [] as number[];
+    if (st.layout !== 'book') return [st.page];
+    const l = oddLeft(st.page);
+    return l + 1 <= numPages ? [l, l + 1] : [l];
+  }, [st.layout, st.page, numPages]);
+  const readKey = readPages.join(',');
+
+  const [prose, setProse] = useState<{ key: string; paras: string[][] } | null>(null);
   const needProse = st.layout === 'typeset' || speech.on;
   useEffect(() => {
-    if (!session || !needProse) return undefined;
+    if (!session || !needProse || !readPages.length) return undefined;
     let alive = true;
-    session.pageText(st.page)
-      .then((t) => { if (alive) setProse({ page: st.page, paras: toParagraphs(t.lines).map(toSentences) }); })
-      .catch(() => { if (alive) setProse({ page: st.page, paras: [] }); });
+    Promise.all(readPages.map((n) => session.pageText(n).catch(() => ({ lines: [] as string[], text: '' }))))
+      .then((all) => {
+        if (!alive) return;
+        // Paragraphs are found per page — a page boundary ends one, and running
+        // two pages' lines together would glue the last line of the left page to
+        // the first of the right.
+        setProse({ key: readKey, paras: all.flatMap((t) => toParagraphs(t.lines)).map(toSentences) });
+      })
+      .catch(() => { if (alive) setProse({ key: readKey, paras: [] }); });
     return () => { alive = false; };
-  }, [session, st.page, needProse]);
-  const proseReady = prose?.page === st.page;
+  }, [session, needProse, readPages, readKey]);
+  const proseReady = prose?.key === readKey;
   const sentences = useMemo(() => (proseReady ? prose!.paras.flat() : []), [prose, proseReady]);
 
   /* -- read aloud ---------------------------------------------------------- */
   const onPageEnd = useCallback(() => turn('next'), [turn]);
-  useReadAloud({ speech, setSpeech, sentences, ready: proseReady, voices, hasNextPage: st.page < numPages, onPageEnd });
+  /* "Is there more after this?" — after a SPREAD in the flipbook, after a page
+     anywhere else. Asking `st.page < numPages` on the last spread said yes, then
+     the turn found no sheet to lift and closed the back board instead, leaving
+     the voice waiting on a page that was never going to change. */
+  const hasNextPage = st.layout === 'book' ? oddLeft(st.page) + 2 <= numPages : st.page < numPages;
+  useReadAloud({ speech, setSpeech, sentences, ready: proseReady, voices, hasNextPage, onPageEnd });
 
   /* -- look a word up ------------------------------------------------------ */
   const lookUp = useCallback(async (word: string, x: number, y: number) => {
@@ -1149,7 +1199,7 @@ function Reader({ objId }: { objId: string }) {
         ) : !session ? (
           <div className="pdfr-loading"><div className="pdfr-spin" /><div>Opening your PDF…</div></div>
         ) : st.layout === 'typeset' ? (
-          <Typeset paras={prose?.page === st.page ? prose.paras : null} typo={st.typo} width={win.w} speaking={speech.on ? speech.idx : -1} />
+          <Typeset paras={proseReady ? prose!.paras : null} typo={st.typo} width={win.w} speaking={speech.on ? speech.idx : -1} />
         ) : st.layout === 'book' ? (
           <BookView {...pageProps} page={st.page} numPages={numPages} pageW={sizing.pageW} aspect={aspect}
             phase={phase} anim={anim} turning={turning} onTurn={turn} title={docTitle}
