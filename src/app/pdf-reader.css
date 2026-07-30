@@ -35,6 +35,10 @@
   transition: box-shadow 600ms ease; }
 .pdfr-canvas { width:100%; transition: filter 500ms ease; }
 .pdfr-canvas canvas { display:block; width:100%; height:auto; }
+/* A leaf of a bound book is one size, and a page that isn't that shape is
+   centred on it rather than resizing the book (see useBookAspect). */
+.pdfr-page.fit .pdfr-canvas { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+.pdfr-page.fit .pdfr-canvas canvas { width:auto; height:auto; max-width:100%; max-height:100%; }
 
 /* ------------------------------- aged paper ------------------------------ */
 .pdfr-root[data-aged="1"] .pdfr-canvas, .pdfr-root[data-aged="1"] .pdfr-typeset {
@@ -129,7 +133,18 @@
 .pdfr-book .pdfr-page { box-shadow: 0 0 0 1px rgba(0,0,0,0.05); border-radius:2px; }
 .pdfr-case { box-shadow: 0 54px 120px -42px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.06),
              inset 0 0 40px rgba(0,0,0,0.4), 0 0 160px -30px rgba(var(--accent), var(--glow, 0.4)); }
-.pdfr-stack { align-self:stretch; position:relative; flex:0 0 auto; }
+/* THE BLOCK OF PAPER, and why it sits in a slot.
+   It used to be a flex item whose width WAS the block thickness, so growing the
+   left block by a pixel — which happens on every single turn — pushed the left
+   page, the spine, the right page and the flying sheet's hinge sideways under
+   your eyes. That is the book "refitting itself" after a turn. The slot is a
+   constant 26px; the block is absolutely positioned inside it, anchored to the
+   page it belongs to, and grows outward. Nothing else can move. */
+.pdfr-stackslot { position:relative; align-self:stretch; flex:0 0 auto; }
+.pdfr-stack { align-self:stretch; position:absolute; top:0; bottom:0;
+  transition: width 420ms cubic-bezier(.15,.2,.55,.95); }
+.pdfr-stackslot.left  .pdfr-stack { right:0; }
+.pdfr-stackslot.right .pdfr-stack { left:0; }
 /* `.leaves` is a 3D scene, and inside one of those Z POSITION decides what
    covers what — z-index is ignored entirely. Everything that has to sit above
    the pages therefore says so in Z: the flying sheet at 18px, a board at 34px,
@@ -573,7 +588,7 @@
 .pdfr-ribbon { position: absolute; top: 0; width: 17px; z-index: 16; cursor: grab; touch-action: none;
   background: linear-gradient(to right, #8f2c2c, #d85555 38%, #b03a3a 62%, #7a2323);
   box-shadow: 0 8px 16px -6px rgba(0,0,0,0.65), inset 0 0 0 1px rgba(0,0,0,0.12);
-  transition: height 260ms cubic-bezier(.16,1,.3,1), filter .16s; }
+  transition: height 260ms cubic-bezier(.16,1,.3,1), right 420ms cubic-bezier(.15,.2,.55,.95), filter .16s; }
 .pdfr-ribbon:hover { filter: brightness(1.12); }
 .pdfr-ribbon.dragging { cursor: grabbing; filter: brightness(1.2); transition: none; }
 .pdfr-ribbon::after { content: ''; position: absolute; bottom: -10px; left: 0; right: 0; height: 11px; background: inherit;
