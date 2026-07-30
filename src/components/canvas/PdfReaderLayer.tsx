@@ -62,20 +62,70 @@ interface Leaf {
   leftShown: number; rightShown: number;
   target: number;
 }
+/** Covers still swing on their own CSS clock; only the leaf is hand-driven. */
 type BookAnim =
-  | { kind: 'leaf'; leaf: Leaf }
   | { kind: 'cover'; dir: 'open' | 'close' }
   | { kind: 'back'; dir: 'open' | 'close' };
 
-export type PhysicsMode = 'snappy' | 'curl' | 'glide';
+/* --------------------------- turning a leaf ------------------------------ *
+ * A turn is a POSITION, not a canned animation.
+ *
+ * It used to be three CSS keyframe sets — "Fast", "Curl" and "Glide", 200/280/
+ * 320ms — which is three answers to a question nobody asked, and none of them
+ * could do the one thing every real flipbook does: let you take hold of the
+ * corner and pull. A keyframe runs start to finish on its own; it cannot follow
+ * your thumb, cannot be let go of half way, cannot be turned back.
+ *
+ * So the sheet's whole appearance is a pure function of one number, `t`, from 0
+ * (flat, unturned) to 1 (landed on the other side). Clicking runs `t` from 0 to
+ * 1 on a spring; dragging sets it from the pointer. Both paths are the same
+ * paint code, which is why a dragged turn and a clicked one look identical.
+ *
+ * `t` is pushed to the DOM as a CSS custom property on every frame rather than
+ * through React state — a spread holds two rasterised PDF canvases and a
+ * transformed sheet, and re-rendering that tree sixty times a second is exactly
+ * how a page turn ends up feeling expensive.
+ */
+interface Turning { leaf: Leaf; t: number; dragging: boolean }
 
-/** Must match the animation durations in pdf-reader.css. */
-const LEAF_MS_MAP: Record<PhysicsMode, number> = {
-  snappy: 280,
-  curl: 320,
-  glide: 200,
-};
-const COVER_MS = 450;
+/** A full click-driven turn, tip to tail. */
+const LEAF_MS = 460;
+/** Covers are heavier than paper, but 450ms was a doorway you had to wait in. */
+const COVER_MS = 320;
+/** Past this much of a drag, letting go finishes the turn instead of undoing it. */
+const DRAG_COMMIT = 0.38;
+
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+/* Fast off the mark, settling rather than stopping — paper has momentum and
+   then air resistance, and this is the cheapest honest impression of both. */
+const easeTurn = (k: number) => 1 - Math.pow(1 - k, 3);
+
+/**
+ * Every visual quantity of the sheet at progress `t`, in one place.
+ *
+ * `bow` is the physical heart of it: a sheet of paper held at the spine and
+ * lifted does not stay flat, it bows, most at the half-way point and not at all
+ * at either end — which is `sin(πt)`. The lift, the lean, the curl of the free
+ * edge and the specular sweep are all scaled from it, so they cannot drift out
+ * of agreement with each other the way six separate keyframe tracks did.
+ */
+function leafFrame(t: number) {
+  const p = clamp01(t);
+  const bow = Math.sin(Math.PI * p);
+  // The two cast shadows: one half is being uncovered, the other buried.
+  const castClear = Math.pow(1 - p, 1.5);
+  const rise = clamp01((p - 0.24) / 0.6);
+  const castFall = p > 0.94 ? (1 - p) / 0.06 * 0.9 : Math.pow(rise, 1.9) * 0.9;
+  return {
+    bow,
+    // The front face is what faces you until the sheet passes edge-on at 0.5;
+    // after that you are reading the back of it.
+    sheenFront: p < 0.5 ? 0.1 + 1.7 * p : 0,
+    sheenBack: p < 0.5 ? 0 : 0.9 - 1.55 * (p - 0.5),
+    castClear,
+    castFall,
+  };
+}
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect;
 /** A spread always begins on an odd page — (1,2), (3,4), … as a book is set. */
 const oddLeft = (p: number) => Math.max(1, p % 2 === 1 ? p : p - 1);
@@ -98,12 +148,12 @@ const TYPO: Typo = { font: 'literata', size: 20, leading: 1.62, measure: 66, jus
 
 interface ReaderState {
   page: number; layout: Layout; atmos: Atmos; aged: boolean; strip: boolean; sound: boolean;
-  zen: boolean; ruler: boolean; typo: Typo; physics: PhysicsMode;
+  zen: boolean; ruler: boolean; typo: Typo;
   bookmarks: number[]; highlights: Highlight[]; drawings: Stroke[]; stickies: Sticky[];
 }
 const DEFAULTS: ReaderState = {
   page: 1, layout: 'scroll', atmos: 'library', aged: false, strip: true, sound: false,
-  zen: false, ruler: false, typo: TYPO, physics: 'snappy',
+  zen: false, ruler: false, typo: TYPO,
   bookmarks: [], highlights: [], drawings: [], stickies: [],
 };
 function arr<T>(v: unknown): T[] { return Array.isArray(v) ? v as T[] : []; }
@@ -112,7 +162,6 @@ function initState(raw: unknown): ReaderState {
   return {
     ...DEFAULTS, ...r,
     atmos: isRoom(r.atmos) ? r.atmos : DEFAULTS.atmos,
-    physics: (r.physics === 'curl' || r.physics === 'glide') ? r.physics : 'snappy',
     sound: r.sound === true,
     zen: false,                                   // never start hidden — you'd think it broke
     typo: { ...TYPO, ...(r.typo && typeof r.typo === 'object' ? r.typo : {}) },
@@ -412,6 +461,13 @@ function Reader({ objId }: { objId: string }) {
   const [anim, setAnim] = useState<BookAnim | null>(null);
   const [phase, setPhase] = useState<BookPhase>(() => (st.page <= 1 ? 'front' : 'open'));
   const animTimer = useRef<number | null>(null);
+  /* The leaf in flight. React only hears about it twice — when it starts and
+     when it lands — because everything in between is written straight to the
+     DOM as a custom property (see `paintLeaf`). */
+  const [turning, setTurning] = useState<Turning | null>(null);
+  const turnRaf = useRef<number | null>(null);
+  const bookElRef = useRef<HTMLDivElement | null>(null);
+  const tRef = useRef(0);
   const [chrome, setChrome] = useState(true);          // is the furniture showing?
   const [speech, setSpeech] = useState<Speech>(SPEECH);
   const voices = useVoices();
@@ -477,17 +533,126 @@ function Reader({ objId }: { objId: string }) {
    * the animation and the sound together. This is the fix for pages appearing
    * white mid-flight — a turn no longer races the rasteriser.
    */
-  const armLeaf = useCallback((leaf: Leaf, start: (a: BookAnim, ms: number, done: () => void) => void) => {
+  const warmLeaf = useCallback((leaf: Leaf) => {
     const w = pageWRef.current;
     if (session && w > 0) {
       const dpr = Math.min(2, (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1);
-      const need = [leaf.front, leaf.back, leaf.leftShown, leaf.rightShown];
-      void session.warm(need, w, dpr);
+      void session.warm([leaf.front, leaf.back, leaf.leftShown, leaf.rightShown], w, dpr);
     }
-    try { playPageTurn(0.55, leaf.dir); } catch { /* ignore */ }
-    const leafMs = LEAF_MS_MAP[stRef.current.physics || 'snappy'];
-    start({ kind: 'leaf', leaf }, leafMs, () => set({ page: leaf.target }));
-  }, [session, set]);
+  }, [session]);
+
+  /**
+   * Write the sheet's position for this frame.
+   *
+   * Custom properties on the book element, not React state: the spread holds two
+   * rasterised PDF canvases, and asking React to reconcile that tree on every
+   * animation frame is exactly what makes a page turn feel expensive. The CSS in
+   * pdf-reader.css reads these and does the rest.
+   */
+  const paintLeaf = useCallback((t: number) => {
+    tRef.current = t;
+    const el = bookElRef.current;
+    if (!el) return;
+    const f = leafFrame(t);
+    el.style.setProperty('--t', String(t));
+    el.style.setProperty('--bow', f.bow.toFixed(4));
+    el.style.setProperty('--sheen-front', f.sheenFront.toFixed(3));
+    el.style.setProperty('--sheen-back', f.sheenBack.toFixed(3));
+    el.style.setProperty('--cast-clear', f.castClear.toFixed(3));
+    el.style.setProperty('--cast-fall', f.castFall.toFixed(3));
+  }, []);
+
+  const stopRaf = useCallback(() => {
+    if (turnRaf.current !== null) { cancelAnimationFrame(turnRaf.current); turnRaf.current = null; }
+  }, []);
+
+  /** Run `t` from where it is to `to`, then do something. Used by click-turns
+      and by the release at the end of a drag, which is why a thrown page and a
+      tapped one settle on the same curve. */
+  const glideTo = useCallback((to: number, onDone: () => void) => {
+    stopRaf();
+    const from = tRef.current;
+    const span = to - from;
+    if (Math.abs(span) < 0.001) { onDone(); return; }
+    const dur = Math.max(90, LEAF_MS * Math.abs(span));
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const k = clamp01((now - t0) / dur);
+      paintLeaf(from + span * easeTurn(k));
+      if (k < 1) { turnRaf.current = requestAnimationFrame(step); }
+      else { turnRaf.current = null; onDone(); }
+    };
+    turnRaf.current = requestAnimationFrame(step);
+  }, [paintLeaf, stopRaf]);
+
+  /* A click that arrives mid-turn is a reader going faster, not a mistake. The
+     old code dropped it on the floor (`if (animRef.current) return`), which is
+     why holding an arrow key felt like the book was ignoring you. One turn is
+     remembered and fired the moment the current sheet lands. */
+  const queued = useRef<'next' | 'prev' | null>(null);
+  const turnRef = useRef<((d: 'next' | 'prev') => void) | null>(null);
+  const turningRef = useRef<Turning | null>(null);
+  useEffect(() => { turningRef.current = turning; }, [turning]);
+
+  /**
+   * The sheet a turn would lift, measured FROM AN EXPLICIT PAGE.
+   *
+   * Taking the page as an argument rather than reading it back out of state is
+   * what makes a burst of clicks work: the queued turn is started from the page
+   * the previous sheet just landed on, which React has not necessarily finished
+   * committing yet. Reading state there gave the stale page, so the second turn
+   * re-cut the leaf it had just finished and the book appeared to stop.
+   */
+  const leafFrom = useCallback((dir: 'next' | 'prev', from: number): Leaf | null => {
+    const left = oddLeft(from);
+    if (dir === 'next') {
+      const target = left + 2;
+      if (target > numPages) return null;
+      return {
+        dir, front: Math.min(left + 1, numPages), back: target,
+        leftShown: left, rightShown: Math.min(target + 1, numPages), target,
+      };
+    }
+    if (left <= 1) return null;
+    const target = Math.max(1, left - 2);
+    return {
+      dir, front: left, back: Math.min(target + 1, numPages),
+      leftShown: target, rightShown: Math.min(left + 1, numPages), target,
+    };
+  }, [numPages]);
+  const leafFor = useCallback(
+    (dir: 'next' | 'prev') => leafFrom(dir, stRef.current.page),
+    [leafFrom],
+  );
+
+  const startLeafRef = useRef<((d: 'next' | 'prev', from: number) => boolean) | null>(null);
+
+  /** Land the sheet: commit the spread it was carrying and clear the leaf. */
+  const settleLeaf = useCallback((leaf: Leaf) => {
+    set({ page: leaf.target });
+    setTurning(null);
+    turningRef.current = null;
+    paintLeaf(0);
+    const q = queued.current;
+    queued.current = null;
+    // Straight on from the page we just landed on — no state round-trip.
+    if (q && !startLeafRef.current?.(q, leaf.target)) turnRef.current?.(q);
+  }, [set, paintLeaf]);
+
+  /** Cut a leaf and fly it. Returns false when there is no sheet to lift. */
+  const startLeaf = useCallback((dir: 'next' | 'prev', from: number): boolean => {
+    const leaf = leafFrom(dir, from);
+    if (!leaf) return false;
+    warmLeaf(leaf);
+    try { playPageTurn(0.55, dir); } catch { /* ignore */ }
+    const next = { leaf, t: 0, dragging: false };
+    setTurning(next);
+    turningRef.current = next;
+    paintLeaf(0);
+    glideTo(1, () => settleLeaf(leaf));
+    return true;
+  }, [leafFrom, warmLeaf, paintLeaf, glideTo, settleLeaf]);
+  useEffect(() => { startLeafRef.current = startLeaf; }, [startLeaf]);
 
   /* -- navigation -------------------------------------------------------- */
   const go = useCallback((n: number) => {
@@ -525,9 +690,18 @@ function Reader({ objId }: { objId: string }) {
       set({ page: target });
       return;
     }
-    if (animRef.current) return;                            // one turn at a time
+    // A cover swing owns the whole book while it runs; nothing may cut in.
+    if (animRef.current) return;
 
-    const left = oddLeft(s.page);
+    /* A sheet is already in the air. If the reader is holding it, leave them
+       alone. Otherwise remember this press and let the current one land — the
+       book keeps up instead of eating the input. */
+    const live = turningRef.current;
+    if (live) {
+      if (!live.dragging) queued.current = dir;
+      return;
+    }
+
     const start = (a: BookAnim, ms: number, done: () => void) => {
       animRef.current = true;
       setAnim(a);
@@ -539,47 +713,93 @@ function Reader({ objId }: { objId: string }) {
       }, ms);
     };
 
-    if (dir === 'next') {
-      if (phase === 'front') {
-        try { playCoverOpen(); } catch { /* ignore */ }
-        start({ kind: 'cover', dir: 'open' }, COVER_MS, () => setPhase('open'));
-        return;
-      }
-      if (phase === 'back') return;
-      const target = left + 2;
-      if (target > numPages) {
-        // Out of pages: the last leaf turns onto the back board.
-        try { playCoverClose(); } catch { /* ignore */ }
-        start({ kind: 'back', dir: 'open' }, COVER_MS, () => setPhase('back'));
-        return;
-      }
-      const leaf: Leaf = {
-        dir, front: Math.min(left + 1, numPages), back: target,
-        leftShown: left, rightShown: Math.min(target + 1, numPages), target,
-      };
-      void armLeaf(leaf, start);
+    // The covers, which are still a plain timed swing — they have no midpoint
+    // worth exposing and nothing to drag.
+    if (dir === 'next' && phase === 'front') {
+      try { playCoverOpen(); } catch { /* ignore */ }
+      start({ kind: 'cover', dir: 'open' }, COVER_MS, () => setPhase('open'));
       return;
     }
-
-    // backwards
-    if (phase === 'back') {
+    if (dir === 'next' && phase === 'back') return;
+    if (dir === 'prev' && phase === 'back') {
       try { playCoverOpen(); } catch { /* ignore */ }
       start({ kind: 'back', dir: 'close' }, COVER_MS, () => setPhase('open'));
       return;
     }
-    if (phase === 'front') return;
-    if (left <= 1) {
+    if (dir === 'prev' && phase === 'front') return;
+
+    if (!startLeaf(dir, s.page)) {
+      // Out of paper in that direction — close onto the board instead.
       try { playCoverClose(); } catch { /* ignore */ }
-      start({ kind: 'cover', dir: 'close' }, COVER_MS, () => setPhase('front'));
+      if (dir === 'next') start({ kind: 'back', dir: 'open' }, COVER_MS, () => setPhase('back'));
+      else start({ kind: 'cover', dir: 'close' }, COVER_MS, () => setPhase('front'));
+    }
+  }, [numPages, phase, set, startLeaf]);
+
+  useEffect(() => { turnRef.current = turn; }, [turn]);
+
+  /* -- taking hold of a corner --------------------------------------------- *
+   * The thing every real flipbook does and this one could not: pull the page.
+   *
+   * A drag sets `t` straight from the pointer, so the sheet tracks your hand
+   * exactly — including backwards, if you change your mind. Letting go past
+   * DRAG_COMMIT finishes the turn on the same curve a click uses; short of it,
+   * the page falls back and nothing happened.
+   */
+  const dragRef = useRef<null | { leaf: Leaf; x0: number; span: number }>(null);
+
+  const beginDrag = useCallback((dir: 'next' | 'prev', e: React.PointerEvent) => {
+    if (!numPages || stRef.current.layout !== 'book') return;
+    /* A press while a sheet is already in the air is someone reading faster.
+       Hand it to `turn`, which queues it — bailing out here is what made the
+       book ignore every click but the first of a burst. */
+    if (animRef.current || turningRef.current) { turnRef.current?.(dir); return; }
+    const leaf = phase === 'open' ? leafFor(dir) : null;
+    if (!leaf) {
+      /* Nothing to peel — the cover, or the far end of the book. Those are
+         board swings, not sheets, so hand it to the ordinary turn. */
+      turnRef.current?.(dir);
       return;
     }
-    const target = Math.max(1, left - 2);
-    const leaf: Leaf = {
-      dir, front: left, back: Math.min(target + 1, numPages),
-      leftShown: target, rightShown: Math.min(left + 1, numPages), target,
-    };
-    void armLeaf(leaf, start);
-  }, [numPages, phase, set, armLeaf]);
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    warmLeaf(leaf);
+    // Pulling across roughly one page width is a whole turn.
+    const span = Math.max(120, pageWRef.current || 300);
+    dragRef.current = { leaf, x0: e.clientX, span };
+    const next = { leaf, t: 0, dragging: true };
+    setTurning(next);
+    turningRef.current = next;
+    paintLeaf(0);
+  }, [numPages, phase, leafFor, warmLeaf, paintLeaf]);
+
+  const moveDrag = useCallback((e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const travelled = d.leaf.dir === 'next' ? d.x0 - e.clientX : e.clientX - d.x0;
+    paintLeaf(clamp01(travelled / d.span));
+  }, [paintLeaf]);
+
+  /* Letting go. A corner that was pressed but never pulled (t is still ~0) is
+     just a click, and turns the page in full — so tapping and dragging are the
+     same one mechanism rather than two that can disagree. Past DRAG_COMMIT the
+     turn completes; short of it the sheet falls back and nothing happened. */
+  const endDrag = useCallback(() => {
+    const d = dragRef.current;
+    if (!d) return;
+    dragRef.current = null;
+    const t = tRef.current;
+    const tapped = t < 0.02;
+    const live = turningRef.current;
+    if (live) { const nxt = { ...live, dragging: false }; turningRef.current = nxt; setTurning(nxt); }
+    if (tapped || t >= DRAG_COMMIT) {
+      try { playPageTurn(0.55, d.leaf.dir); } catch { /* ignore */ }
+      glideTo(1, () => settleLeaf(d.leaf));
+    } else {
+      glideTo(0, () => { setTurning(null); turningRef.current = null; paintLeaf(0); });
+    }
+  }, [glideTo, settleLeaf, paintLeaf]);
+
+  useEffect(() => () => stopRaf(), [stopRaf]);
 
   useEffect(() => () => { if (animTimer.current) window.clearTimeout(animTimer.current); }, []);
 
@@ -808,7 +1028,6 @@ function Reader({ objId }: { objId: string }) {
 
   return (
     <div className="pdfr-root" data-atmos={st.atmos} data-aged={st.aged ? '1' : '0'} data-tool={tool}
-      data-physics={st.physics || 'snappy'}
       data-chrome={chrome ? '1' : '0'} data-zen={st.zen ? '1' : '0'} onMouseUp={onStageMouseUp}
       style={{
         ['--accent' as string]: room.accent, ['--glow' as string]: String(room.glow ?? 0.4), color: room.ink || '#f4ece0',
@@ -841,7 +1060,8 @@ function Reader({ objId }: { objId: string }) {
           <Typeset paras={prose?.page === st.page ? prose.paras : null} typo={st.typo} width={win.w} speaking={speech.on ? speech.idx : -1} />
         ) : st.layout === 'book' ? (
           <BookView {...pageProps} page={st.page} numPages={numPages} pageW={sizing.pageW} aspect={aspect}
-            phase={phase} anim={anim} onTurn={turn} title={docTitle}
+            phase={phase} anim={anim} turning={turning} onTurn={turn} title={docTitle}
+            bookRef={bookElRef} onCornerDown={beginDrag} onCornerMove={moveDrag} onCornerUp={endDrag}
             bookmarks={st.bookmarks} onScrub={go} onUnmark={toggleBookmark} />
         ) : (
           <div style={{ position: 'relative' }}><Page {...pageProps} page={st.page} width={sizing.pageW} interactive bookmarked={bookmarked} onUnmark={toggleBookmark} /></div>
@@ -953,18 +1173,13 @@ function Reader({ objId }: { objId: string }) {
             ))}
           </div>
 
+          {/* "Page Turn Physics — ⚡ Fast / 📖 Curl / 🚀 Glide" used to sit here.
+              Three settings for one gesture, where two were near-identical
+              rotations and the third ("Glide") slid the page sideways and did
+              not look like a book at all. A flipbook should turn correctly, not
+              ask which kind of correct you would like. There is one turn now,
+              and you can pull it with the corner. */}
           <div className="foot" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', fontSize: 12 }}>
-              <span style={{ fontWeight: 600, opacity: 0.85 }}>Page Turn Physics</span>
-              <div className="pdfr-tabs" style={{ marginBottom: 0 }}>
-                {(['snappy', 'curl', 'glide'] as const).map((mode) => (
-                  <button key={mode} className={`pdfr-tab ${st.physics === mode ? 'active' : ''}`}
-                    onClick={once(() => set({ physics: mode }))}>
-                    {mode === 'snappy' ? '⚡ Fast' : mode === 'curl' ? '📖 Curl' : '🚀 Glide'}
-                  </button>
-                ))}
-              </div>
-            </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} onClick={once(() => set({ sound: !st.sound }))} title={room.sound ? '' : 'This room is a quiet one'}>
                 <Ico d={st.sound ? I.sound : I.mute} s={14} /> Ambient sound {st.sound ? 'on' : 'off'}
@@ -1227,12 +1442,17 @@ function Cover({ side, title, pages, w, aspect }: { side: 'front' | 'back'; titl
 
 function BookView(props: PageSharedProps & {
   page: number; numPages: number; pageW: number; aspect: number; bookmarks: number[];
-  title: string; phase: BookPhase; anim: BookAnim | null;
+  title: string; phase: BookPhase; anim: BookAnim | null; turning: Turning | null;
+  bookRef: React.MutableRefObject<HTMLDivElement | null>;
+  onCornerDown: (d: 'next' | 'prev', e: React.PointerEvent) => void;
+  onCornerMove: (e: React.PointerEvent) => void;
+  onCornerUp: () => void;
   onTurn: (d: 'next' | 'prev') => void; onScrub: (n: number) => void; onUnmark: (n: number) => void;
 }) {
-  const { page, numPages, pageW, aspect, phase, anim, onTurn, bookmarks, onScrub, onUnmark, title, ...shared } = props;
+  const { page, numPages, pageW, aspect, phase, anim, turning, onTurn, bookmarks, onScrub, onUnmark, title,
+    bookRef, onCornerDown, onCornerMove, onCornerUp, ...shared } = props;
 
-  const leaf = anim?.kind === 'leaf' ? anim.leaf : null;
+  const leaf = turning?.leaf ?? null;
   const committed = oddLeft(page);
   /* What each half shows. During a turn this is NOT the committed spread: the
      revealed page has to already be under the rising sheet. */
@@ -1249,7 +1469,6 @@ function BookView(props: PageSharedProps & {
   /* The ribbon: hangs from the top of the block, and can be dragged sideways to
      scrub through the book — a page number rides along with it. */
   const [drag, setDrag] = useState<null | { at: number; page: number }>(null);
-  const bookRef = useRef<HTMLDivElement>(null);
   const ribbonDown = (e: React.PointerEvent) => {
     e.stopPropagation();
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -1326,10 +1545,15 @@ function BookView(props: PageSharedProps & {
 
         <div className="pdfr-stack right" style={{ width: rightStack }} />
 
-        {/* the sheet in flight — one element, two printed faces, hinged on the
-            spine. Last in the row so it paints over both halves. */}
+        {/* The sheet in flight — one element, two printed faces, hinged on the
+            spine. Last in the row so it paints over both halves. Its position
+            comes from --t / --bow on the book root, written per frame by
+            paintLeaf, so this element never re-renders while it moves. */}
         {leaf && (
-          <div className={`pdfr-turn ${leaf.dir}`} style={{ ...hinge, width: pageW, height: pageH }}>
+          <div
+            className={`pdfr-turn ${leaf.dir}${turning?.dragging ? ' held' : ''}`}
+            style={{ ...hinge, width: pageW, height: pageH }}
+          >
             <div className="face front">
               <Page {...shared} page={leaf.front} width={pageW} />
               <div className="sheen" /><div className="edge" />
@@ -1361,10 +1585,28 @@ function BookView(props: PageSharedProps & {
         )}
       </div>
 
+      {/* The corners. Click to turn, or take hold and pull — the drag runs the
+          very same sheet, so a pulled page and a clicked one are one mechanism.
+          Deliberately only in the corners: the page itself is live for
+          highlighting and ink, and a drag there must not become a page turn. */}
       {!closed && (
         <>
-          <div className="pdfr-corner left" onClick={() => onTurn('prev')} title="Previous page"><div className="fold" /></div>
-          <div className="pdfr-corner right" onClick={() => onTurn('next')} title="Next page"><div className="fold" /></div>
+          <div
+            className="pdfr-corner left"
+            title="Previous page — or drag it across"
+            onPointerDown={(e) => { if (e.button === 0) onCornerDown('prev', e); }}
+            onPointerMove={onCornerMove}
+            onPointerUp={onCornerUp}
+            onPointerCancel={onCornerUp}
+          ><div className="fold" /></div>
+          <div
+            className="pdfr-corner right"
+            title="Next page — or drag it across"
+            onPointerDown={(e) => { if (e.button === 0) onCornerDown('next', e); }}
+            onPointerMove={onCornerMove}
+            onPointerUp={onCornerUp}
+            onPointerCancel={onCornerUp}
+          ><div className="fold" /></div>
         </>
       )}
     </div>
