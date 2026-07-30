@@ -1,9 +1,19 @@
-@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Anton&family=Bebas+Neue&family=Caveat:wght@400..700&family=Fira+Code:wght@300..700&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Lora:ital,wght@400..700;1,400..700&family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400;1,700;1,900&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Outfit:wght@100..900&family=Oswald:wght@200..700&family=Pacifico&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&family=Comfortaa:wght@300..700&family=Fredoka:wght@300..700&family=Quicksand:wght@300..700&family=Cinzel:wght@400..900&family=Sacramento&family=Shadows+Into+Light&family=Gloria+Hallelujah&family=Permanent+Marker&family=Spicy+Rice&family=Lobster&family=Abril+Fatface&family=Righteous&family=Press+Start+2P&family=Creepster&family=Architects+Daughter&family=Dancing+Script:wght@400..700&family=Amatic+SC:wght@400;700&family=Bangers&family=Chewy&family=Cinzel+Decorative:wght@400;700&family=Special+Elite&family=Monoton&family=Poiret+One&family=Shrikhand&family=Ultra&family=VT323&family=Bungee&family=Fredericka+the+Great&family=Luckiest+Guy&family=Pinyon+Script&family=Kelly+Slab&family=Kranky&family=Slackey&family=Rye&family=Pirata+One&family=Uncial+Antiqua&family=Nosifer&family=Eater&family=Monofett&family=Syne+Tactile&family=Butcherman&family=Codystar&family=Fascinate+Inline&family=Rubik+Beastly&family=Shantell+Sans:ital,wght@0,300..800;1,300..800&family=Literata:ital,opsz,wght@0,7..72,200..900;1,7..72,200..900&family=EB+Garamond:ital,wght@0,400..800;1,400..800&family=Crimson+Pro:ital,wght@0,200..900;1,200..900&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&display=swap');
+/* The 65-family Google Fonts @import that used to sit on this line is gone.
+   A CSS @import of a remote stylesheet is the slowest way to load a font: the
+   browser has to fetch and parse THIS file before it even discovers the
+   request, then open a connection to fonts.googleapis.com, and the result is
+   render-blocking — so nothing on any page could paint until 65 families had
+   been negotiated. The four the interface itself is built from now load from a
+   normal <link> in layout.tsx, and the other 62 (all of them user-selectable
+   decorative faces) are injected after first paint by DeferredFonts. */
 @import "tailwindcss";
 @import "./text-anim.css";
 @import "./flow.css";
-@import "./pdf-reader.css";
-@import "./pdf-rooms.css";
+/* pdf-reader.css (48KB) and pdf-rooms.css (92KB) used to be @imported here,
+   which put 140KB of reading-room styling into the render-blocking stylesheet
+   of every single route — the landing page included, which has no PDF on it.
+   They're imported by PdfReaderLayer instead, so they arrive with the reader
+   and only for someone who opened one. */
 
 /* Drive Tailwind's `dark:` variant from the canvas color mode (set by
    canvasTheme.ts on :root) instead of the OS preference, so every existing
@@ -1225,4 +1235,19 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .data-toolbar,
   .block-head-id { transition: none; }
+}
+
+/* The boot shell's indeterminate sweep (components/providers/BootScreen.tsx).
+   Lives in the global sheet so it animates from the very first paint, with no
+   JavaScript involved — the whole point of that screen is that it exists
+   before the app does. */
+@keyframes boot-sweep {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(360%); }
+}
+.boot-sweep {
+  animation: boot-sweep 1.15s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot-sweep { animation: none; opacity: 0.5; }
 }

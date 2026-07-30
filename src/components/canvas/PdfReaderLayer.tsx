@@ -23,6 +23,13 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+/* The reader's own stylesheets, imported HERE rather than from globals.css.
+   Together they're 140KB, and as globals they sat in the render-blocking CSS of
+   every route — including a landing page that will never show a PDF. Attached
+   to this component, they ship in its chunk, which is itself only fetched when
+   a document is actually opened. */
+import '@/app/pdf-reader.css';
+import '@/app/pdf-rooms.css';
 import { getStroke } from 'perfect-freehand';
 import { usePdfReaderStore } from '@/store/pdfReaderStore';
 import { useCanvasStore } from '@/store/canvasStore';

@@ -2,23 +2,22 @@
 
 import React, { Suspense } from 'react';
 import dynamic from 'next/dynamic';
+import BootScreen from '@/components/providers/BootScreen';
 
 const InfiniteCanvas = dynamic(
   () => import('@/components/canvas/InfiniteCanvas'),
-  { ssr: false }
+  { ssr: false, loading: () => <BootScreen /> }
 );
 
 export default function CanvasPage() {
   return (
-    <Suspense
-      fallback={
-        /* Black, and silent. This fallback is what fills the gap while the
-           canvas chunk loads — painting it `--bg-primary` (light cream) put a
-           white sheet plus the words "Loading canvas..." in front of every
-           board for half a second, on a canvas whose default paper is dark. */
-        <div style={{ minHeight: '100vh', background: '#000' }} />
-      }
-    >
+    /* The fallback used to be a silent black rectangle. It matched the dark
+       paper, which solved the white-flash it was written for, but it also meant
+       the browser had nothing contentful to paint — so on a cold load the canvas
+       showed an empty black frame for seconds with no sign it was working. The
+       boot shell is server-rendered, so it is on screen immediately and the real
+       board simply covers it. */
+    <Suspense fallback={<BootScreen />}>
       <InfiniteCanvas />
     </Suspense>
   );

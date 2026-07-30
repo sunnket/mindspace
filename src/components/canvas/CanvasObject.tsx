@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, useCallback, useState, useEffect, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { useCollabStore } from '@/store/collabStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
@@ -19,13 +20,10 @@ import InkText from './InkText';
 import AnimatedText from './AnimatedText';
 import { useFlowStore } from '@/store/flowStore';
 import { INK_FONT, intervalToIntensity, foldRhythm } from '@/lib/typingInk';
-import CodeSandboxBlock from './CodeSandboxBlock';
-import RepoExplorerBlock from './RepoExplorerBlock';
 import QuoteBlock from './QuoteBlock';
 import CalloutBlock from './CalloutBlock';
 import EmbedBlock from './EmbedBlock';
 import GitHubBlock from './GitHubBlock';
-import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
 import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock, TimelineBlock, TableBlock } from './ExtensionBlocks';
@@ -40,6 +38,41 @@ import { createPortal } from 'react-dom';
 import { ImageShape, imageShapeStyle, nextImageShape, IMAGE_SHAPE_LABEL } from '@/lib/imageShapes';
 import { getFrameKind, frameColorOf, frameKindMeta, objectsInFrame, type FrameKind } from '@/lib/frames';
 import { PIN_COLORS, pinShade, DEFAULT_PIN_COLOR } from '@/lib/brainstorm';
+
+/* ------------------------------------------------------------------
+   Three block types drag in a syntax-highlighter or a diagram engine, and
+   every one of them was a plain top-level import — so `mermaid` (the single
+   biggest dependency in the app) and `prismjs` were parsed and executed on
+   every board, including the overwhelming majority that contain no diagram
+   and no code. That was ~600KB of JavaScript standing between opening a
+   canvas and seeing it.
+
+   Loading them at the point of use costs nothing when they aren't used, and
+   a few hundred milliseconds behind a skeleton when they are. `ssr: false`
+   because all three touch the DOM on mount, which is also what they already
+   did — they just did it after blocking everyone else's paint.
+   ------------------------------------------------------------------ */
+const BlockFallback = ({ label }: { label: string }) => (
+  <div
+    className="w-full h-full flex items-center justify-center text-[11px] font-semibold"
+    style={{ color: 'var(--text-tertiary)' }}
+  >
+    {label}
+  </div>
+);
+
+const MermaidBlock = dynamic(() => import('./MermaidBlock'), {
+  ssr: false,
+  loading: () => <BlockFallback label="Diagram…" />,
+});
+const CodeSandboxBlock = dynamic(() => import('./CodeSandboxBlock'), {
+  ssr: false,
+  loading: () => <BlockFallback label="Code…" />,
+});
+const RepoExplorerBlock = dynamic(() => import('./RepoExplorerBlock'), {
+  ssr: false,
+  loading: () => <BlockFallback label="Repository…" />,
+});
 
 /** The mark on a frame's title tab that says what kind of region it is. */
 function FrameKindGlyph({ kind }: { kind: FrameKind }) {

@@ -22,50 +22,72 @@ import {
   getAllConnections,
   COLLAB_SESSION_ID_PREFIX,
 } from '@/lib/db';
+import dynamic from 'next/dynamic';
 import CanvasObject from './CanvasObject';
-import RelaxEffectsLayer from './RelaxEffectsLayer';
-import CanvasResident from './CanvasResident';
-import ConstellationView from './ConstellationView';
 import FlowModeLayer from './FlowModeLayer';
-import PdfReaderLayer from './PdfReaderLayer';
 import DrawingLayer from './DrawingLayer';
 import ConnectionsLayer from './ConnectionsLayer';
 import ConnectorPanel from '@/components/ui/ConnectorPanel';
 import FloatingToolbar from '@/components/ui/FloatingToolbar';
 import SpatialSearch from '@/components/ui/SpatialSearch';
-import SingularitySearch from '@/components/ui/SingularitySearch';
 import CommandPalette from '@/components/ui/CommandPalette';
 import PlusMenu from '@/components/ui/PlusMenu';
 import SlashCommandMenu from '@/components/ui/SlashCommandMenu';
 import AtMentionMenu from '@/components/ui/AtMentionMenu';
-import AgentOverlay from '@/components/ui/AgentOverlay';
-import SkillSetPanel from '@/components/ui/SkillSetPanel';
 import { isSkillsetActive, activeRuleCount } from '@/lib/skillset';
 import SelectionPanel from '@/components/ui/SelectionPanel';
 import Minimap from '@/components/ui/Minimap';
 import ReturnToWork from '@/components/ui/ReturnToWork';
 import CheckpointIndex from '@/components/ui/CheckpointIndex';
 import SaveIndicator from '@/components/ui/SaveIndicator';
-import TrashPile from '@/components/ui/TrashPile';
 import VoiceOrb from './VoiceOrb';
-import ShortcutsOverlay from './ShortcutsOverlay';
-import ShareModal from '@/components/ui/ShareModal';
 import Pocket from './Pocket';
 import ScenesPanel, { ScenesList } from './ScenesPanel';
 import FrameHUD from './FrameHUD';
 import ChatLauncher from '@/components/chat/ChatLauncher';
-import AgentChatPanel from '@/components/chat/AgentChatPanel';
 import CollabBar from '@/components/collab/CollabBar';
-import PluginsPanel from '@/components/ui/PluginsPanel';
 import CanvasBackgroundPanel from '@/components/ui/CanvasBackgroundPanel';
 import RelaxPanel from '@/components/ui/RelaxPanel';
 import FlowModePanel from '@/components/ui/FlowModePanel';
 import { useFlowStore } from '@/store/flowStore';
 import CollabCursors from '@/components/collab/CollabCursors';
 import AgentCursor from '@/components/canvas/AgentCursor';
-import CollabModal from '@/components/collab/CollabModal';
 import PulseLayer from '@/components/collab/PulseLayer';
 import { useCollabStore } from '@/store/collabStore';
+
+/* ------------------------------------------------------------------
+   Four heavy layers that render nothing until you ask for them.
+
+   The PDF reader alone pulls in pdf.js, 40 hand-built rooms and 140KB of its
+   own CSS; the resident cat carries 40 baked sprite frames; the relax engine
+   carries fifteen particle systems and their audio; Constellation is a whole
+   second renderer. All four were plain imports, so all four were downloaded,
+   parsed and executed before the board could paint — for a session that may
+   never open a PDF, never summon the cat, and never touch a star map.
+
+   Splitting them out is invisible in use (each mounts only when its own state
+   flips on, which is exactly when the chunk is fetched) and is the difference
+   between the canvas arriving and the canvas arriving eventually.
+   ------------------------------------------------------------------ */
+const PdfReaderLayer = dynamic(() => import('./PdfReaderLayer'), { ssr: false });
+const ConstellationView = dynamic(() => import('./ConstellationView'), { ssr: false });
+const RelaxEffectsLayer = dynamic(() => import('./RelaxEffectsLayer'), { ssr: false });
+const CanvasResident = dynamic(() => import('./CanvasResident'), { ssr: false });
+
+/* The same argument, one level down: these are overlays, modals and side
+   panels. Every one of them renders nothing until something is opened, and
+   together they were several hundred KB sitting in front of the board's own
+   first paint. Split out, the toolbar and the canvas arrive first and these
+   stream in behind — which is the order a person actually needs them in. */
+const AgentOverlay = dynamic(() => import('@/components/ui/AgentOverlay'), { ssr: false });
+const AgentChatPanel = dynamic(() => import('@/components/chat/AgentChatPanel'), { ssr: false });
+const TrashPile = dynamic(() => import('@/components/ui/TrashPile'), { ssr: false });
+const SkillSetPanel = dynamic(() => import('@/components/ui/SkillSetPanel'), { ssr: false });
+const SingularitySearch = dynamic(() => import('@/components/ui/SingularitySearch'), { ssr: false });
+const CollabModal = dynamic(() => import('@/components/collab/CollabModal'), { ssr: false });
+const PluginsPanel = dynamic(() => import('@/components/ui/PluginsPanel'), { ssr: false });
+const ShareModal = dynamic(() => import('@/components/ui/ShareModal'), { ssr: false });
+const ShortcutsOverlay = dynamic(() => import('./ShortcutsOverlay'), { ssr: false });
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 5;

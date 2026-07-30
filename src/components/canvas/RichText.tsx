@@ -1,8 +1,6 @@
 'use client';
 
 import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
-import katex from 'katex';
-import 'katex/dist/katex.min.css';
 import { useCanvasStore } from '@/store/canvasStore';
 
 /**
@@ -53,9 +51,66 @@ function jumpToObject(id: string) {
 
 /* ----------------------------- inline parsing ---------------------------- */
 
+/* ------------------------------------------------------------------
+   KaTeX, on demand.
+
+   This component renders EVERY text block on the board, so a top-level
+   `import katex` (plus its stylesheet) put a ~280KB typesetting engine on the
+   critical path of opening any canvas — to serve the small minority of notes
+   that contain a formula. It is now fetched the first time a `$…$` actually
+   turns up, and never otherwise.
+
+   Until it lands, `renderMath` returns '' — which every call site below
+   already treats as "print the raw source", so a formula shows as its own
+   LaTeX for a moment instead of vanishing. `notifyKatexReady` then re-renders
+   the blocks that asked for it.
+   ------------------------------------------------------------------ */
+type KatexModule = { renderToString: (tex: string, opts: Record<string, unknown>) => string };
+let katexMod: KatexModule | null = null;
+let katexLoading: Promise<void> | null = null;
+const katexWaiters = new Set<() => void>();
+
+function ensureKatex(): void {
+  if (katexMod || katexLoading) return;
+  katexLoading = Promise.all([
+    import('katex'),
+    // The stylesheet ships with the engine; loading it separately would leave
+    // the first formula unstyled for a frame.
+    import('katex/dist/katex.min.css'),
+  ])
+    .then(([mod]) => {
+      katexMod = ((mod as unknown as { default?: KatexModule }).default ?? mod) as KatexModule;
+      katexWaiters.forEach((fn) => fn());
+    })
+    .catch(() => { /* offline or blocked — math stays as source text */ });
+}
+
+/**
+ * A token that changes when the engine finishes loading.
+ *
+ * It has to be a VALUE, not just a re-render: the rendered output below is
+ * memoised on `[content, collapsed, toggle]`, so nudging state alone would
+ * re-run the component and hand back the same cached, math-less tree. Feeding
+ * this into the memo's dependencies is what actually re-parses the block.
+ */
+function useKatexReady(): number {
+  const [tick, bump] = useState(0);
+  useEffect(() => {
+    if (katexMod) return;
+    const fn = () => bump((n) => n + 1);
+    katexWaiters.add(fn);
+    return () => { katexWaiters.delete(fn); };
+  }, []);
+  return tick;
+}
+
 function renderMath(tex: string, display: boolean): string {
+  if (!katexMod) {
+    ensureKatex();
+    return '';
+  }
   try {
-    return katex.renderToString(tex, { throwOnError: false, displayMode: display, output: 'html' });
+    return katexMod.renderToString(tex, { throwOnError: false, displayMode: display, output: 'html' });
   } catch {
     return '';
   }
@@ -381,6 +436,10 @@ export default function RichText({
   persistedCollapsed?: Record<string, boolean>;
   onCollapseChange?: (next: Record<string, boolean>) => void;
 }) {
+  // If this block turned out to contain math, re-parse once KaTeX has loaded
+  // so the raw `$…$` placeholder becomes real typesetting.
+  const katexTick = useKatexReady();
+
   // Collapse state is seeded once from what was persisted on the block, then
   // driven locally; every change is echoed back so it survives an edit round-trip.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => persistedCollapsed || {});
@@ -398,7 +457,9 @@ export default function RichText({
   const rendered = useMemo(() => {
     if (!content || !RICH_GATE.test(content)) return null;
     return renderBlocks(content, { collapsed, toggle, occ: new Map() });
-  }, [content, collapsed, toggle]);
+    // katexTick: see useKatexReady — the first pass renders math as raw source
+    // because the engine is still in flight; this re-parses when it lands.
+  }, [content, collapsed, toggle, katexTick]);
 
   if (rendered === null) return <>{content}</>;
   return rendered;
