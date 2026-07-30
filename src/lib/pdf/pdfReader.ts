@@ -87,6 +87,14 @@ export class PdfSession {
   private pageCache = new Map<number, Promise<PdfPage>>();
   private textCache = new Map<number, Promise<PdfPageText>>();
   private thumbCache = new Map<number, Promise<string>>();
+  /* Rasterised pages, keyed page@width@dpr, most-recently-used last.
+     The flipbook is the reason this exists: a turn needs four pages on screen
+     at once (two under the leaf, two on its faces) and rasterising any of them
+     mid-animation shows a white sheet. Bounded, because a page at 2× dpr is a
+     few megabytes of bitmap. */
+  private raster = new Map<string, { canvas: HTMLCanvasElement; width: number; height: number }>();
+  private rasterJobs = new Map<string, Promise<{ canvas: HTMLCanvasElement; width: number; height: number }>>();
+  private static RASTER_MAX = 10;
 
   private constructor(doc: PdfDoc) {
     this.doc = doc;
@@ -115,11 +123,12 @@ export class PdfSession {
     return vp.height / vp.width;
   }
 
-  /**
-   * Render page `n` into a fresh canvas sized to fit `targetWidth` CSS px, at the
-   * device pixel ratio for crispness. Returns the canvas + its logical size.
-   */
-  async renderPage(n: number, targetWidth: number, dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1): Promise<RenderedPage> {
+  private rasterKey(n: number, targetWidth: number, dpr: number) {
+    return `${n}@${Math.round(targetWidth)}@${dpr}`;
+  }
+
+  /** Rasterise once, for real. Everything else hands out copies of this. */
+  private async rasterise(n: number, targetWidth: number, dpr: number) {
     const page = await this.page(n);
     const base = page.getViewport({ scale: 1 });
     const cssScale = targetWidth / base.width;
@@ -133,7 +142,85 @@ export class PdfSession {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvasContext: ctx, viewport }).promise;
-    return { canvas, width: targetWidth, height: (base.height * cssScale) };
+    return { canvas, width: targetWidth, height: base.height * cssScale };
+  }
+
+  /** Is this page already rasterised at this size? (No await, no work.) */
+  isRendered(n: number, targetWidth: number, dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1): boolean {
+    return this.raster.has(this.rasterKey(n, targetWidth, Math.min(2, dpr)));
+  }
+
+  /**
+   * Render page `n` into a canvas sized to fit `targetWidth` CSS px.
+   *
+   * A canvas element can only live in one place in the DOM, and the flipbook
+   * genuinely needs the same page in two places at once (on the leaf's face and
+   * under it), so the cached bitmap is the master and every caller gets a copy
+   * of it. The copy is one GPU blit; the rasterise is tens of milliseconds of
+   * main-thread work, and it now happens once per page per size.
+   */
+  async renderPage(n: number, targetWidth: number, dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1): Promise<RenderedPage> {
+    const d = Math.min(2, dpr);
+    const key = this.rasterKey(n, targetWidth, d);
+
+    let master = this.raster.get(key);
+    if (!master) {
+      let job = this.rasterJobs.get(key);
+      if (!job) {
+        job = this.rasterise(n, targetWidth, d);
+        this.rasterJobs.set(key, job);
+        job.catch(() => { /* surfaced to the caller */ }).finally(() => this.rasterJobs.delete(key));
+      }
+      master = await job;
+      this.raster.set(key, master);
+      // Oldest out first. Map preserves insertion order, and a re-read below
+      // re-inserts, so this is a plain LRU.
+      while (this.raster.size > PdfSession.RASTER_MAX) {
+        const oldest = this.raster.keys().next().value;
+        if (oldest === undefined) break;
+        this.raster.delete(oldest);
+      }
+    } else {
+      this.raster.delete(key);
+      this.raster.set(key, master);
+    }
+
+    const copy = document.createElement('canvas');
+    copy.width = master.canvas.width;
+    copy.height = master.canvas.height;
+    copy.getContext('2d', { alpha: false })?.drawImage(master.canvas, 0, 0);
+    return { canvas: copy, width: master.width, height: master.height };
+  }
+
+  /**
+   * Get these pages rasterised and cached, quietly, before they're needed.
+   * The flipbook calls this for the pages either side of the spread, which is
+   * what makes a turn start on the frame you click rather than after a render.
+   */
+  async warm(pages: number[], targetWidth: number, dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1): Promise<void> {
+    const d = Math.min(2, dpr);
+    const want = [...new Set(pages)].filter((n) => n >= 1 && n <= this.numPages);
+    await Promise.all(want.map(async (n) => {
+      const key = this.rasterKey(n, targetWidth, d);
+      if (this.raster.has(key)) return;
+      let job = this.rasterJobs.get(key);
+      if (!job) {
+        job = this.rasterise(n, targetWidth, d);
+        this.rasterJobs.set(key, job);
+        job.catch(() => {}).finally(() => this.rasterJobs.delete(key));
+      }
+      try {
+        const m = await job;
+        if (!this.raster.has(key)) {
+          this.raster.set(key, m);
+          while (this.raster.size > PdfSession.RASTER_MAX) {
+            const oldest = this.raster.keys().next().value;
+            if (oldest === undefined) break;
+            this.raster.delete(oldest);
+          }
+        }
+      } catch { /* a page that won't render shouldn't break a turn */ }
+    }));
   }
 
   /**
@@ -190,6 +277,11 @@ export class PdfSession {
     this.pageCache.clear();
     this.textCache.clear();
     this.thumbCache.clear();
+    // Zero the bitmaps out before dropping them: a few megabytes each, and the
+    // GC is in no hurry about detached canvases.
+    for (const { canvas } of this.raster.values()) { canvas.width = 0; canvas.height = 0; }
+    this.raster.clear();
+    this.rasterJobs.clear();
     void this.doc.destroy?.();
   }
 }

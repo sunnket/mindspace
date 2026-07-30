@@ -28,12 +28,43 @@ import { usePdfReaderStore } from '@/store/pdfReaderStore';
 import { useCanvasStore } from '@/store/canvasStore';
 import { getFileForBlock } from '@/lib/fileIngest';
 import { PdfSession, type TextSpan } from '@/lib/pdf/pdfReader';
-import { playWhoosh, playSnap, startRain, stopRain, startAmbience, stopAmbience, playPageTurn, playSpineCreak, playPaperSettle } from '@/lib/relaxAudio';
+import { playSnap, startRain, stopRain, startAmbience, stopAmbience, playPageTurn, playCoverOpen, playCoverClose, playSpineCreak, playPaperSettle } from '@/lib/relaxAudio';
 import { ROOMS, ROOM_GROUPS, RoomScene, RoomPreview, getRoom, isRoom, type Atmos, type RoomGroup } from './pdfRooms';
 
 /* ------------------------------- model ---------------------------------- */
 type Layout = 'scroll' | 'book' | 'typeset';
 type Tool = 'none' | 'highlight' | 'draw' | 'sticky' | 'eraser';
+
+/* --------------------------- the flipbook -------------------------------- *
+ * Three states, and one animation at a time.
+ *
+ *   'front' — shut, front board facing you. Where a new document starts.
+ *   'open'  — a spread. `page` is normalised to the odd (left) page of it.
+ *   'back'  — shut from the other end, back board facing you.
+ *
+ * A leaf carries the page you're leaving on its FRONT and the page you're going
+ * to on its BACK, which is what a sheet of paper actually is. `leftShown` and
+ * `rightShown` are what sits under it during the turn: on the way forward the
+ * right-hand page revealed behind the rising sheet is already the next one, and
+ * the left stays put until the sheet covers it.
+ */
+type BookPhase = 'front' | 'open' | 'back';
+interface Leaf {
+  dir: 'next' | 'prev';
+  front: number; back: number;
+  leftShown: number; rightShown: number;
+  target: number;
+}
+type BookAnim =
+  | { kind: 'leaf'; leaf: Leaf }
+  | { kind: 'cover'; dir: 'open' | 'close' }
+  | { kind: 'back'; dir: 'open' | 'close' };
+
+/** Must match the animation durations in pdf-reader.css. */
+const LEAF_MS = 820;
+const COVER_MS = 900;
+/** A spread always begins on an odd page — (1,2), (3,4), … as a book is set. */
+const oddLeft = (p: number) => Math.max(1, p % 2 === 1 ? p : p - 1);
 
 interface Highlight { id: string; page: number; x: number; y: number; w: number; h: number; color: string }
 interface Stroke { id: string; page: number; pts: number[][]; color: string; size: number }
@@ -111,6 +142,7 @@ const STICKY_COLORS = ['#ffe98a', '#ffc9de', '#bfe6ff', '#c9f4c9', '#f3d7a4'];
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const uid = () => Math.random().toString(36).slice(2, 9);
+const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 
 function strokeToPath(pts: number[][]): string {
   if (!pts.length) return '';
@@ -362,7 +394,9 @@ function Reader({ objId }: { objId: string }) {
   const [roomTab, setRoomTab] = useState<RoomGroup | 'All'>('All');
   const [card, setCard] = useState<{ label: string; blurb: string } | null>(null);
   const [toast, setToast] = useState('');
-  const [flip, setFlip] = useState<null | { dir: 'next' | 'prev'; half: 'l' | 'r'; front: number; back: number }>(null);
+  const [anim, setAnim] = useState<BookAnim | null>(null);
+  const [phase, setPhase] = useState<BookPhase>(() => (st.page <= 1 ? 'front' : 'open'));
+  const animTimer = useRef<number | null>(null);
   const [chrome, setChrome] = useState(true);          // is the furniture showing?
   const [speech, setSpeech] = useState<Speech>(SPEECH);
   const voices = useVoices();
@@ -414,32 +448,155 @@ function Reader({ objId }: { objId: string }) {
 
   const flash = useCallback((m: string) => { setToast(m); window.setTimeout(() => setToast(''), 1700); }, []);
 
-  /* -- navigation -------------------------------------------------------- */
-  const go = useCallback((n: number) => { if (numPages) set({ page: Math.min(Math.max(1, n), numPages) }); }, [numPages, set]);
-  const turn = useCallback((dir: 'next' | 'prev') => {
-    setSt((s) => {
-      if (!numPages) return s;
-      if (s.layout === 'book') {
-        const target = dir === 'next' ? s.page + 2 : s.page - 2;
-        if (target < 1 || target > numPages) return s;
-        if (dir === 'next') setFlip({ dir, half: 'r', front: Math.min(s.page + 1, numPages), back: target });
-        else setFlip({ dir, half: 'l', front: s.page, back: Math.max(target + 1, 1) });
-        try { if (s.sound) playPageTurn(0.6); else playWhoosh(); } catch { /* ignore */ }
-        window.setTimeout(() => setFlip(null), 920);
-        return { ...s, page: target };
-      }
-      const target = dir === 'next' ? s.page + 1 : s.page - 1;
-      if (target < 1 || target > numPages) return s;
-      try { if (s.sound) playPageTurn(0.3); else playWhoosh(); } catch { /* ignore */ }
-      return { ...s, page: target };
-    });
-  }, [numPages]);
+  /* The turn handler reads state through a ref: it is called from a keypress, a
+     click, a corner and a swipe, and a stale `page` in any of those closures
+     turns the wrong sheet. */
+  const stRef = useRef(st);
+  useEffect(() => { stRef.current = st; }, [st]);
+  const animRef = useRef(false);
+  /** The current page width, so a turn can warm the exact raster it will show. */
+  const pageWRef = useRef(0);
 
-  /* -- the book opening --------------------------------------------------- */
+  /**
+   * Arm a leaf: make sure every page it will show exists as a bitmap, then start
+   * the animation and the sound together. This is the fix for pages appearing
+   * white mid-flight — a turn no longer races the rasteriser.
+   */
+  const armLeaf = useCallback(async (leaf: Leaf, start: (a: BookAnim, ms: number, done: () => void) => void) => {
+    const w = pageWRef.current;
+    if (session && w > 0) {
+      const dpr = Math.min(2, (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1);
+      const need = [leaf.front, leaf.back, leaf.leftShown, leaf.rightShown];
+      if (!need.every((n) => session.isRendered(n, w, dpr))) {
+        /* Never hold the gesture hostage: if a page is genuinely slow the leaf
+           turns anyway and that page paints while it's edge-on to the viewer,
+           which nobody can see. */
+        await Promise.race([session.warm(need, w, dpr), wait(260)]);
+      }
+    }
+    try { playPageTurn(0.55, leaf.dir); } catch { /* ignore */ }
+    start({ kind: 'leaf', leaf }, LEAF_MS, () => set({ page: leaf.target }));
+  }, [session, set]);
+
+  /* -- navigation -------------------------------------------------------- */
+  const go = useCallback((n: number) => {
+    if (!numPages) return;
+    setAnim(null);
+    setPhase('open');
+    set({ page: Math.min(Math.max(1, n), numPages) });
+  }, [numPages, set]);
+
+  /* -- turning a page ------------------------------------------------------ *
+   * The flipbook's whole feel lives in this function, so it is worth being
+   * precise about what was wrong before: it committed the new page number and
+   * started the animation in the SAME tick. The spread underneath therefore
+   * repainted to the destination immediately — you saw the new pages, and only
+   * then a sheet swung across them for no reason. That's the flash.
+   *
+   * A real turn is: nothing changes yet; a single sheet lifts, carrying the page
+   * you were reading on its front and the page you're going to on its back;
+   * whatever is revealed behind it becomes visible as it rises; and only when
+   * the sheet lands does the book commit to the new spread. Since the landed
+   * sheet's back face is showing exactly what the committed spread will show,
+   * the swap at the end is invisible.
+   *
+   * The other half of it is that no page may be blank while it moves, so the
+   * four pages a turn needs are rasterised BEFORE the animation is armed (and
+   * usually already warm — see the prefetch effect below).
+   */
+  const turn = useCallback((dir: 'next' | 'prev') => {
+    if (!numPages) return;
+    const s = stRef.current;                                // freshest state, no stale closure
+    if (s.layout !== 'book') {
+      const target = dir === 'next' ? s.page + 1 : s.page - 1;
+      if (target < 1 || target > numPages) return;
+      try { playPageTurn(0.25, dir); } catch { /* ignore */ }
+      set({ page: target });
+      return;
+    }
+    if (animRef.current) return;                            // one turn at a time
+
+    const left = oddLeft(s.page);
+    const start = (a: BookAnim, ms: number, done: () => void) => {
+      animRef.current = true;
+      setAnim(a);
+      if (animTimer.current) window.clearTimeout(animTimer.current);
+      animTimer.current = window.setTimeout(() => {
+        animRef.current = false;
+        setAnim(null);
+        done();
+      }, ms);
+    };
+
+    if (dir === 'next') {
+      if (phase === 'front') {
+        try { playCoverOpen(); } catch { /* ignore */ }
+        start({ kind: 'cover', dir: 'open' }, COVER_MS, () => setPhase('open'));
+        return;
+      }
+      if (phase === 'back') return;
+      const target = left + 2;
+      if (target > numPages) {
+        // Out of pages: the last leaf turns onto the back board.
+        try { playCoverClose(); } catch { /* ignore */ }
+        start({ kind: 'back', dir: 'open' }, COVER_MS, () => setPhase('back'));
+        return;
+      }
+      const leaf: Leaf = {
+        dir, front: Math.min(left + 1, numPages), back: target,
+        leftShown: left, rightShown: Math.min(target + 1, numPages), target,
+      };
+      void armLeaf(leaf, start);
+      return;
+    }
+
+    // backwards
+    if (phase === 'back') {
+      try { playCoverOpen(); } catch { /* ignore */ }
+      start({ kind: 'back', dir: 'close' }, COVER_MS, () => setPhase('open'));
+      return;
+    }
+    if (phase === 'front') return;
+    if (left <= 1) {
+      try { playCoverClose(); } catch { /* ignore */ }
+      start({ kind: 'cover', dir: 'close' }, COVER_MS, () => setPhase('front'));
+      return;
+    }
+    const target = Math.max(1, left - 2);
+    const leaf: Leaf = {
+      dir, front: left, back: Math.min(target + 1, numPages),
+      leftShown: target, rightShown: Math.min(left + 1, numPages), target,
+    };
+    void armLeaf(leaf, start);
+  }, [numPages, phase, set, armLeaf]);
+
+  useEffect(() => () => { if (animTimer.current) window.clearTimeout(animTimer.current); }, []);
+
+  /* -- opening the covers -------------------------------------------------- */
   useEffect(() => {
     if (!session || !sound) return;
     try { playSpineCreak(); } catch { /* ignore */ }
   }, [session, sound]);
+
+  /**
+   * Switching view.
+   *
+   * The flipbook starts CLOSED on a document you haven't read yet — cover first,
+   * which is the point of a book. Come back to page 40 and it opens straight to
+   * page 40 rather than making you turn the cover again. Deciding that here,
+   * where the layout actually changes, rather than in an effect watching for it,
+   * keeps it out of a cascading render.
+   */
+  const setLayout = useCallback((l: Layout) => {
+    // Plain values only in here, no refs: this is handed to `once()` during
+    // render, and reading a ref from something called at render time is exactly
+    // the pattern React 19's lint (rightly) refuses.
+    if (l === 'book') {
+      setAnim(null);
+      setPhase(st.page <= 1 ? 'front' : 'open');
+    }
+    set({ layout: l });
+  }, [set, st.page]);
 
   /* Leaving zen always brings the furniture straight back. */
   const setZen = useCallback((on: boolean) => { setChrome(!on); set({ zen: on }); }, [set]);
@@ -456,7 +613,7 @@ function Reader({ objId }: { objId: string }) {
       } else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); turn('next'); }
       else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); turn('prev'); }
       else if (e.key === 'h' || e.key === 'H') setZen(!st.zen);
-      else if (e.key === 'f' || e.key === 'F') set({ layout: st.layout === 'typeset' ? 'scroll' : 'typeset' });
+      else if (e.key === 'f' || e.key === 'F') setLayout(st.layout === 'typeset' ? 'scroll' : 'typeset');
       else if (e.key === 'b' || e.key === 'B') toggleBookmarkRef.current?.();
     };
     window.addEventListener('keydown', onKey);
@@ -533,7 +690,11 @@ function Reader({ objId }: { objId: string }) {
   const delSticky = useCallback((id: string) => setSt((s) => ({ ...s, stickies: s.stickies.filter((n) => n.id !== id) })), []);
   const toggleBookmark = useCallback((page: number) => setSt((s) => {
     const on = s.bookmarks.includes(page);
-    if (s.sound) { try { playPaperSettle(); } catch { /* ignore */ } }
+    /* Paper sounds are gestural feedback, like a click — they answer something
+       you just did, so they are not tied to the room's ambient bed the way they
+       used to be. (That gate is also why the page turn used to fall back to a
+       WIND WHOOSH, of all things, for anyone reading in silence.) */
+    try { playPaperSettle(); } catch { /* ignore */ }
     return { ...s, bookmarks: on ? s.bookmarks.filter((b) => b !== page) : [...s.bookmarks, page].sort((a, b) => a - b) };
   }), []);
   useEffect(() => { toggleBookmarkRef.current = () => toggleBookmark(st.page); }, [toggleBookmark, st.page]);
@@ -557,9 +718,31 @@ function Reader({ objId }: { objId: string }) {
     return { pageW: Math.max(280, Math.min(availH / aspect, availW * 0.94)) };
   }, [win, aspect, st.layout, st.strip]);
 
+  useEffect(() => { pageWRef.current = sizing.pageW; }, [sizing]);
+
+  /* Warm the pages either side of the spread while nothing is happening. A turn
+     then starts on the frame you clicked, which is the difference between a
+     flipbook that feels physical and one that feels like a web page. */
+  useEffect(() => {
+    if (!session || st.layout !== 'book' || !sizing.pageW) return;
+    const dpr = Math.min(2, (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1);
+    const left = oddLeft(st.page);
+    const t = window.setTimeout(() => {
+      void session.warm([left, left + 1, left + 2, left + 3, left - 1, left - 2], sizing.pageW, dpr);
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [session, st.page, st.layout, sizing.pageW]);
+
   const bookmarked = st.bookmarks.includes(st.page);
   const room = getRoom(st.atmos);
   const stripShown = st.strip && !st.zen && st.layout !== 'typeset';
+  const isBook = st.layout === 'book';
+  /** What's stamped on the cover: the document's own name, tidied up. */
+  const docTitle = useMemo(() => {
+    const o = useCanvasStore.getState().objects.find((x) => x.id === objId);
+    const raw = ((o?.style?.fileName as string) || 'Untitled').replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').trim();
+    return raw.length > 64 ? `${raw.slice(0, 63)}…` : raw || 'Untitled';
+  }, [objId]);
   const paper = paperOf(st.typo.paper);
 
   /* Walking into a room announces itself, then gets out of the way. */
@@ -618,7 +801,8 @@ function Reader({ objId }: { objId: string }) {
         ) : st.layout === 'typeset' ? (
           <Typeset paras={prose?.page === st.page ? prose.paras : null} typo={st.typo} width={win.w} speaking={speech.on ? speech.idx : -1} />
         ) : st.layout === 'book' ? (
-          <BookView {...pageProps} page={st.page} numPages={numPages} pageW={sizing.pageW} flip={flip} onTurn={turn}
+          <BookView {...pageProps} page={st.page} numPages={numPages} pageW={sizing.pageW} aspect={aspect}
+            phase={phase} anim={anim} onTurn={turn} title={docTitle}
             bookmarks={st.bookmarks} onScrub={go} onUnmark={toggleBookmark} />
         ) : (
           <div style={{ position: 'relative' }}><Page {...pageProps} page={st.page} width={sizing.pageW} interactive bookmarked={bookmarked} onUnmark={toggleBookmark} /></div>
@@ -648,15 +832,23 @@ function Reader({ objId }: { objId: string }) {
 
       {/* the one dock */}
       <div className="pdfr-dock">
-        <button className="pdfr-btn" title="Previous" disabled={st.page <= 1} onClick={() => turn('prev')}><Ico d={I.prev} s={16} /></button>
-        <div className="pdfr-count">{st.page} <span>/ {numPages || '—'}</span></div>
-        <button className="pdfr-btn" title="Next" disabled={st.page >= numPages} onClick={() => turn('next')}><Ico d={I.next} s={16} /></button>
+        <button className="pdfr-btn" title="Previous" disabled={isBook ? phase === 'front' : st.page <= 1} onClick={() => turn('prev')}><Ico d={I.prev} s={16} /></button>
+        <div className="pdfr-count">
+          {isBook && phase === 'front' ? <span>cover</span>
+            : isBook && phase === 'back' ? <span>the end</span>
+              : <>{isBook ? oddLeft(st.page) : st.page} <span>/ {numPages || '—'}</span></>}
+        </div>
+        <button className="pdfr-btn" title="Next" disabled={isBook ? phase === 'back' : st.page >= numPages} onClick={() => turn('next')}><Ico d={I.next} s={16} /></button>
         <div className="pdfr-sep" />
         <div className="pdfr-seg">
-          <button className={`pdfr-btn ${st.layout === 'scroll' ? 'active' : ''}`} title="Page view — the PDF as printed" onClick={once(() => set({ layout: 'scroll' }))}><Ico d={I.scroll} s={15} /></button>
-          <button className={`pdfr-btn ${st.layout === 'book' ? 'active' : ''}`} title="Book view" onClick={once(() => set({ layout: 'book' }))}><Ico d={I.book} s={15} /></button>
-          <button className={`pdfr-btn ${st.layout === 'typeset' ? 'active' : ''}`} title="Typeset — reflow it in your own font (F)" onClick={once(() => set({ layout: 'typeset' }))}><Ico d={I.typeset} s={15} /></button>
+          <button className={`pdfr-btn ${st.layout === 'scroll' ? 'active' : ''}`} title="Page view — the PDF as printed" onClick={once(() => setLayout('scroll'))}><Ico d={I.scroll} s={15} /></button>
+          <button className={`pdfr-btn ${st.layout === 'book' ? 'active' : ''}`} title="Flipbook — a real book you turn, cover and all" onClick={once(() => setLayout('book'))}><Ico d={I.book} s={15} /></button>
+          <button className={`pdfr-btn ${st.layout === 'typeset' ? 'active' : ''}`} title="Typeset — reflow it in your own font (F)" onClick={once(() => setLayout('typeset'))}><Ico d={I.typeset} s={15} /></button>
         </div>
+        {/* Aged paper belongs on the toolbar, not buried in the rooms drawer:
+            it's a property of the BOOK, and you reach for it while looking at
+            the page. */}
+        <button className={`pdfr-btn ${st.aged ? 'active' : ''}`} title={st.aged ? 'Crisp paper' : 'Aged paper — foxed, yellowed, older'} onClick={once(() => set({ aged: !st.aged }))}><Ico d={I.aged} s={15} /></button>
         <button className={`pdfr-btn ${typeOpen ? 'active' : ''}`} title="Typography" onClick={once(() => { setTypeOpen(!typeOpen); setRoomOpen(false); })}><Ico d={I.type} s={15} /></button>
         <button className={`pdfr-btn ${roomOpen ? 'active' : ''}`} title="Reading room" onClick={once(() => { setRoomOpen(!roomOpen); setTypeOpen(false); })}><Ico d={I.room} s={15} /> {room.label}</button>
         {room.sound && (
@@ -684,7 +876,7 @@ function Reader({ objId }: { objId: string }) {
 
       {typeOpen && (
         <TypePanel typo={st.typo} onChange={(t) => set({ typo: { ...st.typo, ...t } })} onClose={() => setTypeOpen(false)}
-          layout={st.layout} onTypeset={() => set({ layout: 'typeset' })} />
+          layout={st.layout} onTypeset={() => setLayout('typeset')} />
       )}
 
       {roomOpen && (
@@ -950,16 +1142,53 @@ function usePageAspect(session: PdfSession | null, page: number): number {
   return a;
 }
 
-/* --------------------------------- book --------------------------------- */
+/* ------------------------------- flipbook -------------------------------- */
+/**
+ * The boards. A hardcover with the wordmark stamped into it — the first thing
+ * you see, and the reason this reads as a book rather than a viewer with a page
+ * animation bolted on. The back board is the same object, reversed and quieter.
+ */
+function Cover({ side, title, pages, w, aspect }: { side: 'front' | 'back'; title: string; pages: number; w: number; aspect: number }) {
+  return (
+    <div className={`pdfr-board ${side}`} style={{ width: w, height: w * aspect }}>
+      <div className="cloth" />
+      <div className="hinge" />
+      <div className="rule" />
+      {side === 'front' ? (
+        <div className="plate">
+          <div className="mark">canvabrains</div>
+          <div className="hair" />
+          <h1>{title}</h1>
+          <div className="meta">{pages} {pages === 1 ? 'page' : 'pages'} · flipbook</div>
+        </div>
+      ) : (
+        <div className="plate end">
+          <div className="fin">the end</div>
+          <div className="hair" />
+          <div className="mark small">canvabrains</div>
+        </div>
+      )}
+      <div className="sheenboard" />
+    </div>
+  );
+}
+
 function BookView(props: PageSharedProps & {
-  page: number; numPages: number; pageW: number; bookmarks: number[];
-  flip: null | { dir: 'next' | 'prev'; half: 'l' | 'r'; front: number; back: number };
+  page: number; numPages: number; pageW: number; aspect: number; bookmarks: number[];
+  title: string; phase: BookPhase; anim: BookAnim | null;
   onTurn: (d: 'next' | 'prev') => void; onScrub: (n: number) => void; onUnmark: (n: number) => void;
 }) {
-  const { page, numPages, pageW, flip, onTurn, bookmarks, onScrub, onUnmark, ...shared } = props;
-  const left = page;
-  const right = page + 1 <= numPages ? page + 1 : null;
-  const frac = numPages > 1 ? page / numPages : 0.5;
+  const { page, numPages, pageW, aspect, phase, anim, onTurn, bookmarks, onScrub, onUnmark, title, ...shared } = props;
+
+  const leaf = anim?.kind === 'leaf' ? anim.leaf : null;
+  const committed = oddLeft(page);
+  /* What each half shows. During a turn this is NOT the committed spread: the
+     revealed page has to already be under the rising sheet. */
+  const left = leaf ? leaf.leftShown : committed;
+  const rightNum = leaf ? leaf.rightShown : committed + 1;
+  const right = rightNum <= numPages ? rightNum : null;
+
+  const frac = numPages > 1 ? committed / numPages : 0.5;
   // The block of paper on each side is how far through you are — the oldest
   // progress bar there is, and the one you can feel in your hand.
   const leftStack = Math.max(3, Math.round(26 * frac));
@@ -972,47 +1201,120 @@ function BookView(props: PageSharedProps & {
   const ribbonDown = (e: React.PointerEvent) => {
     e.stopPropagation();
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-    setDrag({ at: e.clientX, page });
+    setDrag({ at: e.clientX, page: committed });
   };
   const ribbonMove = (e: React.PointerEvent) => {
     if (!drag) return;
     const span = bookRef.current?.offsetWidth || 800;
     const delta = Math.round(((e.clientX - drag.at) / span) * numPages * 1.6);
-    setDrag({ ...drag, page: Math.min(numPages, Math.max(1, drag.page + (delta - (drag.page - page)))) });
+    setDrag({ ...drag, page: Math.min(numPages, Math.max(1, drag.page + (delta - (drag.page - committed)))) });
   };
-  const ribbonUp = () => { if (drag && drag.page !== page) onScrub(drag.page); setDrag(null); };
+  const ribbonUp = () => { if (drag && drag.page !== committed) onScrub(drag.page); setDrag(null); };
 
-  const Turn = flip && (
-    <div className={`pdfr-turn ${flip.dir}`} style={{ width: pageW }}>
-      <div className="face front"><Page {...shared} page={flip.front} width={pageW} /><div className="sheen" /></div>
-      <div className="face back"><Page {...shared} page={flip.back} width={pageW} /><div className="sheen" /></div>
-    </div>
-  );
+  const closed = phase !== 'open' && !anim;
+  const coverAnim = anim?.kind === 'cover' ? anim.dir : null;
+  const backAnim = anim?.kind === 'back' ? anim.dir : null;
+  /* Shut, the book is one page wide, so the whole thing slides half a page
+     sideways to stay centred while the board swings open. Both motions run on
+     the same curve and the same clock, which is why it reads as one gesture.
+     The open book is two pages wide and centred, so its right half sits half a
+     page RIGHT of centre — bringing that half to the middle means moving the
+     book left, hence the negative. */
+  const shift = phase === 'front' && !coverAnim ? -pageW / 2
+    : phase === 'back' && !backAnim ? pageW / 2
+      : coverAnim === 'open' ? 0 : coverAnim === 'close' ? -pageW / 2
+        : backAnim === 'open' ? pageW / 2 : backAnim === 'close' ? 0 : 0;
+
+  const showFrontBoard = phase === 'front' || coverAnim !== null;
+  const showBackBoard = phase === 'back' || backAnim !== null;
+
+  /* Where the spine is, in the leaves' own coordinates. The turning sheet and
+     both boards hinge exactly there, and the block of paper on the left grows as
+     you read — so it has to be measured, not guessed at in CSS. */
+  const SPINE = 3;
+  const leftHalfX = leftStack;
+  const rightHalfX = leftStack + pageW + SPINE;
+  const hinge = leaf?.dir === 'prev'
+    ? { left: leftHalfX, transformOrigin: 'right center' }
+    : { left: rightHalfX, transformOrigin: 'left center' };
+  const pageH = pageW * aspect;
 
   return (
-    <div className="pdfr-book" ref={bookRef}>
-      <div className={`pdfr-ribbon ${drag ? 'dragging' : ''}`}
-        style={{ right: 13 + rightStack, height: pageW * (drag ? 1.05 : 0.92) }}
-        title="Drag to scrub through the book"
-        onPointerDown={ribbonDown} onPointerMove={ribbonMove} onPointerUp={ribbonUp} onPointerCancel={ribbonUp}>
-        {drag && <span className="tip">{drag.page}</span>}
-      </div>
+    <div className={`pdfr-book ${closed ? 'shut' : ''}`} ref={bookRef}
+      data-shut={closed ? phase : undefined}
+      style={{ ['--shift' as string]: `${shift}px`, ['--pw' as string]: `${pageW}px` }}>
+      {/* the case: boards and cloth. Fades out when the book is shut, because
+          then the board in your hand IS the case. */}
+      <div className="pdfr-case" />
+      {!closed && (
+        <div className={`pdfr-ribbon ${drag ? 'dragging' : ''}`}
+          style={{ right: 13 + rightStack, height: pageW * (drag ? 1.05 : 0.92) }}
+          title="Drag to scrub through the book"
+          onPointerDown={ribbonDown} onPointerMove={ribbonMove} onPointerUp={ribbonUp} onPointerCancel={ribbonUp}>
+          {drag && <span className="tip">{drag.page}</span>}
+        </div>
+      )}
+
       <div className="leaves">
         <div className="pdfr-stack left" style={{ width: leftStack }} />
+
         <div className="pdfr-leaf l" style={{ width: pageW }}>
           <Page {...shared} page={left} width={pageW} interactive bookmarked={bookmarks.includes(left)} onUnmark={onUnmark} />
-          {flip?.half === 'l' && Turn}
+          {/* the moving shadow the turning sheet casts into this half */}
+          {leaf && <div className={`pdfr-cast l ${leaf.dir}`} />}
         </div>
+
         <div className="pdfr-spine" />
+
         <div className="pdfr-leaf r" style={{ width: pageW }}>
           {right ? <Page {...shared} page={right} width={pageW} interactive bookmarked={bookmarks.includes(right)} onUnmark={onUnmark} />
-            : <div style={{ width: pageW, aspectRatio: '1 / 1.414', background: 'rgba(255,255,255,0.03)' }} />}
-          {flip?.half === 'r' && Turn}
+            : <div className="pdfr-blank" style={{ width: pageW, height: pageW * aspect }} />}
+          {leaf && <div className={`pdfr-cast r ${leaf.dir}`} />}
         </div>
+
         <div className="pdfr-stack right" style={{ width: rightStack }} />
+
+        {/* the sheet in flight — one element, two printed faces, hinged on the
+            spine. Last in the row so it paints over both halves. */}
+        {leaf && (
+          <div className={`pdfr-turn ${leaf.dir}`} style={{ ...hinge, width: pageW, height: pageH }}>
+            <div className="face front">
+              <Page {...shared} page={leaf.front} width={pageW} />
+              <div className="sheen" /><div className="edge" />
+            </div>
+            <div className="face back">
+              <Page {...shared} page={leaf.back} width={pageW} />
+              <div className="sheen" /><div className="edge" />
+            </div>
+          </div>
+        )}
+
+        {/* the boards. Backface hidden, so each one simply ceases to exist the
+            moment it goes past edge-on — which is how a hard cover with nothing
+            printed inside it behaves, and it means the page behind is revealed
+            at zero width instead of popping. */}
+        {showFrontBoard && (
+          <div className={`pdfr-coverwrap front ${coverAnim ?? ''}`}
+            style={{ left: rightHalfX, transformOrigin: 'left center', width: pageW, height: pageH }}
+            onClick={() => { if (!coverAnim) onTurn('next'); }} title="Open the flipbook">
+            <Cover side="front" title={title} pages={numPages} w={pageW} aspect={aspect} />
+          </div>
+        )}
+        {showBackBoard && (
+          <div className={`pdfr-coverwrap back ${backAnim ?? ''}`}
+            style={{ left: leftHalfX, transformOrigin: 'right center', width: pageW, height: pageH }}
+            onClick={() => { if (!backAnim) onTurn('prev'); }} title="Back to the last page">
+            <Cover side="back" title={title} pages={numPages} w={pageW} aspect={aspect} />
+          </div>
+        )}
       </div>
-      <div className="pdfr-corner left" onClick={() => onTurn('prev')}><div className="fold" /></div>
-      <div className="pdfr-corner right" onClick={() => onTurn('next')}><div className="fold" /></div>
+
+      {!closed && (
+        <>
+          <div className="pdfr-corner left" onClick={() => onTurn('prev')} title="Previous page"><div className="fold" /></div>
+          <div className="pdfr-corner right" onClick={() => onTurn('next')} title="Next page"><div className="fold" /></div>
+        </>
+      )}
     </div>
   );
 }

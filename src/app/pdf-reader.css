@@ -91,43 +91,192 @@
 .pdfr-pin-note { position:absolute; z-index:13; transform: translate(-50%,-100%); max-width:230px; padding:9px 11px; border-radius:11px; background: rgba(28,24,20,0.95); color:#f4ece0; font-size:12px; line-height:1.4; border:1px solid rgba(255,255,255,0.12); box-shadow:0 14px 32px -14px rgba(0,0,0,0.72); }
 
 
-/* =================================== BOOK ================================= */
-.pdfr-book { position:relative; display:flex; align-items:stretch; perspective:2800px; padding:16px; border-radius:8px 12px 12px 8px;
+/* ================================ FLIPBOOK ================================ */
+/* Everything in this block exists to answer one question: does it feel like a
+   book? Three things decide that, and none of them is the rotation itself.
+     1. THE GUTTER. Real paper doesn't lie flat — it curves down into the spine,
+        which puts a soft bump on the inner half of each page and a dark crease
+        between them. Two 3D-tilted halves plus a graded shade do it here.
+     2. THE SHADOW THE MOVING SHEET CASTS. A page swinging over another page
+        darkens it, in a wedge that narrows as it lifts. Without this the turn
+        looks like a picture sliding, however good the easing is.
+     3. TIMING. A sheet is flicked, coasts, and lands. Linear-ish easing over a
+        flat plane is what made the old one read as a PowerPoint transition.
+   The whole book also SHIFTS sideways while it opens and shuts, so a shut book
+   sits centred as one page and an open one as two — same as the real object. */
+
+.pdfr-book { position:relative; display:flex; align-items:stretch; perspective:3000px; perspective-origin:50% 46%; padding:16px;
+  transform: translateX(var(--shift, 0px));
+  transition: transform 900ms cubic-bezier(.52,.02,.24,1); }
+/* the case — leather boards under the block of paper */
+.pdfr-case { position:absolute; inset:0; border-radius:8px 12px 12px 8px; z-index:0; opacity:1;
+  transition: opacity 620ms ease;
   background: linear-gradient(160deg,#4a3320 0%,#38251440 50%,#2a1a0e 100%), repeating-linear-gradient(90deg, rgba(0,0,0,0.04) 0 2px, transparent 2px 4px);
   box-shadow: 0 54px 120px -42px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.06), inset 0 0 40px rgba(0,0,0,0.4); }
-.pdfr-book::before { content:''; position:absolute; inset:7px; border-radius:5px; border:1px dashed rgba(255,235,200,0.14); pointer-events:none; }
-.pdfr-book .leaves { position:relative; display:flex; align-items:stretch; z-index:2; }
-.pdfr-stack { align-self:stretch; position:relative; flex:0 0 auto; background: repeating-linear-gradient(0deg,#efe7d4 0 1px,#d8ccae 1px 2px,#f2ecdb 2px 3px); }
-.pdfr-stack.left  { border-radius:3px 0 0 3px; box-shadow: inset 2px 0 4px rgba(0,0,0,0.22); }
-.pdfr-stack.right { border-radius:0 3px 3px 0; box-shadow: inset -2px 0 4px rgba(0,0,0,0.22); }
+.pdfr-case::before { content:''; position:absolute; inset:7px; border-radius:5px; border:1px dashed rgba(255,235,200,0.14); }
+/* Shut, the board in your hand IS the case, so the case gets out of the way —
+   and the half that isn't under the board must not stick out beside it. */
+.pdfr-book[data-shut] .pdfr-case { opacity:0; }
+.pdfr-book[data-shut="front"] .pdfr-leaf.l,
+.pdfr-book[data-shut="front"] .pdfr-stack.left,
+.pdfr-book[data-shut="back"] .pdfr-leaf.r,
+.pdfr-book[data-shut="back"] .pdfr-stack.right { opacity:0; }
+
+.pdfr-book .leaves { position:relative; display:flex; align-items:stretch; z-index:2; transform-style:preserve-3d; }
+/* A page inside the book keeps its paper, loses its own drop shadow and room
+   glow: two of those meeting at the spine lit the crease from both sides and
+   cancelled out the one thing the gutter is for. The case carries the glow. */
+.pdfr-book .pdfr-page { box-shadow: 0 0 0 1px rgba(0,0,0,0.05); border-radius:2px; }
+.pdfr-case { box-shadow: 0 54px 120px -42px rgba(0,0,0,0.85), inset 0 1px 0 rgba(255,255,255,0.06),
+             inset 0 0 40px rgba(0,0,0,0.4), 0 0 160px -30px rgba(var(--accent), var(--glow, 0.4)); }
+.pdfr-stack { align-self:stretch; position:relative; flex:0 0 auto; }
+/* `.leaves` is a 3D scene, and inside one of those Z POSITION decides what
+   covers what — z-index is ignored entirely. Everything that has to sit above
+   the pages therefore says so in Z: the flying sheet at 18px, a board at 34px,
+   and the page halves tilted by a degree and a half reach ~11px at most. Each
+   half is flat inside itself, so its own overlays stack by z-index as usual. */
 .pdfr-leaf { position:relative; }
-.pdfr-leaf.l::after, .pdfr-leaf.r::after { content:''; position:absolute; top:0; bottom:0; width:34px; pointer-events:none; z-index:6; }
-.pdfr-leaf.l::after { right:0; background: linear-gradient(to right, transparent, rgba(60,40,20,0.28)); }
-.pdfr-leaf.r::after { left:0;  background: linear-gradient(to left, transparent, rgba(60,40,20,0.28)); }
-.pdfr-spine { width:3px; align-self:stretch; z-index:7; background: linear-gradient(to right, rgba(0,0,0,0.42), rgba(0,0,0,0.1), rgba(0,0,0,0.42)); box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-.pdfr-ribbon { position:absolute; top:0; width:16px; z-index:9; pointer-events:none; background: linear-gradient(to right,#b03a3a,#d85555 40%,#b03a3a); box-shadow: 0 6px 12px -4px rgba(0,0,0,0.5); }
+/* THE BUMP. Each half leans its outer edge toward you by a degree and a half,
+   which under the book's perspective bends the pair into a shallow valley at the
+   spine. It is a tiny number on purpose: any more and the text visibly skews. */
+.pdfr-leaf.l { transform-origin:right center; transform: rotateY(1.5deg); }
+.pdfr-leaf.r { transform-origin:left center;  transform: rotateY(-1.5deg); }
+
+/* the gutter: shade rising into the crease, with a lift just outside it so the
+   paper reads as curving rather than as a gradient someone painted on */
+.pdfr-leaf.l::after, .pdfr-leaf.r::after { content:''; position:absolute; top:0; bottom:0; width:15%; max-width:120px; pointer-events:none; z-index:6; }
+.pdfr-leaf.l::after { right:0; background: linear-gradient(to right,
+    rgba(255,255,255,0) 0%, rgba(255,253,247,0.34) 26%, rgba(255,250,240,0.20) 44%,
+    rgba(96,66,34,0.10) 62%, rgba(64,42,20,0.30) 80%, rgba(34,20,8,0.62) 94%, rgba(14,8,2,0.78) 100%); }
+.pdfr-leaf.r::after { left:0;  background: linear-gradient(to left,
+    rgba(255,255,255,0) 0%, rgba(255,253,247,0.34) 26%, rgba(255,250,240,0.20) 44%,
+    rgba(96,66,34,0.10) 62%, rgba(64,42,20,0.30) 80%, rgba(34,20,8,0.62) 94%, rgba(14,8,2,0.78) 100%); }
+/* and the crease itself, hairline-sharp between them */
+.pdfr-spine { box-shadow: 0 0 26px 6px rgba(0,0,0,0.6); }
+.pdfr-spine { width:3px; align-self:stretch; z-index:7; background: linear-gradient(to right, rgba(0,0,0,0.55), rgba(0,0,0,0.22), rgba(0,0,0,0.55)); box-shadow: 0 0 22px rgba(0,0,0,0.55); }
+.pdfr-blank { background: rgba(255,255,255,0.03); border-radius:3px; }
+
+.pdfr-ribbon { position:absolute; top:0; width:16px; z-index:9; background: linear-gradient(to right,#b03a3a,#d85555 40%,#b03a3a); box-shadow: 0 6px 12px -4px rgba(0,0,0,0.5); }
 .pdfr-ribbon::after { content:''; position:absolute; bottom:-9px; left:0; right:0; height:10px; background:inherit; clip-path: polygon(0 0,100% 0,100% 100%,50% 60%,0 100%); }
 
-/* page-curl turn */
-.pdfr-turn { position:absolute; top:0; height:100%; transform-style:preserve-3d; z-index:15; will-change:transform; }
-.pdfr-turn .face { position:absolute; inset:0; backface-visibility:hidden; overflow:hidden; box-shadow: var(--page-shadow); background:#fff; border-radius:2px 6px 6px 2px; }
+/* --------------------------- the sheet in flight -------------------------- */
+.pdfr-turn { position:absolute; top:0; transform-style:preserve-3d; will-change:transform;
+  pointer-events:none; transform: translateZ(18px) rotateY(0deg); }
+.pdfr-turn .face { position:absolute; inset:0; backface-visibility:hidden; overflow:hidden; background:#fff;
+  border-radius:2px 5px 5px 2px; box-shadow: 0 26px 60px -26px rgba(0,0,0,0.8); }
 .pdfr-turn .face.back { transform: rotateY(180deg); }
-.pdfr-turn .sheen { position:absolute; inset:0; pointer-events:none; opacity:0; }
-.pdfr-turn.next { transform-origin:left center; animation: pdfrTurnNext 0.92s cubic-bezier(.42,.02,.28,1) both; }
-.pdfr-turn.prev { transform-origin:right center; animation: pdfrTurnPrev 0.92s cubic-bezier(.42,.02,.28,1) both; }
-@keyframes pdfrTurnNext { from{transform:rotateY(0)} to{transform:rotateY(-180deg)} }
-@keyframes pdfrTurnPrev { from{transform:rotateY(0)} to{transform:rotateY(180deg)} }
-.pdfr-turn .face.front .sheen { background: linear-gradient(105deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0) 34%, rgba(0,0,0,0.28) 100%); animation: pdfrSheenFront 0.92s ease-in-out both; }
-.pdfr-turn .face.back .sheen  { background: linear-gradient(255deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 34%, rgba(0,0,0,0.3) 100%); animation: pdfrSheenBack 0.92s ease-in-out both; }
-@keyframes pdfrSheenFront { 0%{opacity:0} 45%{opacity:.9} 55%{opacity:0} 100%{opacity:0} }
-@keyframes pdfrSheenBack  { 0%{opacity:0} 50%{opacity:0} 60%{opacity:.85} 100%{opacity:.15} }
+.pdfr-turn .sheen, .pdfr-turn .edge { position:absolute; inset:0; pointer-events:none; }
+.pdfr-turn .sheen { opacity:0; }
+/* the lit inner edge of a lifting sheet — the giveaway that it's paper, not a card */
+.pdfr-turn .face.front .edge { background: linear-gradient(to right, rgba(255,255,255,0.55), rgba(255,255,255,0) 7%, rgba(0,0,0,0) 88%, rgba(0,0,0,0.16) 100%); }
+.pdfr-turn .face.back  .edge { background: linear-gradient(to left,  rgba(255,255,255,0.55), rgba(255,255,255,0) 7%, rgba(0,0,0,0) 88%, rgba(0,0,0,0.16) 100%); }
 
-.pdfr-corner { position:absolute; bottom:0; width:74px; height:92px; cursor:pointer; z-index:12; display:flex; align-items:flex-end; justify-content:center; opacity:0; transition:opacity 300ms ease; }
-.pdfr-corner.right { right:0; } .pdfr-corner.left { left:0; }
-.pdfr-book:hover .pdfr-corner { opacity:.55; }
-.pdfr-corner:hover { opacity:1 !important; }
-.pdfr-corner .fold { width:58px; height:74px; background: linear-gradient(135deg, transparent 44%, rgba(255,255,255,0.16) 46%, rgba(120,90,50,0.35) 100%); border-radius:0 0 5px 0; box-shadow:-3px -3px 8px -4px rgba(0,0,0,0.4) inset; }
+/* Flick, coast, land. The scaleX squeeze in the middle is the sheet bowing under
+   its own weight: pure rotation is geometrically right and reads as glass. */
+/* The 4% flat hold at the head of each keyframe list is deliberate: the sheet
+   mounts at rotateY(0), pixel-identical to the page under it, and holds there
+   for a frame or two before moving. That is what stops a sheet appearing out of
+   nowhere mid-swing — and it costs no React state to do it here. */
+.pdfr-turn.next { animation: pdfrLeafNext 820ms cubic-bezier(.44,.06,.22,1) both; }
+.pdfr-turn.prev { animation: pdfrLeafPrev 820ms cubic-bezier(.44,.06,.22,1) both; }
+@keyframes pdfrLeafNext {
+  0%, 4% { transform: translateZ(18px) rotateY(0deg)    scaleX(1);    }
+  18%    { transform: translateZ(18px) rotateY(-30deg)  scaleX(.988); }
+  50%    { transform: translateZ(18px) rotateY(-90deg)  scaleX(.962); }
+  82%    { transform: translateZ(18px) rotateY(-150deg) scaleX(.988); }
+  100%   { transform: translateZ(18px) rotateY(-180deg) scaleX(1);    }
+}
+@keyframes pdfrLeafPrev {
+  0%, 4% { transform: translateZ(18px) rotateY(0deg)   scaleX(1);    }
+  18%    { transform: translateZ(18px) rotateY(30deg)  scaleX(.988); }
+  50%    { transform: translateZ(18px) rotateY(90deg)  scaleX(.962); }
+  82%    { transform: translateZ(18px) rotateY(150deg) scaleX(.988); }
+  100%   { transform: translateZ(18px) rotateY(180deg) scaleX(1);    }
+}
+/* specular travelling across each face as its angle to the room light changes */
+.pdfr-turn .face.front .sheen { animation: pdfrSheenFront 820ms ease-in-out both; }
+.pdfr-turn .face.back  .sheen { animation: pdfrSheenBack  820ms ease-in-out both; }
+.pdfr-turn .face.front .sheen { background: linear-gradient(100deg, rgba(255,255,255,0.62) 0%, rgba(255,255,255,0.06) 30%, rgba(0,0,0,0.10) 62%, rgba(0,0,0,0.42) 100%); }
+.pdfr-turn .face.back  .sheen { background: linear-gradient(260deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.04) 32%, rgba(0,0,0,0.12) 64%, rgba(0,0,0,0.46) 100%); }
+@keyframes pdfrSheenFront { 0%{opacity:0} 30%{opacity:.55} 48%{opacity:.95} 56%{opacity:0} 100%{opacity:0} }
+@keyframes pdfrSheenBack  { 0%{opacity:0} 46%{opacity:0} 58%{opacity:.9} 78%{opacity:.4} 100%{opacity:.06} }
+
+/* ------------------ the shadow the sheet throws as it goes ---------------- */
+/* One per half. Going forward: the right page is in shadow at the start and
+   clears as the sheet rises; the left page darkens as the sheet comes down on
+   it. Backwards, exactly reversed. */
+.pdfr-cast { position:absolute; inset:0; z-index:9; pointer-events:none; opacity:0; }
+.pdfr-cast.l { background: linear-gradient(to left, rgba(6,4,1,0.72) 0%, rgba(6,4,1,0.4) 26%, rgba(6,4,1,0.12) 54%, rgba(6,4,1,0) 82%); }
+.pdfr-cast.r { background: linear-gradient(to right, rgba(6,4,1,0.72) 0%, rgba(6,4,1,0.4) 26%, rgba(6,4,1,0.12) 54%, rgba(6,4,1,0) 82%); }
+.pdfr-cast.next.r, .pdfr-cast.prev.l { animation: pdfrCastClear 820ms ease-out both; }
+.pdfr-cast.next.l, .pdfr-cast.prev.r { animation: pdfrCastFall  820ms ease-in both; }
+@keyframes pdfrCastClear { 0%{opacity:1} 34%{opacity:.62} 70%{opacity:.2} 100%{opacity:0} }
+@keyframes pdfrCastFall  { 0%{opacity:0} 48%{opacity:.14} 84%{opacity:.85} 100%{opacity:0} }
+
+/* -------------------------------- corners -------------------------------- */
+.pdfr-corner { position:absolute; bottom:16px; width:78px; height:96px; cursor:pointer; z-index:19; display:flex; align-items:flex-end; justify-content:center;
+  opacity:0; transition: opacity 300ms ease, transform 300ms cubic-bezier(.16,1,.3,1); }
+.pdfr-corner.right { right:16px; } .pdfr-corner.left { left:16px; }
+.pdfr-book:hover .pdfr-corner { opacity:.5; }
+.pdfr-corner:hover { opacity:1 !important; transform: translateY(-2px); }
+.pdfr-corner .fold { width:62px; height:78px; border-radius:0 0 5px 0;
+  background: linear-gradient(135deg, transparent 42%, rgba(255,255,255,0.22) 45%, rgba(120,90,50,0.42) 100%);
+  box-shadow:-3px -3px 10px -4px rgba(0,0,0,0.5) inset; }
 .pdfr-corner.left .fold { transform: scaleX(-1); }
+
+/* ================================= boards ================================= */
+.pdfr-coverwrap { position:absolute; top:0; transform-style:preserve-3d; cursor:pointer;
+  backface-visibility:hidden; will-change:transform; transform: translateZ(34px) rotateY(0deg); }
+.pdfr-coverwrap.front.open  { animation: pdfrCoverOpen  900ms cubic-bezier(.52,.02,.24,1) both; }
+.pdfr-coverwrap.front.close { animation: pdfrCoverShut  900ms cubic-bezier(.52,.02,.24,1) both; }
+.pdfr-coverwrap.back.open   { animation: pdfrBackOpen   900ms cubic-bezier(.52,.02,.24,1) both; }
+.pdfr-coverwrap.back.close  { animation: pdfrBackShut   900ms cubic-bezier(.52,.02,.24,1) both; }
+@keyframes pdfrCoverOpen { 0%{transform:translateZ(34px) rotateY(0deg)} 100%{transform:translateZ(34px) rotateY(-180deg)} }
+@keyframes pdfrCoverShut { 0%{transform:translateZ(34px) rotateY(-180deg)} 100%{transform:translateZ(34px) rotateY(0deg)} }
+@keyframes pdfrBackOpen  { 0%{transform:translateZ(34px) rotateY(180deg)} 100%{transform:translateZ(34px) rotateY(0deg)} }
+@keyframes pdfrBackShut  { 0%{transform:translateZ(34px) rotateY(0deg)} 100%{transform:translateZ(34px) rotateY(180deg)} }
+.pdfr-coverwrap:hover .pdfr-board { transform: scale(1.006); }
+
+/* Opaque, deliberately: a board is a board. (The case gradient this started
+   from carries an alpha stop, which on a cover let the first page show straight
+   through it.) */
+.pdfr-board { position:relative; overflow:hidden; border-radius:3px 7px 7px 3px; color:#f3e6cf;
+  transition: transform 400ms cubic-bezier(.16,1,.3,1);
+  background-color: #3d2612;
+  background-image: linear-gradient(148deg, #5e4026 0%, #472c16 46%, #2e1c0d 100%);
+  box-shadow: 0 60px 130px -40px rgba(0,0,0,0.9), 0 18px 40px -18px rgba(0,0,0,0.7),
+              inset 0 1px 0 rgba(255,228,180,0.14), inset 0 0 60px rgba(0,0,0,0.45); }
+.pdfr-board.back { border-radius:7px 3px 3px 7px; }
+/* book cloth: a weave, not a gradient */
+.pdfr-board .cloth { position:absolute; inset:0; opacity:.5; mix-blend-mode:overlay;
+  background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 3px),
+                    repeating-linear-gradient(90deg, rgba(0,0,0,0.06) 0 1px, transparent 1px 3px); }
+/* the hinge groove, where the board bends over the spine */
+.pdfr-board .hinge { position:absolute; top:0; bottom:0; left:14px; width:12px;
+  background: linear-gradient(to right, rgba(0,0,0,0.42), rgba(255,232,190,0.07), rgba(0,0,0,0.34)); }
+.pdfr-board.back .hinge { left:auto; right:14px; }
+/* blind-stamped rule inset from the edges */
+.pdfr-board .rule { position:absolute; inset:22px 20px; border-radius:2px;
+  border:1px solid rgba(255,226,176,0.20); box-shadow: inset 0 0 0 3px rgba(0,0,0,0.16), 0 0 0 1px rgba(0,0,0,0.28); }
+.pdfr-board .sheenboard { position:absolute; inset:0; pointer-events:none;
+  background: linear-gradient(118deg, rgba(255,240,210,0.16) 0%, rgba(255,240,210,0) 34%, rgba(0,0,0,0.22) 100%); }
+
+.pdfr-board .plate { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:12px; padding:14% 16% 16%; text-align:center; }
+.pdfr-board .mark { font-size:11px; font-weight:800; letter-spacing:0.34em; text-transform:uppercase;
+  color:#f0d9a8; text-shadow: 0 1px 0 rgba(0,0,0,0.6), 0 0 18px rgba(240,200,130,0.28); }
+.pdfr-board .mark.small { font-size:9.5px; letter-spacing:0.3em; opacity:.72; }
+.pdfr-board .hair { width:54px; height:1px; background: linear-gradient(to right, transparent, rgba(240,214,160,0.75), transparent); }
+.pdfr-board h1 { margin:0; font-family:'Cinzel', Georgia, serif; font-size:clamp(17px, 2.1vw, 27px); font-weight:600;
+  line-height:1.24; letter-spacing:0.01em; color:#f7ecd6;
+  text-shadow: 0 1px 0 rgba(0,0,0,0.55), 0 2px 14px rgba(0,0,0,0.5); }
+.pdfr-board .meta { font-size:10px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase; opacity:.5; }
+.pdfr-board .plate.end { justify-content:center; gap:14px; }
+.pdfr-board .fin { font-family:'Cinzel', Georgia, serif; font-size:15px; letter-spacing:0.28em; text-transform:uppercase; opacity:.8; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pdfr-book, .pdfr-turn, .pdfr-coverwrap, .pdfr-cast, .pdfr-case { transition:none !important; animation:none !important; }
+}
 
 /* -------------------------------- filmstrip ------------------------------ */
 .pdfr-strip { display:flex; gap:8px; overflow-x:auto; overflow-y:hidden; padding:10px 14px; scroll-behavior:smooth; scrollbar-width:thin; scrollbar-color: rgba(255,255,255,0.25) transparent; }
@@ -408,13 +557,12 @@
 .pdfr-stack { background:
   repeating-linear-gradient(0deg, #f4ecd9 0 1px, #cdc0a2 1px 2px, #efe7d3 2px 4px);
   box-shadow: inset 0 0 14px rgba(90,66,32,0.28); }
-.pdfr-stack.left  { border-radius: 4px 0 0 4px; box-shadow: inset 3px 0 6px rgba(0,0,0,0.3), inset 0 0 14px rgba(90,66,32,0.25); }
-.pdfr-stack.right { border-radius: 0 4px 4px 0; box-shadow: inset -3px 0 6px rgba(0,0,0,0.3), inset 0 0 14px rgba(90,66,32,0.25); }
+.pdfr-stack.left  { border-radius: 4px 0 0 4px; box-shadow: inset 3px 0 7px rgba(0,0,0,0.42), inset -4px 0 8px -2px rgba(0,0,0,0.3), inset 0 0 16px rgba(90,66,32,0.32); }
+.pdfr-stack.right { border-radius: 0 4px 4px 0; box-shadow: inset -3px 0 7px rgba(0,0,0,0.42), inset 4px 0 8px -2px rgba(0,0,0,0.3), inset 0 0 16px rgba(90,66,32,0.32); }
 /* deckle: the outer edge of a real book is never perfectly straight */
 .pdfr-stack::after { content: ''; position: absolute; top: 0; bottom: 0; width: 3px;
   background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(120,96,54,0.5) 2px 3px, transparent 3px 7px); }
 .pdfr-stack.left::after { left: 0; }
 .pdfr-stack.right::after { right: 0; }
-/* the gutter: paper curving down into the spine, deeper the thicker the block */
-.pdfr-leaf.l::after { right: 0; background: linear-gradient(to right, transparent, rgba(48,32,16,0.10) 46%, rgba(40,26,12,0.42)); }
-.pdfr-leaf.r::after { left: 0;  background: linear-gradient(to left,  transparent, rgba(48,32,16,0.10) 46%, rgba(40,26,12,0.42)); }
+/* (The gutter itself is up in the FLIPBOOK block — it belongs with the 3D tilt
+   that makes the bump, and a second declaration down here silently won.) */
