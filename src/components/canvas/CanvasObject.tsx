@@ -4173,6 +4173,837 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                     <circle cx="50" cy="71" r="3.5" fill={shapeBorder} />
                   </svg>
                 )}
+
+                {/* Brainstorm */}
+                {shapeType === 'lightbulb-spark' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 C33,15 25,30 25,48 C25,60 36,68 40,76 L60,76 C64,68 75,60 75,48 C75,30 67,15 50,15 Z M42,88 L58,88 M45,76 L45,88 M55,76 L55,88" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="50" y1="5" x2="50" y2="10" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="20" y1="20" x2="25" y2="25" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="80" y1="20" x2="75" y2="25" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'compass' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="40" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <polygon points="50,20 62,50 50,80 38,50" fill={shapeBorder} stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="50" cy="50" r="5" fill={shapeBg} />
+                  </svg>
+                )}
+                {shapeType === 'rocket' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,10 C65,25 70,55 70,75 L30,75 C30,55 35,25 50,10 Z M30,50 L15,65 L30,70 M70,50 L85,65 L70,70 M42,75 L42,90 L50,83 L58,90 L58,75" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <circle cx="50" cy="40" r="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'radar' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="42" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="50" r="28" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="50" cy="50" r="14" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="50" y1="50" x2="80" y2="20" stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="68" cy="32" r="4" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'prism' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,12 90,82 10,82" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="10" y1="50" x2="30" y2="46" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="65" y1="53" x2="90" y2="40" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="68" y1="58" x2="90" y2="55" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="70" y1="63" x2="90" y2="70" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'light-beam' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,10 85,90 15,90" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="50" y1="10" x2="50" y2="90" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'telescope' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M20,60 L75,25 L85,40 L30,75 Z M60,35 L40,75 M50,45 L50,85 M50,85 L30,95 M50,85 L70,95" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'magnifier' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="42" cy="42" r="30" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="64" y1="64" x2="90" y2="90" stroke={shapeBorder} strokeWidth="5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'atom-idea' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <ellipse cx="50" cy="50" rx="42" ry="16" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <ellipse cx="50" cy="50" rx="42" ry="16" transform="rotate(60 50 50)" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <ellipse cx="50" cy="50" rx="42" ry="16" transform="rotate(-60 50 50)" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="50" cy="50" r="8" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'spark-cluster' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 L53,35 L73,38 L55,50 L60,70 L45,55 L25,65 L35,48 L18,38 L38,35 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'anchor' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="20" r="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="28" x2="50" y2="80" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="30" y1="38" x2="70" y2="38" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <path d="M20,55 C20,80 80,80 80,55 M20,55 L12,48 M80,55 L88,48" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'bridge' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,70 Q50,20 90,70 M10,70 L90,70 M30,55 L30,70 M50,45 L50,70 M70,55 L70,70" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+
+                {/* Code (Tech) */}
+                {shapeType === 'cpu-chip' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="25" y="25" width="50" height="50" rx="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="38" y="38" width="24" height="24" rx="3" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="35" y1="10" x2="35" y2="25" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="10" x2="50" y2="25" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="65" y1="10" x2="65" y2="25" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="35" y1="75" x2="35" y2="90" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="75" x2="50" y2="90" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="65" y1="75" x2="65" y2="90" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="10" y1="35" x2="25" y2="35" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="10" y1="50" x2="25" y2="50" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="10" y1="65" x2="25" y2="65" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="75" y1="35" x2="90" y2="35" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="75" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="75" y1="65" x2="90" y2="65" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'cloud-download' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,55 C25,40 40,30 55,30 C70,30 85,40 85,55 C92,55 98,61 98,68 C98,76 92,82 85,82 L25,82 C15,82 8,75 8,65 C8,56 16,50 25,55 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M50,48 L50,72 M38,62 L50,74 L62,62" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'cloud-upload' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,55 C25,40 40,30 55,30 C70,30 85,40 85,55 C92,55 98,61 98,68 C98,76 92,82 85,82 L25,82 C15,82 8,75 8,65 C8,56 16,50 25,55 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M50,72 L50,48 M38,58 L50,46 L62,58" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'git-commit' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="18" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="10" y1="50" x2="32" y2="50" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="68" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'binary' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <text x="20" y="42" fontSize="28" fontWeight="bold" fill={shapeBorder}>10</text>
+                    <text x="50" y="78" fontSize="28" fontWeight="bold" fill={shapeBorder}>01</text>
+                  </svg>
+                )}
+                {shapeType === 'cube-stack' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,8 85,24 85,48 50,64 15,48 15,24" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="50" y1="8" x2="50" y2="64" stroke={shapeBorder} strokeWidth="2" />
+                    <polygon points="50,40 85,56 85,80 50,96 15,80 15,56" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="50" y1="40" x2="50" y2="96" stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'stack' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,15 90,32 50,49 10,32" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <path d="M10,48 L50,65 L90,48 M10,64 L50,81 L90,64" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'network' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="20" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="20" cy="75" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="80" cy="75" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="30" x2="20" y2="65" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="50" y1="30" x2="80" y2="65" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="30" y1="75" x2="70" y2="75" stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'data-flow' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="20" width="22" height="60" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="68" y="20" width="22" height="60" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M32,35 C50,35 50,65 68,65" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'bug' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <ellipse cx="50" cy="55" rx="22" ry="28" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="22" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="22" x2="50" y2="83" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="15" y1="45" x2="30" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="85" y1="45" x2="70" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="12" y1="65" x2="30" y2="65" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="88" y1="65" x2="70" y2="65" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'terminal-box' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="15" width="80" height="70" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <polyline points="25,35 40,48 25,61" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    <line x1="48" y1="61" x2="70" y2="61" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'fingerprint' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 A35,35 0 0,1 85,50 M15,50 A35,35 0 0,1 50,15 M50,30 A20,20 0 0,1 70,50 M30,50 A20,20 0 0,1 50,30 M50,45 A5,5 0 0,1 55,50 M45,50 A5,5 0 0,1 50,45" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'wifi' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M15,30 A50,50 0 0,1 85,30 M28,45 A32,32 0 0,1 72,45 M40,60 A16,16 0 0,1 60,60" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="50" cy="75" r="6" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'database-stack' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <ellipse cx="50" cy="20" rx="35" ry="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M15,20 L15,45 C15,51 30,55 50,55 C70,55 85,51 85,45 L85,20" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M15,45 L15,70 C15,76 30,80 50,80 C70,80 85,76 85,70 L85,45" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'ai-spark' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,10 L58,38 L86,46 L58,54 L50,82 L42,54 L14,46 L42,38 Z M78,14 L82,28 L96,32 L82,36 L78,50 L74,36 L60,32 L74,28 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+
+                {/* Love (Expressive) */}
+                {shapeType === 'fire' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,10 C50,10 65,30 65,50 C65,60 60,70 50,90 C40,70 35,60 35,50 C35,30 50,10 50,10 Z M50,45 C50,45 58,55 58,68 C58,74 54,80 50,85 C46,80 42,74 42,68 C42,55 50,45 50,45 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'star-burst' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,5 61,35 95,35 67,55 78,90 50,68 22,90 33,55 5,35 39,35" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'heart-pulse' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,30 C35,10 10,10 10,40 C10,65 45,85 50,90 C55,85 90,65 90,40 C90,10 65,10 50,30 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M20,45 L38,45 L45,30 L55,60 L62,40 L70,45 L80,45" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'crown' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="12,75 18,30 38,50 50,15 62,50 82,30 88,75" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <rect x="12" y="75" width="76" height="12" rx="3" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'gem' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="30,15 70,15 90,40 50,90 10,40" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="30" y1="15" x2="50" y2="40" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="70" y1="15" x2="50" y2="40" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="50" y1="40" x2="50" y2="90" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="10" y1="40" x2="90" y2="40" stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'ribbon-award' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="40" r="28" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="40" r="20" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <polygon points="36,62 30,92 50,80 70,92 64,62" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'peace' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="42" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="8" x2="50" y2="92" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="50" x2="20" y2="80" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="50" x2="80" y2="80" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'coffee-cup' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="20" y="35" width="50" height="50" rx="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M70,42 C82,42 85,60 70,65" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M30,22 Q35,12 40,22 M50,22 Q55,12 60,22" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'music-note' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="30" cy="72" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="70" cy="58" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M42,72 L42,20 L82,10 L82,58" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'sunburst' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="20" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="10" x2="50" y2="22" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="50" y1="78" x2="50" y2="90" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="10" y1="50" x2="22" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="78" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="22" y1="22" x2="30" y2="30" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="70" y1="70" x2="78" y2="78" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="22" y1="78" x2="30" y2="70" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="70" y1="30" x2="78" y2="22" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'hand-shake' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,50 L30,35 L50,50 L70,35 L90,50 M30,50 L45,65 M45,50 L60,65 M60,50 L75,65" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'party-popper' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="15,85 30,40 60,70" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <path d="M50,35 Q65,15 85,25 M65,45 Q80,40 90,55" fill="none" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                    <circle cx="70" cy="20" r="3" fill={shapeBorder} />
+                    <circle cx="85" cy="40" r="4" fill={shapeBorder} />
+                  </svg>
+                )}
+
+                {/* Usecase (Actions) */}
+                {shapeType === 'arrow-up-right' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="20" y1="80" x2="80" y2="20" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" />
+                    <polyline points="40,20 80,20 80,60" fill="none" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'arrow-down-left' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="80" y1="20" x2="20" y2="80" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" />
+                    <polyline points="60,80 20,80 20,40" fill="none" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'rotate-cw' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 A35,35 0 1,1 18,40" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="18,20 18,45 40,40" fill={shapeBorder} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'rotate-ccw' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 A35,35 0 1,0 82,40" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="82,20 82,45 60,40" fill={shapeBorder} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'split' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="50" y1="85" x2="50" y2="55" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <path d="M50,55 Q50,30 20,20 M50,55 Q50,30 80,20" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="15,30 20,15 32,22" fill={shapeBorder} />
+                    <polygon points="85,30 80,15 68,22" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'merge' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M20,80 Q50,70 50,45 M80,80 Q50,70 50,45" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="50" y1="45" x2="50" y2="15" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="38,25 50,10 62,25" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'filter-list' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="15" y1="25" x2="85" y2="25" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="28" y1="45" x2="72" y2="45" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="40" y1="65" x2="60" y2="65" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'sort' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="25" y1="20" x2="25" y2="80" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="15,32 25,18 35,32" fill={shapeBorder} />
+                    <line x1="75" y1="20" x2="75" y2="80" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="65,68 75,82 85,68" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'download' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="75" width="70" height="12" rx="3" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="15" x2="50" y2="55" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" />
+                    <polygon points="32,45 50,65 68,45" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'upload' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="75" width="70" height="12" rx="3" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="65" x2="50" y2="25" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" />
+                    <polygon points="32,35 50,15 68,35" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'lock' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="22" y="45" width="56" height="42" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M32,45 L32,30 A18,18 0 0,1 68,30 L68,45" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="50" cy="62" r="5" fill={shapeBorder} />
+                    <line x1="50" y1="67" x2="50" y2="76" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'unlock' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="22" y="45" width="56" height="42" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M32,45 L32,30 A18,18 0 0,1 68,30" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="50" cy="62" r="5" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'eye' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,50 C25,25 75,25 90,50 C75,75 25,75 10,50 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <circle cx="50" cy="50" r="14" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="50" cy="50" r="6" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'eye-off' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,50 C25,25 75,25 90,50 C75,75 25,75 10,50 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="15" y1="15" x2="85" y2="85" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'layers' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,15 90,32 50,49 10,32" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <path d="M10,48 L50,65 L90,48 M10,64 L50,81 L90,64" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+
+                {/* Story */}
+                {shapeType === 'hero-cape' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M30,25 L50,15 L70,25 L85,85 L50,70 L15,85 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <circle cx="50" cy="15" r="6" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'villain-mask' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M15,35 Q50,15 85,35 L75,75 Q50,90 25,75 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <polygon points="28,45 42,42 38,55" fill={shapeBorder} />
+                    <polygon points="72,45 58,42 62,55" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'climax-peak' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,80 L40,40 L55,55 L75,15 L90,80 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="75" y1="15" x2="75" y2="80" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'resolution' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M15,50 C35,20 65,80 85,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="85" cy="50" r="7" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'sub-plot' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M15,50 L40,50 C50,50 55,25 68,25 L85,25" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="40" y1="50" x2="85" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'theme-core' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="38" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="50" r="22" fill="none" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                    <circle cx="50" cy="50" r="8" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'flashback' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 A35,35 0 1,0 85,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeDasharray="4,4" />
+                    <polygon points="50,5 50,25 32,15" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'prop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="25" y="25" width="50" height="50" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M25,25 L50,50 L75,25 M50,50 L50,75" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'dialogue-bubble' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M15,20 L85,20 Q95,20 95,30 L95,60 Q95,70 85,70 L45,70 L25,88 L30,70 L15,70 Q5,70 5,60 L5,30 Q5,20 15,20 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'scroll-manuscript' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,15 C15,15 15,30 25,30 L75,30 L75,85 C85,85 85,70 75,70 L25,70 L25,15 Z M25,15 L75,15 L75,30" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'hourglass' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,15 L75,15 L55,50 L75,85 L25,85 L45,50 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="20" y1="15" x2="80" y2="15" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                    <line x1="20" y1="85" x2="80" y2="85" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'keyhole' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="40" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="42" r="10" fill={shapeBorder} />
+                    <polygon points="44,48 56,48 60,70 40,70" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'map-location' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 C32,15 20,30 20,48 C20,70 50,90 50,90 C50,90 80,70 80,48 C80,30 68,15 50,15 Z M50,42 A8,8 0 1,1 50,41.9 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'sword-shield' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,20 L50,12 L75,20 C75,50 65,75 50,90 C35,75 25,50 25,20 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="20" y1="20" x2="80" y2="80" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="80" y1="20" x2="20" y2="80" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'portal' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <ellipse cx="50" cy="50" rx="38" ry="42" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeDasharray="5,4" />
+                    <ellipse cx="50" cy="50" rx="24" ry="28" fill="none" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                    <circle cx="50" cy="50" r="8" fill={shapeBorder} />
+                  </svg>
+                )}
+
+                {/* System */}
+                {shapeType === 'feedback-loop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 A35,35 0 1,1 20,40" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="12,42 28,42 20,25" fill={shapeBorder} />
+                    <path d="M50,85 A35,35 0 1,1 80,60" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="88,58 72,58 80,75" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'balancing-loop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="38" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <text x="50" y="60" fontSize="32" textAnchor="middle" fontWeight="bold" fill={shapeBorder}>B</text>
+                  </svg>
+                )}
+                {shapeType === 'reinforcing-loop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="38" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <text x="50" y="60" fontSize="32" textAnchor="middle" fontWeight="bold" fill={shapeBorder}>R</text>
+                  </svg>
+                )}
+                {shapeType === 'tipping-point' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="20,80 50,30 80,80" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <rect x="15" y="25" width="70" height="10" rx="2" transform="rotate(15 50 30)" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'domino' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="10" width="30" height="80" rx="4" transform="rotate(-15 30 50)" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="55" y="10" width="30" height="80" rx="4" transform="rotate(25 70 50)" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'equilibrium' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="15" y1="50" x2="85" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="50,50 62,80 38,80" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <circle cx="25" cy="38" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="75" cy="38" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'entropy' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="25" cy="30" r="5" fill={shapeBorder} />
+                    <circle cx="70" cy="20" r="7" fill={shapeBorder} />
+                    <circle cx="45" cy="60" r="6" fill={shapeBorder} />
+                    <circle cx="80" cy="75" r="4" fill={shapeBorder} />
+                    <circle cx="20" cy="80" r="8" fill={shapeBorder} />
+                    <path d="M25,30 L45,60 M45,60 L70,20 M45,60 L80,75" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'synergy' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="38" cy="42" r="28" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="62" cy="42" r="28" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="66" r="28" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'black-box' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="15" width="70" height="70" rx="10" fill={shapeBorder} opacity="0.85" />
+                    <line x1="5" y1="50" x2="15" y2="50" stroke={shapeBorder} strokeWidth="3.5" />
+                    <line x1="85" y1="50" x2="95" y2="50" stroke={shapeBorder} strokeWidth="3.5" />
+                  </svg>
+                )}
+                {shapeType === 'flywheel' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="40" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="50" r="15" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M50,10 L50,35 M50,65 L50,90 M10,50 L35,50 M65,50 L90,50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'funnel-filter' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="10,15 90,15 65,55 65,85 35,85 35,55" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="25" y1="35" x2="75" y2="35" stroke={shapeBorder} strokeWidth="2.5" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'friction' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="10" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polyline points="15,40 25,60 35,40 45,60 55,40 65,60 75,40 85,60" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'oscillation' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,50 Q30,15 50,50 T90,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="10" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'bottleneck-pipe' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,30 L40,30 L40,42 L60,42 L60,30 L90,30 M10,70 L40,70 L40,58 L60,58 L60,70 L90,70" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'attractor' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,50 Q85,15 85,50 T50,50 T15,50 T50,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="50" cy="50" r="6" fill={shapeBorder} />
+                  </svg>
+                )}
+
+                {/* Science */}
+                {shapeType === 'dna' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M20,15 C50,35 50,65 20,85 M80,15 C50,35 50,65 80,85" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="30" y1="28" x2="70" y2="28" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="42" y1="50" x2="58" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="30" y1="72" x2="70" y2="72" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'atom-core' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <ellipse cx="50" cy="50" rx="42" ry="16" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <ellipse cx="50" cy="50" rx="42" ry="16" transform="rotate(60 50 50)" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <ellipse cx="50" cy="50" rx="42" ry="16" transform="rotate(-60 50 50)" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="50" cy="50" r="8" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'flask' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M40,15 L60,15 M46,15 L46,38 L80,80 Q85,88 75,88 L25,88 Q15,88 20,80 L54,38 L54,15" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                    <line x1="30" y1="70" x2="70" y2="70" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'molecule' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="25" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="25" cy="70" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="75" cy="70" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="42" y1="34" x2="31" y2="60" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="58" y1="34" x2="69" y2="60" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="37" y1="70" x2="63" y2="70" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'infinity-loop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M30,30 C10,30 10,70 30,70 C45,70 55,30 70,30 C90,30 90,70 70,70 C55,70 45,30 30,30 Z" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'pi' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="15" y1="25" x2="85" y2="25" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" />
+                    <path d="M35,25 L35,80 M65,25 L65,75 Q65,85 75,85" fill="none" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'wave-sine' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,50 Q30,15 50,50 T90,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="10" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'delta' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,15 90,82 10,82" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'scale-balance' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="15" y1="30" x2="85" y2="30" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="50" y1="15" x2="50" y2="85" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="40,85 60,85 50,75" fill={shapeBorder} />
+                    <path d="M15,30 L25,58 L35,58 Z M65,58 L75,58 L85,30 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'magnet-field' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,35 Q50,10 75,35 M20,50 Q50,20 80,50 M25,65 Q50,90 75,65" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeDasharray="3,3" />
+                    <rect x="42" y="30" width="16" height="40" rx="3" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'orbit' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <ellipse cx="50" cy="50" rx="42" ry="20" transform="rotate(-25 50 50)" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="50" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="82" cy="35" r="5" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'sigma' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M80,20 L25,20 L50,50 L25,80 L80,80" fill="none" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+
+                {/* Nature */}
+                {shapeType === 'leaf' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M20,80 C20,80 20,30 65,15 C65,15 85,50 45,75 Z M20,80 L45,45 M35,55 L55,50 M30,65 L42,65" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'tree' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 C30,15 20,35 30,50 C20,60 30,75 50,75 C70,75 80,60 70,50 C80,35 70,15 50,15 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <rect x="44" y="75" width="12" height="18" rx="2" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'mountain' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="35,30 75,85 5,85" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <polygon points="65,15 95,85 35,85" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <polyline points="23,48 35,55 45,46" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'water-drop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,12 C50,12 82,50 82,68 C82,84 68,92 50,92 C32,92 18,84 18,68 C18,50 50,12 50,12 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'sun-rays' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="22" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M50,8 L50,20 M50,80 L50,92 M8,50 L20,50 M80,50 L92,50 M21,21 L30,30 M70,70 L79,79 M21,79 L30,70 M70,30 L79,21" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'snowflake' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="50" y1="10" x2="50" y2="90" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="10" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="22" y1="22" x2="78" y2="78" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="22" y1="78" x2="78" y2="22" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <path d="M42,22 L50,30 L58,22 M42,78 L50,70 L58,78 M22,42 L30,50 L22,58 M78,42 L70,50 L78,58" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'planet-ring' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="25" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <ellipse cx="50" cy="50" rx="46" ry="14" transform="rotate(-20 50 50)" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'galaxy' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,50 Q85,15 85,50 Q85,85 50,50 Q15,85 15,50 Q15,15 50,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="50" cy="50" r="7" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'comet' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="75" cy="25" r="14" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M65,33 L15,75 M70,38 L25,85 M60,23 L10,65" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'volcano' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="25,35 75,35 90,85 10,85" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <path d="M35,35 Q50,50 65,35" stroke={shapeBorder} strokeWidth="2" fill="none" />
+                    <path d="M40,25 Q35,10 30,5 M50,25 Q50,10 50,2 M60,25 Q65,10 70,5" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" fill="none" />
+                  </svg>
+                )}
+                {shapeType === 'sprout' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,90 L50,45 M50,45 C50,25 25,20 20,35 C20,50 45,45 50,45 Z M50,45 C50,25 75,20 80,35 C80,50 55,45 50,45 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'feather' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M85,15 C50,30 25,60 15,90 M85,15 C60,40 50,70 15,90" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="85" y1="15" x2="10" y2="95" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+
+                {/* UI & Layout */}
+                {shapeType === 'layout-grid' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="12" y="12" width="34" height="34" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="54" y="12" width="34" height="34" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="12" y="54" width="34" height="34" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="54" y="54" width="34" height="34" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'layout-columns' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="15" width="22" height="70" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="39" y="15" width="22" height="70" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="68" y="15" width="22" height="70" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'layout-sidebar' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="15" width="80" height="70" rx="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="35" y1="15" x2="35" y2="85" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'modal-box' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="10" width="80" height="80" rx="8" fill="none" stroke={shapeBorder} strokeWidth="2" opacity="0.4" />
+                    <rect x="25" y="25" width="50" height="50" rx="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="60" y1="35" x2="68" y2="35" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'card-view' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="12" y="15" width="76" height="70" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="22" y="25" width="56" height="28" rx="4" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="22" y1="63" x2="60" y2="63" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="22" y1="73" x2="45" y2="73" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'button-primary' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="12" y="30" width="76" height="40" rx="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="35" y1="50" x2="65" y2="50" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'toggle-switch' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="12" y="30" width="76" height="40" rx="20" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="68" cy="50" r="14" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'slider-control' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="15" y1="50" x2="85" y2="50" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                    <circle cx="60" cy="50" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'tab-bar' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,25 L35,25 L42,40 L90,40 L90,85 L10,85 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'search-bar' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="30" width="80" height="40" rx="20" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="32" cy="50" r="8" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="38" y1="56" x2="45" y2="63" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'avatar-circle' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="40" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="38" r="12" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <path d="M26,75 C26,60 36,56 50,56 C64,56 74,60 74,75" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'image-placeholder' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="15" width="80" height="70" rx="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <polygon points="20,72 40,45 60,72" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                    <polygon points="50,72 68,52 82,72" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                    <circle cx="70" cy="32" r="6" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
               </div>
               
               {/* A shape is a shape. Dropping one used to open a caret inside
