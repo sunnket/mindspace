@@ -40,7 +40,22 @@ export type ThoughtKind =
   | 'roll'
   | 'chase'          // the laser
   | 'caught'
-  | 'called';        // you wrote its name on the board
+  | 'called'         // you wrote its name on the board
+  /* --- things it now notices you DOING, rather than things it is doing --- */
+  | 'night'          // it is very late and you are still here
+  | 'early'          // ...or very early
+  | 'undo'           // you undid several things in a row
+  | 'deleting'       // the board is getting smaller
+  | 'creating'       // blocks are appearing fast
+  | 'zoomed_out'     // you pulled back to look at the whole thing
+  | 'zoomed_in'      // ...or right up to one block
+  | 'returned'       // you were gone a while and came back
+  | 'watching'       // your cursor has been sitting on the cat
+  | 'moved_block'    // you dragged something past it
+  | 'long_session'   // you have been at this for hours
+  | 'stretch'        // mid-stretch
+  | 'groom'          // mid-wash
+  | 'perch';         // up on top of something
 
 const POOLS: Record<ThoughtKind, string[]> = {
   typing_fast: [
@@ -51,6 +66,11 @@ const POOLS: Record<ThoughtKind, string[]> = {
     'go go go',
     'ideas are happening',
     'i cannot read this fast',
+    'the keyboard is fine. stop',
+    'this is a lot of words',
+    'you are typing at me',
+    'save some for tomorrow',
+    'is it a deadline. it is a deadline',
   ],
   typing_stalled: [
     'and then?',
@@ -58,8 +78,13 @@ const POOLS: Record<ThoughtKind, string[]> = {
     'the cursor is blinking at you',
     'say the next bit',
     'hm',
+    'we were doing so well',
+    'the sentence is waiting',
+    'i also do not know',
+    'go on',
+    'blink blink blink',
   ],
-  sleep: ['zzz', 'z z z', 'zzZ', 'mrrp', 'zzz...'],
+  sleep: ['zzz', 'z z z', 'zzZ', 'mrrp', 'zzz...', 'prrr', 'do not', 'five more hours', 'mmf'],
   idle: [
     'hm.',
     'thinking about nothing',
@@ -71,8 +96,22 @@ const POOLS: Record<ThoughtKind, string[]> = {
     'i live here now',
     'you missed a spot',
     'something smells like tuesday',
+    'i have decided to stay',
+    'nothing is happening. good',
+    'i am supervising',
+    'this counts as work',
+    'the floor is acceptable',
+    'i thought of something. gone now',
+    'do you ever just sit',
+    'there was a bird once',
+    'everything is fine here',
+    'i am not doing anything on purpose',
   ],
-  walk: ['off i go', 'patrol', 'checking things', 'busy', 'important business'],
+  walk: [
+    'off i go', 'patrol', 'checking things', 'busy', 'important business',
+    'i have somewhere to be', 'do not follow', 'this way now', 'errand',
+    'walking. as one does', 'i know where i am going',
+  ],
   block: [
     'what is this one',
     'mine now',
@@ -120,14 +159,63 @@ const POOLS: Record<ThoughtKind, string[]> = {
     'big empty',
     'just us then',
   ],
-  rain: ['it is raining', 'wet', 'i do not love this', 'indoors was fine'],
-  shelter: ['dry here', 'i will wait it out', 'good roof', 'this will do'],
-  skyshow: ['ooh', 'lights', 'look up', 'pretty', 'i could watch this'],
-  play: ['got it', 'again', 'this one moves', 'boop', 'mine', 'stop wriggling'],
-  roll: ['aaaa', 'floor is good', 'wriggle', 'no reason', 'the belly is out'],
-  chase: ['THE DOT', 'get it get it', 'mine mine mine', 'come back', 'i see it'],
-  caught: ['got the dot', 'it was mine all along', 'ha', 'defeated'],
-  called: ['someone said my name', 'coming', 'that is me', 'you called?'],
+  rain: ['it is raining', 'wet', 'i do not love this', 'indoors was fine', 'why is the sky doing that', 'my fur', 'this was not agreed'],
+  shelter: ['dry here', 'i will wait it out', 'good roof', 'this will do', 'you may join me', 'the rain can wait'],
+  skyshow: ['ooh', 'lights', 'look up', 'pretty', 'i could watch this', 'the sky is showing off', 'do that again', 'ok that one was good'],
+  play: ['got it', 'again', 'this one moves', 'boop', 'mine', 'stop wriggling', 'it fought back', 'i am winning', 'one more', 'ha'],
+  roll: ['aaaa', 'floor is good', 'wriggle', 'no reason', 'the belly is out', 'this is my whole personality', 'do not touch the belly', 'nnnngh'],
+  chase: ['THE DOT', 'get it get it', 'mine mine mine', 'come back', 'i see it', 'IT MOVED', 'no escape', 'closer closer'],
+  caught: ['got the dot', 'it was mine all along', 'ha', 'defeated', 'i am the best', 'never doubted it'],
+  called: ['someone said my name', 'coming', 'that is me', 'you called?', 'i heard that', 'yes. what', 'i am famous'],
+
+  /* --- what it makes of what YOU are doing --- */
+  night: [
+    'it is very late', 'go to bed', 'the moon is up. you are not', 'nothing good after midnight',
+    'this can wait until it is light', 'i sleep at normal times', 'are you ok',
+  ],
+  early: [
+    'it is so early', 'the birds are not even up', 'who is awake at this hour', 'oh. you are up',
+    'this is my quiet time', 'coffee first surely',
+  ],
+  undo: [
+    'second thoughts', 'it was fine before', 'backwards then', 'undo undo undo',
+    'we are going back in time', 'you did like it once', 'make up your mind',
+  ],
+  deleting: [
+    'gone then', 'that was there a second ago', 'ruthless', 'bye', 'a cull',
+    'i liked that one', 'less board than before',
+  ],
+  creating: [
+    'more boxes', 'where do they come from', 'the board is filling up', 'busy busy',
+    'another one', 'you are making things', 'save room for me',
+  ],
+  zoomed_out: [
+    'i am tiny now', 'the whole thing', 'so that is what it looks like', 'big picture then',
+    'where did i go', 'everything at once',
+  ],
+  zoomed_in: [
+    'very close', 'that is a big box', 'i can see the pixels', 'personal space',
+    'we are examining this one',
+  ],
+  returned: [
+    'you are back', 'i waited', 'where were you', 'nothing happened while you were out',
+    'i guarded it', 'oh good', 'i did not miss you. much',
+  ],
+  watching: [
+    'yes?', 'that is my face', 'you are staring', 'can i help', 'hello',
+    'i see you seeing me', 'go on then. pet',
+  ],
+  moved_block: [
+    'that moved', 'excuse me', 'it was fine there', 'redecorating',
+    'i was sitting near that', 'careful',
+  ],
+  long_session: [
+    'you have been here a while', 'stretch. i will wait', 'water exists',
+    'this is hour who knows', 'stand up once', 'blink. i am serious',
+  ],
+  stretch: ['nnngh', 'good stretch', 'every bone', 'that was needed', 'longer than i look'],
+  groom: ['busy', 'do not watch', 'maintenance', 'i must be perfect', 'one moment'],
+  perch: ['high ground', 'better up here', 'i can see everything', 'the top is mine', 'do not look up'],
 };
 
 /* ------------------------------------------------------------------ */
@@ -184,24 +272,40 @@ export function readObject(
 /** Thought clouds shaped like the thing they came from — speech is louder. */
 export const SPEECH_KINDS: ReadonlySet<ThoughtKind> = new Set<ThoughtKind>([
   'startle', 'scruff', 'dropped', 'countdown', 'chase', 'caught', 'called', 'play',
+  'watching', 'moved_block', 'returned',
 ]);
 
 /**
- * Pull a line, never the same one twice running for that situation.
- * `recent` is mutated — it's the caller's per-cat memory of what it just said.
+ * Everything it has said lately, across every situation.
+ *
+ * Avoiding only the immediately-previous line per kind (what this used to do)
+ * still lets a pool of six cycle round in a couple of minutes, and a companion
+ * that repeats itself is one you stop reading. This remembers the last two
+ * dozen lines it has actually said and won't reach for any of them, so the
+ * bigger pools genuinely feel bigger.
  */
-export function pickThought(
-  kind: ThoughtKind,
-  rng: () => number,
-  recent: Map<ThoughtKind, string>,
-): string {
+export class ThoughtMemory {
+  private recent: string[] = [];
+  private limit: number;
+  constructor(limit = 24) { this.limit = limit; }
+  has(line: string) { return this.recent.includes(line); }
+  note(line: string) {
+    this.recent.push(line);
+    if (this.recent.length > this.limit) this.recent.shift();
+  }
+}
+
+/**
+ * Pull a line for a situation, avoiding anything said recently. Falls back to
+ * "the least recently used" rather than giving up, so a small pool under heavy
+ * use still rotates instead of sticking.
+ */
+export function pickThought(kind: ThoughtKind, rng: () => number, memory: ThoughtMemory): string {
   const pool = POOLS[kind];
   if (!pool || pool.length === 0) return '';
-  const last = recent.get(kind);
-  let line = pool[Math.floor(rng() * pool.length)];
-  if (pool.length > 1 && line === last) {
-    line = pool[(pool.indexOf(line) + 1 + Math.floor(rng() * (pool.length - 1))) % pool.length];
-  }
-  recent.set(kind, line);
+  const fresh = pool.filter((l) => !memory.has(l));
+  const from = fresh.length ? fresh : pool;
+  const line = from[Math.floor(rng() * from.length)];
+  memory.note(line);
   return line;
 }

@@ -39,7 +39,7 @@ import {
   type CatProfile, type CatPersonality, type Behavior, type BrainState, type NestScrap,
   type Viewport, type Mood,
 } from '@/lib/catBrain';
-import { pickThought, readObject, SPEECH_KINDS, type ThoughtKind } from '@/lib/catThoughts';
+import { pickThought, readObject, SPEECH_KINDS, ThoughtMemory, type ThoughtKind } from '@/lib/catThoughts';
 import {
   ART_W, ART_H, POSE_FRAMES, COATS, getSheet, type Sheet, type CompiledFrame,
 } from '@/lib/catSprites';
@@ -81,6 +81,12 @@ interface Sim {
   phase: 'travel' | 'dwell';
   dwellUntil: number;
   travelDeadline: number;
+  /** remaining waypoints of the planned route (see planPath) */
+  route: Pt[];
+  /** what the route was planned to reach, so a moving target replans */
+  routeFor: Pt | null;
+  /** ms left of a turn-in-place; a cat pivots, it doesn't flip inside out */
+  turnT: number;
   // eyes
   eyeOpen: number;
   nextBlink: number;
@@ -128,6 +134,51 @@ interface PawPrint { x: number; y: number; angle: number; flip: boolean }
 
 function sampleRange(rng: () => number, min: number, max: number) {
   return min + rng() * (max - min);
+}
+
+/* ------------------------------------------------------------------------- *
+ * GETTING SOMEWHERE
+ *
+ * The cat is drawn in profile. It has a walk cycle for going left and the same
+ * one mirrored for going right, and it has nothing at all for going UP — so the
+ * old code, which just did `x += vx; y += vy` straight at the target, slid the
+ * cat vertically up the board with its legs cycling sideways. That is the single
+ * least convincing thing it did, and no amount of sprite work fixes it.
+ *
+ * A real cat crossing a room to something further "back" doesn't rise: it walks
+ * across at an angle. So travel is planned as a path whose every leg stays
+ * inside a slope cone — at most MAX_SLOPE of vertical per unit of horizontal.
+ * Anything steeper than that gets extra ground to cover, and if there isn't
+ * enough room in front of it, the cat swings out the other way first and comes
+ * back on the diagonal. Which is also, conveniently, exactly how a cat
+ * approaches anything it has decided to be casual about.
+ * ------------------------------------------------------------------------- */
+type Pt = { x: number; y: number };
+/** rise over run, the steepest a walking cat may travel */
+const MAX_SLOPE = 0.5;
+
+function planPath(from: Pt, to: Pt): Pt[] {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const need = Math.abs(dy) / MAX_SLOPE;        // horizontal ground this climb costs
+  if (Math.abs(dx) >= need - 0.001) {
+    // there is room to do it in one diagonal run-in
+    const sx = Math.sign(dx) || 1;
+    const turn = { x: from.x + sx * need, y: to.y };
+    return Math.abs(dx) - need < 6 ? [to] : [turn, to];
+  }
+  /* Not enough room in front: overshoot backwards, then come in on the angle.
+     `extra` is split evenly so both legs sit exactly on the slope limit. */
+  const sx = Math.sign(dx) || 1;
+  const extra = (need - Math.abs(dx)) / 2;
+  const swing = { x: from.x - sx * extra, y: from.y + dy * (extra / need) };
+  return [swing, to];
+}
+/** How far off the direct line a path goes — used to reject silly detours. */
+function pathCost(from: Pt, path: Pt[]): number {
+  let d = 0, p = from;
+  for (const q of path) { d += Math.hypot(q.x - p.x, q.y - p.y); p = q; }
+  return d;
 }
 
 /** Quadratic bezier point + tangent (connector tightropes support the bend). */
@@ -225,7 +276,7 @@ export default function CanvasResident() {
   const cursorRef = useRef({ sx: -9999, sy: -9999, wx: -99999, wy: -99999, vx: 0, vy: 0, t: 0 });
   const nextThinkRef = useRef(0);
   const knownObjectsRef = useRef<Map<string, { word: string; color: string }>>(new Map());
-  const recentThoughtRef = useRef<Map<ThoughtKind, string>>(new Map());
+  const recentThoughtRef = useRef<ThoughtMemory>(new ThoughtMemory());
   const sceneRef = useRef({ blocks: 0, stale: 0 });
   const offScreenMsRef = useRef(0);
   const typingRef = useRef<{ stamps: number[] }>({ stamps: [] });
@@ -253,6 +304,7 @@ export default function CanvasResident() {
       vx: 0, vy: 0, facing: 1, stridePhase: 0,
       pose: 'sit', poseT: 0,
       behavior: null, phase: 'dwell', dwellUntil: 0, travelDeadline: 0,
+      route: [], routeFor: null, turnT: 0,
       eyeOpen: 1, nextBlink: performance.now() + 2000, blinkT: 0, slowBlinkT: 0,
       earFlick: 0,
       attentive: 0, attentiveSince: 0, lookX: 0, lookY: 0,
@@ -286,6 +338,95 @@ export default function CanvasResident() {
     const line = pickThought(kind, brainRef.current.rng, recentThoughtRef.current);
     say(line, SPEECH_KINDS.has(kind), minGap, hold);
   }, [say]);
+
+  /* ---------- noticing what YOU are doing ---------------------------------- *
+   * A companion that only ever reports on itself is a screensaver. These are the
+   * cheap, reliable signals about the person on the other side of the glass —
+   * the hour, the undo key, the board growing or shrinking, the zoom, how long
+   * you have been sitting there, and whether you just came back. Each one is
+   * rate-limited hard by `say`'s minGap: the cat is a bystander with opinions,
+   * not a notification system.
+   */
+  // Zeroed here and clocked in the effect: a useRef initialiser runs during
+  // render, and Date.now() there is exactly the impurity React 19's lint flags.
+  const watchRef = useRef({
+    lastCount: -1, created: 0, deleted: 0, burstAt: 0,
+    undos: 0, undoAt: 0,
+    lastZoom: 0, zoomNoted: 0,
+    awaySince: 0, lastActive: 0, sessionStart: 0, longNoted: 0,
+    hourNoted: 0,
+  });
+
+  useEffect(() => {
+    if (!enabled || readOnly) return undefined;
+    const w = watchRef.current;
+    if (!w.sessionStart) { w.sessionStart = Date.now(); w.lastActive = Date.now(); }
+
+    /* the board growing or shrinking under you */
+    const unsub = useCanvasStore.subscribe((st) => {
+      const sid = spaceKey === 'root' ? undefined : spaceKey;
+      const n = st.objects.filter((o) => (o.parentId ?? undefined) === sid).length;
+      if (w.lastCount < 0) { w.lastCount = n; return; }
+      const d = n - w.lastCount;
+      w.lastCount = n;
+      const now = Date.now();
+      if (now - w.burstAt > 12_000) { w.created = 0; w.deleted = 0; w.burstAt = now; }
+      if (d > 0) w.created += d; else if (d < 0) w.deleted -= d;
+      if (w.created >= 4) { think('creating', 90_000, 2600); w.created = 0; }
+      if (w.deleted >= 3) { think('deleting', 90_000, 2600); w.deleted = 0; }
+    });
+
+    /* undo, several times over — the sound of changing your mind */
+    const onKey = (e: KeyboardEvent) => {
+      w.lastActive = Date.now();
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+        const now = Date.now();
+        if (now - w.undoAt > 4000) w.undos = 0;
+        w.undoAt = now;
+        if (++w.undos >= 3) { think('undo', 120_000, 2600); w.undos = 0; }
+      }
+    };
+    const onActive = () => { w.lastActive = Date.now(); };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onActive);
+
+    /* the slow signals — hour of day, zoom, how long you've been sitting there,
+       and coming back after a while away. One tick every few seconds is plenty. */
+    const tick = window.setInterval(() => {
+      const now = Date.now();
+      const idleFor = now - w.lastActive;
+      if (idleFor > 4 * 60_000 && !w.awaySince) w.awaySince = now;
+      if (idleFor < 4000 && w.awaySince) {
+        if (now - w.awaySince > 60_000) think('returned', 5 * 60_000, 3000);
+        w.awaySince = 0;
+      }
+      if (idleFor > 20_000) return;               // don't natter at an empty chair
+
+      const h = new Date().getHours();
+      if (now - w.hourNoted > 40 * 60_000) {
+        if (h >= 0 && h < 4) { think('night', 40 * 60_000, 3200); w.hourNoted = now; }
+        else if (h >= 4 && h < 7) { think('early', 40 * 60_000, 3200); w.hourNoted = now; }
+      }
+      if (now - w.sessionStart > 2 * 3600_000 && now - w.longNoted > 45 * 60_000) {
+        think('long_session', 45 * 60_000, 3200);
+        w.longNoted = now;
+      }
+      const z = useCanvasStore.getState().camera.zoom;
+      if (!w.lastZoom) w.lastZoom = z;
+      if (now - w.zoomNoted > 3 * 60_000) {
+        if (z < 0.34 && w.lastZoom >= 0.34) { think('zoomed_out', 3 * 60_000, 2800); w.zoomNoted = now; }
+        else if (z > 2.2 && w.lastZoom <= 2.2) { think('zoomed_in', 3 * 60_000, 2800); w.zoomNoted = now; }
+      }
+      w.lastZoom = z;
+    }, 3000);
+
+    return () => {
+      unsub();
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointerdown', onActive);
+      window.clearInterval(tick);
+    };
+  }, [enabled, readOnly, spaceKey, think]);
 
   /* ---------- entering a space: position, stamp, footprints, nest ---------- */
   useEffect(() => {
@@ -721,6 +862,11 @@ export default function CanvasResident() {
         } else {
           sim.petMs = Math.max(0, sim.petMs - dt * 2000);
         }
+        /* You've been hovering over it, doing nothing, for a good few seconds.
+           A real cat would absolutely say something about that. */
+        if (onCat && cursorSpeed < 90 && now - sim.attentiveSince > 3600) {
+          think('watching', 50_000, 2400);
+        }
         // a cursor RUSHING at the cat startles it (and wakes it)
         const approach = ((cx - c.wx) * c.vx + (cy - c.wy) * c.vy) / Math.max(1, dCursor);
         if (dCursor < 150 && approach > 1300 && sim.pose !== 'startle') {
@@ -858,21 +1004,49 @@ export default function CanvasResident() {
 
         if (b) {
           if (sim.phase === 'travel' && b.target && sim.pose !== 'pounce') {
-            // steering — accelerate, arc, settle; never teleport-snappy
-            const dx = b.target.x - sim.x;
-            const dy = b.target.y - sim.y;
-            const dist = Math.hypot(dx, dy);
+            const goal = b.target;
+            const far = Math.hypot(goal.x - sim.x, goal.y - sim.y);
             // a chase has no destination to arrive at — that's the joke
             const running = b.kind === 'chase' || b.kind === 'come';
-            if (b.kind !== 'chase' && (dist < 8 || now > sim.travelDeadline)) {
+
+            if (b.kind !== 'chase' && (far < 8 || now > sim.travelDeadline)) {
               sim.phase = 'dwell';
               sim.dwellUntil = now + b.dwell;
               sim.vx = 0; sim.vy = 0;
+              sim.route = []; sim.routeFor = null;
               enterDwellPose(sim, b);
-            } else if (dist > 6) {
-              const sp = persona.walkSpeed * (running ? 2.2 : 1) * (dist < 60 && !running ? 0.55 : 1);
-              const tx = (dx / dist) * sp;
-              const ty = (dy / dist) * sp;
+            } else if (far > 6) {
+              /* (Re)plan when the goal moves — a laser dot moves constantly, so
+                 the route is rebuilt only once it has actually gone somewhere. */
+              const stale = !sim.routeFor || Math.hypot(sim.routeFor.x - goal.x, sim.routeFor.y - goal.y) > 40;
+              if (!sim.route.length || stale) {
+                sim.route = planPath({ x: sim.x, y: sim.y }, goal);
+                sim.routeFor = { x: goal.x, y: goal.y };
+                // A detour that costs more than three times the direct line is
+                // the planner being clever at the cat's expense. Just go.
+                if (pathCost({ x: sim.x, y: sim.y }, sim.route) > far * 3.2) sim.route = [goal];
+              }
+              const wp = sim.route[0];
+              const dx = wp.x - sim.x;
+              const dy = wp.y - sim.y;
+              const dist = Math.hypot(dx, dy) || 1;
+              // reached this leg? move on to the next
+              if (dist < 10 && sim.route.length > 1) { sim.route.shift(); }
+
+              const sp = persona.walkSpeed * (running ? 2.2 : 1) * (far < 60 && !running ? 0.55 : 1);
+              let tx = (dx / dist) * sp;
+              let ty = (dy / dist) * sp;
+              /* The slope cone, enforced on the velocity as well as the route:
+                 a leg can still end up steep after the cat is nudged (a drag, a
+                 drop, a target that jumped), and a cat that rises vertically
+                 with its legs cycling sideways is the whole complaint. */
+              const cap = Math.abs(tx) * MAX_SLOPE;
+              if (Math.abs(ty) > cap) {
+                if (Math.abs(tx) < sp * 0.35) tx = Math.sign(tx || (sim.facing as number)) * sp * 0.35;
+                ty = Math.sign(ty) * Math.abs(tx) * MAX_SLOPE;
+                const norm = sp / (Math.hypot(tx, ty) || 1);
+                tx *= norm; ty *= norm;
+              }
               const ease = Math.min(1, dt * (running ? 5.5 : 3.2));
               sim.vx += (tx - sim.vx) * ease;
               sim.vy += (ty - sim.vy) * ease;
@@ -881,11 +1055,25 @@ export default function CanvasResident() {
               sim.y += my;
               // the gait is driven by ground covered, so the paws don't skate
               sim.stridePhase += Math.hypot(mx, my) / (running ? STRIDE_RUN : STRIDE);
-              if (Math.abs(sim.vx) > 4) sim.facing = (sim.vx > 0 ? 1 : -1) as 1 | -1;
-              const want: Pose = running ? 'run' : 'walk';
+
+              /* Turning round is a beat, not a mirror flip. Below the threshold
+                 the old facing is kept, so a cat easing through a waypoint
+                 doesn't strobe between left and right for a few frames. */
+              const wantFace = (sim.vx > 0 ? 1 : -1) as 1 | -1;
+              if (Math.abs(sim.vx) > 10 && wantFace !== sim.facing) {
+                if (sim.turnT <= 0) sim.turnT = 130;
+                sim.turnT -= dt * 1000;
+                if (sim.turnT <= 0) { sim.facing = wantFace; sim.turnT = 0; }
+              } else if (Math.abs(sim.vx) > 10) {
+                sim.turnT = 0;
+              }
+
+              const pivoting = sim.turnT > 0;
+              const want: Pose = pivoting ? 'stand' : running ? 'run' : 'walk';
               if (sim.pose !== want) { sim.pose = want; sim.poseT = 0; }
             } else {
               sim.vx = 0; sim.vy = 0;
+              sim.route = []; sim.routeFor = null;
               if (sim.pose === 'run' || sim.pose === 'walk') { sim.pose = 'stand'; sim.poseT = 0; }
             }
           } else {
@@ -905,19 +1093,27 @@ export default function CanvasResident() {
         if (sim.pose === 'sleep') {
           think('sleep', 9000 + rng() * 7000, 2400);
         } else if (sim.pose === 'sit' || sim.pose === 'stand') {
-          if (rng() < dt * 0.05) {
+          if (rng() < dt * 0.09) {
             // whatever the board is doing wins — a generic musing while it's
             // raining on the canvas is the cat ignoring the room
             const mood = moodFor(useCanvasStore.getState().relaxEffect);
-            if (mood.skyshow) think('skyshow', 26_000, 2800);
-            else if (mood.wet) think('rain', 26_000, 2800);
+            if (mood.skyshow) think('skyshow', 20_000, 2800);
+            else if (mood.wet) think('rain', 20_000, 2800);
             else {
               const n = sceneRef.current.blocks;
-              think(n === 0 ? 'empty' : n > 26 ? 'clutter' : 'idle', 34_000, 2900);
+              think(n === 0 ? 'empty' : n > 26 ? 'clutter' : 'idle', 19_000, 2900);
             }
           }
-        } else if (sim.pose === 'walk' && rng() < dt * 0.02) {
-          think('walk', 48_000, 2200);
+        } else if (sim.pose === 'walk' && rng() < dt * 0.05) {
+          think('walk', 30_000, 2200);
+        } else if (sim.pose === 'stretch' && rng() < dt * 0.5) {
+          think('stretch', 70_000, 2000);
+        } else if (sim.pose === 'groom' && rng() < dt * 0.18) {
+          think('groom', 80_000, 2000);
+        } else if (sim.pose === 'perch' && rng() < dt * 0.12) {
+          think('perch', 80_000, 2400);
+        } else if (sim.pose === 'roll' && rng() < dt * 0.5) {
+          think('roll', 60_000, 2000);
         }
       }
 
@@ -1281,6 +1477,7 @@ export default function CanvasResident() {
       <div
         ref={wrapRef}
         className="absolute"
+        data-cat="1"
         style={{
           width: ART_W * ART_PX,
           height: ART_H * ART_PX,

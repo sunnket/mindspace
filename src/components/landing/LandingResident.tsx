@@ -16,7 +16,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useCanvasStore } from '@/store/canvasStore';
 import { loadProfile, makePersonality, mulberry32, type CatPersonality } from '@/lib/catBrain';
-import { pickThought, type ThoughtKind } from '@/lib/catThoughts';
+import { pickThought, ThoughtMemory } from '@/lib/catThoughts';
 import { ART_W, ART_H, POSE_FRAMES, COATS, getSheet, type Sheet } from '@/lib/catSprites';
 
 const ART_PX = 1.6;
@@ -85,7 +85,7 @@ export default function LandingResident() {
   const bubbleRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLSpanElement>(null);
 
-  const recentRef = useRef<Map<ThoughtKind, string>>(new Map());
+  const recentRef = useRef<ThoughtMemory>(new ThoughtMemory(12));
   const backingRef = useRef(0);
   const cursorRef = useRef({ x: -9999, y: -9999 });
 
