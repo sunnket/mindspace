@@ -1934,37 +1934,16 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
     }
   }, [isEditing]);
 
-  // Synchronise dictation text into the DOM if the block is currently in edit mode
-  const isDictating = useVoiceStore((s) => s.isListening && s.targetId === obj.id);
-  const voiceTranscript = useVoiceStore((s) => s.transcript);
-  const voiceInterim = useVoiceStore((s) => s.interimTranscript);
-
-  useEffect(() => {
-    if (isEditing && isDictating && contentRef.current) {
-      const target = contentRef.current;
-      const currentText = (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)
-        ? target.value
-        : target.innerText;
-      if (currentText !== obj.content) {
-        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-          target.value = obj.content || '';
-        } else {
-          target.innerText = obj.content || '';
-        }
-        latestContent.current = obj.content || '';
-        
-        // Move caret to the end of the text
-        const sel = window.getSelection();
-        if (sel && contentRef.current.childNodes.length > 0) {
-          const range = document.createRange();
-          range.selectNodeContents(contentRef.current);
-          range.collapse(false);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-      }
-    }
-  }, [isEditing, isDictating, obj.content, voiceTranscript, voiceInterim]);
+  /* Dictation used to be pushed into this element from here: watch the voice
+     store, and whenever the transcript changed, replace the whole block's text
+     and shove the caret to the end. It had to go.
+     - It subscribed EVERY object on the board to every word spoken, so each
+       syllable re-rendered the entire canvas.
+     - Rewriting the element wholesale while someone might also be typing in it
+       is a fight over the caret that dictation can only win by clobbering.
+     Spoken phrases are now typed in at the caret like keystrokes
+     (lib/voice/dictation), which the block's own input handler already knows how
+     to grow, save and record ink for. Nothing to synchronise. */
 
   // Track native input for all editable text blocks to keep latestContent in sync and handle slash commands
   useEffect(() => {

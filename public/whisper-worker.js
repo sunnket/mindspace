@@ -13,13 +13,14 @@
  * transformers.js straight from a CDN, so nothing about it can break the build.
  *
  * Protocol — main thread sends:
- *   { type: 'load' }
- *   { type: 'transcribe', id, audio: Float32Array @16kHz, language, final }
+ *   { type: 'load', source? }   source = the CDN that worked last time
+ *   { type: 'transcribe', id, audio: Float32Array @16kHz, language }
  * and gets back:
  *   { type: 'progress', percent }   model still downloading
- *   { type: 'ready' }
- *   { type: 'result', id, text, final }
- *   { type: 'error', message }
+ *   { type: 'warming' }             downloaded, running the first pass
+ *   { type: 'ready', engine, source }
+ *   { type: 'result', id, text, ms, engine }
+ *   { type: 'error', message, id? }
  */
 
 /* Pinned. Whichever host answers first wins — one blocked CDN shouldn't take
@@ -31,19 +32,28 @@ const SOURCES = [
   `https://unpkg.com/@huggingface/transformers@${VERSION}`,
 ];
 
-/* Whisper, smallest useful size. `base` on a GPU is comfortably faster than
-   real time; on the WASM backend — single-threaded, because threads would need
-   COOP/COEP headers that would break the app's embedded browser — `tiny` is the
-   one that keeps up. Both are multilingual: `.en` variants would have made this
-   an English-only feature, and the people who hit the Google outage most are the
-   ones not dictating in English. */
-const MODEL_GPU = 'onnx-community/whisper-base';
-const MODEL_CPU = 'onnx-community/whisper-tiny';
+/* ONE MODEL, ONE DOWNLOAD.
+ *
+ * This used to branch on WebGPU and pull `whisper-base` with an fp32 encoder and
+ * a q4 decoder. Those two files are 78.6 MB and 117.9 MB — measured, not
+ * guessed. Two hundred megabytes, before anyone had said a word, on the machines
+ * MOST likely to have it (any recent Chrome on a GPU). That is the entire
+ * "why does voice typing take forever to start".
+ *
+ * whisper-tiny quantized is 41.6 MB all in, it is multilingual (`.en` variants
+ * would have made dictation English-only, and the people whose browsers can't
+ * reach Google's service are disproportionately the ones not dictating in
+ * English), and the SAME files run on both backends — so the fallback below
+ * costs a session rebuild, never a second download.
+ */
+const MODEL = 'onnx-community/whisper-tiny';
 
 let transcriber = null;
 let ready = null;
 /** Which model/backend actually came up, for the ready message. */
 let engine = '';
+/** The CDN that answered, handed back so the next load starts with it. */
+let source = '';
 
 /** Total bytes are only known file-by-file, so track them as they show up. */
 const files = new Map();
@@ -61,11 +71,17 @@ function reportProgress(item) {
   }
 }
 
-async function importLib() {
+async function importLib(preferred) {
+  // The remembered host first: retrying a CDN that's blocked on this network
+  // costs a full timeout before the fallback even starts, and it's the same one
+  // every time.
+  const urls = preferred ? [preferred, ...SOURCES.filter((u) => u !== preferred)] : SOURCES;
   let last;
-  for (const url of SOURCES) {
+  for (const url of urls) {
     try {
-      return await import(url);
+      const lib = await import(url);
+      source = url;
+      return lib;
     } catch (err) {
       last = err;
     }
@@ -73,8 +89,8 @@ async function importLib() {
   throw new Error(`Could not load the speech model library (${last?.message || 'network error'}).`);
 }
 
-async function load() {
-  const { pipeline, env } = await importLib();
+async function load(preferred) {
+  const { pipeline, env } = await importLib(preferred);
 
   // Weights come from the Hub and are cached by the browser afterwards, so the
   // download in this worker happens exactly once per machine.
@@ -82,31 +98,34 @@ async function load() {
   env.useBrowserCache = true;
 
   const webgpu = typeof navigator !== 'undefined' && !!navigator.gpu;
-  if (!webgpu && env.backends?.onnx?.wasm) {
+  if (env.backends?.onnx?.wasm) {
     // No SharedArrayBuffer without cross-origin isolation, and ORT will hang
     // trying to spawn threads it can't have. Say single-threaded up front.
-    env.backends.onnx.wasm.numThreads = 1;
+    if (!webgpu) env.backends.onnx.wasm.numThreads = 1;
+    // We are already off the main thread; ORT's own proxy worker is a second
+    // hop for every tensor and a second copy of the runtime to download.
+    env.backends.onnx.wasm.proxy = false;
   }
 
-  const attempts = webgpu
-    ? [
-        { model: MODEL_GPU, device: 'webgpu', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' } },
-        { model: MODEL_CPU, device: 'wasm', dtype: 'q8' },
-      ]
-    : [
-        { model: MODEL_CPU, device: 'wasm', dtype: 'q8' },
-        { model: MODEL_CPU, device: 'wasm', dtype: 'fp32' },
-      ];
+  /* WASM first even where there's a GPU: it is the path that always works, and
+     its weights are the small ones. WebGPU is tried after it as a session
+     rebuild over files already on disk — pure upside, no extra bytes. fp16 on
+     the GPU is a last resort and the only attempt that costs another download,
+     so it only ever runs if the cheap two both failed. */
+  const attempts = [
+    { device: 'wasm', dtype: 'q8' },
+    ...(webgpu ? [{ device: 'webgpu', dtype: 'q8' }, { device: 'webgpu', dtype: 'fp16' }] : []),
+  ];
 
   let last;
   for (const attempt of attempts) {
     try {
-      transcriber = await pipeline('automatic-speech-recognition', attempt.model, {
+      transcriber = await pipeline('automatic-speech-recognition', MODEL, {
         device: attempt.device,
         dtype: attempt.dtype,
         progress_callback: reportProgress,
       });
-      engine = `${attempt.model} on ${attempt.device}`;
+      engine = `${MODEL} on ${attempt.device} (${attempt.dtype})`;
       return;
     } catch (err) {
       last = err;
@@ -116,14 +135,53 @@ async function load() {
   throw new Error(`Could not start on-device speech (${last?.message || 'unknown error'}).`);
 }
 
+/**
+ * Decoding options that stop Whisper talking to itself.
+ *
+ * `no_repeat_ngram_size` is the one that matters: the model's failure mode on a
+ * clip that runs out of speech is to emit the same phrase until it hits the token
+ * limit — "Hey, hey, hey, hey." — and a decoder that can't repeat a 4-gram
+ * simply cannot do it. `max_new_tokens` bounds the damage of anything that gets
+ * past it, since 18 seconds of speech is never 200 tokens.
+ */
+function decodeOptions(language) {
+  return {
+    language,
+    task: 'transcribe',
+    return_timestamps: false,
+    no_repeat_ngram_size: 4,
+    max_new_tokens: 180,
+  };
+}
+
+/**
+ * The first inference is several times slower than every one after it — the WASM
+ * runtime compiles, the graph gets allocated, buffers get sized. Paying that on
+ * the user's first sentence is exactly what "the model takes forever" feels like,
+ * so it's paid here, on silence, before `ready` is ever sent. The main thread
+ * preloads on idle, which puts this in dead time nobody is waiting through.
+ */
+async function warmUp() {
+  try {
+    self.postMessage({ type: 'warming' });
+    const quiet = new Float32Array(16_000);
+    // Not pure zeros: a dead-flat signal is a shape the encoder can shortcut.
+    for (let i = 0; i < quiet.length; i++) quiet[i] = (Math.random() - 0.5) * 1e-4;
+    await transcriber(quiet, { task: 'transcribe', return_timestamps: false, max_new_tokens: 8 });
+  } catch {
+    /* the real utterances will tell us soon enough if something's wrong */
+  }
+}
+
 self.onmessage = async (event) => {
   const msg = event.data;
 
   if (msg.type === 'load') {
     try {
-      ready = ready || load();
+      ready = ready || load(msg.source || null);
       await ready;
-      self.postMessage({ type: 'ready', engine });
+      await warmUp();
+      self.postMessage({ type: 'ready', engine, source });
     } catch (err) {
       ready = null;
       self.postMessage({ type: 'error', message: String(err?.message || err) });
@@ -133,19 +191,23 @@ self.onmessage = async (event) => {
 
   if (msg.type === 'transcribe') {
     try {
-      ready = ready || load();
+      ready = ready || load(msg.source || null);
       await ready;
 
       const started = performance.now();
 
       // Whisper is multilingual but guesses badly on a two-second clip, so it is
-      // told what it's listening to. If the model doesn't know that language,
-      // fall back to letting it decide rather than failing the utterance.
+      // told what it's listening to. If the model doesn't know that language —
+      // or rejects a decode option — fall back rather than lose the utterance.
       let out;
       try {
-        out = await transcriber(msg.audio, { language: msg.language, task: 'transcribe' });
+        out = await transcriber(msg.audio, decodeOptions(msg.language));
       } catch {
-        out = await transcriber(msg.audio, { task: 'transcribe' });
+        try {
+          out = await transcriber(msg.audio, decodeOptions(undefined));
+        } catch {
+          out = await transcriber(msg.audio, { task: 'transcribe' });
+        }
       }
 
       const text = (Array.isArray(out) ? out[0]?.text : out?.text) || '';
@@ -153,7 +215,6 @@ self.onmessage = async (event) => {
         type: 'result',
         id: msg.id,
         text: text.trim(),
-        final: msg.final,
         ms: Math.round(performance.now() - started),
         engine,
       });

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, InteractionMode } from '@/store/canvasStore';
 import { useAgentChatStore } from '@/store/agentChatStore';
 import { useVoiceStore } from '@/store/voiceStore';
-import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
+import { useSpeechRecognition, warmVoiceEngine } from '@/hooks/useSpeechRecognition';
 import WorkflowMenu from './WorkflowMenu';
 import BrainstormPanel, { PinIcon } from './BrainstormPanel';
 import ShapePreview from '@/components/canvas/ShapePreview';
@@ -292,7 +292,10 @@ export default function FloatingToolbar() {
     },
   ];
 
-  const { isListening } = useVoiceStore();
+  /* Selector, not the whole store: dictation updates level, pending and hearing
+     constantly, and subscribing to all of it re-rendered the entire toolbar
+     several times a second for a button that only cares whether the mic is on. */
+  const isListening = useVoiceStore((s) => s.isListening);
   const { startRecognition, stopRecognition } = useSpeechRecognition();
 
   return (
@@ -367,6 +370,13 @@ export default function FloatingToolbar() {
               key={tool.id}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              /* The moment the pointer lands on the mic, start fetching the
+                 on-device model. A cold start is a download, a runtime boot and
+                 a first inference; the half-second of travel between deciding
+                 to dictate and clicking is free time to spend on it. */
+              onPointerEnter={
+                tool.id === 'voice' as unknown as InteractionMode ? () => warmVoiceEngine() : undefined
+              }
               onClick={() => {
                 setCommentMode(false);
                 setThreadsSidebarOpen(false);

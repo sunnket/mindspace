@@ -2,11 +2,16 @@
 
 import { useCallback, useEffect } from 'react';
 import { useVoiceStore } from '@/store/voiceStore';
-import { useCanvasStore } from '@/store/canvasStore';
-import { startLocalSpeech, stopLocalSpeech, isLocalSpeechRunning } from '@/lib/voice/localSpeech';
+import {
+  startLocalSpeech,
+  stopLocalSpeech,
+  isLocalSpeechRunning,
+  warmUpLocalSpeech,
+} from '@/lib/voice/localSpeech';
+import { openDictation, closeDictation, commitSpoken } from '@/lib/voice/dictation';
 
 /**
- * Dictation. Speak, and the words land in a block on the canvas.
+ * Dictation. Speak, and the words land wherever you were about to type.
  *
  * TWO ENGINES, because one of them isn't ours.
  *
@@ -18,20 +23,21 @@ import { startLocalSpeech, stopLocalSpeech, isLocalSpeechRunning } from '@/lib/v
  * forks), a network or region that blocks the endpoint. It is not a hiccup and
  * retrying it is pointless.
  *
- * So the first `network` failure now switches to Whisper running ON THIS MACHINE
- * (see lib/voice/localSpeech) mid-session, in the same block, and remembers the
- * choice for a day so the next press goes straight there. Google's engine is the
- * fast path when it works; it is no longer the only path.
+ * So the first `network` failure switches to Whisper running ON THIS MACHINE (see
+ * lib/voice/localSpeech) mid-session, in the same place, and remembers the choice
+ * for a day so the next press goes straight there. Google's engine is the fast
+ * path when it works; it is no longer the only path.
+ *
+ * NEITHER ENGINE WRITES ANYTHING ITSELF. Both hand finished phrases to
+ * commitSpoken, which cleans them (lib/voice/cleanTranscript — this is where
+ * `[Music]` and `(laughing)` die) and types them at the caret. One door in, one
+ * door out; the HUD is a spectator.
  *
  * The recogniser is a MODULE-level singleton, not a ref inside the hook. It has
  * to be: this hook is mounted in two places at once (the toolbar button and the
  * orb), each of those used to build its own SpeechRecognition, and only the one
  * whose button you happened to press was ever started — while the other's
  * unmount cleanup could stop it. One recogniser, one session, shared state.
- *
- * The target block is chosen (or created) HERE, at the moment listening starts,
- * so there is exactly one owner of "where do the words go" and it exists before
- * the first result can possibly arrive.
  */
 
 type Recognition = any;
@@ -48,10 +54,47 @@ let mounted = 0;
  *  the service genuinely isn't there for this browser, and we stop pretending. */
 let networkRetries = 0;
 
+/* THE SILENT FAILURE.
+   `network` is the loud way Google's recogniser fails. The quiet way is worse
+   and just as common in embedded browsers: it starts, it reports the microphone
+   open, it fires soundstart as you talk — and it returns nothing. No result, no
+   error, no end. Forever. That is a session that looks perfect and types nothing,
+   which is precisely what "voice typing doesn't work" looks like from the
+   outside, and the old code had no way to notice it.
+   So: if it has HEARD something and still hasn't produced a single word, it gets
+   a few seconds and then the on-device engine takes over. Sound in, nothing out,
+   is a broken engine. */
+const DEAF_MS = 10_000;
+let deafTimer: ReturnType<typeof setTimeout> | null = null;
+let sawResult = false;
+let heardSound = false;
+let deadCycles = 0;
+
+function clearDeafTimer() {
+  if (deafTimer) {
+    clearTimeout(deafTimer);
+    deafTimer = null;
+  }
+}
+
+/** Armed the moment the recogniser goes live, because the events that would
+ *  prove it's deaf are exactly the events a dead engine doesn't send. */
+function watchForSilentFailure() {
+  if (sawResult || deafTimer || !wantListening) return;
+  deafTimer = setTimeout(() => {
+    deafTimer = null;
+    if (!wantListening || sawResult || isLocalSpeechRunning()) return;
+    fallBackToLocal();
+  }, DEAF_MS);
+}
+
 /** Remembered verdict on Google's speech service. Expires, so a laptop that was
  *  on a blocking network at the office isn't stuck on the local engine at home. */
 const ENGINE_KEY = 'mindspace.voiceEngine';
 const ENGINE_TTL = 24 * 60 * 60 * 1000;
+/** Set the first time anyone dictates. Only then is it worth spending a model
+ *  download on someone who may never press the button. */
+const USED_KEY = 'mindspace.voiceUsed';
 
 function preferLocal(): boolean {
   try {
@@ -76,9 +119,47 @@ function rememberLocal() {
   }
 }
 
+function markUsed() {
+  try {
+    localStorage.setItem(USED_KEY, '1');
+  } catch {
+    /* nothing to do */
+  }
+}
+
+function hasDictatedBefore(): boolean {
+  try {
+    return localStorage.getItem(USED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 function getRecognitionCtor(): any {
   if (typeof window === 'undefined') return null;
   return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
+}
+
+/**
+ * Get the on-device model onto this machine before it's needed.
+ *
+ * Cold start is the entire "why does this take so long" experience — a download,
+ * a runtime boot and a first inference, all stacked in front of the first
+ * sentence. Warming on hover means the press is instant; warming on idle means
+ * even the hover is spare. Only done when the local engine is actually the one
+ * that will run: there's no sense downloading Whisper for someone whose browser
+ * talks to Google fine.
+ */
+export function warmVoiceEngine(): void {
+  if (typeof window === 'undefined') return;
+  if (getRecognitionCtor() && !preferLocal()) return;
+  warmUpLocalSpeech();
+}
+
+/** Same, but only for people who've dictated before — for idle-time preloading,
+ *  where spending a model download on a stranger would be rude. */
+export function warmVoiceEngineIfUsed(): void {
+  if (hasDictatedBefore()) warmVoiceEngine();
 }
 
 /**
@@ -111,11 +192,12 @@ function describeError(code: string): string {
 
 /**
  * Google's engine has failed in a way that will not recover. Hand the live
- * session over to the on-device one — same block, same target, no interruption
+ * session over to the on-device one — same target, same caret, no interruption
  * the user has to act on.
  */
 function fallBackToLocal() {
   wantListening = false;
+  clearDeafTimer();
   if (restartTimer) {
     clearTimeout(restartTimer);
     restartTimer = null;
@@ -126,11 +208,16 @@ function fallBackToLocal() {
     /* already down — that's why we're here */
   }
 
-  rememberLocal();
+  /* Only remember the verdict when the engine actually PROVED it's broken: it
+     errored, or it heard sound and returned nothing. Timing out on a user who
+     simply didn't speak is not evidence of anything, and writing it down would
+     park them on the on-device engine for a day over a moment's hesitation. */
+  if (heardSound || networkRetries > 0) rememberLocal();
 
   const voice = useVoiceStore.getState();
   voice.setError(null);
-  voice.setNotice('Speech service unreachable — switching to on-device voice typing…');
+  voice.setInterimTranscript('');
+  voice.setNotice('Switching to on-device voice typing…');
   void startLocalSpeech();
 }
 
@@ -140,6 +227,7 @@ export const useSpeechRecognition = () => {
 
   const stopRecognition = useCallback(() => {
     wantListening = false;
+    clearDeafTimer();
     if (restartTimer) {
       clearTimeout(restartTimer);
       restartTimer = null;
@@ -151,70 +239,33 @@ export const useSpeechRecognition = () => {
     }
 
     if (isLocalSpeechRunning()) {
-      // It folds in its own last sentence and clears the listening state itself.
+      // It folds in its own last sentence and lets go of the target once the
+      // queue has drained.
       stopLocalSpeech();
       return;
     }
 
     const voice = useVoiceStore.getState();
-    // Fold anything still in flight into the final text before we let go.
-    if (voice.interimTranscript.trim()) {
-      voice.appendTranscript(voice.interimTranscript);
-      voice.setInterimTranscript('');
-    }
+    // Anything still in flight is worth having — commit it before letting go.
+    const tail = voice.interimTranscript.trim();
+    voice.setInterimTranscript('');
+    if (tail) commitSpoken(tail, { strict: false });
     voice.setNotice(null);
     voice.setIsListening(false);
+    closeDictation();
   }, []);
 
   const startRecognition = useCallback(() => {
     const Ctor = getRecognitionCtor();
     const voice = useVoiceStore.getState();
 
-    /* Give the words somewhere to go BEFORE the mic opens. Dictate into the
-       selected block if there's a sensible one; otherwise drop a fresh text box
-       in the middle of the view — that's the "a text box just appears when I hit
-       voice typing" behaviour. It is left selected but NOT in edit mode: an
-       editing block is an uncontrolled contentEditable, and writing to the store
-       wouldn't show up in it. */
-    const canvas = useCanvasStore.getState();
-    const activeId = canvas.editingId || canvas.selectedId;
-    const activeBlock = activeId
-      ? canvas.objects.find((o) => o.id === activeId)
-      : undefined;
-    const dictatable =
-      activeBlock && ['text', 'heading', 'sticky'].includes(activeBlock.type)
-        ? activeBlock
-        : undefined;
+    /* Give the words somewhere to go BEFORE the mic opens: the field that has
+       the caret, the selected block, or a new text box in the middle of the
+       view — see lib/voice/dictation. There is no version of pressing this
+       button where you then have to go and click somewhere. */
+    const targetId = openDictation();
 
-    let targetId: string;
-    if (dictatable) {
-      targetId = dictatable.id;
-      // If the target is currently being edited, sync the current DOM value to the store
-      // so dictation appends correctly instead of using a stale store value.
-      if (canvas.editingId === targetId) {
-        const el = document.querySelector(`[data-object-id="${targetId}"] .text-block-editable`) as HTMLElement | null;
-        if (el) {
-          const text = (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)
-            ? el.value
-            : el.innerText;
-          canvas.updateObject(targetId, { content: text });
-        }
-      }
-    } else {
-      const { camera } = canvas;
-      const block = canvas.addObject({
-        type: 'text',
-        x: (-camera.x + window.innerWidth / 2) / camera.zoom - 200,
-        y: (-camera.y + window.innerHeight / 2) / camera.zoom - 40,
-        width: 400,
-        height: 60,
-        content: '',
-      });
-      targetId = block.id;
-      canvas.setEditingId(null);
-      canvas.setSelectedId(block.id);
-    }
-
+    markUsed();
     voice.beginSession(targetId);
     voice.setUnsupported(false);
 
@@ -243,6 +294,7 @@ export const useSpeechRecognition = () => {
         store.setError(null);
         store.setNotice(null);
         store.setLive(true);
+        watchForSilentFailure();
       };
 
       recognition.onaudiostart = () => {
@@ -252,17 +304,35 @@ export const useSpeechRecognition = () => {
         useVoiceStore.getState().setHearing(false);
       };
 
+      // Something reached the microphone. From here the engine owes us words,
+      // and failing to deliver is a fact about the engine, not the room.
+      recognition.onsoundstart = () => {
+        heardSound = true;
+        useVoiceStore.getState().setHearing(true);
+        watchForSilentFailure();
+      };
+      recognition.onspeechstart = () => {
+        heardSound = true;
+        watchForSilentFailure();
+      };
+
       recognition.onresult = (event: any) => {
         const store = useVoiceStore.getState();
+        sawResult = true;
+        deadCycles = 0;
+        clearDeafTimer();
         networkRetries = 0; // it's working — forget any earlier wobble
         let interim = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const result = event.results[i];
           const text = result[0]?.transcript ?? '';
-          if (result.isFinal) store.appendTranscript(text);
+          // Finalised phrases get typed; guesses only ever reach the caption.
+          // Google's engine doesn't invent sound effects, so its output isn't
+          // put through the strict filter — a user who says "okay" means it.
+          if (result.isFinal) commitSpoken(text, { strict: false });
           else interim += text;
         }
-        store.setInterimTranscript(interim);
+        store.setInterimTranscript(interim.trim());
         store.setIsPaused(false);
       };
 
@@ -307,6 +377,7 @@ export const useSpeechRecognition = () => {
         store.setError(describeError(code));
         store.setIsListening(false);
         store.setLive(false);
+        closeDictation();
       };
 
       // Chrome ends a continuous session on its own every minute or so, and
@@ -315,6 +386,17 @@ export const useSpeechRecognition = () => {
       recognition.onend = () => {
         useVoiceStore.getState().setLive(false);
         if (!wantListening) return;
+
+        // A whole session that produced nothing. Two of those in a row and we
+        // stop giving it the microphone.
+        if (!sawResult) {
+          deadCycles += 1;
+          if (deadCycles >= 2) {
+            fallBackToLocal();
+            return;
+          }
+        }
+
         restartTimer = setTimeout(() => {
           if (!wantListening) return;
           try {
@@ -328,6 +410,10 @@ export const useSpeechRecognition = () => {
 
     recognition.lang = recognitionLang();
     networkRetries = 0;
+    sawResult = false;
+    heardSound = false;
+    deadCycles = 0;
+    clearDeafTimer();
 
     try {
       recognition.start();
@@ -352,6 +438,7 @@ export const useSpeechRecognition = () => {
         /* ignore */
       }
       useVoiceStore.getState().setIsListening(false);
+      closeDictation();
     };
   }, []);
 

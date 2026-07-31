@@ -3,101 +3,83 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useVoiceStore } from '@/store/voiceStore';
-import { useCanvasStore } from '@/store/canvasStore';
+import { getInputLevel } from '@/lib/voice/localSpeech';
 
 /**
- * The dictation HUD: the orb, the live caption, and the code that types what you
- * say into the target block.
+ * The dictation HUD: the orb, the caption, and nothing else.
  *
- * This used to open its OWN microphone stream — getUserMedia({ audio: true }) —
- * purely to drive the waveform bars. That is almost certainly why voice typing
- * never worked: SpeechRecognition opens the microphone too, and on Windows a
- * second capture of the same device routinely loses the race. The symptom is
- * exactly what was reported — the orb appears, the bars sit flat at their idle
- * height (no audio is reaching the analyser at all), and the recogniser dies
- * with an error.
+ * This component used to be where dictation was actually WRITTEN — it held a
+ * snapshot of the target block and rewrote it from the transcript on every
+ * change, which is how half-heard guesses, sound-effect captions and duplicated
+ * sentences ended up on the canvas. Writing now happens in lib/voice/dictation,
+ * at the caret, one finished phrase at a time. The orb only reports.
  *
- * So the orb no longer touches the microphone. It animates from the recogniser's
- * own signals — audiostart/audioend, and words arriving — which is the only
- * thing the levels were ever standing in for.
+ * It also doesn't open a microphone. It used to — getUserMedia({ audio: true })
+ * purely to drive the waveform — and a second capture of the same device
+ * routinely loses the race on Windows, which is very likely why voice typing
+ * never worked at all. The engine already has the mic open and hands out its
+ * level; the bars read that.
  */
 
 const BARS = 10;
+/** The caption is a status line, not a document. */
+const CAPTION_CHARS = 90;
+
+function tail(text: string): string {
+  const t = text.trim();
+  return t.length > CAPTION_CHARS ? `…${t.slice(-CAPTION_CHARS)}` : t;
+}
 
 export default function VoiceOrb() {
   const isListening = useVoiceStore((s) => s.isListening);
   const transcript = useVoiceStore((s) => s.transcript);
   const interimTranscript = useVoiceStore((s) => s.interimTranscript);
-  const targetId = useVoiceStore((s) => s.targetId);
-  const session = useVoiceStore((s) => s.session);
   const error = useVoiceStore((s) => s.error);
   const notice = useVoiceStore((s) => s.notice);
   const live = useVoiceStore((s) => s.live);
+  /* Chrome hangs its own recogniser up every minute and we restart it. That
+     plumbing was flipping the caption back to "Starting the microphone…"
+     mid-sentence, so a healthy session read as one that kept falling over. */
+  const everLive = useVoiceStore((s) => s.everLive);
   const hearing = useVoiceStore((s) => s.hearing);
-  const updateObject = useCanvasStore((s) => s.updateObject);
+  const pending = useVoiceStore((s) => s.pending);
+  const engine = useVoiceStore((s) => s.engine);
 
   const [wave, setWave] = useState<number[]>(() => new Array(BARS).fill(3));
 
-  /* The bars breathe while the mic is open and leap when words come in. It's an
-     honest signal — it tracks the recogniser rather than the room — and it costs
-     a requestAnimationFrame instead of a second microphone. */
+  /* The bars follow the actual microphone when the on-device engine is running
+     — it measures the room anyway to decide where sentences begin and end, so
+     the level is free and honest. Google's engine gives us no signal at all, so
+     there the bars breathe while the mic is open and leap when words arrive. */
   const speechAt = useRef(0);
   useEffect(() => {
     speechAt.current = performance.now();
   }, [interimTranscript, transcript]);
 
   useEffect(() => {
-    if (!isListening) {
-      setWave(new Array(BARS).fill(3));
-      return;
-    }
+    // Nothing to reset when it stops: the orb unmounts with the session, and the
+    // first frame of the next one overwrites every bar before it's on screen.
+    if (!isListening) return;
     let raf = 0;
     const tick = () => {
       const now = performance.now();
       const excited = now - speechAt.current < 700 ? 1 : 0.18;
-      const amp = (hearing ? 1 : 0.35) * excited;
+      const amp =
+        engine === 'local'
+          ? 0.12 + getInputLevel() * 1.6
+          : (hearing ? 1 : 0.35) * excited;
       setWave(
         Array.from({ length: BARS }, (_, i) => {
           const phase = now / 190 + i * 0.7;
           const envelope = 0.55 + 0.45 * Math.sin((i / (BARS - 1)) * Math.PI); // taller in the middle
-          return 3 + Math.abs(Math.sin(phase)) * 22 * amp * envelope;
+          return 3 + Math.abs(Math.sin(phase)) * 22 * Math.min(1.4, amp) * envelope;
         })
       );
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [isListening, hearing]);
-
-  /* Type what's being said into the target block, live.
-     The base content is captured ONCE PER SESSION — read on every keystroke
-     instead, it would grow by its own output and the note would repeat itself
-     forever. Keyed on the session and not just the block, because dictating
-     twice into the SAME block is two sessions, and the second one must build on
-     what the first one left there rather than on a stale snapshot of it. */
-  const baseContent = useRef('');
-  useEffect(() => {
-    if (!targetId) {
-      baseContent.current = '';
-      return;
-    }
-    const obj = useCanvasStore.getState().objects.find((o) => o.id === targetId);
-    baseContent.current = obj?.content || '';
-  }, [targetId, session]);
-
-  /* Deliberately NOT gated on isListening. The on-device engine transcribes the
-     last sentence a beat AFTER the mic closes — gate this on "still listening"
-     and the final thing you said is the one thing that never makes it into the
-     note. The session's target block is what says where the words go, and it
-     outlives the microphone. */
-  useEffect(() => {
-    if (!targetId) return;
-    const spoken = [transcript, interimTranscript].filter((s) => s.trim()).join(' ').trim();
-    if (!spoken) return;
-
-    const base = baseContent.current.trim();
-    updateObject(targetId, { content: base ? `${base} ${spoken}` : spoken });
-  }, [transcript, interimTranscript, targetId, updateObject]);
+  }, [isListening, hearing, engine]);
 
   // An error is worth reading, not worth living with.
   useEffect(() => {
@@ -106,18 +88,25 @@ export default function VoiceOrb() {
     return () => clearTimeout(t);
   }, [error]);
 
-  const heard = interimTranscript || transcript;
-  /* A notice outranks the caption but is not an error: "switching to on-device
-     voice typing", "setting up… 40%". The old code only had red text to say
-     anything with, which is how a routine engine switch ended up looking like a
-     broken internet connection. */
+  /* What the pill says, in order of what the user needs to know. A notice
+     outranks the caption but is not an error: "switching to on-device voice
+     typing", "setting up — 40%". The old code only had red text to say anything
+     with, which is how a routine engine switch looked like a broken connection. */
   const status = error
     ? error
-    : notice
-      ? notice
-      : !live
-        ? 'Starting the microphone…'
-        : heard || 'Listening — start speaking';
+    : !live && !everLive
+      ? notice || 'Starting the microphone…'
+      : notice
+        ? notice
+        : interimTranscript
+          ? tail(interimTranscript)
+          : pending > 0
+            ? 'Writing that down…'
+            : transcript
+              ? tail(transcript)
+              : hearing
+                ? 'Listening…'
+                : 'Listening — start speaking';
 
   return (
     <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[200] pointer-events-none">

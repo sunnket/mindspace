@@ -41,6 +41,7 @@ import ReturnToWork from '@/components/ui/ReturnToWork';
 import CheckpointIndex from '@/components/ui/CheckpointIndex';
 import SaveIndicator from '@/components/ui/SaveIndicator';
 import VoiceOrb from './VoiceOrb';
+import { warmVoiceEngineIfUsed } from '@/hooks/useSpeechRecognition';
 import Pocket from './Pocket';
 import ScenesPanel, { ScenesList } from './ScenesPanel';
 import FrameHUD from './FrameHUD';
@@ -298,6 +299,26 @@ export default function InfiniteCanvas() {
       const c = useCollabStore.getState();
       if (c.status !== 'idle') c.leave();
     };
+  }, []);
+
+  /* Once the board has settled, quietly fetch the on-device speech model for
+     people who dictate. Waiting until the button is pressed means a download, a
+     WASM boot and a first inference all happen while someone sits watching a
+     pulsing orb; done here it has already happened. Only for those who have
+     dictated on this machine before — nobody else should pay for a model they
+     may never use. */
+  useEffect(() => {
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const start = () => warmVoiceEngineIfUsed();
+    if (w.requestIdleCallback) {
+      const handle = w.requestIdleCallback(start, { timeout: 8000 });
+      return () => w.cancelIdleCallback?.(handle);
+    }
+    const t = setTimeout(start, 4000);
+    return () => clearTimeout(t);
   }, []);
 
   // Paint the chosen canvas color mode across the whole workspace (canvas paper,
