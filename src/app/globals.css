@@ -409,10 +409,21 @@ html, body {
   resize: none;
 }
 
+/* The placeholder is a PREVIEW, not a label.
+   It used to be hard-coded to `--text-muted` and italic, which meant the only
+   visible glyphs in an empty block ignored the colour you had just chosen and
+   lied about the typeface you had just picked. Since an empty block is exactly
+   when you're setting those things up, the honest conclusion was "font and
+   colour don't work until I type something" — and that was measurable: the
+   element's own colour changed, the text you could actually SEE did not.
+   Inheriting the block's colour at low opacity means the empty block shows you
+   the style it will have. */
 .text-block-editable:empty::before {
   content: attr(data-placeholder);
-  color: var(--text-muted);
-  font-style: italic;
+  color: currentColor;
+  opacity: 0.4;
+  font-style: normal;
+  pointer-events: none;
 }
 
 .text-block-editable h1,

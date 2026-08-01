@@ -377,6 +377,35 @@ export default function SelectionRail() {
 
       {isTextLike && (
         <Group id="type" label="Typeface">
+          {/* A live specimen. Setting up a style used to require typing
+              something first — an empty block shows only its placeholder, and
+              with the text tool up there is no block at all, so every choice
+              here was made blind. This is the face, the size, the weight, the
+              colour and the alignment you have actually selected. */}
+          <div
+            className="rounded-[10px] overflow-hidden"
+            style={{
+              background: (S.bgColor as string) && S.bgColor !== 'transparent' ? (S.bgColor as string) : 'var(--well)',
+              padding: '10px 12px',
+            }}
+          >
+            <div
+              className="truncate"
+              style={{
+                fontFamily: (S.fontFamily as string) || "'Inter', sans-serif",
+                fontWeight: (S.fontWeight as number) || 400,
+                // Clamped: an H1 at 40px would blow the rail apart, but the
+                // relative jump between the presets still reads.
+                fontSize: Math.max(11, Math.min(26, ((S.fontSize as number) || 15) * 0.62)),
+                color: (S.textColor as string) || 'var(--text-primary)',
+                textAlign: (align as 'left' | 'center' | 'right'),
+                lineHeight: 1.35,
+              }}
+            >
+              {obj?.content?.trim()?.slice(0, 28) || 'The quick brown fox'}
+            </div>
+          </div>
+
           <SearchBox value={fontQuery} onChange={setFontQuery} placeholder="Search fonts…" />
           <div className="flex flex-wrap gap-1 overflow-y-auto props-rail-scroll" style={{ maxHeight: 118 }}>
             {filteredFonts.map((f) => {

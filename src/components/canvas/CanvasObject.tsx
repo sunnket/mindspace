@@ -757,11 +757,25 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       // embed, but can't nudge a block out of place mid-slide.
       if (readOnly || isTouring) return;
       if (mode === 'draw') return;
-      /* Editing: no drag, but the press must still not reach the board, or
-         sweeping a selection across your own words panned the whole canvas
-         out from under the caret. stopPropagation only stops React's bubble —
-         native text selection is untouched. */
-      if (isEditing) { e.stopPropagation(); return; }
+      /* Editing splits the block into two surfaces, and this used to be one.
+         Every press was swallowed while a block was being edited, which is the
+         state a block is in for the entire time you are working on it — so the
+         moment you had clicked into a card to write, you could no longer MOVE
+         that card. Grabbing it did nothing at all; you had to click empty
+         board to get out of edit mode first, then grab it. Measured: a cold
+         drag moved a card exactly as asked, the same drag one click later
+         moved it zero pixels.
+
+         So: a press inside the words is still a caret gesture and stays
+         entirely native — sweeping a selection across your own text must not
+         pan the board or tear the block loose. A press anywhere else on the
+         block (its padding, its border, the gutter around the text) is a grab,
+         and falls through to the drag path below. That's the same division of
+         labour every editor on a canvas uses, and it costs the text nothing. */
+      if (isEditing) {
+        const inWords = (e.target as HTMLElement).closest('[contenteditable="true"]');
+        if (inWords) { e.stopPropagation(); return; }
+      }
 
       // Clicks on embedded controls (poll options, settings inputs, checkpoint
       // name, todo checkboxes…) must keep their native behaviour — a

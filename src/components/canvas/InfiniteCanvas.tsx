@@ -560,6 +560,79 @@ export default function InfiniteCanvas() {
   }, [isDirty, objects, strokes, camera, checkpoint, loaded, canvasStack, effectiveCanvasId, workspaceTitle, setDirty, setLastSaved, connections, canvasBackground]);
 
 
+  /* ------------------------------------------------------------------
+     THE CAMERA PIPELINE — one gesture, one camera write per frame.
+
+     Two bugs lived where this now is, and both of them were felt rather
+     than seen.
+
+     1. STALE CAMERA. The wheel handler closed over `camera` from React
+        state. A trackpad fires wheel events in bursts — several inside a
+        single frame — and each one computed its new position from the
+        camera as it was at the last RENDER, not as it is now. So every
+        event in a burst but the last was overwritten, and the board moved
+        less than your fingers did. Measured: twenty wheel events of 25px
+        moved the canvas 375px instead of 500px. A quarter of every fast
+        scroll was silently thrown away, which is exactly what "slippery"
+        or "buggy" feels like.
+
+     2. LISTENER CHURN. The effect below re-attached the native wheel
+        listener every time the callback identity changed — which, with
+        `camera` in its deps, was every frame of every zoom.
+
+     The fix for both: intents are accumulated in a ref and applied ONCE
+     per animation frame, reading the camera live from the store at flush
+     time. Nothing is dropped, nothing is stale, the listener binds once,
+     and a burst of twenty events costs one state write instead of twenty.
+     ------------------------------------------------------------------ */
+  const camIntent = useRef<{
+    /** Absolute target, from a drag-pan (which knows where it started). */
+    panTo: { x: number; y: number } | null;
+    /** Relative scroll, accumulated across the frame. */
+    dx: number;
+    dy: number;
+    /** Accumulated zoom multiplier + the cursor it should pivot around. */
+    zoomFactor: number;
+    zoomAt: { x: number; y: number } | null;
+  }>({ panTo: null, dx: 0, dy: 0, zoomFactor: 1, zoomAt: null });
+  const camRaf = useRef<number | null>(null);
+
+  const flushCamera = useCallback(() => {
+    camRaf.current = null;
+    const intent = camIntent.current;
+    const cam = useCanvasStore.getState().camera;
+    let { x, y, zoom } = cam;
+
+    if (intent.panTo) {
+      x = intent.panTo.x;
+      y = intent.panTo.y;
+    }
+
+    if (intent.zoomAt && intent.zoomFactor !== 1) {
+      const next = clamp(zoom * intent.zoomFactor, MIN_ZOOM, MAX_ZOOM);
+      // Keep the point under the cursor pinned while the scale changes.
+      x = intent.zoomAt.x - (intent.zoomAt.x - x) * (next / zoom);
+      y = intent.zoomAt.y - (intent.zoomAt.y - y) * (next / zoom);
+      zoom = next;
+    }
+
+    x += intent.dx;
+    y += intent.dy;
+
+    camIntent.current = { panTo: null, dx: 0, dy: 0, zoomFactor: 1, zoomAt: null };
+
+    if (x !== cam.x || y !== cam.y || zoom !== cam.zoom) {
+      useCanvasStore.getState().setCamera({ x, y, zoom });
+    }
+  }, []);
+
+  const scheduleCamera = useCallback(() => {
+    if (camRaf.current == null) camRaf.current = requestAnimationFrame(flushCamera);
+  }, [flushCamera]);
+
+  // A gesture in flight when the canvas unmounts must not leave a frame booked.
+  useEffect(() => () => { if (camRaf.current != null) cancelAnimationFrame(camRaf.current); }, []);
+
   // Wheel zoom
   const handleWheel = useCallback(
     (e: WheelEvent) => {
@@ -606,30 +679,22 @@ export default function InfiniteCanvas() {
       if (useCanvasStore.getState().isTouring) return;
 
       if (e.ctrlKey || e.metaKey) {
-        // Smooth exponential zoom for trackpads and mouse wheels
-        const zoomFactor = Math.exp(-e.deltaY * 0.005);
-        const newZoom = clamp(camera.zoom * zoomFactor, MIN_ZOOM, MAX_ZOOM);
-
-        const rect = containerRef.current?.getBoundingClientRect();
+        // Smooth exponential zoom for trackpads and mouse wheels. Factors
+        // MULTIPLY across a burst, so twenty small pinches compose into the
+        // one big scale change they add up to.
+        const rect = container?.getBoundingClientRect();
         if (!rect) return;
-
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-
-        // Zoom toward cursor
-        const newX = mouseX - (mouseX - camera.x) * (newZoom / camera.zoom);
-        const newY = mouseY - (mouseY - camera.y) * (newZoom / camera.zoom);
-
-        setCamera({ x: newX, y: newY, zoom: newZoom });
+        camIntent.current.zoomFactor *= Math.exp(-e.deltaY * 0.005);
+        camIntent.current.zoomAt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       } else {
-        setCamera({
-          x: camera.x - e.deltaX,
-          y: camera.y - e.deltaY,
-          zoom: camera.zoom,
-        });
+        camIntent.current.dx -= e.deltaX;
+        camIntent.current.dy -= e.deltaY;
       }
+      scheduleCamera();
     },
-    [camera, setCamera]
+    // No `camera` dep — the flush reads it live, so this binds ONCE and every
+    // event in a burst contributes instead of overwriting its neighbours.
+    [scheduleCamera]
   );
 
   useEffect(() => {
@@ -786,19 +851,22 @@ export default function InfiniteCanvas() {
         // Dragging empty board pans the viewport — the plainest possible
         // reading of "grab the paper and move it".
         if (mode === 'select' || mode === 'text' || mode === 'pan' || mode === 'relax' || mode === 'brainstorm') {
-          const dx = e.clientX - panStartRef.current.x;
-          const dy = e.clientY - panStartRef.current.y;
-          setCamera({
-            x: panStartRef.current.camX + dx,
-            y: panStartRef.current.camY + dy,
-            zoom: liveCamera.zoom,
-          });
+          /* Absolute, measured from where the drag began, so a frame that
+             coalesces three mousemoves lands on the newest one rather than
+             summing all three. Through the same one-write-per-frame flush as
+             the wheel, so a mouse reporting at 1000Hz costs 60 renders a
+             second, not a thousand. */
+          camIntent.current.panTo = {
+            x: panStartRef.current.camX + (e.clientX - panStartRef.current.x),
+            y: panStartRef.current.camY + (e.clientY - panStartRef.current.y),
+          };
+          scheduleCamera();
         }
       }
     },
     // No `camera` dep: the handler reads it live from the store (see top), so
     // the callback never needs to re-bind when the camera changes.
-    [mode, setCamera, activeArrowId, objects, updateObject]
+    [mode, scheduleCamera, activeArrowId, objects, updateObject]
   );
 
   /* ------------------------------------------------------------------
@@ -1521,6 +1589,18 @@ export default function InfiniteCanvas() {
     return () => window.removeEventListener('paste', handlePaste);
   }, [camera, addObject]);
 
+  /* How far the camera has travelled, in coarse steps.
+     The cull below used to depend on `camera` itself, so a pan rebuilt the
+     whole visible-object list — a Map allocation over every object on the
+     board plus a filter — on EVERY frame, sixty times a second, to almost
+     always produce the same list. Quantising to 160px means it recomputes
+     roughly once per 160px of travel; the 400px margin around the viewport is
+     what makes that safe, since nothing can enter view within the slack. */
+  const cullKey = useMemo(() => {
+    const q = 160;
+    return `${Math.round(camera.x / q)}:${Math.round(camera.y / q)}:${camera.zoom.toFixed(2)}`;
+  }, [camera]);
+
   // Viewport culling: only mount objects that intersect the visible area (plus a
   // margin). Without this, a large stored canvas mounts every card at once and can
   // lock up the browser on load.
@@ -1530,11 +1610,14 @@ export default function InfiniteCanvas() {
     );
     if (typeof window === 'undefined') return deduped;
 
+    // Live, not the quantised key: the key decides WHEN to recompute, the
+    // store decides what the answer is.
+    const cam = useCanvasStore.getState().camera;
     const margin = 400; // screen px of slack around the viewport
-    const minX = (-camera.x - margin) / camera.zoom;
-    const minY = (-camera.y - margin) / camera.zoom;
-    const maxX = (window.innerWidth - camera.x + margin) / camera.zoom;
-    const maxY = (window.innerHeight - camera.y + margin) / camera.zoom;
+    const minX = (-cam.x - margin) / cam.zoom;
+    const minY = (-cam.y - margin) / cam.zoom;
+    const maxX = (window.innerWidth - cam.x + margin) / cam.zoom;
+    const maxY = (window.innerHeight - cam.y + margin) / cam.zoom;
 
     return deduped.filter(
       (o) =>
@@ -1548,7 +1631,9 @@ export default function InfiniteCanvas() {
         o.style?.linkIsPlaying ||
         (o.x + o.width >= minX && o.x <= maxX && o.y + o.height >= minY && o.y <= maxY)
     );
-  }, [objects, camera, selectedId, editingId, focusedId, spreadStackId]);
+    // `cullKey` (not `camera`) on purpose — see the note above it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [objects, cullKey, selectedId, editingId, focusedId, spreadStackId]);
 
   /* Leaving brainstorm mode drops any half-tied thread, so re-entering later
      never starts you mid-connection against a pin you've forgotten about. */
