@@ -150,14 +150,21 @@ export default function TextAnimPanel({
   return createPortal(
     <motion.div
       ref={ref}
-      initial={{ opacity: 0, y: 10, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 10, scale: 0.97 }}
+      initial={{ opacity: 0, x: 14, scale: 0.97 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: 14, scale: 0.97 }}
       transition={{ type: 'spring', stiffness: 360, damping: 32 }}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="fixed left-1/2 -translate-x-1/2 z-[150] clay-card rounded-2xl pointer-events-auto"
-      style={{ bottom: 150, width: 468, maxWidth: '94vw', fontFamily: "'Outfit', sans-serif" }}
+      onWheel={(e) => e.stopPropagation()}
+      /* Geometry in CSS (.anim-gallery), because it has to track the
+         properties rail it opens from — it sits immediately left of it, level
+         with its top, and falls back to a centred sheet when the viewport is
+         too narrow to hold both. Transform-free positioning on purpose: this
+         is a `motion` element, so framer owns the transform property and any
+         `translateX(-50%)` centering trick would be overwritten mid-animation. */
+      className="anim-gallery clay-card rounded-2xl pointer-events-auto"
+      style={{ fontFamily: "'Outfit', sans-serif" }}
     >
       {/* header */}
       <div className="flex items-center justify-between" style={{ padding: '12px 14px 8px' }}>

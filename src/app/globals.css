@@ -1013,12 +1013,103 @@ html, body {
   z-index: 150;
 }
 
+/* ============================================
+   Properties rail — the selection inspector.
+
+   Geometry lives here rather than inline because it's a NEGOTIATION with the
+   rest of the chrome, and all the other parties are already in this file: it
+   right-aligns with the minimap (right: 48px), starts level with the board
+   title (top: 48px), and stops short of the minimap's top edge — hence the
+   248px reserved at the bottom (32 bottom offset + ~150 tall + a 66px gutter).
+   Below 1024px the minimap jumps to the top-right corner, so the rail has to
+   move out from under it; below 768px the minimap is gone and the rail becomes
+   a sheet above the toolbar, because 300px of a 700px screen is not a sidebar,
+   it's a takeover.
+   ============================================ */
+.props-rail {
+  position: fixed;
+  top: 48px;
+  right: 48px;
+  width: 300px;
+  max-width: calc(100vw - 76px);
+  max-height: calc(100vh - 248px);
+  z-index: 140;
+}
+
+/* Slimmer than .custom-scrollbar, and visible on BOTH papers — that one paints
+   a white thumb, which is invisible against a light board. */
+.props-rail-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.props-rail-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.props-rail-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.props-rail-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+  border: 2.5px solid transparent;
+  background-clip: content-box;
+}
+.props-rail-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+  background-clip: content-box;
+}
+
+/* The text-animation gallery, opened from the rail's Motion group. It docks to
+   the rail's left edge (48 + 300 + 12 gutter = 360) so it reads as a drawer of
+   the thing that opened it, and only falls back to a floating centred sheet
+   when there isn't room for the two side by side. */
+.anim-gallery {
+  position: fixed;
+  z-index: 150;
+  top: 48px;
+  right: 360px;
+  width: 468px;
+  max-width: calc(100vw - 384px);
+}
+
 /* Responsive adjustments for Minimap and Floating Toolbar to prevent overlapping */
+@media (max-width: 1100px) {
+  .anim-gallery {
+    top: auto;
+    bottom: 120px;
+    left: 16px;
+    right: 16px;
+    width: auto;
+    max-width: 468px;
+    margin: 0 auto;
+  }
+}
+
 @media (max-width: 1024px) {
   .minimap-container {
     top: 100px !important;
     bottom: auto !important;
     right: 24px !important;
+  }
+  .props-rail {
+    top: 268px;
+    right: 24px;
+    /* 268 of clearance above + 112 below: at this width the toolbar is nearly
+       as wide as the window, so the rail has to stop above it rather than
+       beside it. */
+    max-height: calc(100vh - 380px);
+  }
+}
+
+@media (max-width: 768px) {
+  .props-rail {
+    top: auto;
+    bottom: 112px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: none;
+    max-height: 46vh;
   }
 }
 

@@ -1,31 +1,43 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import TextAnimPanel, { LetterSparkIcon } from './TextAnimPanel';
+import { getAnimPreset } from '@/lib/textAnim';
 import type { TextAnimConfig } from '@/lib/textAnim';
 import { getFrameKind, frameKindMeta, frameTitle } from '@/lib/frames';
 
 /**
- * Contextual properties panel — a compact horizontal strip that appears just
- * above the floating toolbar. Collapsed: a single row of quick-access controls.
- * Expanded: a wider card with full options (font search, size stepper, layers,
- * opacity, actions). Works for text objects, shapes, arrows, frames — and also
- * shows text defaults when in text mode before anything is created.
+ * The properties rail — everything you can change about the selected thing.
+ *
+ * This used to be a horizontal strip floating over the bottom of the canvas,
+ * directly above the toolbar, with a "more options" card that unfolded on top
+ * of it. Two problems with that shape. It sat in the middle of the board, so
+ * the strip covered the very row of content you were editing; and a horizontal
+ * bar has no room to grow, so all but six controls had to hide behind a chevron
+ * — the font list, the size, opacity, layer order and the full colour picker
+ * were one click away from being findable at all.
+ *
+ * It's a docked rail on the right now, in the dead space above the minimap:
+ * a vertical column has room to show every control for the current selection at
+ * once, grouped and labelled, and it never covers the canvas's centre. Groups
+ * collapse (and remember what you collapsed), and the column scrolls when a
+ * selection has more options than the viewport is tall — with the edges of the
+ * scroll area fading so it's visible that there's more below.
+ *
+ * It still serves double duty: a selected object, or the text/arrow tool's
+ * defaults before anything has been created.
  */
 
-const spring = { type: 'spring' as const, stiffness: 360, damping: 32 };
+const spring = { type: 'spring' as const, stiffness: 400, damping: 34 };
 
 /* ---- option palettes ---- */
-const TEXT_COLORS = ['#FFFFFF', '#2D2A26', '#D64545', '#E67E22', '#2F9E6E', '#3E63DD', '#8B5FBF', '#E93D82'];
-
 /**
  * The full picker: eight hue families × eight steps, light to dark.
  *
- * The quick strip in the collapsed bar is still eight one-tap favourites — this
- * is what "more options" is for. Laid out as a grid rather than a wrapped row
- * so a colour is found by aiming (this hue, that darkness) instead of scanning.
+ * Laid out as a grid rather than a wrapped row so a colour is found by aiming
+ * (this hue, that darkness) instead of scanning.
  */
 const SWATCH_GRID: string[][] = [
   ['#FFFFFF', '#F1EDE7', '#D6D0C7', '#A9A199', '#78706A', '#4A443F', '#2D2A26', '#000000'],
@@ -65,6 +77,30 @@ function pushRecent(color: string): string[] {
   return next;
 }
 
+/* Which groups you left folded up, remembered across selections and reloads.
+   A rail you've tuned to your own workflow should stay tuned. */
+const GROUPS_KEY = 'mindspace:inspector-groups';
+
+function readGroups(): Record<string, boolean> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(GROUPS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeGroup(id: string, open: boolean) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(GROUPS_KEY, JSON.stringify({ ...readGroups(), [id]: open }));
+  } catch {
+    /* quota — the rail just won't remember this one */
+  }
+}
+
 /** Chrome/Edge ship a real screen colour picker; Safari/Firefox don't yet. */
 type EyeDropperCtor = new () => { open: (opts?: { signal?: AbortSignal }) => Promise<{ sRGBHex: string }> };
 function getEyeDropper(): EyeDropperCtor | undefined {
@@ -81,8 +117,6 @@ function normalizeHex(input: string): string | null {
   const full = body.length === 3 ? body.split('').map((c) => c + c).join('') : body;
   return `#${full.toUpperCase()}`;
 }
-const STROKE_COLORS = ['#FFFFFF', '#2D2A26', '#D64545', '#2F9E6E', '#3E63DD', '#E67E22', '#8B5FBF'];
-const ARROW_COLORS = ['#2D2A26', '#D64545', '#E67E22', '#2F9E6E', '#3E63DD', '#8B5FBF'];
 
 const FONTS: { label: string; value: string }[] = [
   { label: 'Inter', value: "'Inter', sans-serif" },
@@ -101,26 +135,21 @@ const FONTS: { label: string; value: string }[] = [
   { label: 'Righteous', value: "'Righteous', sans-serif" },
 ];
 
-const HEADINGS: { id: string; label: string; size: number; weight: number }[] = [
-  { id: 'h1', label: 'H1', size: 40, weight: 700 },
-  { id: 'h2', label: 'H2', size: 30, weight: 700 },
-  { id: 'h3', label: 'H3', size: 24, weight: 600 },
-  { id: 'h4', label: 'H4', size: 19, weight: 600 },
-  { id: 'body', label: 'Body', size: 15, weight: 400 },
+/* `preview` scales each button's own label, so the control reads as the type
+   scale it sets rather than five identical chips. */
+const HEADINGS: { id: string; label: string; size: number; weight: number; preview: number }[] = [
+  { id: 'h1', label: 'H1', size: 40, weight: 700, preview: 13 },
+  { id: 'h2', label: 'H2', size: 30, weight: 700, preview: 12 },
+  { id: 'h3', label: 'H3', size: 24, weight: 600, preview: 11 },
+  { id: 'h4', label: 'H4', size: 19, weight: 600, preview: 10 },
+  { id: 'body', label: 'Body', size: 15, weight: 400, preview: 9.5 },
 ];
 
 const SIZE_PRESETS = [12, 14, 16, 20, 24, 32, 48, 64];
 
-/* ---- building blocks ---- */
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-[9px] uppercase font-extrabold tracking-[0.13em] text-[var(--text-tertiary)]">{label}</span>
-      {children}
-    </div>
-  );
-}
+const FRAME_SWATCHES = ['#C97B4B', '#45B761', '#4A90D9', '#9B59B6', '#E93D82', '#2D2A26'];
 
+/* ---- building blocks ---- */
 function Icon({ children, size = 14 }: { children: React.ReactNode; size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -129,18 +158,117 @@ function Icon({ children, size = 14 }: { children: React.ReactNode; size?: numbe
   );
 }
 
+/** What the rail is pointed at, said in one chip and one word. */
+const TYPE_META: Record<string, { label: string; icon: React.ReactNode }> = {
+  text: { label: 'Text', icon: <><path d="M5 7V5h14v2" /><line x1="12" y1="5" x2="12" y2="19" /><line x1="9" y1="19" x2="15" y2="19" /></> },
+  heading: { label: 'Heading', icon: <><path d="M6 4v16" /><path d="M18 4v16" /><path d="M6 12h12" /></> },
+  card: { label: 'Card', icon: <><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="7" y1="9" x2="17" y2="9" /><line x1="7" y1="13" x2="14" y2="13" /></> },
+  sticky: { label: 'Sticky note', icon: <><path d="M4 4h16v10l-6 6H4z" /><path d="M20 14h-6v6" /></> },
+  shape: { label: 'Shape', icon: <><circle cx="8.5" cy="8.5" r="5" /><rect x="10" y="10" width="10" height="10" rx="2" /></> },
+  arrow: { label: 'Arrow', icon: <><line x1="4" y1="19" x2="18" y2="5" /><polyline points="11 5 18 5 18 12" /></> },
+  frame: { label: 'Frame', icon: <><path d="M4 8h16" /><path d="M4 16h16" /><path d="M8 4v16" /><path d="M16 4v16" /></> },
+  image: { label: 'Image', icon: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.6" /><path d="m4 18 5-5 4 4 3-3 4 4" /></> },
+  mirror: { label: 'Camera mirror', icon: <><path d="M22 8.5v7l-5-3.5z" /><rect x="2" y="5" width="15" height="14" rx="2.5" /></> },
+  drawing: { label: 'Drawing', icon: <><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></> },
+  browser: { label: 'Web block', icon: <><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><circle cx="6.5" cy="6.5" r=".6" fill="currentColor" /></> },
+  pin: { label: 'Pin', icon: <><line x1="12" y1="21" x2="12" y2="13" /><path d="M8.5 3h7l-1.2 7 2.7 3H7l2.7-3z" /></> },
+  'workflow-node': { label: 'Workflow node', icon: <><rect x="3" y="8" width="8" height="8" rx="2" /><rect x="13" y="8" width="8" height="8" rx="2" /><line x1="11" y1="12" x2="13" y2="12" /></> },
+};
+
+/**
+ * A collapsible, labelled group of controls.
+ *
+ * The label rule runs to the chevron so the eye can find a section by its
+ * heading alone while scrolling — in a column of small controls, a bare word
+ * on its own line disappears.
+ */
+function Group({
+  id, label, defaultOpen = true, children,
+}: {
+  id: string;
+  label: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  // Lazy initialiser, not an effect: the canvas is client-only, so localStorage
+  // is readable on the first render and there's no hydration pass to mismatch.
+  const [open, setOpen] = useState<boolean>(() => readGroups()[id] ?? defaultOpen);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    writeGroup(id, next);
+  };
+
+  return (
+    <section className="flex flex-col">
+      <button
+        onClick={toggle}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 cursor-pointer group/sec"
+        style={{ padding: '9px 2px 7px' }}
+      >
+        <span className="text-[9px] uppercase font-extrabold tracking-[0.15em] text-[var(--text-tertiary)] group-hover/sec:text-[var(--text-secondary)] transition-colors whitespace-nowrap">
+          {label}
+        </span>
+        <span className="flex-1 h-px bg-[var(--border)]" />
+        <motion.span
+          animate={{ rotate: open ? 0 : -90 }}
+          transition={{ duration: 0.18 }}
+          className="flex items-center justify-center text-[var(--text-muted)] group-hover/sec:text-[var(--text-secondary)] transition-colors"
+        >
+          <Icon size={11}><polyline points="6 9 12 15 18 9" /></Icon>
+        </motion.span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="flex flex-col gap-2.5" style={{ paddingBottom: 4 }}>{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  );
+}
+
+/** A caption + its control, for the two-or-three sub-controls inside a group. */
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[9px] uppercase font-extrabold tracking-[0.12em] text-[var(--text-muted)]">{label}</span>
+      {children}
+    </div>
+  );
+}
+
 /** A squared tool button (icon or short label) with a clear active state. */
-function OptBtn({ active, onClick, title, children, wide = false }: { active?: boolean; onClick: () => void; title?: string; children: React.ReactNode; wide?: boolean }) {
+function OptBtn({
+  active, onClick, title, children, height = 30,
+}: {
+  active?: boolean;
+  onClick: () => void;
+  title?: string;
+  children: React.ReactNode;
+  height?: number;
+}) {
   return (
     <button
       onClick={onClick}
       title={title}
       aria-pressed={active}
-      className={`h-7 ${wide ? 'flex-1 px-1.5' : 'w-7'} rounded-lg flex items-center justify-center text-[11px] font-bold transition-all duration-150 cursor-pointer active:scale-95 ${
+      className={`w-full rounded-[9px] flex items-center justify-center text-[11px] font-bold transition-all duration-150 cursor-pointer active:scale-[0.96] ${
         active
           ? 'clay-inset text-[var(--accent)] shadow-none'
-          : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:brightness-[0.97] shadow-[inset_0_1px_2px_rgba(90,62,40,0.06)]'
+          : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:brightness-[0.97]'
       }`}
+      style={{ height }}
     >
       {children}
     </button>
@@ -154,12 +282,13 @@ function Swatch({ color, active, onClick }: { color: string; active: boolean; on
     <button
       onClick={onClick}
       title={transparent ? 'Transparent' : color}
-      className="w-5.5 h-5.5 rounded-full shrink-0 transition-transform duration-150 hover:scale-110 active:scale-95 cursor-pointer"
+      className="w-full rounded-full shrink-0 transition-transform duration-150 hover:scale-110 active:scale-95 cursor-pointer"
       style={{
+        aspectRatio: '1 / 1',
         background: transparent ? 'repeating-conic-gradient(#c4b8ab 0% 25%, #fff 0% 50%) 50% / 9px 9px' : color,
         boxShadow: active
           ? '0 0 0 2px var(--accent), 0 0 0 3.5px var(--accent-subtle)'
-          : 'inset 0 0 0 1px rgba(45,42,38,0.14), 0 1px 2px rgba(90,62,40,0.10)',
+          : 'inset 0 0 0 1px rgba(128,128,128,0.28), 0 1px 2px rgba(90,62,40,0.10)',
       }}
     />
   );
@@ -181,8 +310,6 @@ function ColorField({
   onChange: (c: string) => void;
   allowTransparent?: boolean;
 }) {
-  // Lazy initialiser, not an effect: the canvas is client-only, so localStorage
-  // is readable on the first render and there's no hydration pass to mismatch.
   const [recents, setRecents] = useState<string[]>(() => loadRecents());
   const [picking, setPicking] = useState(false);
   const [hexError, setHexError] = useState(false);
@@ -192,7 +319,12 @@ function ColorField({
      resolved during render, so selecting a different block shows ITS colour
      without an effect that syncs one piece of state into another. */
   const [draft, setDraft] = useState<string | null>(null);
-  const hex = draft ?? (value && value !== 'transparent' ? value.toUpperCase() : '');
+  /* Only ever show a real hex in the hex box. Some blocks are born with an
+     `rgba(…)` fill from a theme, and echoing that into a six-digit field
+     printed "#RGBA(255, 252, 248, 0.75" — a value you can't read and can't
+     edit. An empty box with its RRGGBB placeholder says the truth: this colour
+     isn't expressible here, type one that is. */
+  const hex = draft ?? (value ? (normalizeHex(value) ?? '') : '');
 
   const commit = (c: string) => {
     onChange(c);
@@ -223,7 +355,12 @@ function ColorField({
   };
 
   const hasEyeDropper = !!getEyeDropper();
-  const swatch = (c: string, key: string) => (
+  /* Slightly wide of square on purpose. Eight columns across a 272px rail is a
+     31px cell, and sixty-four of those is 270px of swatch — a third of the rail
+     spent on one control, which pushed Motion and Arrange off the bottom for
+     everybody. At 22px tall the same grid costs 200px and still reads as a
+     palette (each row is one hue family, light to dark). */
+  const swatch = (c: string, key: string, height: number) => (
     <button
       key={key}
       onClick={() => commit(c)}
@@ -231,7 +368,7 @@ function ColorField({
       aria-label={c}
       className="w-full rounded-[5px] transition-transform duration-100 hover:scale-[1.18] active:scale-95 cursor-pointer"
       style={{
-        aspectRatio: '1 / 1',
+        height,
         background: c,
         boxShadow: (value || '').toLowerCase() === c.toLowerCase()
           ? '0 0 0 2px var(--accent), 0 0 0 3.5px var(--accent-subtle)'
@@ -246,14 +383,14 @@ function ColorField({
           returning arrays-of-arrays leaves React without keys on the outer
           level. The grid does the wrapping. */}
       <div className="grid gap-[3px]" style={{ gridTemplateColumns: 'repeat(8, minmax(0, 1fr))' }}>
-        {SWATCH_GRID.flatMap((row, ri) => row.map((c, ci) => swatch(c, `${ri}-${ci}`)))}
+        {SWATCH_GRID.flatMap((row, ri) => row.map((c, ci) => swatch(c, `${ri}-${ci}`, 22)))}
       </div>
 
       {recents.length > 0 && (
         <div className="flex flex-col gap-1">
-          <span className="text-[8.5px] uppercase font-extrabold tracking-[0.13em] text-[var(--text-tertiary)]">Recent</span>
+          <span className="text-[8.5px] uppercase font-extrabold tracking-[0.13em] text-[var(--text-muted)]">Recent</span>
           <div className="grid gap-[3px]" style={{ gridTemplateColumns: 'repeat(12, minmax(0, 1fr))' }}>
-            {recents.map((c, i) => swatch(c, `r-${i}`))}
+            {recents.map((c, i) => swatch(c, `r-${i}`, 18))}
           </div>
         </div>
       )}
@@ -272,7 +409,7 @@ function ColorField({
             spellCheck={false}
             className="w-full bg-[var(--well)] rounded-lg text-[11px] font-mono uppercase outline-none focus:ring-2 focus:ring-[var(--accent)]/30 placeholder:text-[var(--text-muted)] placeholder:normal-case"
             style={{
-              padding: '5px 6px 5px 16px',
+              padding: '6px 6px 6px 16px',
               boxShadow: hexError ? 'inset 0 0 0 1.5px #D64545' : 'inset 0 1px 2px rgba(90,62,40,0.06)',
             }}
           />
@@ -330,21 +467,23 @@ function ColorField({
 }
 
 /**
- * Every colour this object owns, behind one picker.
+ * Every colour this object owns, one row each.
  *
- * Text has a colour AND a background, a shape has a fill AND a stroke. Giving
- * each its own permanent swatch row meant none of them could afford the full
- * grid, so all of them got eight fixed chips and no way to reach anything else.
- * Tabs mean one field, full width, with the whole palette + hex + eyedropper —
- * and it costs one click to switch which property you're aiming at.
+ * Text has a colour AND a background; a shape has a fill AND a stroke. In the
+ * old bottom strip these were tabs, because a horizontal bar could only ever
+ * show one picker. A column can show the whole list — so each property gets a
+ * row with its own chip and hex read-out, and clicking a row opens the full
+ * grid under it. You can see what every colour currently IS without clicking,
+ * which is most of what you came here to find out.
  */
-function ColorTabs({
-  t, S, patch, isTextLike,
+function ColorRows({
+  t, S, patch, isTextLike, frameColorable,
 }: {
   t: string;
   S: Record<string, unknown>;
   patch: (kv: Record<string, unknown>) => void;
   isTextLike: boolean;
+  frameColorable: boolean;
 }) {
   const targets = useMemo(() => {
     const list: { id: string; label: string; value: string | undefined; key: string; transparent?: boolean }[] = [];
@@ -359,72 +498,88 @@ function ColorTabs({
     if (t === 'arrow') {
       list.push({ id: 'arrow', label: 'Arrow', value: S.color as string, key: 'color' });
     }
-    if (t === 'frame') {
+    if (t === 'frame' && frameColorable) {
       list.push({ id: 'frame', label: 'Frame', value: S.frameColor as string, key: 'frameColor' });
     }
     return list;
-  }, [t, isTextLike, S]);
+  }, [t, isTextLike, frameColorable, S]);
 
-  const [active, setActive] = useState(0);
-  // The tab list changes with the selection; an index left over from a shape
-  // would point past the end of a text block's shorter list.
-  const idx = Math.min(active, Math.max(0, targets.length - 1));
-  const target = targets[idx];
-  if (!target) return null;
+  /* `undefined` means "nobody has chosen yet", which resolves to the first row
+     being open — the one you almost always want. An explicit '' is you having
+     folded them all away, and that must survive re-renders. */
+  const [openId, setOpenId] = useState<string | undefined>(undefined);
+  const open = openId === undefined ? targets[0]?.id : openId;
+
+  if (targets.length === 0) return null;
 
   return (
-    <Section label="Colour">
-      {targets.length > 1 && (
-        <div className="flex items-center gap-1" style={{ marginBottom: 2 }}>
-          {targets.map((tg, i) => (
+    <div className="flex flex-col gap-1.5">
+      {targets.map((tg) => {
+        const isOpen = open === tg.id;
+        const transparent = !tg.value || tg.value === 'transparent';
+        return (
+          <div key={tg.id} className="flex flex-col gap-1.5">
             <button
-              key={tg.id}
-              onClick={() => setActive(i)}
-              aria-pressed={i === idx}
-              className={`flex items-center gap-1.5 rounded-lg text-[10px] font-bold transition-colors cursor-pointer ${
-                i === idx ? 'clay-inset text-[var(--accent)]' : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              onClick={() => setOpenId(isOpen ? '' : tg.id)}
+              aria-expanded={isOpen}
+              className={`w-full flex items-center gap-2 rounded-[10px] cursor-pointer transition-colors ${
+                isOpen ? 'clay-inset' : 'bg-[var(--well)] hover:brightness-[0.97]'
               }`}
-              style={{ padding: '4px 9px' }}
+              style={{ padding: '6px 8px' }}
             >
               <span
-                className="w-2.5 h-2.5 rounded-full shrink-0"
+                className="w-4 h-4 rounded-full shrink-0"
                 style={{
-                  background: tg.value && tg.value !== 'transparent'
-                    ? tg.value
-                    : 'repeating-conic-gradient(#c4b8ab 0% 25%, #fff 0% 50%) 50% / 5px 5px',
+                  background: transparent
+                    ? 'repeating-conic-gradient(#c4b8ab 0% 25%, #fff 0% 50%) 50% / 6px 6px'
+                    : tg.value,
                   boxShadow: 'inset 0 0 0 1px rgba(128,128,128,0.35)',
                 }}
               />
-              {tg.label}
+              <span className={`text-[11px] font-bold ${isOpen ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>{tg.label}</span>
+              <span className="flex-1" />
+              {/* A theme fill can be an `rgba(…)` string that would run the
+                  width of the row; it gets one honest word instead. */}
+              <span className="text-[9.5px] font-mono font-bold uppercase text-[var(--text-muted)] tracking-tight truncate" style={{ maxWidth: 92 }}>
+                {transparent ? 'none' : (normalizeHex(tg.value || '') ?? 'custom')}
+              </span>
             </button>
-          ))}
-        </div>
-      )}
-      <ColorField
-        key={target.id}
-        value={target.value}
-        allowTransparent={target.transparent}
-        onChange={(c) => patch({ [target.key]: c })}
-      />
-    </Section>
+
+            <AnimatePresence initial={false}>
+              {isOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                  style={{ overflow: 'hidden' }}
+                >
+                  <div style={{ paddingBottom: 4 }}>
+                    <ColorField
+                      value={tg.value}
+                      allowTransparent={tg.transparent}
+                      onChange={(c) => patch({ [tg.key]: c })}
+                    />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })}
+    </div>
   );
-}
-
-function VDivider() {
-  return <div className="w-px h-5 bg-[var(--border)] mx-1 shrink-0" />;
-}
-
-function HDivider() {
-  return <div className="w-full h-px bg-[var(--border)]" />;
 }
 
 export default function SelectionPanel() {
   const selectedId = useCanvasStore((s) => s.selectedId);
   const objects = useCanvasStore((s) => s.objects);
   const mode = useCanvasStore((s) => s.mode);
+  const setMode = useCanvasStore((s) => s.setMode);
   const isTouring = useCanvasStore((s) => s.isTouring);
   const updateObject = useCanvasStore((s) => s.updateObject);
   const removeObject = useCanvasStore((s) => s.removeObject);
+  const setSelectedId = useCanvasStore((s) => s.setSelectedId);
   const setEditingId = useCanvasStore((s) => s.setEditingId);
   const duplicateObject = useCanvasStore((s) => s.duplicateObject);
   const addToTrash = useCanvasStore((s) => s.addToTrash);
@@ -442,8 +597,50 @@ export default function SelectionPanel() {
 
   const [fontQuery, setFontQuery] = useState('');
   const [linked, setLinked] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const [animOpen, setAnimOpen] = useState(false);
+
+  /* The scroll shadows. A rail that's taller than the viewport has to SAY so —
+     a hard-cut edge reads as the end of the panel, a faded one reads as more.
+     Done with a mask on the scroller rather than two gradient overlays, so it
+     costs nothing to keep correct in both themes. */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [shade, setShade] = useState({ top: false, bottom: false });
+
+  const measure = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const next = {
+      top: el.scrollTop > 3,
+      bottom: el.scrollTop + el.clientHeight < el.scrollHeight - 3,
+    };
+    setShade((p) => (p.top === next.top && p.bottom === next.bottom ? p : next));
+  };
+
+  // After every render: groups open and close, and the selection changes what
+  // is in the column at all. Converges in one pass — `measure` only sets state
+  // when a value actually flipped.
+  useLayoutEffect(measure);
+
+  /* A new selection is a new panel, so it opens at the top. Without this you
+     select a card after scrolling a text block's options and land halfway down
+     someone else's controls, with the header above claiming to describe them. */
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [selectedId]);
+
+  // And when the content resizes WITHOUT a render — a group's height animation,
+  // a font list growing as you type.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+    // `measure` is deliberately out of the deps: it's re-created every render
+    // and only reads live DOM, so re-attaching the observer for it would churn
+    // for nothing. Re-attach when the rail's content is swapped wholesale.
+  }, [selectedId, mode]);
 
   // Show for a selected object, OR for the arrow/text tool before anything is drawn
   const arrowDefault = !obj && mode === 'arrow';
@@ -476,12 +673,12 @@ export default function SelectionPanel() {
     return FONTS.slice(0, 6);
   }, [fontQuery]);
 
-  if (!t || isTouring) return null;
-
   const isTextLike = t === 'text' || t === 'heading' || t === 'card' || t === 'sticky';
   const isHeadingCapable = t === 'text' || t === 'heading';
+  const frameKind = t === 'frame' ? getFrameKind(obj) : 'normal';
   const opacity = ((S.opacity as number | undefined) ?? 1) * 100;
   const align = (S.textAlign as string) || 'left';
+  const activeAnim = getAnimPreset((S.textAnim as TextAnimConfig | undefined)?.preset);
 
   const del = () => {
     if (!obj) return;
@@ -509,465 +706,462 @@ export default function SelectionPanel() {
   const activeHeading = HEADINGS.find((h) => h.size === (S.fontSize as number) && h.weight === (S.fontWeight as number))?.id
     || (textDefault ? (S.headingLevel as string) : undefined);
 
+  /* Header identity. A frame says which KIND of frame it is, because a delete
+     frame and a grouping frame do very different things to what you drop in. */
+  const meta = (t && TYPE_META[t]) || TYPE_META.text;
+  const title = t === 'frame' && obj
+    ? `${frameKindMeta(frameKind).label} frame`
+    : meta.label;
+  const subtitle = obj
+    ? `${Math.round(obj.width)} × ${Math.round(obj.height)}`
+    : textDefault ? 'Defaults for the next block'
+    : 'Defaults for the next arrow';
+
+  const maskStops = [
+    shade.top ? 'rgba(0,0,0,0) 0px, #000 18px' : '#000 0px',
+    shade.bottom ? '#000 calc(100% - 20px), rgba(0,0,0,0) 100%' : '#000 100%',
+  ].join(', ');
+  const mask = `linear-gradient(to bottom, ${maskStops})`;
+
+  const iconBtn = 'w-[26px] h-[26px] rounded-[8px] flex items-center justify-center transition-colors cursor-pointer active:scale-95 shrink-0';
+
   return (
     <AnimatePresence>
-      <motion.div
-        key="selection-panel"
-        initial={{ opacity: 0, y: 10, scale: 0.97 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 10, scale: 0.97 }}
-        transition={spring}
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          // Keep the caret in the text block being edited: pressing a format
-          // button (size preset, +/-, heading, font, colour) must NOT blur the
-          // contentEditable, otherwise an empty new block exits edit mode before
-          // you can pick a size. Real inputs still need focus, so exempt them.
-          const tag = (e.target as HTMLElement).tagName;
-          if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') e.preventDefault();
-        }}
-        onClick={(e) => e.stopPropagation()}
-        className="fixed bottom-[80px] left-1/2 -translate-x-1/2 z-[140] pointer-events-auto flow-hideable"
-        style={{ fontFamily: "'Outfit', sans-serif" }}
-      >
-        {/* --- Compact collapsed strip --- */}
-        <div className="clay-card rounded-2xl px-3 py-2 flex items-center gap-1.5 max-w-[92vw] overflow-x-auto custom-scrollbar">
-          {/* Panel label */}
-          {textDefault && (
-            <>
-              <span className="text-[9px] uppercase font-extrabold tracking-wider text-[var(--text-tertiary)] whitespace-nowrap mr-1">Text</span>
-              <VDivider />
-            </>
-          )}
-          {arrowDefault && (
-            <>
-              <span className="text-[9px] uppercase font-extrabold tracking-wider text-[var(--text-tertiary)] whitespace-nowrap mr-1">Arrow</span>
-              <VDivider />
-            </>
-          )}
-          {obj && (
-            <>
-              <span className="text-[9px] uppercase font-extrabold tracking-wider text-[var(--text-tertiary)] whitespace-nowrap mr-1">
-                {t === 'shape' ? 'Shape'
-                  : t === 'arrow' ? 'Arrow'
-                  : t === 'frame' ? `${frameKindMeta(getFrameKind(obj)).label} frame`
-                  : 'Text'}
-              </span>
-              <VDivider />
-            </>
-          )}
-
-          {/* Quick heading presets (text-like) */}
-          {isHeadingCapable && (
-            <>
-              {HEADINGS.map((h) => (
-                <OptBtn key={h.id} active={activeHeading === h.id} title={h.label}
-                  onClick={() => patch({ fontSize: h.size, fontWeight: h.weight, headingLevel: h.id })}>
-                  <span className="text-[10px]">{h.label}</span>
-                </OptBtn>
-              ))}
-              <VDivider />
-            </>
-          )}
-
-          {/* Quick color swatches (text color / stroke / arrow color) */}
-          {(isTextLike ? TEXT_COLORS : t === 'arrow' ? ARROW_COLORS : t === 'shape' ? STROKE_COLORS : []).slice(0, 6).map((c) => {
-            const current = isTextLike ? S.textColor : t === 'arrow' ? S.color : S.borderColor;
-            const isActive = current === c || (!current && isTextLike && c === '#2D2A26') || (!current && t === 'arrow' && c === '#2D2A26');
-            return (
-              <Swatch key={c} color={c} active={!!isActive}
-                onClick={() => patch(isTextLike ? { textColor: c } : t === 'arrow' ? { color: c } : { borderColor: c })} />
-            );
-          })}
-
-          {(isTextLike || t === 'arrow' || t === 'shape') && <VDivider />}
-
-          {/* Quick align (text-like) */}
-          {isTextLike && (
-            <>
-              {([
-                ['left', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="14" y2="12" /><line x1="4" y1="18" x2="18" y2="18" /></>],
-                ['center', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="5" y1="18" x2="19" y2="18" /></>],
-                ['right', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="10" y1="12" x2="20" y2="12" /><line x1="6" y1="18" x2="20" y2="18" /></>],
-              ] as const).map(([a, ic]) => (
-                <OptBtn key={a} active={align === a} title={a} onClick={() => patch({ textAlign: a })}>
-                  <Icon size={12}>{ic}</Icon>
-                </OptBtn>
-              ))}
-              <VDivider />
-            </>
-          )}
-
-          {/* Arrow head quick access */}
-          {t === 'arrow' && (
-            <>
-              {/* Keyed: these are elements sitting in an array literal, so React
-                  wants keys on them even though the array is static. */}
-              {([
-                ['line', <line key="l" x1="4" y1="12" x2="20" y2="12" />],
-                ['arrow', <React.Fragment key="a"><line x1="4" y1="12" x2="18" y2="12" /><polyline points="13 7 19 12 13 17" /></React.Fragment>],
-                ['dot', <React.Fragment key="d"><line x1="4" y1="12" x2="15" y2="12" /><circle cx="18" cy="12" r="3" fill="currentColor" /></React.Fragment>],
-                ['diamond', <React.Fragment key="dm"><line x1="4" y1="12" x2="14" y2="12" /><polygon points="18 8 22 12 18 16 14 12" fill="currentColor" /></React.Fragment>],
-              ] as const).map(([p, ic]) => (
-                <OptBtn key={p} active={((S.pointerType as string) || 'line') === p} title={p}
-                  onClick={() => patch({ pointerType: p })}>
-                  <Icon size={12}>{ic}</Icon>
-                </OptBtn>
-              ))}
-              <VDivider />
-            </>
-          )}
-
-          {/* Stroke width (shape / arrow) */}
-          {(t === 'shape' || t === 'arrow') && (
-            <>
-              {([['thin', 1.2], ['medium', 2.4], ['bold', 4]] as const).map(([w, px]) => {
-                const isActive = t === 'arrow'
-                  ? ((S.thickness as number) || 3) === (w === 'thin' ? 2 : w === 'medium' ? 3 : 6)
-                  : ((S.strokeWidth as string) || 'medium') === w;
-                return (
-                  <OptBtn key={w} active={isActive} title={w}
-                    onClick={() => patch(t === 'arrow' ? { thickness: w === 'thin' ? 2 : w === 'medium' ? 3 : 6 } : { strokeWidth: w })}>
-                    <span className="rounded-full bg-current" style={{ width: 16, height: px }} />
-                  </OptBtn>
-                );
-              })}
-              <VDivider />
-            </>
-          )}
-
-          {/* Frame colour — grouping frames only. Delete / Scene / Ask-AI
-              frames are locked to their identity colour (that colour is the
-              warning), and their controls live in the frame's own HUD. */}
-          {t === 'frame' && getFrameKind(obj) === 'normal' && (
-            <>
-              {['#C97B4B', '#45B761', '#4A90D9', '#9B59B6', '#E93D82', '#2D2A26'].map((c) => (
-                <Swatch key={c} color={c} active={(S.frameColor as string) === c} onClick={() => patch({ frameColor: c })} />
-              ))}
-              <VDivider />
-            </>
-          )}
-
-          {/* Rename — the frame's title tab is the primary affordance, but a
-              frame buried under its own contents is easier to rename from here. */}
-          {t === 'frame' && obj && (
-            <>
-              <button
-                onClick={() => setEditingId(obj.id)}
-                title="Rename frame (F2)"
-                className="h-7 rounded-lg flex items-center justify-center gap-1 text-[11px] font-bold bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer active:scale-95 shrink-0"
-                style={{ padding: '0 8px' }}
-              >
-                <Icon size={12}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></Icon>
-                <span className="text-[10px] max-w-[110px] truncate">{frameTitle(obj)}</span>
-              </button>
-              <VDivider />
-            </>
-          )}
-
-          {/* Text animation — opens the effect gallery for this block */}
-          {obj && isTextLike && (
-            <>
-              <button
-                onClick={() => setAnimOpen((v) => !v)}
-                title="Text animation"
-                aria-pressed={animOpen || !!(S.textAnim as TextAnimConfig | undefined)?.preset}
-                className={`h-7 rounded-lg flex items-center justify-center gap-1 text-[11px] font-bold transition-all duration-150 cursor-pointer active:scale-95 shrink-0 ${
-                  animOpen || (S.textAnim as TextAnimConfig | undefined)?.preset
-                    ? 'clay-inset text-[var(--accent)]'
-                    : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-                style={{ padding: '0 8px' }}
-              >
-                <LetterSparkIcon size={13} />
-                <span className="text-[10px]">Animate</span>
-              </button>
-              <VDivider />
-            </>
-          )}
-
-          {/* Object-only quick actions */}
-          {obj && (
-            <>
-              <OptBtn title="Duplicate" onClick={() => duplicateObject(obj.id)}>
-                <Icon size={12}><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></Icon>
-              </OptBtn>
-              <button
-                onClick={del} title="Delete"
-                className="h-7 w-7 rounded-lg flex items-center justify-center bg-[var(--well)] text-[var(--text-secondary)] hover:text-white hover:bg-red-500 transition-colors cursor-pointer active:scale-95">
-                <Icon size={12}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></Icon>
-              </button>
-              <VDivider />
-            </>
-          )}
-
-          {/* Expand / collapse toggle */}
-          <button
-            onClick={() => setExpanded(!expanded)}
-            title={expanded ? 'Collapse panel' : 'More options'}
-            className={`h-7 w-7 rounded-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 shrink-0 ${
-              expanded
-                ? 'clay-inset text-[var(--accent)]'
-                : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
+      {/* The null check lives HERE, not as an early `return null` above the
+          AnimatePresence — a component that unmounts itself never gets to play
+          its exit animation, so the rail used to vanish in a frame. */}
+      {t && !isTouring && (
+        <motion.aside
+          key="properties-rail"
+          initial={{ opacity: 0, x: 22, scale: 0.97 }}
+          animate={{ opacity: 1, x: 0, scale: 1 }}
+          exit={{ opacity: 0, x: 22, scale: 0.97 }}
+          transition={spring}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            // Keep the caret in the text block being edited: pressing a format
+            // button (size preset, +/-, heading, font, colour) must NOT blur the
+            // contentEditable, otherwise an empty new block exits edit mode before
+            // you can pick a size. Real inputs still need focus, so exempt them.
+            const tag = (e.target as HTMLElement).tagName;
+            if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') e.preventDefault();
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onWheel={(e) => e.stopPropagation()}
+          className="props-rail clay-card pointer-events-auto flow-hideable flex flex-col overflow-hidden"
+          style={{ borderRadius: 20, fontFamily: "'Outfit', sans-serif" }}
+        >
+          {/* ---- Header: what's selected, and the two things you do to it ---- */}
+          <div
+            className="shrink-0 flex items-center gap-2.5"
+            style={{ padding: '11px 11px 10px 13px', borderBottom: '1px solid var(--border)' }}
           >
-            <motion.span
-              animate={{ rotate: expanded ? 180 : 0 }}
-              transition={{ duration: 0.2 }}
-              className="flex items-center justify-center"
+            <span
+              className="shrink-0 flex items-center justify-center"
+              style={{ width: 27, height: 27, borderRadius: 9, background: 'var(--accent-subtle)', color: 'var(--accent)' }}
             >
-              <Icon size={12}><polyline points="6 9 12 15 18 9" /></Icon>
-            </motion.span>
-          </button>
-        </div>
+              <Icon size={14}>{meta.icon}</Icon>
+            </span>
 
-        {/* --- Expanded detail panel --- */}
-        <AnimatePresence>
-          {expanded && (
-            <motion.div
-              initial={{ opacity: 0, y: 8, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 8, scale: 0.97 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              /* Inline padding, and this is the bug behind the clipped labels:
-                 Tailwind's `p-3` is dead here (the app's unlayered global
-                 `* { padding: 0 }` reset wins), so the content sat flush against
-                 the card's 16px rounded corner and the corner ate the first
-                 letter of the top-left heading — "BACKGROUND" rendered as
-                 "ACKGROUND". Same reason `mt-2` never applied. Both are inline
-                 now. Wider too (640 vs 480), with the sections in two columns so
-                 the extra width buys layout instead of just stretching rows. */
-              style={{ padding: 16, marginTop: 8 }}
-              className="clay-card rounded-2xl max-w-[640px] w-[94vw] mx-auto max-h-[52vh] overflow-y-auto custom-scrollbar"
+            <div className="min-w-0 flex-1 flex flex-col gap-[2px]">
+              <span className="text-[12.5px] font-extrabold leading-none truncate text-[var(--text-primary)]">{title}</span>
+              <span className="text-[9.5px] font-semibold leading-none truncate text-[var(--text-tertiary)] tabular-nums">{subtitle}</span>
+            </div>
+
+            {obj && (
+              <>
+                <button
+                  onClick={() => duplicateObject(obj.id)}
+                  title="Duplicate"
+                  aria-label="Duplicate"
+                  className={`${iconBtn} bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]`}
+                >
+                  <Icon size={12}><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></Icon>
+                </button>
+                <button
+                  onClick={del}
+                  title="Delete"
+                  aria-label="Delete"
+                  className={`${iconBtn} bg-[var(--well)] text-[var(--text-secondary)] hover:text-white hover:bg-red-500`}
+                >
+                  <Icon size={12}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></Icon>
+                </button>
+              </>
+            )}
+
+            <button
+              onClick={() => { if (obj) { setEditingId(null); setSelectedId(null); } else setMode('select'); }}
+              title={obj ? 'Deselect' : 'Back to the select tool'}
+              aria-label="Close"
+              className={`${iconBtn} text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--well)]`}
             >
-              <div className="flex flex-col gap-3.5">
+              <Icon size={13}><line x1="6" y1="6" x2="18" y2="18" /><line x1="6" y1="18" x2="18" y2="6" /></Icon>
+            </button>
+          </div>
 
-                {/* Text/heading defaults hint */}
-                {textDefault && (
-                  <p className="text-[10px] leading-relaxed text-[var(--text-tertiary)]">
-                    Set your text style, then click on the canvas to create a block with these defaults.
-                  </p>
-                )}
-                {arrowDefault && (
-                  <p className="text-[10px] leading-relaxed text-[var(--text-tertiary)]">
-                    Click once to start the arrow, move, then click again to place it — it&apos;ll use this style.
-                  </p>
-                )}
+          {/* ---- The controls. One scroller; the groups do the rest. ---- */}
+          <div
+            ref={scrollRef}
+            onScroll={measure}
+            className="props-rail-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+            style={{ padding: '2px 14px 14px', maskImage: mask, WebkitMaskImage: mask }}
+          >
+            <div className="flex flex-col">
+              {/* Why the rail is open with nothing selected. */}
+              {(textDefault || arrowDefault) && (
+                <p className="text-[10.5px] leading-relaxed text-[var(--text-tertiary)]" style={{ paddingTop: 10 }}>
+                  {textDefault
+                    ? 'Set the style here, then click the canvas — the new block is born with it.'
+                    : 'Click once to start the arrow, move, then click again to place it. It’ll use this style.'}
+                </p>
+              )}
 
-                {/* COLOUR — one tabbed field instead of three separate swatch
-                    rows, so text/background/stroke all get the full grid, the
-                    hex box and the eyedropper rather than eight fixed chips. */}
-                <ColorTabs t={t} S={S} patch={patch} isTextLike={isTextLike} />
+              {/* A block whose look is its own content — say what DOES change it
+                  rather than showing an empty rail. */}
+              {(t === 'image' || t === 'mirror') && (
+                <p className="text-[10.5px] leading-relaxed text-[var(--text-tertiary)]" style={{ paddingTop: 10 }}>
+                  Tap the block on the canvas to cycle its shape, or open it full-view.
+                </p>
+              )}
 
-                <HDivider />
+              {/* TYPE SCALE — the five presets, each label set at its own weight */}
+              {isHeadingCapable && (
+                <Group id="scale" label="Type scale">
+                  <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
+                    {HEADINGS.map((h) => (
+                      <OptBtn
+                        key={h.id}
+                        active={activeHeading === h.id}
+                        title={`${h.label} — ${h.size}px`}
+                        onClick={() => patch({ fontSize: h.size, fontWeight: h.weight, headingLevel: h.id })}
+                      >
+                        <span style={{ fontSize: h.preview, fontWeight: h.id === 'body' ? 600 : 800, letterSpacing: '-0.01em' }}>{h.label}</span>
+                      </OptBtn>
+                    ))}
+                  </div>
+                </Group>
+              )}
 
-                {/* FONT — search reveals more */}
-                {isTextLike && (
-                  <>
-                    <Section label="Font">
-                      <input
-                        value={fontQuery}
-                        onChange={(e) => setFontQuery(e.target.value)}
-                        placeholder="Search fonts…"
-                        className="w-full bg-[var(--well)] rounded-lg px-2.5 py-1.5 text-[11px] outline-none focus:ring-2 focus:ring-[var(--accent)]/30 placeholder:text-[var(--text-muted)] shadow-[inset_0_1px_2px_rgba(90,62,40,0.06)]"
-                      />
-                      <div className="flex flex-wrap gap-1 max-h-[120px] overflow-y-auto custom-scrollbar">
-                        {filteredFonts.map((f) => {
-                          const isActive = S.fontFamily === f.value;
-                          return (
-                            <button key={f.value} onClick={() => patch({ fontFamily: f.value })}
-                              style={{ fontFamily: f.value }}
-                              className={`px-2.5 py-1.5 rounded-lg text-[12px] leading-none truncate transition-colors cursor-pointer ${
-                                isActive ? 'clay-inset text-[var(--accent)] font-bold' : 'bg-[var(--well)] text-[var(--text-primary)] hover:brightness-[0.97]'
-                              }`}>
-                              {f.label}
-                            </button>
-                          );
-                        })}
-                        {filteredFonts.length === 0 && <span className="text-[10px] text-[var(--text-muted)] px-2 py-1">No fonts match &ldquo;{fontQuery}&rdquo;.</span>}
-                      </div>
-                    </Section>
+              {/* TYPEFACE — family, exact size, alignment */}
+              {isTextLike && (
+                <Group id="type" label="Typeface">
+                  <input
+                    value={fontQuery}
+                    onChange={(e) => setFontQuery(e.target.value)}
+                    placeholder="Search fonts…"
+                    className="w-full bg-[var(--well)] rounded-lg text-[11px] outline-none focus:ring-2 focus:ring-[var(--accent)]/30 placeholder:text-[var(--text-muted)]"
+                    style={{ padding: '7px 10px', boxShadow: 'inset 0 1px 2px rgba(90,62,40,0.06)' }}
+                  />
+                  <div className="flex flex-wrap gap-1 overflow-y-auto props-rail-scroll" style={{ maxHeight: 118 }}>
+                    {filteredFonts.map((f) => {
+                      const isActive = S.fontFamily === f.value;
+                      return (
+                        <button
+                          key={f.value}
+                          onClick={() => patch({ fontFamily: f.value })}
+                          style={{ fontFamily: f.value, padding: '6px 10px' }}
+                          className={`rounded-lg text-[12px] leading-none truncate transition-colors cursor-pointer ${
+                            isActive ? 'clay-inset text-[var(--accent)] font-bold' : 'bg-[var(--well)] text-[var(--text-primary)] hover:brightness-[0.97]'
+                          }`}
+                        >
+                          {f.label}
+                        </button>
+                      );
+                    })}
+                    {filteredFonts.length === 0 && (
+                      <span className="text-[10px] text-[var(--text-muted)]" style={{ padding: '4px 2px' }}>
+                        No fonts match &ldquo;{fontQuery}&rdquo;.
+                      </span>
+                    )}
+                  </div>
 
-                    <HDivider />
-
-                    {/* FONT SIZE */}
-                    <Section label="Size">
+                  <Field label="Size">
+                    <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-1">
-                        <button onClick={() => patch({ fontSize: Math.max(6, ((S.fontSize as number) || 15) - 1) })}
-                          className="w-6 h-6 rounded-lg bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
+                        <button
+                          onClick={() => patch({ fontSize: Math.max(6, ((S.fontSize as number) || 15) - 1) })}
+                          aria-label="Smaller"
+                          className="w-7 h-7 shrink-0 rounded-lg bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+                        >
                           <Icon size={12}><line x1="5" y1="12" x2="19" y2="12" /></Icon>
                         </button>
                         <input
                           type="number" min={6} max={200}
                           value={Math.round((S.fontSize as number) || 15)}
                           onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) patch({ fontSize: Math.max(6, Math.min(200, v)) }); }}
-                          className="w-10 text-center bg-[var(--well)] rounded-lg px-1 py-1 text-[11px] font-bold tabular-nums outline-none focus:ring-2 focus:ring-[var(--accent)]/30 shadow-[inset_0_1px_2px_rgba(90,62,40,0.06)]"
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="flex-1 min-w-0 text-center bg-[var(--well)] rounded-lg text-[11px] font-bold tabular-nums outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
+                          style={{ padding: '7px 4px', boxShadow: 'inset 0 1px 2px rgba(90,62,40,0.06)' }}
                         />
-                        <button onClick={() => patch({ fontSize: Math.min(200, ((S.fontSize as number) || 15) + 1) })}
-                          className="w-6 h-6 rounded-lg bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center cursor-pointer active:scale-95 transition-transform">
+                        <button
+                          onClick={() => patch({ fontSize: Math.min(200, ((S.fontSize as number) || 15) + 1) })}
+                          aria-label="Bigger"
+                          className="w-7 h-7 shrink-0 rounded-lg bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+                        >
                           <Icon size={12}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Icon>
                         </button>
-                        <div className="flex gap-1 ml-1">
-                          {SIZE_PRESETS.map((s) => (
-                            <OptBtn key={s} active={Math.round((S.fontSize as number) || 15) === s} onClick={() => patch({ fontSize: s })}>
-                              <span className="text-[9px] tabular-nums">{s}</span>
-                            </OptBtn>
-                          ))}
-                        </div>
                       </div>
-                    </Section>
-                  </>
-                )}
+                      <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+                        {SIZE_PRESETS.map((s) => (
+                          <OptBtn key={s} height={26} active={Math.round((S.fontSize as number) || 15) === s} onClick={() => patch({ fontSize: s })}>
+                            <span className="text-[10px] tabular-nums">{s}</span>
+                          </OptBtn>
+                        ))}
+                      </div>
+                    </div>
+                  </Field>
 
-                {/* "All colors" used to sit here — an eight-chip row that only
-                    ever set the TEXT colour. The tabbed picker above covers it
-                    with the full grid, hex and eyedropper. */}
+                  <Field label="Alignment">
+                    <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                      {([
+                        ['left', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="14" y2="12" /><line x1="4" y1="18" x2="18" y2="18" /></>],
+                        ['center', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="5" y1="18" x2="19" y2="18" /></>],
+                        ['right', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="10" y1="12" x2="20" y2="12" /><line x1="6" y1="18" x2="20" y2="18" /></>],
+                      ] as const).map(([a, ic]) => (
+                        <OptBtn key={a} active={align === a} title={`Align ${a}`} onClick={() => patch({ textAlign: a })}>
+                          <Icon size={13}>{ic}</Icon>
+                        </OptBtn>
+                      ))}
+                    </div>
+                  </Field>
+                </Group>
+              )}
 
-                {/* STROKE STYLE (shape / arrow) */}
-                {(t === 'shape' || t === 'arrow') && (
-                  <Section label="Stroke style">
-                    <div className="flex gap-1">
-                      {([['solid', 'M3 12h18'], ['dashed', 'M3 12h4M10 12h4M17 12h4'], ['dotted', 'M4 12h.5M9 12h.5M14 12h.5M19 12h.5']] as const).map(([s, d]) => {
-                        const key = t === 'arrow' ? 'dashStyle' : 'strokeStyle';
-                        const cur = (S[key] as string) || 'solid';
+              {/* COLOUR — every colour this object owns, one row each */}
+              {(isTextLike || t === 'shape' || t === 'arrow' || (t === 'frame' && frameKind === 'normal')) && (
+                <Group id="colour" label="Colour">
+                  {/* Grouping frames get the six identity colours as one-tap
+                      chips too — a frame's colour is a label, not a shade you
+                      hunt for. Delete / Scene / Ask-AI frames are locked to
+                      theirs: that colour IS the warning. */}
+                  {t === 'frame' && (
+                    /* Fixed 26px cells rather than six across the full rail —
+                       stretched to a third of the column each, one-tap chips
+                       read as the main event instead of the shortcut they are. */
+                    <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(6, 26px)', justifyContent: 'start' }}>
+                      {FRAME_SWATCHES.map((c) => (
+                        <Swatch key={c} color={c} active={(S.frameColor as string) === c} onClick={() => patch({ frameColor: c })} />
+                      ))}
+                    </div>
+                  )}
+                  <ColorRows t={t} S={S} patch={patch} isTextLike={isTextLike} frameColorable={frameKind === 'normal'} />
+                </Group>
+              )}
+
+              {/* STROKE — width and dash, for anything drawn with a line */}
+              {(t === 'shape' || t === 'arrow') && (
+                <Group id="stroke" label="Stroke">
+                  <Field label="Width">
+                    <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                      {([['thin', 1.2], ['medium', 2.4], ['bold', 4]] as const).map(([w, px]) => {
+                        const isActive = t === 'arrow'
+                          ? ((S.thickness as number) || 3) === (w === 'thin' ? 2 : w === 'medium' ? 3 : 6)
+                          : ((S.strokeWidth as string) || 'medium') === w;
                         return (
-                          <OptBtn key={s} wide active={cur === s} title={s} onClick={() => patch({ [key]: s })}>
-                            <Icon size={12}><path d={d} /></Icon>
+                          <OptBtn key={w} active={isActive} title={w}
+                            onClick={() => patch(t === 'arrow' ? { thickness: w === 'thin' ? 2 : w === 'medium' ? 3 : 6 } : { strokeWidth: w })}>
+                            <span className="rounded-full bg-current" style={{ width: 18, height: px }} />
                           </OptBtn>
                         );
                       })}
                     </div>
-                  </Section>
-                )}
-
-                {/* SLOPPINESS + EDGES (shape) */}
-                {t === 'shape' && (
-                  <>
-                    <Section label="Sloppiness">
-                      <div className="flex gap-1">
-                        {([
-                          ['architect', <path key="a" d="M4 12h16" />],
-                          ['artist', <path key="b" d="M4 13c4-3 5 3 8 0s4-4 8-1" />],
-                          ['cartoonist', <path key="c" d="M4 14c3-5 4 4 7-1s3 5 5-1 3 3 4-1" />],
-                        ] as const).map(([sl, ic]) => (
-                          <OptBtn key={sl} wide active={((S.sloppiness as string) || 'architect') === sl} title={sl}
-                            onClick={() => patch({ sloppiness: sl })}>
-                            <Icon size={12}>{ic}</Icon>
+                  </Field>
+                  <Field label="Style">
+                    <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                      {([['solid', 'M3 12h18'], ['dashed', 'M3 12h4M10 12h4M17 12h4'], ['dotted', 'M4 12h.5M9 12h.5M14 12h.5M19 12h.5']] as const).map(([s, d]) => {
+                        const key = t === 'arrow' ? 'dashStyle' : 'strokeStyle';
+                        const cur = (S[key] as string) || 'solid';
+                        return (
+                          <OptBtn key={s} active={cur === s} title={s} onClick={() => patch({ [key]: s })}>
+                            <Icon size={13}><path d={d} /></Icon>
                           </OptBtn>
-                        ))}
-                      </div>
-                    </Section>
-                    <Section label="Edges">
-                      <div className="flex gap-1">
-                        <OptBtn wide active={(S.edges || 'round') === 'round'} title="Round" onClick={() => patch({ edges: 'round' })}>
-                          <Icon size={12}><path d="M5 19V9a4 4 0 0 1 4-4h10" /></Icon>
-                        </OptBtn>
-                        <OptBtn wide active={S.edges === 'sharp'} title="Sharp" onClick={() => patch({ edges: 'sharp' })}>
-                          <Icon size={12}><path d="M5 5h14v14" /></Icon>
-                        </OptBtn>
-                      </div>
-                    </Section>
+                        );
+                      })}
+                    </div>
+                  </Field>
+                </Group>
+              )}
 
-                    {/* Shape fill lives in the Colour tabs above now, alongside
-                        its stroke — they're chosen together, so they belong
-                        together rather than at opposite ends of the panel. */}
-                  </>
-                )}
+              {/* ARROW — what it points with, and whether it bends */}
+              {t === 'arrow' && (
+                <Group id="arrow" label="Ends & curve">
+                  <Field label="Head">
+                    <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+                      {/* Keyed: these are elements sitting in an array literal, so React
+                          wants keys on them even though the array is static. */}
+                      {([
+                        ['line', <line key="l" x1="4" y1="12" x2="20" y2="12" />],
+                        ['arrow', <React.Fragment key="a"><line x1="4" y1="12" x2="18" y2="12" /><polyline points="13 7 19 12 13 17" /></React.Fragment>],
+                        ['dot', <React.Fragment key="d"><line x1="4" y1="12" x2="15" y2="12" /><circle cx="18" cy="12" r="3" fill="currentColor" /></React.Fragment>],
+                        ['diamond', <React.Fragment key="dm"><line x1="4" y1="12" x2="14" y2="12" /><polygon points="18 8 22 12 18 16 14 12" fill="currentColor" /></React.Fragment>],
+                      ] as const).map(([p, ic]) => (
+                        <OptBtn key={p} active={((S.pointerType as string) || 'line') === p} title={p}
+                          onClick={() => patch({ pointerType: p })}>
+                          <Icon size={13}>{ic}</Icon>
+                        </OptBtn>
+                      ))}
+                    </div>
+                  </Field>
 
-                {/* Arrow curve */}
-                {t === 'arrow' && obj && (
-                  <Section label="Curve">
-                    <div className="flex gap-1">
-                      <OptBtn wide active={S.bendX === undefined} title="Straight"
-                        onClick={() => patch({ bendX: undefined, bendY: undefined })}>
-                        <Icon size={12}><line x1="4" y1="12" x2="20" y2="12" /></Icon>
+                  {obj && (
+                    <Field label="Curve">
+                      <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+                        <OptBtn active={S.bendX === undefined} title="Straight"
+                          onClick={() => patch({ bendX: undefined, bendY: undefined })}>
+                          <Icon size={13}><line x1="4" y1="12" x2="20" y2="12" /></Icon>
+                        </OptBtn>
+                        <OptBtn active={S.bendX !== undefined} title="Curved — then drag the middle handle"
+                          onClick={() => {
+                            const sx = (S.startX as number) || 0, sy = (S.startY as number) || 0;
+                            const ex = (S.endX as number) || 0, ey = (S.endY as number) || 0;
+                            const mx = (sx + ex) / 2, my = (sy + ey) / 2;
+                            const nx = -(ey - sy), ny = ex - sx;
+                            const len = Math.hypot(nx, ny) || 1;
+                            patch({ bendX: mx + (nx / len) * 60, bendY: my + (ny / len) * 60 });
+                          }}>
+                          <Icon size={13}><path d="M4 16c6-12 10-12 16 0" /></Icon>
+                        </OptBtn>
+                      </div>
+                    </Field>
+                  )}
+                </Group>
+              )}
+
+              {/* SKETCH — how hand-drawn the shape looks */}
+              {t === 'shape' && (
+                <Group id="sketch" label="Sketch">
+                  <Field label="Sloppiness">
+                    <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                      {([
+                        ['architect', <path key="a" d="M4 12h16" />],
+                        ['artist', <path key="b" d="M4 13c4-3 5 3 8 0s4-4 8-1" />],
+                        ['cartoonist', <path key="c" d="M4 14c3-5 4 4 7-1s3 5 5-1 3 3 4-1" />],
+                      ] as const).map(([sl, ic]) => (
+                        <OptBtn key={sl} active={((S.sloppiness as string) || 'architect') === sl} title={sl}
+                          onClick={() => patch({ sloppiness: sl })}>
+                          <Icon size={13}>{ic}</Icon>
+                        </OptBtn>
+                      ))}
+                    </div>
+                  </Field>
+                  <Field label="Corners">
+                    <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+                      <OptBtn active={(S.edges || 'round') === 'round'} title="Round" onClick={() => patch({ edges: 'round' })}>
+                        <Icon size={13}><path d="M5 19V9a4 4 0 0 1 4-4h10" /></Icon>
                       </OptBtn>
-                      <OptBtn wide active={S.bendX !== undefined} title="Curved — then drag the middle handle"
-                        onClick={() => {
-                          const sx = (S.startX as number) || 0, sy = (S.startY as number) || 0;
-                          const ex = (S.endX as number) || 0, ey = (S.endY as number) || 0;
-                          const mx = (sx + ex) / 2, my = (sy + ey) / 2;
-                          const nx = -(ey - sy), ny = ex - sx;
-                          const len = Math.hypot(nx, ny) || 1;
-                          patch({ bendX: mx + (nx / len) * 60, bendY: my + (ny / len) * 60 });
-                        }}>
-                        <Icon size={12}><path d="M4 16c6-12 10-12 16 0" /></Icon>
+                      <OptBtn active={S.edges === 'sharp'} title="Sharp" onClick={() => patch({ edges: 'sharp' })}>
+                        <Icon size={13}><path d="M5 5h14v14" /></Icon>
                       </OptBtn>
                     </div>
-                  </Section>
-                )}
-                {/* Object-only: opacity, stacking order, deep link.
-                    Layer ordering and copy-link were already wired up in the
-                    store and the component — they just had no control anywhere
-                    in the UI, so the code sat dead. They're the two things you
-                    reach for from a properties panel and couldn't. */}
-                {obj && (
-                  <>
-                    <HDivider />
-                    <div className="grid gap-3.5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))' }}>
-                      <Section label="Opacity">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="range" min={0} max={100} value={Math.round(opacity)}
-                            onChange={(e) => patch({ opacity: parseInt(e.target.value) / 100 })}
-                            className="flex-1 accent-[var(--accent)] cursor-pointer h-1"
-                          />
-                          <span className="text-[10px] font-bold tabular-nums text-[var(--text-secondary)] w-6 text-right">{Math.round(opacity)}</span>
-                        </div>
-                      </Section>
+                  </Field>
+                </Group>
+              )}
 
-                      <Section label="Layer">
-                        <div className="flex gap-1">
-                          <OptBtn wide title="Bring to front" onClick={() => bringToFront(obj.id)}>
-                            <Icon size={12}><rect x="3" y="3" width="12" height="12" rx="2" /><path d="M9 21h10a2 2 0 0 0 2-2V9" /></Icon>
-                          </OptBtn>
-                          <OptBtn wide title="Bring forward" onClick={() => bringForward(obj.id)}>
-                            <Icon size={12}><polyline points="18 15 12 9 6 15" /></Icon>
-                          </OptBtn>
-                          <OptBtn wide title="Send backward" onClick={() => sendBackward(obj.id)}>
-                            <Icon size={12}><polyline points="6 9 12 15 18 9" /></Icon>
-                          </OptBtn>
-                          <OptBtn wide title="Send to back" onClick={() => sendToBack(obj.id)}>
-                            <Icon size={12}><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M15 3H5a2 2 0 0 0-2 2v10" /></Icon>
-                          </OptBtn>
-                        </div>
-                      </Section>
+              {/* MOTION — the effect gallery, and what's currently on */}
+              {obj && isTextLike && (
+                <Group id="motion" label="Motion">
+                  <button
+                    onClick={() => setAnimOpen((v) => !v)}
+                    title="Text animation"
+                    aria-pressed={animOpen || !!activeAnim}
+                    className={`w-full rounded-[10px] flex items-center gap-2 text-[11px] font-bold transition-all duration-150 cursor-pointer active:scale-[0.99] ${
+                      animOpen || activeAnim
+                        ? 'clay-inset text-[var(--accent)]'
+                        : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                    style={{ padding: '8px 10px' }}
+                  >
+                    <LetterSparkIcon size={14} />
+                    <span className="truncate">{activeAnim ? activeAnim.name : 'Animate this text'}</span>
+                    <span className="flex-1" />
+                    <Icon size={11}><polyline points="9 18 15 12 9 6" /></Icon>
+                  </button>
+                </Group>
+              )}
+
+              {/* ARRANGE — opacity and stacking order */}
+              {obj && (
+                <Group id="arrange" label="Arrange">
+                  <Field label="Opacity">
+                    <div className="flex items-center gap-2.5">
+                      <input
+                        type="range" min={0} max={100} value={Math.round(opacity)}
+                        onChange={(e) => patch({ opacity: parseInt(e.target.value) / 100 })}
+                        className="flex-1 min-w-0 accent-[var(--accent)] cursor-pointer"
+                        style={{ height: 4 }}
+                      />
+                      <span className="text-[10px] font-bold tabular-nums text-[var(--text-secondary)] text-right" style={{ width: 26 }}>
+                        {Math.round(opacity)}
+                      </span>
                     </div>
+                  </Field>
+                  <Field label="Layer">
+                    <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+                      <OptBtn title="Bring to front" onClick={() => bringToFront(obj.id)}>
+                        <Icon size={13}><rect x="3" y="3" width="12" height="12" rx="2" /><path d="M9 21h10a2 2 0 0 0 2-2V9" /></Icon>
+                      </OptBtn>
+                      <OptBtn title="Bring forward" onClick={() => bringForward(obj.id)}>
+                        <Icon size={13}><polyline points="18 15 12 9 6 15" /></Icon>
+                      </OptBtn>
+                      <OptBtn title="Send backward" onClick={() => sendBackward(obj.id)}>
+                        <Icon size={13}><polyline points="6 9 12 15 18 9" /></Icon>
+                      </OptBtn>
+                      <OptBtn title="Send to back" onClick={() => sendToBack(obj.id)}>
+                        <Icon size={13}><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M15 3H5a2 2 0 0 0-2 2v10" /></Icon>
+                      </OptBtn>
+                    </div>
+                  </Field>
+                </Group>
+              )}
 
-                    <Section label="Link">
-                      <button
-                        onClick={copyLink}
-                        title="Copy a link that jumps straight to this block"
-                        className={`w-full rounded-lg flex items-center justify-center gap-1.5 text-[11px] font-bold transition-colors cursor-pointer active:scale-[0.99] ${
-                          linked ? 'clay-inset text-[var(--accent)]' : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                        }`}
-                        style={{ padding: '7px 10px' }}
-                      >
-                        {linked ? (
-                          <><Icon size={12}><polyline points="20 6 9 17 4 12" /></Icon>Copied</>
-                        ) : (
-                          <><Icon size={12}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></Icon>Copy link to this block</>
-                        )}
-                      </button>
-                    </Section>
-                  </>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              {/* ACTIONS — rename, deep link */}
+              {obj && (
+                <Group id="actions" label="Actions" defaultOpen={false}>
+                  {t === 'frame' && (
+                    <button
+                      onClick={() => setEditingId(obj.id)}
+                      title="Rename frame (F2)"
+                      className="w-full rounded-[10px] flex items-center gap-2 text-[11px] font-bold bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer active:scale-[0.99]"
+                      style={{ padding: '8px 10px' }}
+                    >
+                      <Icon size={12}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></Icon>
+                      <span className="truncate">{frameTitle(obj) || 'Rename frame'}</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={copyLink}
+                    title="Copy a link that jumps straight to this block"
+                    className={`w-full rounded-[10px] flex items-center gap-2 text-[11px] font-bold transition-colors cursor-pointer active:scale-[0.99] ${
+                      linked ? 'clay-inset text-[var(--accent)]' : 'bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                    style={{ padding: '8px 10px' }}
+                  >
+                    {linked ? (
+                      <><Icon size={12}><polyline points="20 6 9 17 4 12" /></Icon>Link copied</>
+                    ) : (
+                      <>
+                        <Icon size={12}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></Icon>
+                        Copy link to this block
+                      </>
+                    )}
+                  </button>
+                </Group>
+              )}
+            </div>
+          </div>
 
-        {/* Text animation gallery popover */}
-        <AnimatePresence>
-          {obj && isTextLike && animOpen && (
-            <TextAnimPanel
-              value={S.textAnim as TextAnimConfig | undefined}
-              onChange={(cfg) => patch({ textAnim: cfg })}
-              onClose={() => setAnimOpen(false)}
-            />
-          )}
-        </AnimatePresence>
-      </motion.div>
+          {/* Text animation gallery — opens beside the rail, not over it */}
+          <AnimatePresence>
+            {obj && isTextLike && animOpen && (
+              <TextAnimPanel
+                value={S.textAnim as TextAnimConfig | undefined}
+                onChange={(cfg) => patch({ textAnim: cfg })}
+                onClose={() => setAnimOpen(false)}
+              />
+            )}
+          </AnimatePresence>
+        </motion.aside>
+      )}
     </AnimatePresence>
   );
 }
