@@ -36,7 +36,6 @@ import {
   type CanvasTemplate,
   type TemplateCategory,
 } from '@/lib/canvasTemplates';
-import LandingResident from './LandingResident';
 
 /* ============================================================
    Types
@@ -768,9 +767,6 @@ export default function LandingPage() {
       }}
     >
       <div className="noise-overlay" />
-
-      {/* the resident wanders the bottom of the page while you decide */}
-      <LandingResident />
 
       {/* ---------- Floating clay dock ---------- */}
       {/* The dock was rendering flush against x=0 — `ml-4` never did anything

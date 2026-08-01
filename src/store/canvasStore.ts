@@ -204,6 +204,9 @@ interface CanvasStore {
   /** Which kind of frame the frame tool will place next. */
   frameDraftKind: FrameKind;
   setFrameDraftKind: (kind: FrameKind) => void;
+  /** …and in which colour, for grouping frames. */
+  frameDraftColor: string;
+  setFrameDraftColor: (hex: string) => void;
 
   // Layer ordering (z-index)
   bringToFront: (id: string) => void;
@@ -363,10 +366,12 @@ interface CanvasStore {
   plusMenuPos: { x: number; y: number; isToolbar?: boolean } | null;
   setPlusMenuPos: (pos: { x: number; y: number; isToolbar?: boolean } | null) => void;
 
-  // Canvas Resident — the pixel cat that lives on the board
-  residentEnabled: boolean;
-  setResidentEnabled: (v: boolean) => void;
-  
+  /* Workflows are the one rail context that isn't a canvas mode — you stay in
+     select while browsing them — so the toolbar and the rail need somewhere
+     shared to agree that it's open. */
+  workflowOpen: boolean;
+  setWorkflowOpen: (v: boolean) => void;
+
   // Slash menu
   slashMenu: { objectId: string; query: string; x: number; y: number } | null;
   setSlashMenu: (menu: { objectId: string; query: string; x: number; y: number } | null) => void;
@@ -418,6 +423,12 @@ interface CanvasStore {
   // while in arrow mode, before anything is on the canvas).
   arrowStyle: { color: string; thickness: number; dashStyle: string; pointerType: string };
   setArrowStyle: (patch: Partial<{ color: string; thickness: number; dashStyle: string; pointerType: string }>) => void;
+
+  // Default finish applied to the NEXT shape you stamp. Chosen in the rail
+  // beside the catalogue, so "which shape" and "which colour" are one decision
+  // made before the click instead of a shape you place and then repaint.
+  shapeStyle: { color: string; borderColor: string };
+  setShapeStyle: (patch: Partial<{ color: string; borderColor: string }>) => void;
 
   // Default style applied to the NEXT text block you create (editable in the
   // panel while in text mode, before clicking on the canvas).
@@ -1053,6 +1064,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   frameDraftKind: 'normal',
   setFrameDraftKind: (frameDraftKind) => set({ frameDraftKind }),
+  frameDraftColor: '#C97B4B',
+  setFrameDraftColor: (frameDraftColor) => set({ frameDraftColor }),
 
   // Clone an object (offset a little so it's visible), give it a fresh id and the
   // top z-index, and select it. Arrows clone their start/end/bend geometry too.
@@ -1744,15 +1757,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   plusMenuPos: null,
   setPlusMenuPos: (pos) => set({ plusMenuPos: pos }),
 
-  // Canvas Resident — on by default; the choice is remembered
-  residentEnabled: typeof window !== 'undefined'
-    ? localStorage.getItem('mindspace-resident-enabled') !== 'false'
-    : true,
-  setResidentEnabled: (v) => {
-    try { localStorage.setItem('mindspace-resident-enabled', String(v)); } catch { /* private mode */ }
-    set({ residentEnabled: v });
-  },
-  
+  workflowOpen: false,
+  setWorkflowOpen: (workflowOpen) => set({ workflowOpen }),
+
   // Slash menu
   slashMenu: null,
   setSlashMenu: (menu) => set({ slashMenu: menu }),
@@ -1826,6 +1833,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   arrowStyle: { color: '#2D2A26', thickness: 3, dashStyle: 'solid', pointerType: 'arrow' },
   setArrowStyle: (patch) => set((s) => ({ arrowStyle: { ...s.arrowStyle, ...patch } })),
+
+  shapeStyle: { color: 'rgba(255, 252, 248, 0.75)', borderColor: 'var(--accent-light)' },
+  setShapeStyle: (patch) => set((s) => ({ shapeStyle: { ...s.shapeStyle, ...patch } })),
 
   textStyle: {
     fontSize: 15, fontFamily: "'Outfit', sans-serif", fontWeight: 400,

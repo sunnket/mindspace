@@ -17,7 +17,7 @@ export default function QuoteBlock({ obj, isEditing, onBlur, innerRef }: {
     }
   }, [obj.content, isEditing, innerRef]);
 
-  // The Animate button in the SelectionPanel already wrote a config to
+  // The Animate button in the properties rail already wrote a config to
   // style.textAnim for quotes — but this block rendered its text raw, so the
   // effect never played. When not editing and a preset is set, route the text
   // through the same AnimatedText engine every other text block uses.

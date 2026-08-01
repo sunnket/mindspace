@@ -40,7 +40,6 @@ import {
   type DataStar,
   type SkyCam,
 } from '@/lib/constellations';
-import AstronautCat from './AstronautCat';
 
 export default function ConstellationView() {
   const open = useCanvasStore((s) => s.constellationOpen);
@@ -113,7 +112,6 @@ function ConstellationSky() {
   const removeSkyLink = useCanvasStore((s) => s.removeSkyLink);
   const nameSkyConstellation = useCanvasStore((s) => s.nameSkyConstellation);
   const animateCamera = useCanvasStore((s) => s.animateCamera);
-  const residentEnabled = useCanvasStore((s) => s.residentEnabled);
   const workspaceTitle = useCanvasStore((s) => s.workspaceTitle);
 
   const parentId = resolveParentId(canvasStack, urlCanvasId);
@@ -616,8 +614,6 @@ function ConstellationSky() {
           </div>
         );
       })}
-
-      <AstronautCat active={residentEnabled} />
 
       {stars.length === 0 && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>

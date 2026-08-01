@@ -35,7 +35,7 @@ import PlusMenu from '@/components/ui/PlusMenu';
 import SlashCommandMenu from '@/components/ui/SlashCommandMenu';
 import AtMentionMenu from '@/components/ui/AtMentionMenu';
 import { isSkillsetActive, activeRuleCount } from '@/lib/skillset';
-import SelectionPanel from '@/components/ui/SelectionPanel';
+import ContextRail from '@/components/ui/rail/ContextRail';
 import Minimap from '@/components/ui/Minimap';
 import ReturnToWork from '@/components/ui/ReturnToWork';
 import CheckpointIndex from '@/components/ui/CheckpointIndex';
@@ -60,11 +60,10 @@ import { useCollabStore } from '@/store/collabStore';
    Four heavy layers that render nothing until you ask for them.
 
    The PDF reader alone pulls in pdf.js, 40 hand-built rooms and 140KB of its
-   own CSS; the resident cat carries 40 baked sprite frames; the relax engine
-   carries fifteen particle systems and their audio; Constellation is a whole
-   second renderer. All four were plain imports, so all four were downloaded,
-   parsed and executed before the board could paint — for a session that may
-   never open a PDF, never summon the cat, and never touch a star map.
+   own CSS; the relax engine carries fifteen particle systems and their audio;
+   Constellation is a whole second renderer. All three were plain imports, so
+   all three were downloaded, parsed and executed before the board could paint
+   — for a session that may never open a PDF and never touch a star map.
 
    Splitting them out is invisible in use (each mounts only when its own state
    flips on, which is exactly when the chunk is fetched) and is the difference
@@ -73,7 +72,6 @@ import { useCollabStore } from '@/store/collabStore';
 const PdfReaderLayer = dynamic(() => import('./PdfReaderLayer'), { ssr: false });
 const ConstellationView = dynamic(() => import('./ConstellationView'), { ssr: false });
 const RelaxEffectsLayer = dynamic(() => import('./RelaxEffectsLayer'), { ssr: false });
-const CanvasResident = dynamic(() => import('./CanvasResident'), { ssr: false });
 
 /* The same argument, one level down: these are overlays, modals and side
    panels. Every one of them renders nothing until something is opened, and
@@ -962,6 +960,9 @@ export default function InfiniteCanvas() {
               }
             } else if (mode === 'shape') {
               const activeShape = useCanvasStore.getState().selectedShapeType || 'square';
+              // The finish is chosen in the rail alongside the shape, so the
+              // stamp lands looking the way the picker previewed it.
+              const finish = useCanvasStore.getState().shapeStyle;
               const obj = addObject({
                 type: 'shape',
                 x: worldPos.x - 75, // Center the 150x150 shape at click position
@@ -971,8 +972,8 @@ export default function InfiniteCanvas() {
                 content: '',
                 style: {
                   shapeType: activeShape,
-                  color: 'rgba(255, 252, 248, 0.75)',
-                  borderColor: 'var(--accent-light)',
+                  color: finish.color,
+                  borderColor: finish.borderColor,
                 }
               });
               // Selected, not editing: a shape holds no text, so there is
@@ -990,7 +991,9 @@ export default function InfiniteCanvas() {
                 content: '',
                 zIndex: 0,
                 style: {
-                  frameColor: '#C97B4B',
+                  // Grouping frames take the colour picked in the rail; every
+                  // other kind is locked to its identity colour by the renderer.
+                  frameColor: useCanvasStore.getState().frameDraftColor,
                   ...(draftKind !== 'normal' ? { frameKind: draftKind } : {}),
                 },
               });
@@ -1639,9 +1642,6 @@ export default function InfiniteCanvas() {
 
           {/* Cinematic Stress Reliefer particles */}
           <RelaxEffectsLayer />
-
-          {/* The Canvas Resident — a pixel cat that lives in world space */}
-          <CanvasResident />
         </div>
 
         {/* Drawing layer (SVG overlay) */}
@@ -2129,7 +2129,9 @@ export default function InfiniteCanvas() {
         <AtMentionMenu />
         <AgentOverlay />
         <SkillSetPanel />
-        <SelectionPanel />
+        {/* One docked panel for whatever you're doing: the selection's
+            properties, or the options of the tool you're holding. */}
+        <ContextRail />
         {/* Controls for whichever frame is selected — kind picker, bulk delete,
             slide capture, and the Ask-AI box for agent frames. */}
         <FrameHUD />
