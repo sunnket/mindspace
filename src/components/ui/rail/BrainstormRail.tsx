@@ -18,9 +18,8 @@ import { Icon, Group, OptBtn, Hint } from './RailKit';
 const CorkboardIcon = ({ size = 15 }: { size?: number }) => (
   <Icon size={size} strokeWidth={1.9}>
     <circle cx="5" cy="6" r="2.2" fill="currentColor" />
-    <circle cx="19" cy="17" r="2.2" fill="currentColor" />
-    <path d="M5 6c5.5 1.5 2.5 10.5 14 11" strokeWidth="2" />
-    <path d="M18 4.5v4.5a1.8 1.8 0 0 1-3.6 0v-3" opacity="0.65" />
+    <circle cx="19" cy="18" r="2.2" fill="currentColor" />
+    <path d="M5 6c5.5 1.5 2.5 10.5 14 12" strokeWidth="2" />
   </Icon>
 );
 

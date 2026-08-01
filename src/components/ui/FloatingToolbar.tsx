@@ -137,9 +137,8 @@ export default function FloatingToolbar() {
       icon: (
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="5" cy="6" r="2.2" fill="currentColor" />
-          <circle cx="19" cy="17" r="2.2" fill="currentColor" />
-          <path d="M5 6c5.5 1.5 2.5 10.5 14 11" strokeWidth="2" />
-          <path d="M18 4.5v4.5a1.8 1.8 0 0 1-3.6 0v-3" opacity="0.65" />
+          <circle cx="19" cy="18" r="2.2" fill="currentColor" />
+          <path d="M5 6c5.5 1.5 2.5 10.5 14 12" strokeWidth="2" />
         </svg>
       ),
     },
