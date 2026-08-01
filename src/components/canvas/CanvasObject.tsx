@@ -1609,15 +1609,21 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         return;
       }
 
-      // Enter focus mode
-      setFocusedId(obj.id);
-
-      // Shapes and arrows are marks, not containers — they no longer hold text,
-      // so a double-click on one must not open a caret with nowhere to render.
+      /* Double-click is how you get a caret. This is THE way in now — a single
+         click selects and nothing more — which is what every other canvas tool
+         does and what stops "why won't this card move": a block you clicked
+         once is selected and draggable, not silently in edit mode.
+         Deliberately without focus mode: dimming the whole board every time
+         you go to write a word is not focus, it's a flash. */
       if (obj.type === 'text' || obj.type === 'sticky' || obj.type === 'card') {
         caretPoint.current = { x: e.clientX, y: e.clientY };
         setEditingId(obj.id);
+        return;
       }
+
+      /* Everything with nothing to type into — a picture, an embed, a drawing —
+         keeps double-click as "show me only this". */
+      setFocusedId(obj.id);
     },
     [obj, setFocusedId, pushCanvas, setEditingId, readOnly, isTouring]
   );
@@ -1716,19 +1722,25 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         Object.entries(obj.style || {}).some(([k, v]) => /^is[A-Z]/.test(k) && Boolean(v)) &&
         !obj.style?.isQuote && !obj.style?.isCallout;
 
-      /* An EMPTY block goes straight into edit on the first click.
-         It used to take two — click to select, click again to type — and a blank
-         block that never got typed into is auto-cleaned the moment you click
-         away. So the actual experience of adding a card was: click it, click
-         somewhere else, watch it vanish, never having been given a chance to
-         write in it. There is nothing to select on an empty block anyway. */
+      /* An EMPTY block goes straight into edit on the first click, and ONLY an
+         empty one. A blank block that never gets typed into is auto-cleaned
+         the moment you click away, so making it wait for a double-click means
+         the actual experience of adding a card is: click it, click elsewhere,
+         watch it vanish, never having been given a chance to write in it.
+         There is nothing to select on an empty block anyway.
+
+         A block with words in it is SELECTED by a click and edited by a
+         double-click (see handleDoubleClick). One click used to open the caret
+         on any selected block, which is why a card you had just written in
+         couldn't be picked up — every press after that landed in a text field
+         rather than on a block. */
       const isBlank = !(obj.content || '').trim();
       // image & mirror already returned above (they tap-to-cycle, never type).
       // A frame is typed into through its title tab, never its body — clicking
       // the empty middle of an unnamed frame must not open a rename.
       const canType = !isFunctionalBlock && obj.type !== 'frame';
 
-      if (canType && (isSelected || isBlank)) {
+      if (canType && isBlank) {
         caretPoint.current = { x: e.clientX, y: e.clientY };
         setEditingId(obj.id);
       }

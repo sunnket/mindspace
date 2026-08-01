@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react';
+import React, { useRef, useCallback, useEffect, useLayoutEffect, useState, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
@@ -87,6 +87,9 @@ const CollabModal = dynamic(() => import('@/components/collab/CollabModal'), { s
 const PluginsPanel = dynamic(() => import('@/components/ui/PluginsPanel'), { ssr: false });
 const ShareModal = dynamic(() => import('@/components/ui/ShareModal'), { ssr: false });
 const ShortcutsOverlay = dynamic(() => import('./ShortcutsOverlay'), { ssr: false });
+
+/** Below this zoom, a click on empty canvas dives instead of creating. */
+const DIVE_ZOOM = 0.62;
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 5;
@@ -216,7 +219,22 @@ export default function InfiniteCanvas() {
      teardown time rather than close over whatever it was at mount. */
   const loadedRef = useRef(false);
 
-  const camera = useCanvasStore((s) => s.camera);
+  /* THE BOARD DOES NOT RE-RENDER WHEN THE CAMERA MOVES.
+     `camera` is deliberately not subscribed here. Everything that needs the
+     exact value reads it live from the store at the moment it needs it, and
+     the two nodes that actually move are painted by `paintCamera`. React only
+     hears about the camera through these two coarse selectors, which is all
+     the render tree genuinely depends on: which objects to MOUNT, and whether
+     a click means "dive in".
+     `cullKey` changes about once per 160px travelled (the cull carries 400px
+     of margin, which is what makes that safe); `diveReady` is a boolean that
+     flips twice in a session. A pan that used to cost sixty full reconciles a
+     second now costs zero. */
+  const cullKey = useCanvasStore((s) => {
+    const q = 160;
+    return `${Math.round(s.camera.x / q)}:${Math.round(s.camera.y / q)}:${s.camera.zoom.toFixed(2)}`;
+  });
+  const diveReady = useCanvasStore((s) => s.camera.zoom < DIVE_ZOOM);
   const setCamera = useCanvasStore((s) => s.setCamera);
   const canvasBackground = useCanvasStore((s) => s.canvasBackground);
   const setCanvasBackground = useCanvasStore((s) => s.setCanvasBackground);
@@ -501,6 +519,11 @@ export default function InfiniteCanvas() {
 
     const timeout = setTimeout(async () => {
       try {
+        /* Read at SAVE time, not at schedule time. The camera is no longer a
+           render subscription, and it shouldn't be an autosave dependency
+           either — a pan would have restarted this debounce on every frame
+           just to persist a viewport nobody asked to save yet. */
+        const camera = useCanvasStore.getState().camera;
         const parentId = canvasStack.length > 0 ? canvasStack[canvasStack.length - 1] : effectiveCanvasId;
         // A guest's live collab session is a synthetic, never-persisted view.
         if (parentId.startsWith(COLLAB_SESSION_ID_PREFIX)) return;
@@ -557,7 +580,7 @@ export default function InfiniteCanvas() {
     }, 500);
 
     return () => clearTimeout(timeout);
-  }, [isDirty, objects, strokes, camera, checkpoint, loaded, canvasStack, effectiveCanvasId, workspaceTitle, setDirty, setLastSaved, connections, canvasBackground]);
+  }, [isDirty, objects, strokes, checkpoint, loaded, canvasStack, effectiveCanvasId, workspaceTitle, setDirty, setLastSaved, connections, canvasBackground]);
 
 
   /* ------------------------------------------------------------------
@@ -585,6 +608,44 @@ export default function InfiniteCanvas() {
      time. Nothing is dropped, nothing is stale, the listener binds once,
      and a burst of twenty events costs one state write instead of twenty.
      ------------------------------------------------------------------ */
+  const worldRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * The camera, painted straight onto the DOM.
+   *
+   * This is the half that makes the board feel like a board. Moving the canvas
+   * is a 60Hz gesture, but the canvas is a React tree with hundreds of nodes in
+   * it — driving the transform from state meant every pixel of every pan
+   * re-rendered and reconciled the whole thing just to write one string into
+   * one style attribute. Two elements actually move: the world layer and the
+   * grid behind it. So they are written to directly, and React is told about
+   * the camera on a slower, coarser schedule (see `cullKey` / `diveReady`),
+   * because nothing else on screen needs to know where the board is mid-flight.
+   */
+  const paintCamera = useCallback((cam: { x: number; y: number; zoom: number }) => {
+    const w = worldRef.current;
+    if (w) w.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.zoom})`;
+    const g = gridRef.current;
+    if (g) {
+      const step = 24 * cam.zoom;
+      g.style.backgroundPosition = `${cam.x % step}px ${cam.y % step}px`;
+      g.style.backgroundSize = `${step}px ${step}px`;
+      g.style.opacity = cam.zoom > 0.4 ? '0.35' : '0';
+    }
+  }, []);
+
+  /* Paint on mount and on EVERY camera change, from a store subscription
+     rather than a render — animateCamera (scenes, dive, fit, minimap jumps)
+     and collab both write the camera without going through a gesture, and all
+     of them have to show up on screen. */
+  useLayoutEffect(() => {
+    paintCamera(useCanvasStore.getState().camera);
+    return useCanvasStore.subscribe((s, prev) => {
+      if (s.camera !== prev.camera) paintCamera(s.camera);
+    });
+  }, [paintCamera]);
+
   const camIntent = useRef<{
     /** Absolute target, from a drag-pan (which knows where it started). */
     panTo: { x: number; y: number } | null;
@@ -597,20 +658,63 @@ export default function InfiniteCanvas() {
   }>({ panTo: null, dx: 0, dy: 0, zoomFactor: 1, zoomAt: null });
   const camRaf = useRef<number | null>(null);
 
+  /* Where the zoom is HEADING, and where it is now.
+     A wheel notch sets a target and the board eases toward it over ~7 frames
+     instead of jumping — the difference between a scale that snaps between
+     values and one that travels. Panning is never eased: a drag has to track
+     the cursor exactly or the board feels like it's on elastic. */
+  const camEase = useRef<{ x: number; y: number; zoom: number } | null>(null);
+  const easeRaf = useRef<number | null>(null);
+
+  const stopEase = () => {
+    if (easeRaf.current != null) cancelAnimationFrame(easeRaf.current);
+    easeRaf.current = null;
+    camEase.current = null;
+  };
+
+  const startEase = useCallback(() => {
+    if (easeRaf.current != null) return;   // already gliding — it'll pick up the new target
+    const step = () => {
+      easeRaf.current = null;
+      const target = camEase.current;
+      if (!target) return;
+      const cur = useCanvasStore.getState().camera;
+      const k = 0.28;                       // ≈7 frames to arrive
+      const next = {
+        x: cur.x + (target.x - cur.x) * k,
+        y: cur.y + (target.y - cur.y) * k,
+        zoom: cur.zoom + (target.zoom - cur.zoom) * k,
+      };
+      // Close enough that another frame would move it less than a pixel: land
+      // exactly on the target so the zoom read-out doesn't sit at 99.7%.
+      const done = Math.abs(target.zoom - next.zoom) < 0.0005
+        && Math.abs(target.x - next.x) < 0.5 && Math.abs(target.y - next.y) < 0.5;
+      useCanvasStore.getState().setCamera(done ? target : next);
+      if (done) camEase.current = null;
+      else easeRaf.current = requestAnimationFrame(step);
+    };
+    easeRaf.current = requestAnimationFrame(step);
+  }, []);
+
   const flushCamera = useCallback(() => {
     camRaf.current = null;
     const intent = camIntent.current;
-    const cam = useCanvasStore.getState().camera;
+    // Compose onto where the camera is HEADING if a zoom is still easing, so a
+    // second notch mid-glide adds to the first instead of fighting it.
+    const cam = camEase.current ?? useCanvasStore.getState().camera;
     let { x, y, zoom } = cam;
+    const zooming = !!intent.zoomAt && intent.zoomFactor !== 1;
 
     if (intent.panTo) {
       x = intent.panTo.x;
       y = intent.panTo.y;
     }
 
-    if (intent.zoomAt && intent.zoomFactor !== 1) {
+    if (zooming && intent.zoomAt) {
       const next = clamp(zoom * intent.zoomFactor, MIN_ZOOM, MAX_ZOOM);
-      // Keep the point under the cursor pinned while the scale changes.
+      // Keep the point under the cursor pinned while the scale changes. The
+      // anchor is baked into the TARGET, so easing toward it holds the anchor
+      // for the whole glide.
       x = intent.zoomAt.x - (intent.zoomAt.x - x) * (next / zoom);
       y = intent.zoomAt.y - (intent.zoomAt.y - y) * (next / zoom);
       zoom = next;
@@ -621,17 +725,29 @@ export default function InfiniteCanvas() {
 
     camIntent.current = { panTo: null, dx: 0, dy: 0, zoomFactor: 1, zoomAt: null };
 
-    if (x !== cam.x || y !== cam.y || zoom !== cam.zoom) {
+    if (zooming) {
+      camEase.current = { x, y, zoom };
+      startEase();
+      return;
+    }
+
+    // A pan while a zoom was still gliding cancels the glide — the hand wins.
+    stopEase();
+    const live = useCanvasStore.getState().camera;
+    if (x !== live.x || y !== live.y || zoom !== live.zoom) {
       useCanvasStore.getState().setCamera({ x, y, zoom });
     }
-  }, []);
+  }, [startEase]);
 
   const scheduleCamera = useCallback(() => {
     if (camRaf.current == null) camRaf.current = requestAnimationFrame(flushCamera);
   }, [flushCamera]);
 
   // A gesture in flight when the canvas unmounts must not leave a frame booked.
-  useEffect(() => () => { if (camRaf.current != null) cancelAnimationFrame(camRaf.current); }, []);
+  useEffect(() => () => {
+    if (camRaf.current != null) cancelAnimationFrame(camRaf.current);
+    if (easeRaf.current != null) cancelAnimationFrame(easeRaf.current);
+  }, []);
 
   // Wheel zoom
   const handleWheel = useCallback(
@@ -752,11 +868,12 @@ export default function InfiniteCanvas() {
       if (mode === 'pan' || e.button === 1) {
         // Middle click or pan mode
         isPanningRef.current = true;
+        const midCam = useCanvasStore.getState().camera;
         panStartRef.current = {
           x: e.clientX,
           y: e.clientY,
-          camX: camera.x,
-          camY: camera.y,
+          camX: midCam.x,
+          camY: midCam.y,
         };
         e.preventDefault();
         return;
@@ -765,11 +882,12 @@ export default function InfiniteCanvas() {
       if (mode === 'text' || mode === 'select' || mode === 'shape' || mode === 'arrow' || mode === 'frame' || mode === 'relax' || mode === 'brainstorm') {
         // If they click empty space, we record pan start just in case it's a tiny drag
         isPanningRef.current = true;
+        const liveCam = useCanvasStore.getState().camera;
         panStartRef.current = {
           x: e.clientX,
           y: e.clientY,
-          camX: camera.x,
-          camY: camera.y,
+          camX: liveCam.x,
+          camY: liveCam.y,
         };
       }
 
@@ -783,7 +901,7 @@ export default function InfiniteCanvas() {
          reaching here, so this only ever fires for a click that missed it. */
       useCanvasStore.getState().setSelectedConnectionId(null);
     },
-    [mode, camera, setSelectedId, setEditingId, plusMenuPos, setPlusMenuPos]
+    [mode, setSelectedId, setEditingId, plusMenuPos, setPlusMenuPos]
   );
 
   const handleMouseMove = useCallback(
@@ -892,8 +1010,6 @@ export default function InfiniteCanvas() {
      And because a camera jump you didn't ask for is disorienting, the previous
      view is kept for a few seconds behind one chip.
      ------------------------------------------------------------------ */
-  /** Below this zoom, a click on empty canvas dives instead of creating. */
-  const DIVE_ZOOM = 0.62;
   const [diveBack, setDiveBack] = useState<{ x: number; y: number; zoom: number } | null>(null);
   const diveBackTimer = useRef<number | null>(null);
 
@@ -984,12 +1100,13 @@ export default function InfiniteCanvas() {
           const dy = Math.abs(e.clientY - panStartRef.current.y);
           if (dx < 5 && dy < 5) {
             // It was a click
-            const worldPos = screenToCanvas(e.clientX, e.clientY, camera);
+            const upCam = useCanvasStore.getState().camera;
+            const worldPos = screenToCanvas(e.clientX, e.clientY, upCam);
 
             /* Far enough out that the board is a map: a click means "closer",
                not "start writing here". Only in select mode — every other tool
                was picked up on purpose and gets to do its job at any zoom. */
-            if (mode === 'select' && camera.zoom < DIVE_ZOOM) {
+            if (mode === 'select' && upCam.zoom < DIVE_ZOOM) {
               diveTo(worldPos);
               return;
             }
@@ -1115,7 +1232,7 @@ export default function InfiniteCanvas() {
         }
       }
     },
-    [mode, camera, addObject, setSelectedId, setEditingId, setMode, activeArrowId, setActiveArrowId, diveTo]
+    [mode, addObject, setSelectedId, setEditingId, setMode, activeArrowId, setActiveArrowId, diveTo]
   );
 
   /* Dismiss the Plugins dropdown on an outside click — same contract as the
@@ -1406,7 +1523,7 @@ export default function InfiniteCanvas() {
     (e: React.DragEvent) => {
       e.preventDefault();
       const dt = e.dataTransfer;
-      const origin = screenToCanvas(e.clientX, e.clientY, camera);
+      const origin = screenToCanvas(e.clientX, e.clientY, useCanvasStore.getState().camera);
 
       // 0a) A block pulled out of the Singularity search — recreate a fresh copy
       //     of it (from this or any other canvas) right where it was dropped.
@@ -1518,7 +1635,7 @@ export default function InfiniteCanvas() {
         });
       }
     },
-    [camera, addObject, setSelectedId]
+    [addObject, setSelectedId]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1529,8 +1646,9 @@ export default function InfiniteCanvas() {
   // Paste images and links
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
-      const centerX = (window.innerWidth / 2 - camera.x) / camera.zoom;
-      const centerY = (window.innerHeight / 2 - camera.y) / camera.zoom;
+      const pasteCam = useCanvasStore.getState().camera;
+      const centerX = (window.innerWidth / 2 - pasteCam.x) / pasteCam.zoom;
+      const centerY = (window.innerHeight / 2 - pasteCam.y) / pasteCam.zoom;
 
       /* ONE paste = ONE image. A single copied picture arrives as SEVERAL
          clipboard entries — Chrome carries it as image/png AND text/html with an
@@ -1587,19 +1705,7 @@ export default function InfiniteCanvas() {
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [camera, addObject]);
-
-  /* How far the camera has travelled, in coarse steps.
-     The cull below used to depend on `camera` itself, so a pan rebuilt the
-     whole visible-object list — a Map allocation over every object on the
-     board plus a filter — on EVERY frame, sixty times a second, to almost
-     always produce the same list. Quantising to 160px means it recomputes
-     roughly once per 160px of travel; the 400px margin around the viewport is
-     what makes that safe, since nothing can enter view within the slack. */
-  const cullKey = useMemo(() => {
-    const q = 160;
-    return `${Math.round(camera.x / q)}:${Math.round(camera.y / q)}:${camera.zoom.toFixed(2)}`;
-  }, [camera]);
+  }, [addObject]);
 
   // Viewport culling: only mount objects that intersect the visible area (plus a
   // margin). Without this, a large stored canvas mounts every card at once and can
@@ -1674,12 +1780,6 @@ export default function InfiniteCanvas() {
     return () => clearTimeout(flyT);
   }, [pendingFocusId, objects, setSelectedId, setPendingFocusId]);
 
-  // Grid background transform
-  const gridStyle = {
-    backgroundPosition: `${camera.x % (24 * camera.zoom)}px ${camera.y % (24 * camera.zoom)}px`,
-    backgroundSize: `${24 * camera.zoom}px ${24 * camera.zoom}px`,
-    opacity: camera.zoom > 0.4 ? 0.35 : 0,
-  };
 
   return (
     <>
@@ -1692,7 +1792,7 @@ export default function InfiniteCanvas() {
           /* The cursor is the whole tutorial for diving: out here it turns into
              a magnifier, so "click to get closer" is offered rather than
              explained. */
-          mode === 'select' && camera.zoom < DIVE_ZOOM ? ' dive-ready' : ''
+          mode === 'select' && diveReady ? ' dive-ready' : ''
         }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -1700,16 +1800,14 @@ export default function InfiniteCanvas() {
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
-        {/* Grid */}
-        <div className="canvas-grid" style={gridStyle} />
+        {/* Grid — positioned by paintCamera, not by React. */}
+        <div ref={gridRef} className="canvas-grid" />
 
-        {/* World transform layer */}
-        <div
-          className="canvas-world"
-          style={{
-            transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
-          }}
-        >
+        {/* World transform layer.
+            No `transform` from React state on purpose: the camera is painted
+            straight onto this node by paintCamera, sixty times a second,
+            without re-rendering the board. See THE CAMERA PIPELINE above. */}
+        <div ref={worldRef} className="canvas-world">
           {/* Connections Layer (Behind objects) */}
           <ConnectionsLayer />
 
