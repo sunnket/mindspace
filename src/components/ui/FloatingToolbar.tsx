@@ -136,9 +136,10 @@ export default function FloatingToolbar() {
       label: 'Brainstorm — pins, clips & thread',
       icon: (
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 4.5 15.5 11" />
-          <path d="M8.2 10.6a4 4 0 0 0 5.2 5.2l4.2-1.6a1 1 0 0 0 .35-1.63l-6.5-6.5a1 1 0 0 0-1.63.35Z" />
-          <path d="M10.5 13.5 5 19" />
+          <circle cx="5" cy="6" r="2.2" fill="currentColor" />
+          <circle cx="19" cy="17" r="2.2" fill="currentColor" />
+          <path d="M5 6c5.5 1.5 2.5 10.5 14 11" strokeWidth="2" />
+          <path d="M18 4.5v4.5a1.8 1.8 0 0 1-3.6 0v-3" opacity="0.65" />
         </svg>
       ),
     },

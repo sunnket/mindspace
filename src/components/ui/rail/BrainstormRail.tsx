@@ -15,6 +15,15 @@ import { Icon, Group, OptBtn, Hint } from './RailKit';
  * crimson and rose is visible.
  */
 
+const CorkboardIcon = ({ size = 15 }: { size?: number }) => (
+  <Icon size={size} strokeWidth={1.9}>
+    <circle cx="5" cy="6" r="2.2" fill="currentColor" />
+    <circle cx="19" cy="17" r="2.2" fill="currentColor" />
+    <path d="M5 6c5.5 1.5 2.5 10.5 14 11" strokeWidth="2" />
+    <path d="M18 4.5v4.5a1.8 1.8 0 0 1-3.6 0v-3" opacity="0.65" />
+  </Icon>
+);
+
 const PinIcon = ({ size = 15 }: { size?: number }) => (
   <Icon size={size} strokeWidth={1.9}>
     <path d="M9 4.5 15.5 11" />
@@ -63,7 +72,7 @@ export default function BrainstormRail() {
   return (
     <RailShell
       railKey={`brainstorm:${tool}`}
-      icon={<PinIcon size={14} />}
+      icon={<CorkboardIcon size={14} />}
       title="Corkboard"
       subtitle={tool === 'pin' ? 'Pinning' : tool === 'clip' ? 'Clipping' : 'Threading'}
       onClose={() => setMode('select')}
