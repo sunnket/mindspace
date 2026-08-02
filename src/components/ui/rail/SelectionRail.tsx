@@ -271,8 +271,8 @@ export default function SelectionRail() {
     </Group>
   );
 
-  const colourGroup = colorTargets.length > 0 && (
-    <Group id="colour" label="Colour">
+  const colourGroup = (colorTargets.length > 0 || isTextLike) && (
+    <Group id="colour" label="Colour & Opacity">
       {/* Grouping frames get the six identity colours as one-tap chips too — a
           frame's colour is a label, not a shade you hunt for. Delete / Scene /
           Ask-AI frames are locked to theirs: that colour IS the warning. */}
@@ -284,6 +284,15 @@ export default function SelectionRail() {
         </div>
       )}
       <ColorRows targets={colorTargets} />
+      <Slider
+        label="Opacity"
+        value={opacity}
+        min={0}
+        max={100}
+        step={1}
+        format={(v) => `${Math.round(v)}%`}
+        onChange={(v) => patch({ opacity: v / 100 })}
+      />
     </Group>
   );
 
