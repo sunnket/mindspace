@@ -20,7 +20,7 @@ export default function SaveIndicator() {
 
   return (
     <motion.div
-      className="fixed bottom-4 right-12 z-50 pointer-events-none flex items-center gap-2"
+      className="save-indicator fixed bottom-4 right-12 z-50 pointer-events-none flex items-center gap-2"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ delay: 1 }}

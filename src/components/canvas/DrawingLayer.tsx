@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useCallback, useState, useMemo } from 'react';
+import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { getStroke } from 'perfect-freehand';
 import { v4 as uuidv4 } from 'uuid';
 import { useCanvasStore } from '@/store/canvasStore';
@@ -262,6 +262,20 @@ export default function DrawingLayer() {
     },
     [drawColor, drawSize, addStroke, currentPoints, eraserMode, highlighterMode, drawOpacity, drawFlow, drawHardness, drawStabilization, drawPressure, drawSmoothing, drawTexture, drawBlendMode]
   );
+
+  /* A second finger landed: the gesture was a pinch-zoom all along, and the
+     inch of line drawn before the other finger arrived is not something anyone
+     asked for. Thrown away rather than committed — on a phone this is the
+     difference between being able to zoom while sketching and littering the
+     board with a stray tick every time you do. */
+  useEffect(() => {
+    const abort = () => {
+      setCurrentPoints(null);
+      setIsErasing(false);
+    };
+    window.addEventListener('canvas-abort-stroke', abort);
+    return () => window.removeEventListener('canvas-abort-stroke', abort);
+  }, []);
 
   const currentStrokePath = useMemo(() => {
     if (!currentPoints || currentPoints.length < 2) return '';

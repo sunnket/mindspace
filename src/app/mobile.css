@@ -1,0 +1,506 @@
+/* ==================================================================
+   THE PHONE SHEET.
+
+   Every rule in this file is inside a phone query (or `pointer: coarse`), and
+   nothing outside those queries changes anything. That is deliberate and it is
+   the file's main safety property: a desktop browser never matches a single
+   selector here, so the layout that already works cannot be disturbed by
+   anything written below.
+
+   THE QUERY, which is repeated verbatim in every block:
+
+       (max-width: 820px), (max-height: 520px) and (max-width: 1024px)
+
+   820px rather than a round 768 because a phone held sideways is ~740–850 CSS
+   px and is, for every purpose in this app, still a phone. But width alone is
+   not enough, and this is the part that is easy to get wrong: an iPhone in
+   LANDSCAPE is 844×390 — wider than the breakpoint, and 390px tall. It was
+   getting the full desktop layout, which meant a thirteen-button toolbar and a
+   minimap on a screen with 390px of height. Hence the second clause: short and
+   not-wide is a phone too. The `and (max-width: 1024px)` guard is what keeps a
+   genuine desktop out of it — a 1440px window that happens to be short is still
+   a desktop, and gets the desktop layout.
+
+   The same rule lives in lib/responsive.ts, so CSS and React always agree about
+   which layout is on screen — a panel that CSS has folded into a sheet while
+   React still thinks it is a 300px sidebar is a panel stuck between two
+   designs.
+
+   Order of business, top to bottom:
+     1. The measurements everything else is written against
+     2. The board itself (gestures, hit targets)
+     3. The dock, the sheets and the view controls
+     4. Chrome that has no room on a phone
+     5. Panels and modals
+     6. The landing page
+   ================================================================== */
+
+:root {
+  /* Published by InfiniteCanvas from `visualViewport`: how much of the screen
+     the on-screen keyboard is currently covering. Zero on every desktop, and
+     zero on a phone until something is being typed into. Everything pinned to
+     the bottom edge adds it, which is why the toolbar rides up with the keys
+     instead of being buried under them. */
+  --kb-inset: 0px;
+
+  /* The notch, the home indicator, the rounded corners. `env()` resolves to 0
+     wherever they don't exist, so these are safe to use unconditionally — but
+     they only become non-zero because layout.tsx asks for `viewport-fit=cover`. */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+
+  /* Height of the phone dock, and the clearance anything floating above it
+     needs. Written once here so the zoom rail, the sheets and the properties
+     rail can never disagree about where the bottom of the usable screen is. */
+  --dock-h: 54px;
+  --dock-clear: calc(var(--safe-b) + var(--kb-inset) + var(--dock-h) + 20px);
+}
+
+/* ------------------------------------------------------------------
+   1. Measurements
+   ------------------------------------------------------------------ */
+@media (max-width: 820px), (max-height: 520px) and (max-width: 1024px) {
+  /* `100vh` on a phone is the height the page WOULD have if the browser's URL
+     bar were hidden — which it isn't, most of the time. Anything sized in vh is
+     therefore taller than the screen and its last ~90px sits below the fold
+     with no way to reach it. `dvh` is the honest number. */
+  @supports (height: 100dvh) {
+    .h-screen { height: 100dvh; }
+    .min-h-screen { min-height: 100dvh; }
+    .max-h-\[64vh\] { max-height: 64dvh; }
+  }
+}
+
+/* ------------------------------------------------------------------
+   2. The board
+   ------------------------------------------------------------------ */
+@media (pointer: coarse) {
+  /* iOS turns a press-and-hold into a text-selection magnifier and a share
+     sheet. On a canvas that fires in the middle of every drag of a card. */
+  .canvas-container {
+    -webkit-touch-callout: none;
+  }
+
+  /* 10px dots designed for a mouse cursor. A fingertip covers ~44px, so the
+     visible dot stays exactly the size it was and grows an invisible cushion
+     around itself — the handle looks identical and is four times easier to
+     land on. */
+  .resize-handle::after {
+    content: '';
+    position: absolute;
+    inset: -12px;
+  }
+
+  /* A tap has no hover, so anything that only appears on hover is, on a
+     touchscreen, something that does not exist. Selection is the touch
+     equivalent, and the rules below it already cover that — this just stops the
+     handles flickering in and out as synthetic hovers arrive with taps. */
+  .canvas-object:hover .resize-handle {
+    opacity: 0;
+  }
+  .canvas-object.selected .resize-handle {
+    opacity: 1;
+  }
+
+  /* The glow that follows a mouse. There is no mouse. */
+  .glow-cursor {
+    display: none !important;
+  }
+}
+
+@media (max-width: 820px), (max-height: 520px) and (max-width: 1024px) {
+  /* The board's own title, top-left. `left-10 top-12` is desk furniture: on a
+     390px screen it wastes the one strip of chrome the phone has. */
+  .board-header {
+    top: calc(var(--safe-t) + 8px) !important;
+    left: calc(var(--safe-l) + 12px) !important;
+    right: calc(var(--safe-r) + 12px);
+    max-width: calc(100vw - 24px);
+  }
+  .board-header h1 {
+    font-size: 1.15rem;
+    line-height: 1.2;
+    max-width: 62vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .board-header input {
+    width: min(70vw, 260px) !important;
+    font-size: 16px !important; /* under 16px iOS zooms the page on focus */
+  }
+
+  /* Everything that hangs off the ▾ menu. On a desktop these are panels beside
+     a title with a whole screen to the right of them; here they have 390px, so
+     they are capped and made scrollable rather than allowed to run off the
+     edge (which is what "the menu is hiding everything" looked like). */
+  .board-menu,
+  .scenes-menu,
+  .plugins-menu,
+  .bg-menu,
+  .relax-menu,
+  .flow-menu {
+    width: min(86vw, 340px);
+    max-height: min(56dvh, 470px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* Above the properties rail (140). A tool's options can legitimately be
+       open at the same time as this menu — on a desktop they are side by side
+       and both readable, but here they occupy the same screen, and the one you
+       just tapped is the one you are looking at. Without this the menu was cut
+       in half by a rail that had been sitting there since before you opened it. */
+    z-index: 160;
+  }
+  .board-menu > *,
+  .scenes-menu > *,
+  .plugins-menu > *,
+  .bg-menu > *,
+  .relax-menu > *,
+  .flow-menu > * {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+/* ------------------------------------------------------------------
+   3. The dock, the sheets, the view controls
+   ------------------------------------------------------------------ */
+@media (max-width: 820px), (max-height: 520px) and (max-width: 1024px) {
+  /* The dock spans the screen instead of being a centred island, so its
+     buttons sit where thumbs actually are rather than all in the middle. */
+  .floating-toolbar.phone-dock {
+    left: 0;
+    right: 0;
+    transform: none;
+    bottom: calc(var(--safe-b) + var(--kb-inset) + 8px);
+    display: flex;
+    justify-content: center;
+    padding: 0 max(10px, var(--safe-l)) 0 max(10px, var(--safe-r));
+    pointer-events: none;
+  }
+  .floating-toolbar.phone-dock > * {
+    pointer-events: auto;
+    max-width: 100%;
+    border-radius: 18px;
+  }
+}
+
+/* The scrim and the sheet are shared by every bottom panel — the ⋯ tools, the
+   insert menu, the properties rail. One surface, defined once, so they all
+   dismiss the same way and stack in a predictable order. */
+.mobile-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 190;
+  background: rgba(12, 10, 8, 0.42);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  pointer-events: auto;
+}
+
+.mobile-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  border-radius: 22px 22px 0 0;
+  padding-bottom: calc(var(--safe-b) + var(--kb-inset) + 12px);
+  max-height: 78dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+}
+
+/* The little bar that says "this pulls down". Purely a signifier — the sheet
+   dismisses by tapping the scrim, which is the gesture people reach for first
+   anyway. */
+.mobile-sheet-grip {
+  width: 38px;
+  height: 4px;
+  border-radius: 4px;
+  margin: 10px auto 8px;
+  background: var(--border-strong);
+  flex-shrink: 0;
+}
+
+/* The insert (+) menu, wearing the sheet instead of its 460px popover. */
+@media (max-width: 820px), (max-height: 520px) and (max-width: 1024px) {
+  .plus-menu.plus-menu-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: auto;
+    z-index: 200;
+    max-height: 80dvh;
+    display: flex;
+  }
+  .plus-menu.plus-menu-sheet > .tool-panel {
+    width: 100%;
+    border-radius: 22px 22px 0 0;
+    max-height: 80dvh;
+    padding-bottom: calc(var(--safe-b) + var(--kb-inset));
+  }
+  /* 16px minimum, or iOS zooms the whole page the moment the field is focused
+     and leaves the board scaled up afterwards. */
+  .plus-menu input {
+    font-size: 16px !important;
+  }
+}
+
+/* Zoom / fit, on the right edge just under the header.
+
+   It started life above the dock, which is where a floating control belongs on
+   a phone — until the properties rail opens. That rail is a bottom sheet up to
+   42dvh tall, so the two were fighting for the same strip and the zoom buttons
+   landed on top of the font-size controls. The top-right is the one region
+   nothing else claims: the title is left-aligned, the save chip moved to the
+   bottom-left, and the minimap and checkpoint rail are both gone here. */
+.mobile-view-controls {
+  position: fixed;
+  right: max(10px, var(--safe-r));
+  top: calc(var(--safe-t) + 52px);
+  bottom: auto;
+  z-index: 140;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-radius: 16px;
+  padding: 2px;
+  pointer-events: auto;
+}
+
+/* A floating control on top of a modal is clutter. When a sheet is up, the
+   board is not what you are looking at. */
+body:has(.mobile-scrim) .mobile-view-controls,
+body:has(.mobile-scrim) .floating-toolbar.phone-dock {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+/* ------------------------------------------------------------------
+   4. Chrome with nowhere to go
+   ------------------------------------------------------------------ */
+@media (max-width: 820px), (max-height: 520px) and (max-width: 1024px) {
+  /* Each of these is genuinely good on a desktop and genuinely in the way on a
+     phone — they are all pinned to an edge, and on this screen every edge is
+     either the dock, the title, or the work itself.
+
+       · minimap        168px of map, unreadable, sitting on the board
+       · checkpoints    a rail down the right edge, hover-only to open
+       · pocket         drag-a-block-onto-a-rail, which needs a mouse
+       · trash bin      bottom-left, exactly where the dock now is
+       · voice orb      bottom-centre, likewise
+     Nothing is lost that is not reachable another way: the command palette and
+     the ▾ menu still carry the features these are shortcuts to. */
+  .minimap-container,
+  .checkpoint-index,
+  .pocket-rail,
+  .trash-bin,
+  .trash-drawer {
+    display: none !important;
+  }
+
+  .voice-orb {
+    bottom: var(--dock-clear) !important;
+  }
+
+  /* "Saved" moves to the bottom-left, which the bin and the pocket have just
+     vacated. The top-right is the only room the board's own title has, and a
+     reassurance you glance at once must never sit on the name of the thing. */
+  .save-indicator {
+    top: auto !important;
+    bottom: var(--dock-clear) !important;
+    right: auto !important;
+    left: max(12px, var(--safe-l)) !important;
+  }
+
+  .collab-bar {
+    top: calc(var(--safe-t) + 46px) !important;
+    max-width: calc(100vw - 24px);
+  }
+
+  /* The connector-mode banner is sized to its widest row on purpose (see the
+     note in ConnectorPanel) — 700px of end-swatches that must not wrap. There
+     is no width here that satisfies that, so it keeps its layout and scrolls
+     sideways instead of reflowing into something unreadable. It also drops
+     below the title, which it was sitting directly on top of at `top: 14`. */
+  .connector-panel {
+    top: calc(var(--safe-t) + 44px) !important;
+    max-width: calc(100vw - 16px) !important;
+  }
+  .connector-panel > * {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+}
+
+/* ------------------------------------------------------------------
+   5. Panels and modals
+   ------------------------------------------------------------------ */
+@media (max-width: 820px), (max-height: 520px) and (max-width: 1024px) {
+  /* The properties rail. Below 768 it was already a strip above the toolbar,
+     but it was measured against a toolbar that no longer exists at this size
+     and knew nothing about the keyboard or the home indicator — so it either
+     overlapped the dock or hid behind the keys.
+
+     As a sheet it also stops covering the block it describes: 42dvh leaves the
+     upper half of the board visible, which matters because every control in
+     the rail is editing something you need to be able to see. */
+  .props-rail {
+    top: auto !important;
+    left: max(8px, var(--safe-l)) !important;
+    right: max(8px, var(--safe-r)) !important;
+    bottom: var(--dock-clear) !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: 42dvh !important;
+  }
+
+  /* Both chat panels: a 380px column beside a 390px screen is a full-screen
+     panel that is pretending not to be. So it becomes one, honestly. */
+  .agent-chat-panel,
+  .dm-chat-panel {
+    top: calc(var(--safe-t) + 8px) !important;
+    left: max(8px, var(--safe-l)) !important;
+    right: max(8px, var(--safe-r)) !important;
+    bottom: calc(var(--safe-b) + var(--kb-inset) + 8px) !important;
+    width: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    border-radius: 20px !important;
+  }
+  /* The drag-to-resize grip has no meaning once the panel fills the screen. */
+  .agent-chat-panel [title='Drag to resize'] {
+    display: none !important;
+  }
+
+  /* Every centred modal in the app is `fixed inset-0 flex items-center
+     justify-center` with a `max-w-*` child. The child collapses correctly on
+     its own; what it lacks is a gutter, so on a 390px screen the card ran edge
+     to edge with its rounded corners clipped. Padding a centred flex container
+     whose child has a max-width changes nothing on a desktop — the child is
+     narrower than the free space either way. */
+  .fixed.inset-0.flex.items-center.justify-center,
+  .fixed.inset-0.flex.items-start.justify-center {
+    padding-left: max(12px, var(--safe-l));
+    padding-right: max(12px, var(--safe-r));
+  }
+
+  /* The command palette opens at 15vh, which on a short screen with a keyboard
+     up leaves it nowhere to be. */
+  .fixed.inset-0.flex.items-start.justify-center {
+    padding-top: calc(var(--safe-t) + 56px) !important;
+  }
+
+  /* Any field that can be focused: 16px or iOS silently zooms the page. */
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+
+  /* Wide content inside a block — tables, code, repo trees — scrolls itself
+     rather than forcing the block wider than the screen. */
+  .rich-text pre,
+  .rich-text table {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
+
+/* ------------------------------------------------------------------
+   6. The landing page
+   ------------------------------------------------------------------ */
+@media (max-width: 820px), (max-height: 520px) and (max-width: 1024px) {
+  /* THE overflow bug, and it is one property.
+
+     `main` is `flex-1` inside a flex row. A flex item's floor is its
+     min-content width, not zero — so the widest thing in the gallery (the
+     header's search + auth cluster) set the width of the whole column, and the
+     column was wider than the phone. Everything else on the page then inherited
+     that: the hero card ran off the right edge, the sidebar sat on top of the
+     content, and no amount of `overflow-x-hidden` on the parent could fix it
+     because the child genuinely was that wide. */
+  .landing-main {
+    min-width: 0;
+  }
+
+  /* The icon rail becomes a bar along the bottom. It is the page's navigation;
+     hiding it would cost real function, and 92px of a 390px screen is a
+     quarter of the page given to eight icons. */
+  .landing-rail {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0;
+    bottom: 0;
+    top: auto !important;
+    width: auto !important;
+    height: auto !important;
+    z-index: 60;
+    padding: 0;
+  }
+  /* `> nav`, not `> div` — the rail's child is the <nav> landmark itself. */
+  .landing-rail > nav {
+    margin-left: 0 !important;
+    flex-direction: row !important;
+    justify-content: space-around;
+    width: 100%;
+    max-height: none !important;
+    border-radius: 20px 20px 0 0 !important;
+    padding: 7px max(6px, var(--safe-l)) calc(7px + var(--safe-b)) max(6px, var(--safe-r)) !important;
+    gap: 0 !important;
+  }
+  /* Eight targets across 390px is 46px each — right at the fingertip minimum,
+     so the buttons keep their full height and only give up their side padding. */
+  .landing-rail > nav > button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  /* The divider between the two groups of icons was a horizontal hairline in a
+     column; in a row it has to turn 90°. */
+  .landing-rail .landing-rail-sep {
+    width: 1px !important;
+    height: 22px !important;
+    margin: 0 3px !important;
+    flex: 0 0 1px;
+  }
+
+  .landing-main > div {
+    padding-left: max(16px, var(--safe-l)) !important;
+    padding-right: max(16px, var(--safe-r)) !important;
+    padding-top: 20px !important;
+    /* Clear the bar the rail just became. */
+    padding-bottom: calc(96px + var(--safe-b)) !important;
+    gap: 28px !important;
+  }
+
+  /* The header stacks: wordmark, then search, then the auth buttons — instead
+     of one row that could never fit and so overflowed the viewport. */
+  .landing-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 14px !important;
+  }
+  .landing-header-actions {
+    flex-shrink: 1 !important;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .landing-header-actions > *:first-child {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  /* A 5rem hero headline is a desktop typographic gesture. At 390px it is four
+     letters and an ellipsis. */
+  .landing-hero-title {
+    font-size: 1.75rem !important;
+    line-height: 1.12 !important;
+  }
+}

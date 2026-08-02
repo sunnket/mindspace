@@ -45,9 +45,7 @@ export default function AgentChatPanel() {
   const messages = useAgentChatStore((s) => s.messagesByCanvas[s.canvasId]) ?? EMPTY_MESSAGES;
   const loading = useAgentChatStore((s) => s.loadingByCanvas[s.canvasId]);
 
-  const open = useAgentChatStore((s) => s.open);
   const close = useAgentChatStore((s) => s.close);
-  const toggle = useAgentChatStore((s) => s.toggle);
   const setMaximized = useAgentChatStore((s) => s.setMaximized);
   const setWidth = useAgentChatStore((s) => s.setWidth);
   const syncCanvas = useAgentChatStore((s) => s.syncCanvas);
@@ -173,22 +171,9 @@ export default function AgentChatPanel() {
 
   return (
     <>
-      {/* Corner launcher (top-right — where the DM chat used to live). Hidden
-          while the panel is open, which has its own close button. */}
-      {!panelOpen && (
-        <div className="fixed right-5 top-28 z-[125] pointer-events-auto">
-          <motion.button
-            onClick={toggle}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            title="AI Agent chat"
-            className="clay-card w-11 h-11 rounded-2xl flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer relative"
-          >
-            <Spark size={19} />
-            <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-[var(--accent)] border-2 border-[var(--bg-primary)]" />
-          </motion.button>
-        </div>
-      )}
+      {/* No corner launcher any more — the agent has a proper home in the
+          floating toolbar, beside the other things you reach for while working.
+          A second floating button for the same panel was just clutter. */}
 
       <AnimatePresence>
         {panelOpen && (
@@ -207,7 +192,7 @@ export default function AgentChatPanel() {
               const files = e.dataTransfer?.files;
               if (files && files.length) void addFiles(files);
             }}
-            className="fixed z-[160] flex flex-col pointer-events-auto clay-card"
+            className="agent-chat-panel fixed z-[160] flex flex-col pointer-events-auto clay-card"
             style={{
               top: 76, right: 16, bottom: 16, width: panelWidth,
               borderRadius: 20,

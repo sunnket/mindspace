@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
+import { useChatStore, useChatUnreadTotal } from '@/store/chatStore';
 import { v4 as uuidv4 } from 'uuid';
 import { screenToCanvas, randomStickyColor } from '@/lib/utils';
 import { ingestFile } from '@/lib/fileIngest';
@@ -10,6 +11,7 @@ import { createRepoBlock, ingestFolderPickerIntoBlock } from '@/lib/repoIngest';
 import { newTimeline } from '@/lib/timeline';
 import { newRoadmapColumns, newRoadmapRows } from '@/lib/dataTools';
 import { pendingCameraStart } from '@/components/canvas/MirrorBlock';
+import { useIsPhone } from '@/lib/responsive';
 
 // NOTE ON SPACING: the app's global `* { margin:0; padding:0 }` reset is
 // unlayered, so Tailwind's padding/margin utilities are dead here. Every
@@ -56,6 +58,12 @@ export default function PlusMenu() {
   const setPlusMenuPos = useCanvasStore((s) => s.setPlusMenuPos);
   const addObject = useCanvasStore((s) => s.addObject);
   const camera = useCanvasStore((s) => s.camera);
+  /* Messages moved OUT of the toolbar (the agent took that slot) and in here.
+     The unread count comes along — a DM you haven't read has to be visible
+     somewhere, and a menu row that quietly says "2 unread" is that somewhere. */
+  const openChat = useChatStore((s) => s.openPanel);
+  const chatUnread = useChatUnreadTotal();
+  const isPhone = useIsPhone();
 
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
@@ -86,11 +94,17 @@ export default function PlusMenu() {
     if (plusMenuPos) {
       setQuery('');
       setActiveIdx(0);
+      /* …but NOT on a phone. Focusing a field there raises the keyboard, and
+         the keyboard is half the screen — so the menu you just opened to browse
+         would arrive with two rows visible and the rest behind the keys. On a
+         desktop the caret costs nothing and saves a click; here it costs the
+         whole panel. Tapping the field still searches, for anyone who wants to. */
+      if (isPhone) return;
       // after the entry animation has mounted the input
       const t = setTimeout(() => searchRef.current?.focus(), 30);
       return () => clearTimeout(t);
     }
-  }, [plusMenuPos]);
+  }, [plusMenuPos, isPhone]);
 
   if (!plusMenuPos) return null;
 
@@ -617,6 +631,17 @@ export default function PlusMenu() {
             });
           },
         },
+        {
+          // Not a block — an action. It lives here because this menu is where
+          // the occasional things go now that the toolbar belongs to the agent.
+          icon: (<MenuIcon><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" /></MenuIcon>),
+          label: 'Messages',
+          desc: chatUnread > 0
+            ? `Direct messages · ${chatUnread} unread`
+            : 'Direct messages with your people',
+          keywords: 'chat dm message people talk inbox conversation',
+          action: () => openChat(),
+        },
       ],
     },
   ];
@@ -662,23 +687,46 @@ export default function PlusMenu() {
 
   let flatIdx = -1; // running index across sections for keyboard nav
 
+  /* A 460px popover anchored to a 44px button is a desktop idea. On a 390px
+     screen it is wider than the screen, and "anchored under the + button" puts
+     it on top of the toolbar that opened it. Phones get the same panel as a
+     bottom sheet instead: full width, rising from the edge the thumb is
+     already at, and its geometry owned by CSS rather than by these inline
+     coordinates (see .plus-menu-sheet in mobile.css). */
+  const sheet = isPhone;
+
   return (
     <AnimatePresence>
+      {sheet && (
+        <motion.div
+          key="plus-menu-scrim"
+          className="mobile-scrim"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={() => setPlusMenuPos(null)}
+        />
+      )}
       <motion.div
         key="plus-menu-content"
-        className="plus-menu"
-        style={{
+        className={sheet ? 'plus-menu plus-menu-sheet' : 'plus-menu'}
+        style={sheet ? undefined : {
           left,
           top: plusMenuPos.isToolbar ? undefined : Math.min(plusMenuPos.y, Math.max(8, window.innerHeight - 420)),
           bottom: plusMenuPos.isToolbar ? window.innerHeight - plusMenuPos.y + 10 : undefined,
           width: PANEL_W,
         }}
-        initial={{ opacity: 0, scale: 0.96, y: plusMenuPos.isToolbar ? 6 : -6 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: plusMenuPos.isToolbar ? 6 : -6 }}
-        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+        initial={sheet ? { y: '100%' } : { opacity: 0, scale: 0.96, y: plusMenuPos.isToolbar ? 6 : -6 }}
+        animate={sheet ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
+        exit={sheet ? { y: '100%' } : { opacity: 0, scale: 0.96, y: plusMenuPos.isToolbar ? 6 : -6 }}
+        transition={sheet
+          ? { type: 'spring', damping: 32, stiffness: 340 }
+          : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
       >
-        <div className="glass-panel overflow-hidden flex flex-col" style={{ maxHeight: 'min(64vh, 560px)' }}>
+        <div
+          className="tool-panel overflow-hidden flex flex-col"
+          style={{ maxHeight: sheet ? '100%' : 'min(64vh, 560px)' }}
+        >
           {/* Search */}
           <div className="shrink-0 border-b border-[var(--border)]" style={{ padding: '10px 12px' }}>
             <div

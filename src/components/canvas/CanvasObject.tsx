@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, useCallback, useState, useEffect, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { useCollabStore } from '@/store/collabStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
@@ -19,13 +20,10 @@ import InkText from './InkText';
 import AnimatedText from './AnimatedText';
 import { useFlowStore } from '@/store/flowStore';
 import { INK_FONT, intervalToIntensity, foldRhythm } from '@/lib/typingInk';
-import CodeSandboxBlock from './CodeSandboxBlock';
-import RepoExplorerBlock from './RepoExplorerBlock';
 import QuoteBlock from './QuoteBlock';
 import CalloutBlock from './CalloutBlock';
 import EmbedBlock from './EmbedBlock';
 import GitHubBlock from './GitHubBlock';
-import MermaidBlock from './MermaidBlock';
 import TodoBlock from './TodoBlock';
 import LinkPreviewBlock from './LinkPreviewBlock';
 import { CountdownBlock, PollBlock, LiveMetricBlock, QuickDataBlock, FocusTimerBlock, DecisionBlock, ProgressBlock, ChartBlock, TimelineBlock, TableBlock } from './ExtensionBlocks';
@@ -40,6 +38,41 @@ import { createPortal } from 'react-dom';
 import { ImageShape, imageShapeStyle, nextImageShape, IMAGE_SHAPE_LABEL } from '@/lib/imageShapes';
 import { getFrameKind, frameColorOf, frameKindMeta, objectsInFrame, type FrameKind } from '@/lib/frames';
 import { PIN_COLORS, pinShade, DEFAULT_PIN_COLOR } from '@/lib/brainstorm';
+
+/* ------------------------------------------------------------------
+   Three block types drag in a syntax-highlighter or a diagram engine, and
+   every one of them was a plain top-level import — so `mermaid` (the single
+   biggest dependency in the app) and `prismjs` were parsed and executed on
+   every board, including the overwhelming majority that contain no diagram
+   and no code. That was ~600KB of JavaScript standing between opening a
+   canvas and seeing it.
+
+   Loading them at the point of use costs nothing when they aren't used, and
+   a few hundred milliseconds behind a skeleton when they are. `ssr: false`
+   because all three touch the DOM on mount, which is also what they already
+   did — they just did it after blocking everyone else's paint.
+   ------------------------------------------------------------------ */
+const BlockFallback = ({ label }: { label: string }) => (
+  <div
+    className="w-full h-full flex items-center justify-center text-[11px] font-semibold"
+    style={{ color: 'var(--text-tertiary)' }}
+  >
+    {label}
+  </div>
+);
+
+const MermaidBlock = dynamic(() => import('./MermaidBlock'), {
+  ssr: false,
+  loading: () => <BlockFallback label="Diagram…" />,
+});
+const CodeSandboxBlock = dynamic(() => import('./CodeSandboxBlock'), {
+  ssr: false,
+  loading: () => <BlockFallback label="Code…" />,
+});
+const RepoExplorerBlock = dynamic(() => import('./RepoExplorerBlock'), {
+  ssr: false,
+  loading: () => <BlockFallback label="Repository…" />,
+});
 
 /** The mark on a frame's title tab that says what kind of region it is. */
 function FrameKindGlyph({ kind }: { kind: FrameKind }) {
@@ -266,22 +299,44 @@ function BrowserView({ id, url, reloadKey, onLoading }: BrowserViewProps) {
 }
 
 
+/**
+ * A sticky note pinned beside a block.
+ *
+ * The old one was a hand-drawn SVG speech balloon with `fill="white"` baked in
+ * and its text painted in `--text-secondary` — which flips to near-white on a
+ * dark canvas, so the comment you'd just typed disappeared into its own bubble.
+ * The layout was Tailwind padding classes (`px-6 pb-5`), all of which are dead
+ * under this app's unlayered `* { padding: 0 }` reset, so the text ran flush to
+ * the balloon's edge and under its tail. And it hung over the board forever
+ * whether you were looking at that block or not.
+ *
+ * It's a real card now: theme surface, theme ink, inline padding, and it shows
+ * only while you're actually on the block (or writing in it).
+ */
 interface CommentBubbleProps {
   obj: CanvasObjectData;
   isEditing: boolean;
+  /** The parent block is hovered/selected — otherwise the note stays out of sight. */
+  visible: boolean;
   onStartEditing: () => void;
   onStopEditing: () => void;
 }
 
-function CommentBubble({ obj, isEditing, onStartEditing, onStopEditing }: CommentBubbleProps) {
+function CommentBubble({ obj, isEditing, visible, onStartEditing, onStopEditing }: CommentBubbleProps) {
   const updateObject = useCanvasStore((s) => s.updateObject);
   const camera = useCanvasStore((s) => s.camera);
   const offset = (obj.style?.commentOffset as { x: number; y: number }) || { x: 0, y: 0 };
-  const width = (obj.style?.commentWidth as number) || 180;
-  const height = (obj.style?.commentHeight as number) || 80;
-  
+  const width = (obj.style?.commentWidth as number) || 190;
+  const height = (obj.style?.commentHeight as number) || 92;
+
   const [localComment, setLocalComment] = useState((obj.style?.comment as string) || '');
-  const inputRef = useRef<HTMLInputElement>(null);
+  /* Own hover, tracked separately: the note sits OUTSIDE the block's box, so
+     reaching for it means leaving the block — without this it would vanish
+     from under the cursor on the way over. */
+  const [selfHover, setSelfHover] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const show = visible || selfHover || isEditing;
 
   // Sync local state when external comment changes (if not editing)
   useEffect(() => {
@@ -346,6 +401,7 @@ function CommentBubble({ obj, isEditing, onStartEditing, onStopEditing }: Commen
 
   const handleResize = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     const startX = e.clientX;
     const startY = e.clientY;
     const initialWidth = width;
@@ -358,8 +414,8 @@ function CommentBubble({ obj, isEditing, onStartEditing, onStopEditing }: Commen
       updateObject(obj.id, {
         style: {
           ...obj.style,
-          commentWidth: Math.max(120, initialWidth + dx),
-          commentHeight: Math.max(60, initialHeight + dy),
+          commentWidth: Math.max(140, initialWidth + dx),
+          commentHeight: Math.max(70, initialHeight + dy),
         }
       });
     };
@@ -378,104 +434,142 @@ function CommentBubble({ obj, isEditing, onStartEditing, onStopEditing }: Commen
     onStopEditing();
   };
 
+  const body = (obj.style?.comment as string) || '';
+
   return (
-    <div 
-      className={`absolute select-auto ${isEditing ? 'z-[1000]' : 'z-[102]'}`}
+    <motion.div
+      className={`absolute select-auto group/comment ${isEditing ? 'z-[1000]' : 'z-[102]'}`}
       style={{
         left: offset.x,
         top: offset.y,
+        width,
         transform: 'translate(-50%, -50%)',
+        // Hidden means untouchable, or an invisible card would still swallow
+        // clicks meant for the board behind it.
+        pointerEvents: show ? 'auto' : 'none',
       }}
+      initial={false}
+      animate={{ opacity: show ? 1 : 0, scale: show ? 1 : 0.94, y: show ? 0 : 4 }}
+      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+      onMouseEnter={() => setSelfHover(true)}
+      onMouseLeave={() => setSelfHover(false)}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
     >
-      <div className="relative group/comment">
-        {/* Speech Bubble SVG Container */}
-        <motion.div
-          onMouseDown={handleDrag}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-          className={`relative flex items-center justify-center ${isEditing ? 'cursor-text' : 'cursor-grab active:cursor-grabbing'}`}
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-        >
-          {/* Speech Bubble SVG - Dynamic Sizing */}
-          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="drop-shadow-xl filter pointer-events-none">
-            <path 
-              d={`M10,10 Q10,0 20,0 L${width-20},0 Q${width-10},0 ${width-10},10 L${width-10},${height-30} Q${width-10},${height-20} ${width-20},${height-20} L40,${height-20} L10,${height-5} L10,${height-20} Q0,${height-20} 0,${height-30} L0,10 Q0,0 10,0`} 
-              fill="white" 
-              stroke="var(--accent-light)" 
-              strokeWidth="1.5"
-              transform="translate(5, 5) scale(0.95)"
-            />
-          </svg>
+      <div
+        onMouseDown={handleDrag}
+        className={`relative rounded-[14px] ${isEditing ? 'cursor-text' : 'cursor-grab active:cursor-grabbing'}`}
+        style={{
+          minHeight: height,
+          padding: '9px 11px 11px',
+          background: 'var(--bg-secondary)',
+          border: `1px solid ${isEditing ? 'var(--accent)' : 'var(--border-strong)'}`,
+          boxShadow: '0 10px 26px -12px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.25)',
+        }}
+      >
+        {/* Tail — two stacked triangles so the note reads as attached to the
+            block rather than floating near it. The outer one is the border. */}
+        <span
+          aria-hidden
+          className="absolute"
+          style={{
+            left: 18, bottom: -8, width: 0, height: 0,
+            borderLeft: '8px solid transparent',
+            borderRight: '8px solid transparent',
+            borderTop: `8px solid ${isEditing ? 'var(--accent)' : 'var(--border-strong)'}`,
+          }}
+        />
+        <span
+          aria-hidden
+          className="absolute"
+          style={{
+            left: 19, bottom: -6, width: 0, height: 0,
+            borderLeft: '7px solid transparent',
+            borderRight: '7px solid transparent',
+            borderTop: '7px solid var(--bg-secondary)',
+          }}
+        />
 
-          {/* Content inside bubble */}
-          <div 
-            className="absolute inset-0 flex flex-col justify-center px-6 pb-5 pointer-events-auto"
-            onClick={() => isEditing && inputRef.current?.focus()}
+        {/* Header: a quiet label, and the delete that only appears on hover. */}
+        <div className="flex items-center justify-between gap-2" style={{ marginBottom: 5 }}>
+          <span className="flex items-center gap-1 text-[8.5px] font-extrabold uppercase tracking-[0.14em] text-[var(--text-tertiary)] select-none">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+            Note
+          </span>
+          <button
+            title="Delete this note"
+            className="opacity-0 group-hover/comment:opacity-100 transition-opacity flex items-center justify-center rounded-md text-[var(--text-tertiary)] hover:text-red-500 cursor-pointer shrink-0"
+            style={{ width: 15, height: 15 }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              updateObject(obj.id, { style: { ...obj.style, comment: null } });
+            }}
           >
-            <div className="flex items-center gap-2 w-full pt-1">
-              {isEditing ? (
-                <textarea
-                  ref={inputRef as any}
-                  value={localComment}
-                  onChange={(e) => {
-                    setLocalComment(e.target.value);
-                    // Auto-resize height
-                    e.target.style.height = 'auto';
-                    e.target.style.height = e.target.scrollHeight + 'px';
-                  }}
-                  onBlur={handleSave}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSave();
-                    }
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                  className="bg-transparent border-none outline-none text-[12px] w-full resize-none overflow-hidden text-[var(--text-primary)] font-medium leading-tight"
-                  placeholder="Type a comment..."
-                  rows={1}
-                />
-              ) : (
-                <div 
-                  className="text-[12px] text-[var(--text-secondary)] font-medium whitespace-pre-wrap break-words w-full cursor-text"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onStartEditing();
-                  }}
-                >
-                  {(obj.style?.comment as string) || 'Add a comment...'}
-                </div>
-              )}
-              
-              {!isEditing && (
-                <button 
-                  className="opacity-0 group-hover/comment:opacity-100 transition-opacity text-[10px] text-red-400 hover:text-red-600 p-1"
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    updateObject(obj.id, { style: { ...obj.style, comment: null } });
-                  }}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          </div>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
 
-          {/* Resizer Handle */}
-          {!isEditing && (
-            <div
-              onMouseDown={handleResize}
-              className="absolute bottom-2 right-2 w-3 h-3 cursor-nwse-resize opacity-0 group-hover/comment:opacity-100 transition-opacity flex items-center justify-center"
-            >
-              <div className="w-1.5 h-1.5 border-r border-b border-[var(--text-muted)]" />
-            </div>
-          )}
-        </motion.div>
+        {isEditing ? (
+          <textarea
+            ref={inputRef}
+            value={localComment}
+            onChange={(e) => setLocalComment(e.target.value)}
+            onBlur={handleSave}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Escape') { e.preventDefault(); handleSave(); }
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSave(); }
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            placeholder="Type a note…  (Enter to save, Shift+Enter for a new line)"
+            className="w-full bg-transparent border-none outline-none resize-none custom-scrollbar text-[12px] font-medium text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
+            style={{ minHeight: Math.max(34, height - 40), maxHeight: 260, lineHeight: 1.45 }}
+          />
+        ) : (
+          <div
+            className="text-[12px] font-medium whitespace-pre-wrap break-words cursor-text"
+            style={{
+              color: body ? 'var(--text-primary)' : 'var(--text-tertiary)',
+              lineHeight: 1.45,
+              maxHeight: 260,
+              overflowY: 'auto',
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onStartEditing();
+            }}
+          >
+            {body || 'Add a note…'}
+          </div>
+        )}
+
+        {/* Resizer */}
+        {!isEditing && (
+          <div
+            onMouseDown={handleResize}
+            title="Drag to resize"
+            className="absolute opacity-0 group-hover/comment:opacity-100 transition-opacity flex items-end justify-end cursor-nwse-resize"
+            style={{ bottom: 3, right: 3, width: 11, height: 11 }}
+          >
+            <span
+              style={{
+                width: 6, height: 6,
+                borderRight: '1.5px solid var(--text-tertiary)',
+                borderBottom: '1.5px solid var(--text-tertiary)',
+                borderBottomRightRadius: 2,
+              }}
+            />
+          </div>
+        )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -663,11 +757,25 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       // embed, but can't nudge a block out of place mid-slide.
       if (readOnly || isTouring) return;
       if (mode === 'draw') return;
-      /* Editing: no drag, but the press must still not reach the board, or
-         sweeping a selection across your own words panned the whole canvas
-         out from under the caret. stopPropagation only stops React's bubble —
-         native text selection is untouched. */
-      if (isEditing) { e.stopPropagation(); return; }
+      /* Editing splits the block into two surfaces, and this used to be one.
+         Every press was swallowed while a block was being edited, which is the
+         state a block is in for the entire time you are working on it — so the
+         moment you had clicked into a card to write, you could no longer MOVE
+         that card. Grabbing it did nothing at all; you had to click empty
+         board to get out of edit mode first, then grab it. Measured: a cold
+         drag moved a card exactly as asked, the same drag one click later
+         moved it zero pixels.
+
+         So: a press inside the words is still a caret gesture and stays
+         entirely native — sweeping a selection across your own text must not
+         pan the board or tear the block loose. A press anywhere else on the
+         block (its padding, its border, the gutter around the text) is a grab,
+         and falls through to the drag path below. That's the same division of
+         labour every editor on a canvas uses, and it costs the text nothing. */
+      if (isEditing) {
+        const inWords = (e.target as HTMLElement).closest('[contenteditable="true"]');
+        if (inWords) { e.stopPropagation(); return; }
+      }
 
       // Clicks on embedded controls (poll options, settings inputs, checkpoint
       // name, todo checkboxes…) must keep their native behaviour — a
@@ -784,26 +892,30 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       // while it is (see dragState in lib/utils).
       dragState.objectDrag = true;
 
-      // Top-left drop dock: the upper zone MINIMIZES the object into the shelf;
-      // the zone below that WARPS it to another canvas; the zone below THAT
-      // sends it to an open chat. Tracked as plain closure variables (not
-      // React state) so the frequent mousemove never re-renders.
-      let overMinimizeZone = false;
-      let overWarpZone = false;
+      /* Drop targets that aren't the canvas: the Pocket rail on the left edge,
+         and either chat panel if one is open. Tracked as plain closure
+         variables (not React state) so the frequent mousemove never re-renders.
+
+         There used to be two stacked left-edge zones — "minimize" above "warp
+         to canvas" — which meant a 160px-tall target for one action sitting
+         directly on top of a 164px target for a different, irreversible one.
+         The Pocket is a single zone that does the job of both. */
+      let overPocketZone = false;
       let overChatZone = false;
       let overAgentChatZone = false;
       let draggedFar = false;
       /* A DELIBERATE drag — moved well past the 8px that merely distinguishes a
-         drag from a tap. The destructive drops (minimize into the shelf, warp
-         to another canvas, send to chat, file into a binder, pile onto another
-         note) all wait for this, so a tiny shaky nudge on a block near the left
-         edge or beside another note can no longer make it vanish. That was the
-         "I touched it and it disappeared" bug. */
+         drag from a tap. The destructive drops (into the pocket, send to chat,
+         file into a binder, pile onto another note) all wait for this, so a
+         tiny shaky nudge on a block near the left edge or beside another note
+         can no longer make it vanish. That was the "I touched it and it
+         disappeared" bug. */
       let committedDrag = false;
       const COMMIT_DIST = 26;
       /** Set once a card has actually been pulled clear of an open pile. */
       let detached = false;
-      const HOTZONE_W = 210;
+      /** Last state pushed to the Pocket rail, so we only notify on a change. */
+      let pocketSignal = '';
 
       /* --- Edge auto-pan while dragging -----------------------------------
          The camera at grab time, the fixed zoom, and the latest cursor. When the
@@ -952,21 +1064,43 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         if (Math.hypot(moveE.clientX - dragStart.current.x, moveE.clientY - dragStart.current.y) > COMMIT_DIST) {
           committedDrag = true;
         }
-        const inLeftCol = committedDrag && moveE.clientX < HOTZONE_W;
-        // Frames/arrows can't be warped/sent meaningfully — neither has a
-        // standalone snapshot that makes sense outside its canvas context.
-        const warpable = dragObj.type !== 'frame' && dragObj.type !== 'arrow';
-        // Warping is additionally disabled for a guest inside someone else's
-        // live session: teleportObject broadcasts a remove op, which would
-        // delete the object from the HOST's real canvas — sending to chat
-        // doesn't touch canvas state at all, so it stays allowed here.
-        const canWarp = warpable && !useCollabStore.getState().guestOriginView;
-        overMinimizeZone = inLeftCol && moveE.clientY >= 72 && moveE.clientY < 232;
-        overWarpZone = canWarp && inLeftCol && moveE.clientY >= 240 && moveE.clientY < 404;
+        /* Frames/arrows can't be pocketed or sent meaningfully — neither has a
+           standalone snapshot that makes sense outside its canvas context. */
+        const portable = dragObj.type !== 'frame' && dragObj.type !== 'arrow';
+        /* Pocketing is additionally disabled for a guest inside someone else's
+           live session: it broadcasts a remove op, which would delete the
+           object from the HOST's real canvas — sending to chat doesn't touch
+           canvas state at all, so that stays allowed here. */
+        const canPocket = portable && !useCollabStore.getState().guestOriginView;
+
+        /* Hit-test the rail's real rectangle rather than hard-coded pixel bands.
+           The old zones were two fixed 160px strips at y 72–232 and 240–404, so
+           they drifted out of alignment with the chrome they were supposed to
+           represent the moment either moved. */
+        const railEl = document.getElementById('pocket-hotzone');
+        if (railEl && canPocket && committedDrag) {
+          const r = railEl.getBoundingClientRect();
+          const PAD = 26; // a forgiving target — you're aiming while dragging
+          overPocketZone =
+            moveE.clientX >= r.left - PAD && moveE.clientX <= r.right + PAD &&
+            moveE.clientY >= r.top - PAD && moveE.clientY <= r.bottom + PAD;
+        } else {
+          overPocketZone = false;
+        }
+
+        /* Tell the rail to open up and light itself. Only on an actual change,
+           so this is a handful of events per drag rather than one per mousemove. */
+        const signal = `${committedDrag && canPocket}|${overPocketZone}`;
+        if (signal !== pocketSignal) {
+          pocketSignal = signal;
+          window.dispatchEvent(new CustomEvent('pocket-drag-state', {
+            detail: { active: committedDrag && canPocket, over: overPocketZone },
+          }));
+        }
 
         // Dropping a block onto the AI agent chat adds it as context there.
         const agentPanel = document.getElementById('agent-chat-panel');
-        if (agentPanel && warpable && committedDrag) {
+        if (agentPanel && portable && committedDrag) {
           const rect = agentPanel.getBoundingClientRect();
           overAgentChatZone = moveE.clientX >= rect.left && moveE.clientX <= rect.right &&
                               moveE.clientY >= rect.top && moveE.clientY <= rect.bottom;
@@ -976,7 +1110,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         }
 
         const chatPanel = document.getElementById('chat-panel-container');
-        if (chatPanel && warpable && committedDrag) {
+        if (chatPanel && portable && committedDrag) {
           const rect = chatPanel.getBoundingClientRect();
           overChatZone = moveE.clientX >= rect.left && moveE.clientX <= rect.right &&
                          moveE.clientY >= rect.top && moveE.clientY <= rect.bottom;
@@ -985,27 +1119,10 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           overChatZone = false;
         }
 
-        const zone = document.getElementById('minimize-hotzone');
-        const label = document.getElementById('minimize-hotzone-label');
-        if (zone) {
-          zone.style.borderColor = overMinimizeZone ? 'var(--accent)' : 'transparent';
-          zone.style.background = overMinimizeZone ? 'rgba(var(--accent-rgb),0.08)' : 'transparent';
-        }
-        if (label) label.style.opacity = overMinimizeZone ? '1' : '0';
-
-        const wzone = document.getElementById('warp-hotzone');
-        const wlabel = document.getElementById('warp-hotzone-label');
-        if (wzone) {
-          wzone.style.opacity = committedDrag && canWarp ? '1' : '0';
-          wzone.style.borderColor = overWarpZone ? 'var(--accent)' : 'rgba(var(--accent-rgb),0.28)';
-          wzone.style.background = overWarpZone ? 'rgba(var(--accent-rgb),0.12)' : 'transparent';
-        }
-        if (wlabel) wlabel.style.opacity = overWarpZone ? '1' : '0.55';
-
-        // Remember the cursor + whether a dock zone owns it, then place the
+        // Remember the cursor + whether a drop target owns it, then place the
         // block. The edge-pan loop reuses lastCursor to keep scrolling when the
         // cursor is held still against an edge.
-        overAnyHotzone = overMinimizeZone || overWarpZone || overChatZone || overAgentChatZone;
+        overAnyHotzone = overPocketZone || overChatZone || overAgentChatZone;
         lastCursor = { x: moveE.clientX, y: moveE.clientY };
         positionAt(moveE.clientX, moveE.clientY);
       };
@@ -1031,15 +1148,17 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         if (dragMovedRef.current) setTimeout(() => { dragMovedRef.current = false; }, 0);
         // Any hover chrome the drag lit up has to go out with it.
         for (const [id, reset] of [
-          ['minimize-hotzone', (el: HTMLElement) => { el.style.borderColor = 'transparent'; el.style.background = 'transparent'; }],
-          ['minimize-hotzone-label', (el: HTMLElement) => { el.style.opacity = '0'; }],
-          ['warp-hotzone', (el: HTMLElement) => { el.style.opacity = '0'; el.style.borderColor = 'rgba(var(--accent-rgb),0.28)'; el.style.background = 'transparent'; }],
-          ['warp-hotzone-label', (el: HTMLElement) => { el.style.opacity = '0.55'; }],
           ['chat-panel-container', (el: HTMLElement) => { el.style.transform = 'scale(1)'; }],
           ['agent-chat-panel', (el: HTMLElement) => { el.style.boxShadow = ''; }],
         ] as [string, (el: HTMLElement) => void][]) {
           const el = document.getElementById(id);
           if (el) reset(el);
+        }
+        /* The Pocket rail styles itself from React state, so it needs telling
+           the drag is over — otherwise it stays expanded and lit for good. */
+        if (pocketSignal !== '') {
+          pocketSignal = '';
+          window.dispatchEvent(new CustomEvent('pocket-drag-state', { detail: { active: false, over: false } }));
         }
         return true;
       };
@@ -1057,8 +1176,11 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       const handleMouseUp = () => {
         if (!teardown()) return;
 
-        if (overMinimizeZone) {
-          useCanvasStore.getState().minimizeObject(dragObj.id);
+        // Into the Pocket: off this canvas, into the tray, ready to be carried
+        // to any other board. This one gesture replaced both the old "minimize"
+        // shelf and Warp's destination modal.
+        if (overPocketZone) {
+          useCanvasStore.getState().pocketObject(dragObj.id);
           return;
         }
 
@@ -1072,15 +1194,6 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
               label,
             },
           }));
-          return;
-        }
-
-        // Warp: hand off to the portal picker to teleport this object to
-        // another canvas. Snap it back to where the drag started first so it
-        // doesn't linger over the dock if the user cancels.
-        if (overWarpZone) {
-          updateObject(dragObj.id, { x: before.x, y: before.y });
-          window.dispatchEvent(new CustomEvent('open-warp', { detail: { objectId: dragObj.id } }));
           return;
         }
 
@@ -1496,13 +1609,21 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         return;
       }
 
-      // Enter focus mode
-      setFocusedId(obj.id);
-
-      if (obj.type === 'text' || obj.type === 'sticky' || obj.type === 'card' || obj.type === 'shape') {
+      /* Double-click is how you get a caret. This is THE way in now — a single
+         click selects and nothing more — which is what every other canvas tool
+         does and what stops "why won't this card move": a block you clicked
+         once is selected and draggable, not silently in edit mode.
+         Deliberately without focus mode: dimming the whole board every time
+         you go to write a word is not focus, it's a flash. */
+      if (obj.type === 'text' || obj.type === 'sticky' || obj.type === 'card') {
         caretPoint.current = { x: e.clientX, y: e.clientY };
         setEditingId(obj.id);
+        return;
       }
+
+      /* Everything with nothing to type into — a picture, an embed, a drawing —
+         keeps double-click as "show me only this". */
+      setFocusedId(obj.id);
     },
     [obj, setFocusedId, pushCanvas, setEditingId, readOnly, isTouring]
   );
@@ -1531,6 +1652,17 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
 
       if (mode === 'connector') {
         toggleConnectorSelection(obj.id);
+        return;
+      }
+
+      /* Tapped from a long way out, where this block is a 20px smudge. Nobody
+         aims at something that small to select it — they're asking to get to
+         it. So fly in and frame it, and leave it selected once you land. The
+         canvas owns the camera move (see `dive-to-object` in InfiniteCanvas);
+         the threshold is low enough that ordinary work is untouched. */
+      if (mode === 'select' && !dragMovedRef.current && useCanvasStore.getState().camera.zoom < 0.5) {
+        window.dispatchEvent(new CustomEvent('dive-to-object', { detail: { id: obj.id } }));
+        setSelectedId(obj.id);
         return;
       }
 
@@ -1590,19 +1722,25 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         Object.entries(obj.style || {}).some(([k, v]) => /^is[A-Z]/.test(k) && Boolean(v)) &&
         !obj.style?.isQuote && !obj.style?.isCallout;
 
-      /* An EMPTY block goes straight into edit on the first click.
-         It used to take two — click to select, click again to type — and a blank
-         block that never got typed into is auto-cleaned the moment you click
-         away. So the actual experience of adding a card was: click it, click
-         somewhere else, watch it vanish, never having been given a chance to
-         write in it. There is nothing to select on an empty block anyway. */
+      /* An EMPTY block goes straight into edit on the first click, and ONLY an
+         empty one. A blank block that never gets typed into is auto-cleaned
+         the moment you click away, so making it wait for a double-click means
+         the actual experience of adding a card is: click it, click elsewhere,
+         watch it vanish, never having been given a chance to write in it.
+         There is nothing to select on an empty block anyway.
+
+         A block with words in it is SELECTED by a click and edited by a
+         double-click (see handleDoubleClick). One click used to open the caret
+         on any selected block, which is why a card you had just written in
+         couldn't be picked up — every press after that landed in a text field
+         rather than on a block. */
       const isBlank = !(obj.content || '').trim();
       // image & mirror already returned above (they tap-to-cycle, never type).
       // A frame is typed into through its title tab, never its body — clicking
       // the empty middle of an unnamed frame must not open a rename.
       const canType = !isFunctionalBlock && obj.type !== 'frame';
 
-      if (canType && (isSelected || isBlank)) {
+      if (canType && isBlank) {
         caretPoint.current = { x: e.clientX, y: e.clientY };
         setEditingId(obj.id);
       }
@@ -1822,37 +1960,16 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
     }
   }, [isEditing]);
 
-  // Synchronise dictation text into the DOM if the block is currently in edit mode
-  const isDictating = useVoiceStore((s) => s.isListening && s.targetId === obj.id);
-  const voiceTranscript = useVoiceStore((s) => s.transcript);
-  const voiceInterim = useVoiceStore((s) => s.interimTranscript);
-
-  useEffect(() => {
-    if (isEditing && isDictating && contentRef.current) {
-      const target = contentRef.current;
-      const currentText = (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)
-        ? target.value
-        : target.innerText;
-      if (currentText !== obj.content) {
-        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-          target.value = obj.content || '';
-        } else {
-          target.innerText = obj.content || '';
-        }
-        latestContent.current = obj.content || '';
-        
-        // Move caret to the end of the text
-        const sel = window.getSelection();
-        if (sel && contentRef.current.childNodes.length > 0) {
-          const range = document.createRange();
-          range.selectNodeContents(contentRef.current);
-          range.collapse(false);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-      }
-    }
-  }, [isEditing, isDictating, obj.content, voiceTranscript, voiceInterim]);
+  /* Dictation used to be pushed into this element from here: watch the voice
+     store, and whenever the transcript changed, replace the whole block's text
+     and shove the caret to the end. It had to go.
+     - It subscribed EVERY object on the board to every word spoken, so each
+       syllable re-rendered the entire canvas.
+     - Rewriting the element wholesale while someone might also be typing in it
+       is a fight over the caret that dictation can only win by clobbering.
+     Spoken phrases are now typed in at the caret like keystrokes
+     (lib/voice/dictation), which the block's own input handler already knows how
+     to grow, save and record ink for. Nothing to synchronise. */
 
   // Track native input for all editable text blocks to keep latestContent in sync and handle slash commands
   useEffect(() => {
@@ -2277,10 +2394,6 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         const localBendX = hasBend ? bendWX - obj.x : (localX1 + localX2) / 2;
         const localBendY = hasBend ? bendWY - obj.y : (localY1 + localY2) / 2;
 
-        // Label sits on the line (or on the curve at t=0.5 for a quadratic).
-        const midX = hasBend ? (localX1 + 2 * localBendX + localX2) / 4 : (localX1 + localX2) / 2;
-        const midY = hasBend ? (localY1 + 2 * localBendY + localY2) / 4 : (localY1 + localY2) / 2;
-
         const color = (obj.style?.color as string) || 'var(--accent)';
         const thickness = (obj.style?.thickness as number) || 3;
         const pointerType = (obj.style?.pointerType as string) || 'line';
@@ -2383,34 +2496,11 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
               </>
             )}
 
-            {/* Label in the middle */}
-            {(isEditing || obj.content) && (
-              <div 
-                className="absolute z-20 -translate-x-1/2 -translate-y-1/2 glass-panel p-1.5 rounded-lg shadow-sm border border-[var(--border)] min-w-[80px] pointer-events-auto"
-                style={{
-                  left: `${midX}px`,
-                  top: `${midY}px`,
-                  background: 'var(--bg-glass)',
-                  backdropFilter: 'blur(8px)',
-                }}
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                {isEditing ? (
-                  <div
-                    ref={contentRef}
-                    contentEditable={isEditing}
-                    suppressContentEditableWarning
-                    onBlur={handleBlur}
-                    className="text-block-editable text-xs font-semibold px-1 py-0.5 text-[var(--text-primary)]"
-                    style={{ outline: 'none', textAlign: 'center', minWidth: '70px' }}
-                  />
-                ) : (
-                  <div className="text-xs font-semibold px-1 py-0.5 text-[var(--text-primary)] whitespace-nowrap text-center">
-                    {obj.content}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* An arrow used to carry a label box pinned to its midpoint, and
+                placing one dropped you straight into typing it. A connector
+                says "this leads to that" — the meaning is in the two things it
+                joins, and the box only ever sat on top of them. Gone; write a
+                text block beside the line if the link needs a name. */}
           </div>
         );
       }
@@ -3248,8 +3338,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       case 'shape':
         {
           const shapeType = (obj.style?.shapeType as string) || 'square';
-          const isShapeEditing = isEditing;
-          
+
           // Define shape color from style, otherwise use default themes
           const shapeBg = (obj.style?.color as string) || 'var(--bg-glass)';
           const shapeBorder = (obj.style?.borderColor as string) || 'var(--accent-light)';
@@ -3269,117 +3358,6 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
           // Hand-drawn wobble level (applied as an SVG turbulence filter class).
           const roughClass = sloppiness === 'cartoonist' ? 'shape-rough-2' : sloppiness === 'artist' ? 'shape-rough-1' : '';
 
-          const getShapePadding = (shape: string) => {
-            switch (shape) {
-              case 'triangle': return { left: '20%', right: '20%', top: '35%', bottom: '15%' };
-              case 'diamond': return { left: '22%', right: '22%', top: '22%', bottom: '22%' };
-              case 'star': return { left: '25%', right: '25%', top: '30%', bottom: '25%' };
-              case 'heart': return { left: '20%', right: '20%', top: '25%', bottom: '30%' };
-              case 'cloud': return { left: '20%', right: '20%', top: '35%', bottom: '20%' };
-              case 'database': return { left: '18%', right: '18%', top: '25%', bottom: '18%' };
-              case 'document': return { left: '15%', right: '15%', top: '20%', bottom: '20%' };
-              case 'speech': return { left: '18%', right: '18%', top: '20%', bottom: '25%' };
-              case 'message': return { left: '15%', right: '15%', top: '20%', bottom: '20%' };
-              case 'cross': return { left: '30%', right: '30%', top: '30%', bottom: '30%' };
-              case 'lightning': return { left: '30%', right: '30%', top: '35%', bottom: '20%' };
-              case 'shield': return { left: '18%', right: '18%', top: '20%', bottom: '20%' };
-              case 'arrow-left': return { left: '35%', right: '15%', top: '20%', bottom: '20%' };
-              case 'arrow-right': return { left: '15%', right: '35%', top: '20%', bottom: '20%' };
-              case 'arrow-up': return { left: '35%', right: '35%', top: '15%', bottom: '45%' };
-              case 'arrow-down': return { left: '35%', right: '35%', top: '45%', bottom: '15%' };
-              case 'tag': return { left: '15%', right: '22%', top: '20%', bottom: '20%' };
-              case 'banner': return { left: '20%', right: '20%', top: '25%', bottom: '25%' };
-              case 'octagon': return { left: '15%', right: '15%', top: '15%', bottom: '15%' };
-              case 'folder': return { left: '15%', right: '15%', top: '30%', bottom: '20%' };
-              case 'sun': return { left: '30%', right: '30%', top: '30%', bottom: '30%' };
-              case 'moon': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              
-              case 'lightbulb': return { left: '25%', right: '25%', top: '20%', bottom: '30%' };
-              case 'sticky': return { left: '15%', right: '15%', top: '15%', bottom: '15%' };
-              case 'target': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'funnel': return { left: '25%', right: '25%', top: '15%', bottom: '50%' };
-              case 'magnet': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              case 'puzzle': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'gear': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              
-              case 'terminal': return { left: '15%', right: '15%', top: '35%', bottom: '15%' };
-              case 'brackets': return { left: '20%', right: '20%', top: '15%', bottom: '15%' };
-              case 'api': return { left: '15%', right: '15%', top: '20%', bottom: '20%' };
-              case 'server': return { left: '20%', right: '20%', top: '15%', bottom: '15%' };
-              case 'cube': return { left: '20%', right: '20%', top: '30%', bottom: '25%' };
-              case 'branch': return { left: '35%', right: '15%', top: '20%', bottom: '20%' };
-              case 'terminal-prompt': return { left: '35%', right: '15%', top: '20%', bottom: '20%' };
-              case 'cpu': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              case 'globe': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'key': return { left: '35%', right: '15%', top: '20%', bottom: '20%' };
-              
-              case 'smile': return { left: '20%', right: '20%', top: '20%', bottom: '35%' };
-              case 'thumbs-up': return { left: '30%', right: '15%', top: '35%', bottom: '20%' };
-              case 'thumbs-down': return { left: '30%', right: '15%', top: '20%', bottom: '35%' };
-              case 'flower': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              case 'sparkles': return { left: '30%', right: '30%', top: '30%', bottom: '30%' };
-              case 'trophy': return { left: '25%', right: '25%', top: '20%', bottom: '35%' };
-              case 'medal': return { left: '20%', right: '20%', top: '40%', bottom: '20%' };
-              case 'gift': return { left: '20%', right: '20%', top: '35%', bottom: '20%' };
-              case 'balloon': return { left: '20%', right: '20%', top: '15%', bottom: '35%' };
-              case 'clapping': return { left: '25%', right: '25%', top: '40%', bottom: '20%' };
-              case 'coffee': return { left: '25%', right: '25%', top: '35%', bottom: '25%' };
-              case 'check-circle': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'cross-circle': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              
-              case 'user': return { left: '20%', right: '20%', top: '50%', bottom: '20%' };
-              case 'clock': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'calendar': return { left: '15%', right: '15%', top: '35%', bottom: '15%' };
-              case 'card': return { left: '15%', right: '15%', top: '40%', bottom: '20%' };
-              case 'chart': return { left: '15%', right: '15%', top: '15%', bottom: '15%' };
-              case 'cart': return { left: '20%', right: '20%', top: '30%', bottom: '35%' };
-              case 'play': return { left: '30%', right: '20%', top: '20%', bottom: '20%' };
-              case 'pause': return { left: '30%', right: '30%', top: '20%', bottom: '20%' };
-              case 'stop': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'infinity': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              
-              // Story shapes
-              case 'beat': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'scene': return { left: '15%', right: '15%', top: '35%', bottom: '15%' };
-              case 'arc': return { left: '20%', right: '20%', top: '40%', bottom: '20%' };
-              case 'twist': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'stakes': return { left: '25%', right: '25%', top: '20%', bottom: '45%' };
-              case 'character': return { left: '20%', right: '20%', top: '45%', bottom: '20%' };
-              case 'whisper': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'foreshadow': return { left: '15%', right: '15%', top: '20%', bottom: '20%' };
-              case 'world': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'voice': return { left: '30%', right: '15%', top: '20%', bottom: '20%' };
-              
-              // Extended Tech shapes
-              case 'queue': return { left: '15%', right: '15%', top: '35%', bottom: '35%' };
-              case 'webhook': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'cache': return { left: '15%', right: '15%', top: '25%', bottom: '25%' };
-              case 'event': return { left: '25%', right: '25%', top: '25%', bottom: '25%' };
-              case 'pipeline': return { left: '15%', right: '15%', top: '35%', bottom: '35%' };
-              case 'auth': return { left: '20%', right: '20%', top: '40%', bottom: '20%' };
-              case 'diff': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'hash': return { left: '22%', right: '22%', top: '22%', bottom: '22%' };
-              case 'branch-merge': return { left: '25%', right: '25%', top: '20%', bottom: '20%' };
-              case 'token': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-
-              // System shapes
-              case 'feedback': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'bottleneck': return { left: '25%', right: '25%', top: '20%', bottom: '45%' };
-              case 'cascade': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'threshold': return { left: '20%', right: '20%', top: '20%', bottom: '20%' };
-              case 'trade-off': return { left: '25%', right: '15%', top: '15%', bottom: '25%' };
-              case 'pareto': return { left: '15%', right: '15%', top: '20%', bottom: '35%' };
-              case 'pivot': return { left: '20%', right: '20%', top: '35%', bottom: '20%' };
-              case 'lever': return { left: '20%', right: '20%', top: '20%', bottom: '35%' };
-              case 'compound': return { left: '25%', right: '15%', top: '40%', bottom: '20%' };
-              case 'risk': return { left: '25%', right: '25%', top: '40%', bottom: '15%' };
-              
-              default: return { left: '10%', right: '10%', top: '10%', bottom: '10%' };
-            }
-          };
-
-          const pad = getShapePadding(shapeType);
-          
           return (
             <div
               className={`shape-container ${shapeType}`}
@@ -4233,61 +4211,844 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                     <circle cx="50" cy="71" r="3.5" fill={shapeBorder} />
                   </svg>
                 )}
-              </div>
-              
-              {/* Inner Content Area */}
-              <div 
-                className="absolute flex items-center justify-center text-center z-10"
-                style={{
-                  left: pad.left,
-                  right: pad.right,
-                  top: pad.top,
-                  bottom: pad.bottom,
-                  overflow: 'hidden',
-                }}
-              >
-                {isShapeEditing ? (
-                  <div
-                    key="edit"
-                    ref={contentRef}
-                    contentEditable={isShapeEditing}
-                    suppressContentEditableWarning
-                    onBlur={handleBlur}
-                    className="text-block-editable w-full max-h-full overflow-y-auto text-center custom-scrollbar"
-                    data-placeholder="Type inside..."
-                    style={{
-                      fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '14px',
-                      fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
-                      lineHeight: '1.4',
-                      color: 'var(--text-primary)',
-                      display: 'inline-block',
-                      verticalAlign: 'middle',
-                    }}
-                  />
-                ) : (
-                  <div
-                    key="display"
-                    className="text-block-display select-none w-full max-h-full overflow-hidden text-ellipsis text-center"
-                    style={{
-                      fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '14px',
-                      fontFamily: (obj.style?.fontFamily as string) || "'Inter', sans-serif",
-                      lineHeight: '1.4',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      color: 'var(--text-primary)',
-                      alignSelf: 'center',
-                    }}
-                    onClick={(e) => {
-                      if (isSelected) {
-                        e.stopPropagation();
-                        setEditingId(obj.id);
-                      }
-                    }}
-                  >
-                    {obj.content || ''}
-                  </div>
+
+                {/* Brainstorm */}
+                {shapeType === 'lightbulb-spark' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 C33,15 25,30 25,48 C25,60 36,68 40,76 L60,76 C64,68 75,60 75,48 C75,30 67,15 50,15 Z M42,88 L58,88 M45,76 L45,88 M55,76 L55,88" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="50" y1="5" x2="50" y2="10" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="20" y1="20" x2="25" y2="25" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="80" y1="20" x2="75" y2="25" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'compass' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="40" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <polygon points="50,20 62,50 50,80 38,50" fill={shapeBorder} stroke={shapeBorder} strokeWidth="1.5" />
+                    <circle cx="50" cy="50" r="5" fill={shapeBg} />
+                  </svg>
+                )}
+                {shapeType === 'rocket' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,10 C65,25 70,55 70,75 L30,75 C30,55 35,25 50,10 Z M30,50 L15,65 L30,70 M70,50 L85,65 L70,70 M42,75 L42,90 L50,83 L58,90 L58,75" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <circle cx="50" cy="40" r="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'radar' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="42" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="50" r="28" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="50" cy="50" r="14" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="50" y1="50" x2="80" y2="20" stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="68" cy="32" r="4" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'prism' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,12 90,82 10,82" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="10" y1="50" x2="30" y2="46" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="65" y1="53" x2="90" y2="40" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="68" y1="58" x2="90" y2="55" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="70" y1="63" x2="90" y2="70" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'light-beam' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,10 85,90 15,90" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="50" y1="10" x2="50" y2="90" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'telescope' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M20,60 L75,25 L85,40 L30,75 Z M60,35 L40,75 M50,45 L50,85 M50,85 L30,95 M50,85 L70,95" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'magnifier' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="42" cy="42" r="30" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="64" y1="64" x2="90" y2="90" stroke={shapeBorder} strokeWidth="5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'atom-idea' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <ellipse cx="50" cy="50" rx="42" ry="16" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <ellipse cx="50" cy="50" rx="42" ry="16" transform="rotate(60 50 50)" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <ellipse cx="50" cy="50" rx="42" ry="16" transform="rotate(-60 50 50)" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="50" cy="50" r="8" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'spark-cluster' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 L53,35 L73,38 L55,50 L60,70 L45,55 L25,65 L35,48 L18,38 L38,35 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'anchor' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="20" r="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="28" x2="50" y2="80" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="30" y1="38" x2="70" y2="38" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <path d="M20,55 C20,80 80,80 80,55 M20,55 L12,48 M80,55 L88,48" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'bridge' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,70 Q50,20 90,70 M10,70 L90,70 M30,55 L30,70 M50,45 L50,70 M70,55 L70,70" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+
+                {/* Code (Tech) */}
+                {shapeType === 'cpu-chip' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="25" y="25" width="50" height="50" rx="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="38" y="38" width="24" height="24" rx="3" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="35" y1="10" x2="35" y2="25" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="10" x2="50" y2="25" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="65" y1="10" x2="65" y2="25" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="35" y1="75" x2="35" y2="90" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="75" x2="50" y2="90" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="65" y1="75" x2="65" y2="90" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="10" y1="35" x2="25" y2="35" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="10" y1="50" x2="25" y2="50" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="10" y1="65" x2="25" y2="65" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="75" y1="35" x2="90" y2="35" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="75" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="75" y1="65" x2="90" y2="65" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'cloud-download' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,55 C25,40 40,30 55,30 C70,30 85,40 85,55 C92,55 98,61 98,68 C98,76 92,82 85,82 L25,82 C15,82 8,75 8,65 C8,56 16,50 25,55 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M50,48 L50,72 M38,62 L50,74 L62,62" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'cloud-upload' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,55 C25,40 40,30 55,30 C70,30 85,40 85,55 C92,55 98,61 98,68 C98,76 92,82 85,82 L25,82 C15,82 8,75 8,65 C8,56 16,50 25,55 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M50,72 L50,48 M38,58 L50,46 L62,58" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'git-commit' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="18" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="10" y1="50" x2="32" y2="50" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="68" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'binary' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <text x="20" y="42" fontSize="28" fontWeight="bold" fill={shapeBorder}>10</text>
+                    <text x="50" y="78" fontSize="28" fontWeight="bold" fill={shapeBorder}>01</text>
+                  </svg>
+                )}
+                {shapeType === 'cube-stack' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,8 85,24 85,48 50,64 15,48 15,24" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="50" y1="8" x2="50" y2="64" stroke={shapeBorder} strokeWidth="2" />
+                    <polygon points="50,40 85,56 85,80 50,96 15,80 15,56" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="50" y1="40" x2="50" y2="96" stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'stack' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,15 90,32 50,49 10,32" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <path d="M10,48 L50,65 L90,48 M10,64 L50,81 L90,64" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'network' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="20" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="20" cy="75" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="80" cy="75" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="30" x2="20" y2="65" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="50" y1="30" x2="80" y2="65" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="30" y1="75" x2="70" y2="75" stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'data-flow' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="20" width="22" height="60" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="68" y="20" width="22" height="60" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M32,35 C50,35 50,65 68,65" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'bug' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <ellipse cx="50" cy="55" rx="22" ry="28" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="22" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="22" x2="50" y2="83" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="15" y1="45" x2="30" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="85" y1="45" x2="70" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="12" y1="65" x2="30" y2="65" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="88" y1="65" x2="70" y2="65" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'terminal-box' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="15" width="80" height="70" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <polyline points="25,35 40,48 25,61" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    <line x1="48" y1="61" x2="70" y2="61" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'fingerprint' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 A35,35 0 0,1 85,50 M15,50 A35,35 0 0,1 50,15 M50,30 A20,20 0 0,1 70,50 M30,50 A20,20 0 0,1 50,30 M50,45 A5,5 0 0,1 55,50 M45,50 A5,5 0 0,1 50,45" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'wifi' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M15,30 A50,50 0 0,1 85,30 M28,45 A32,32 0 0,1 72,45 M40,60 A16,16 0 0,1 60,60" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="50" cy="75" r="6" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'database-stack' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <ellipse cx="50" cy="20" rx="35" ry="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M15,20 L15,45 C15,51 30,55 50,55 C70,55 85,51 85,45 L85,20" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M15,45 L15,70 C15,76 30,80 50,80 C70,80 85,76 85,70 L85,45" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'ai-spark' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,10 L58,38 L86,46 L58,54 L50,82 L42,54 L14,46 L42,38 Z M78,14 L82,28 L96,32 L82,36 L78,50 L74,36 L60,32 L74,28 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+
+                {/* Love (Expressive) */}
+                {shapeType === 'fire' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,10 C50,10 65,30 65,50 C65,60 60,70 50,90 C40,70 35,60 35,50 C35,30 50,10 50,10 Z M50,45 C50,45 58,55 58,68 C58,74 54,80 50,85 C46,80 42,74 42,68 C42,55 50,45 50,45 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'star-burst' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,5 61,35 95,35 67,55 78,90 50,68 22,90 33,55 5,35 39,35" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'heart-pulse' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,30 C35,10 10,10 10,40 C10,65 45,85 50,90 C55,85 90,65 90,40 C90,10 65,10 50,30 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M20,45 L38,45 L45,30 L55,60 L62,40 L70,45 L80,45" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'crown' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="12,75 18,30 38,50 50,15 62,50 82,30 88,75" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <rect x="12" y="75" width="76" height="12" rx="3" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'gem' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="30,15 70,15 90,40 50,90 10,40" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="30" y1="15" x2="50" y2="40" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="70" y1="15" x2="50" y2="40" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="50" y1="40" x2="50" y2="90" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="10" y1="40" x2="90" y2="40" stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
+                )}
+                {shapeType === 'ribbon-award' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="40" r="28" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="40" r="20" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <polygon points="36,62 30,92 50,80 70,92 64,62" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'peace' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="42" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="8" x2="50" y2="92" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="50" x2="20" y2="80" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="50" x2="80" y2="80" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'coffee-cup' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="20" y="35" width="50" height="50" rx="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M70,42 C82,42 85,60 70,65" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M30,22 Q35,12 40,22 M50,22 Q55,12 60,22" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'music-note' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="30" cy="72" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="70" cy="58" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M42,72 L42,20 L82,10 L82,58" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'sunburst' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="20" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="10" x2="50" y2="22" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="50" y1="78" x2="50" y2="90" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="10" y1="50" x2="22" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="78" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="22" y1="22" x2="30" y2="30" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="70" y1="70" x2="78" y2="78" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="22" y1="78" x2="30" y2="70" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="70" y1="30" x2="78" y2="22" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'hand-shake' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,50 L30,35 L50,50 L70,35 L90,50 M30,50 L45,65 M45,50 L60,65 M60,50 L75,65" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'party-popper' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="15,85 30,40 60,70" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <path d="M50,35 Q65,15 85,25 M65,45 Q80,40 90,55" fill="none" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                    <circle cx="70" cy="20" r="3" fill={shapeBorder} />
+                    <circle cx="85" cy="40" r="4" fill={shapeBorder} />
+                  </svg>
+                )}
+
+                {/* Usecase (Actions) */}
+                {shapeType === 'arrow-up-right' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="20" y1="80" x2="80" y2="20" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" />
+                    <polyline points="40,20 80,20 80,60" fill="none" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'arrow-down-left' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="80" y1="20" x2="20" y2="80" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" />
+                    <polyline points="60,80 20,80 20,40" fill="none" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'rotate-cw' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 A35,35 0 1,1 18,40" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="18,20 18,45 40,40" fill={shapeBorder} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'rotate-ccw' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 A35,35 0 1,0 82,40" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="82,20 82,45 60,40" fill={shapeBorder} stroke={shapeBorder} strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'split' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="50" y1="85" x2="50" y2="55" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <path d="M50,55 Q50,30 20,20 M50,55 Q50,30 80,20" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="15,30 20,15 32,22" fill={shapeBorder} />
+                    <polygon points="85,30 80,15 68,22" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'merge' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M20,80 Q50,70 50,45 M80,80 Q50,70 50,45" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="50" y1="45" x2="50" y2="15" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="38,25 50,10 62,25" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'filter-list' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="15" y1="25" x2="85" y2="25" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="28" y1="45" x2="72" y2="45" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="40" y1="65" x2="60" y2="65" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'sort' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="25" y1="20" x2="25" y2="80" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="15,32 25,18 35,32" fill={shapeBorder} />
+                    <line x1="75" y1="20" x2="75" y2="80" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="65,68 75,82 85,68" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'download' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="75" width="70" height="12" rx="3" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="15" x2="50" y2="55" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" />
+                    <polygon points="32,45 50,65 68,45" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'upload' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="75" width="70" height="12" rx="3" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="50" y1="65" x2="50" y2="25" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" />
+                    <polygon points="32,35 50,15 68,35" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'lock' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="22" y="45" width="56" height="42" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M32,45 L32,30 A18,18 0 0,1 68,30 L68,45" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="50" cy="62" r="5" fill={shapeBorder} />
+                    <line x1="50" y1="67" x2="50" y2="76" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'unlock' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="22" y="45" width="56" height="42" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M32,45 L32,30 A18,18 0 0,1 68,30" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="50" cy="62" r="5" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'eye' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,50 C25,25 75,25 90,50 C75,75 25,75 10,50 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <circle cx="50" cy="50" r="14" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="50" cy="50" r="6" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'eye-off' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,50 C25,25 75,25 90,50 C75,75 25,75 10,50 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="15" y1="15" x2="85" y2="85" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'layers' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,15 90,32 50,49 10,32" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <path d="M10,48 L50,65 L90,48 M10,64 L50,81 L90,64" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+
+                {/* Story */}
+                {shapeType === 'hero-cape' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M30,25 L50,15 L70,25 L85,85 L50,70 L15,85 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <circle cx="50" cy="15" r="6" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'villain-mask' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M15,35 Q50,15 85,35 L75,75 Q50,90 25,75 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <polygon points="28,45 42,42 38,55" fill={shapeBorder} />
+                    <polygon points="72,45 58,42 62,55" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'climax-peak' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,80 L40,40 L55,55 L75,15 L90,80 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="75" y1="15" x2="75" y2="80" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'resolution' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M15,50 C35,20 65,80 85,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="85" cy="50" r="7" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'sub-plot' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M15,50 L40,50 C50,50 55,25 68,25 L85,25" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="40" y1="50" x2="85" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'theme-core' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="38" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="50" r="22" fill="none" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                    <circle cx="50" cy="50" r="8" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'flashback' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 A35,35 0 1,0 85,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeDasharray="4,4" />
+                    <polygon points="50,5 50,25 32,15" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'prop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="25" y="25" width="50" height="50" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M25,25 L50,50 L75,25 M50,50 L50,75" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'dialogue-bubble' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M15,20 L85,20 Q95,20 95,30 L95,60 Q95,70 85,70 L45,70 L25,88 L30,70 L15,70 Q5,70 5,60 L5,30 Q5,20 15,20 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'scroll-manuscript' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,15 C15,15 15,30 25,30 L75,30 L75,85 C85,85 85,70 75,70 L25,70 L25,15 Z M25,15 L75,15 L75,30" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'hourglass' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,15 L75,15 L55,50 L75,85 L25,85 L45,50 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="20" y1="15" x2="80" y2="15" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                    <line x1="20" y1="85" x2="80" y2="85" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'keyhole' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="40" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="42" r="10" fill={shapeBorder} />
+                    <polygon points="44,48 56,48 60,70 40,70" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'map-location' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 C32,15 20,30 20,48 C20,70 50,90 50,90 C50,90 80,70 80,48 C80,30 68,15 50,15 Z M50,42 A8,8 0 1,1 50,41.9 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'sword-shield' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,20 L50,12 L75,20 C75,50 65,75 50,90 C35,75 25,50 25,20 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="20" y1="20" x2="80" y2="80" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="80" y1="20" x2="20" y2="80" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'portal' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <ellipse cx="50" cy="50" rx="38" ry="42" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeDasharray="5,4" />
+                    <ellipse cx="50" cy="50" rx="24" ry="28" fill="none" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                    <circle cx="50" cy="50" r="8" fill={shapeBorder} />
+                  </svg>
+                )}
+
+                {/* System */}
+                {shapeType === 'feedback-loop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 A35,35 0 1,1 20,40" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="12,42 28,42 20,25" fill={shapeBorder} />
+                    <path d="M50,85 A35,35 0 1,1 80,60" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="88,58 72,58 80,75" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'balancing-loop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="38" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <text x="50" y="60" fontSize="32" textAnchor="middle" fontWeight="bold" fill={shapeBorder}>B</text>
+                  </svg>
+                )}
+                {shapeType === 'reinforcing-loop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="38" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <text x="50" y="60" fontSize="32" textAnchor="middle" fontWeight="bold" fill={shapeBorder}>R</text>
+                  </svg>
+                )}
+                {shapeType === 'tipping-point' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="20,80 50,30 80,80" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <rect x="15" y="25" width="70" height="10" rx="2" transform="rotate(15 50 30)" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'domino' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="10" width="30" height="80" rx="4" transform="rotate(-15 30 50)" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="55" y="10" width="30" height="80" rx="4" transform="rotate(25 70 50)" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'equilibrium' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="15" y1="50" x2="85" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="50,50 62,80 38,80" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <circle cx="25" cy="38" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="75" cy="38" r="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'entropy' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="25" cy="30" r="5" fill={shapeBorder} />
+                    <circle cx="70" cy="20" r="7" fill={shapeBorder} />
+                    <circle cx="45" cy="60" r="6" fill={shapeBorder} />
+                    <circle cx="80" cy="75" r="4" fill={shapeBorder} />
+                    <circle cx="20" cy="80" r="8" fill={shapeBorder} />
+                    <path d="M25,30 L45,60 M45,60 L70,20 M45,60 L80,75" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'synergy' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="38" cy="42" r="28" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="62" cy="42" r="28" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="66" r="28" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'black-box' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="15" y="15" width="70" height="70" rx="10" fill={shapeBorder} opacity="0.85" />
+                    <line x1="5" y1="50" x2="15" y2="50" stroke={shapeBorder} strokeWidth="3.5" />
+                    <line x1="85" y1="50" x2="95" y2="50" stroke={shapeBorder} strokeWidth="3.5" />
+                  </svg>
+                )}
+                {shapeType === 'flywheel' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="40" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="50" r="15" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M50,10 L50,35 M50,65 L50,90 M10,50 L35,50 M65,50 L90,50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'funnel-filter' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="10,15 90,15 65,55 65,85 35,85 35,55" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="25" y1="35" x2="75" y2="35" stroke={shapeBorder} strokeWidth="2.5" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'friction' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="10" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polyline points="15,40 25,60 35,40 45,60 55,40 65,60 75,40 85,60" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'oscillation' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,50 Q30,15 50,50 T90,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="10" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'bottleneck-pipe' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,30 L40,30 L40,42 L60,42 L60,30 L90,30 M10,70 L40,70 L40,58 L60,58 L60,70 L90,70" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'attractor' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,50 Q85,15 85,50 T50,50 T15,50 T50,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="50" cy="50" r="6" fill={shapeBorder} />
+                  </svg>
+                )}
+
+                {/* Science */}
+                {shapeType === 'dna' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M20,15 C50,35 50,65 20,85 M80,15 C50,35 50,65 80,85" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="30" y1="28" x2="70" y2="28" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="42" y1="50" x2="58" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="30" y1="72" x2="70" y2="72" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'atom-core' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <ellipse cx="50" cy="50" rx="42" ry="16" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <ellipse cx="50" cy="50" rx="42" ry="16" transform="rotate(60 50 50)" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <ellipse cx="50" cy="50" rx="42" ry="16" transform="rotate(-60 50 50)" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <circle cx="50" cy="50" r="8" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'flask' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M40,15 L60,15 M46,15 L46,38 L80,80 Q85,88 75,88 L25,88 Q15,88 20,80 L54,38 L54,15" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                    <line x1="30" y1="70" x2="70" y2="70" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'molecule' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="25" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="25" cy="70" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="75" cy="70" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="42" y1="34" x2="31" y2="60" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="58" y1="34" x2="69" y2="60" stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="37" y1="70" x2="63" y2="70" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'infinity-loop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M30,30 C10,30 10,70 30,70 C45,70 55,30 70,30 C90,30 90,70 70,70 C55,70 45,30 30,30 Z" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'pi' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="15" y1="25" x2="85" y2="25" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" />
+                    <path d="M35,25 L35,80 M65,25 L65,75 Q65,85 75,85" fill="none" stroke={shapeBorder} strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'wave-sine' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,50 Q30,15 50,50 T90,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="10" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2" strokeDasharray="3,3" />
+                  </svg>
+                )}
+                {shapeType === 'delta' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="50,15 90,82 10,82" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'scale-balance' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="15" y1="30" x2="85" y2="30" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="50" y1="15" x2="50" y2="85" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <polygon points="40,85 60,85 50,75" fill={shapeBorder} />
+                    <path d="M15,30 L25,58 L35,58 Z M65,58 L75,58 L85,30 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'magnet-field' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M25,35 Q50,10 75,35 M20,50 Q50,20 80,50 M25,65 Q50,90 75,65" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeDasharray="3,3" />
+                    <rect x="42" y="30" width="16" height="40" rx="3" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'orbit' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <ellipse cx="50" cy="50" rx="42" ry="20" transform="rotate(-25 50 50)" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="50" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="82" cy="35" r="5" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'sigma' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M80,20 L25,20 L50,50 L25,80 L80,80" fill="none" stroke={shapeBorder} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+
+                {/* Nature */}
+                {shapeType === 'leaf' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M20,80 C20,80 20,30 65,15 C65,15 85,50 45,75 Z M20,80 L45,45 M35,55 L55,50 M30,65 L42,65" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'tree' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,15 C30,15 20,35 30,50 C20,60 30,75 50,75 C70,75 80,60 70,50 C80,35 70,15 50,15 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <rect x="44" y="75" width="12" height="18" rx="2" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'mountain' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="35,30 75,85 5,85" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <polygon points="65,15 95,85 35,85" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <polyline points="23,48 35,55 45,46" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'water-drop' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,12 C50,12 82,50 82,68 C82,84 68,92 50,92 C32,92 18,84 18,68 C18,50 50,12 50,12 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'sun-rays' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="22" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M50,8 L50,20 M50,80 L50,92 M8,50 L20,50 M80,50 L92,50 M21,21 L30,30 M70,70 L79,79 M21,79 L30,70 M70,30 L79,21" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'snowflake' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="50" y1="10" x2="50" y2="90" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="10" y1="50" x2="90" y2="50" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="22" y1="22" x2="78" y2="78" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="22" y1="78" x2="78" y2="22" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <path d="M42,22 L50,30 L58,22 M42,78 L50,70 L58,78 M22,42 L30,50 L22,58 M78,42 L70,50 L78,58" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'planet-ring' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="25" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <ellipse cx="50" cy="50" rx="46" ry="14" transform="rotate(-20 50 50)" fill="none" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'galaxy' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,50 Q85,15 85,50 Q85,85 50,50 Q15,85 15,50 Q15,15 50,50" fill="none" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <circle cx="50" cy="50" r="7" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'comet' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="75" cy="25" r="14" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <path d="M65,33 L15,75 M70,38 L25,85 M60,23 L10,65" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'volcano' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <polygon points="25,35 75,35 90,85 10,85" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <path d="M35,35 Q50,50 65,35" stroke={shapeBorder} strokeWidth="2" fill="none" />
+                    <path d="M40,25 Q35,10 30,5 M50,25 Q50,10 50,2 M60,25 Q65,10 70,5" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" fill="none" />
+                  </svg>
+                )}
+                {shapeType === 'sprout' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M50,90 L50,45 M50,45 C50,25 25,20 20,35 C20,50 45,45 50,45 Z M50,45 C50,25 75,20 80,35 C80,50 55,45 50,45 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'feather' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M85,15 C50,30 25,60 15,90 M85,15 C60,40 50,70 15,90" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                    <line x1="85" y1="15" x2="10" y2="95" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+
+                {/* UI & Layout */}
+                {shapeType === 'layout-grid' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="12" y="12" width="34" height="34" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="54" y="12" width="34" height="34" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="12" y="54" width="34" height="34" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="54" y="54" width="34" height="34" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'layout-columns' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="15" width="22" height="70" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="39" y="15" width="22" height="70" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="68" y="15" width="22" height="70" rx="4" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'layout-sidebar' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="15" width="80" height="70" rx="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="35" y1="15" x2="35" y2="85" stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'modal-box' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="10" width="80" height="80" rx="8" fill="none" stroke={shapeBorder} strokeWidth="2" opacity="0.4" />
+                    <rect x="25" y="25" width="50" height="50" rx="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="60" y1="35" x2="68" y2="35" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'card-view' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="12" y="15" width="76" height="70" rx="8" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <rect x="22" y="25" width="56" height="28" rx="4" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="22" y1="63" x2="60" y2="63" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                    <line x1="22" y1="73" x2="45" y2="73" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'button-primary' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="12" y="30" width="76" height="40" rx="10" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <line x1="35" y1="50" x2="65" y2="50" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'toggle-switch' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="12" y="30" width="76" height="40" rx="20" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="68" cy="50" r="14" fill={shapeBorder} />
+                  </svg>
+                )}
+                {shapeType === 'slider-control' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <line x1="15" y1="50" x2="85" y2="50" stroke={shapeBorder} strokeWidth="3.5" strokeLinecap="round" />
+                    <circle cx="60" cy="50" r="12" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                  </svg>
+                )}
+                {shapeType === 'tab-bar' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <path d="M10,25 L35,25 L42,40 L90,40 L90,85 L10,85 Z" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {shapeType === 'search-bar' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="30" width="80" height="40" rx="20" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="32" cy="50" r="8" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <line x1="38" y1="56" x2="45" y2="63" stroke={shapeBorder} strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'avatar-circle' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <circle cx="50" cy="50" r="40" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <circle cx="50" cy="38" r="12" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                    <path d="M26,75 C26,60 36,56 50,56 C64,56 74,60 74,75" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                )}
+                {shapeType === 'image-placeholder' && (
+                  <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" className="overflow-visible filter drop-shadow-md">
+                    <rect x="10" y="15" width="80" height="70" rx="6" fill={shapeBg} stroke={shapeBorder} strokeWidth="2.5" />
+                    <polygon points="20,72 40,45 60,72" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                    <polygon points="50,72 68,52 82,72" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
+                    <circle cx="70" cy="32" r="6" fill="none" stroke={shapeBorder} strokeWidth="2" />
+                  </svg>
                 )}
               </div>
+              
+              {/* A shape is a shape. Dropping one used to open a caret inside
+                  it, so every star, gear and lightning bolt arrived wearing an
+                  empty "Type inside…" box that fought the artwork it sat on and
+                  clipped anything longer than a word. Shapes are pure marks
+                  now — put words in a text block on top if you want them. */}
             </div>
           );
         }
@@ -4889,20 +5650,25 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                 e.stopPropagation();
                 e.preventDefault();
                 if (obj.style?.comment !== undefined && obj.style?.comment !== null) {
-                  setEditingCommentId(obj.id);
+                  // Second press puts the note away again rather than
+                  // re-opening the caret on a note you're already looking at.
+                  setEditingCommentId(editingCommentId === obj.id ? null : obj.id);
                 } else {
-                  // Initialize a new empty comment
-                  updateObject(obj.id, { 
-                    style: { 
-                      ...obj.style, 
+                  /* A new note lands just off the block's top-right corner and
+                     ABOVE it — the old default (`y: -20` from the block's own
+                     origin, then centred on itself) parked the card straight
+                     over the first line of whatever it was commenting on. */
+                  updateObject(obj.id, {
+                    style: {
+                      ...obj.style,
                       comment: '',
-                      commentOffset: { x: obj.width + 20, y: -20 }
-                    } 
+                      commentOffset: { x: obj.width + 105, y: -70 },
+                    }
                   });
                   setEditingCommentId(obj.id);
                 }
               }}
-              title="Add Comment"
+              title={obj.style?.comment ? 'Edit note' : 'Add a note'}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -4946,11 +5712,19 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         </div>
       )}
 
-      {/* Comment Bubble (Attached & Movable) */}
+      {/* Comment note (attached, movable, resizable). It fades in with the
+          block's own hover chrome instead of hanging over the board forever —
+          a note is an aside about this block, not part of the canvas.
+          Hover-only, deliberately NOT tied to selection: a block stays
+          "selected" long after you've moved on to something else, and a note
+          that rode along with selection would just be the old always-on bug
+          wearing a new condition. (Actively editing the note, or hovering the
+          note card itself, still keeps it open — see CommentBubble's `show`.) */}
       {obj.type !== 'shape' && obj.type !== 'arrow' && (obj.style?.comment !== undefined && obj.style?.comment !== null) && (
         <CommentBubble
           obj={obj}
           isEditing={editingCommentId === obj.id}
+          visible={isHovered && !isDragging}
           onStartEditing={() => setEditingCommentId(obj.id)}
           onStopEditing={() => setEditingCommentId(null)}
         />

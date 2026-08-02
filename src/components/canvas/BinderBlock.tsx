@@ -26,11 +26,11 @@ export default function BinderBlock({ obj }: { obj: CanvasObjectData }) {
     updateObject(obj.id, { content: val });
   };
 
-  // Hand the whole binder off via the Warp portal (children ride along because
-  // they're parented to this binder's id, not to the board it sits on).
-  const sendToCanvas = () => {
-    window.dispatchEvent(new CustomEvent('open-warp', { detail: { objectId: obj.id } }));
-  };
+  /* Carry the whole binder in the Pocket — children ride along, because they're
+     parented to this binder's id rather than to the board it sits on. This used
+     to open the Warp modal and ask which canvas to teleport to; the Pocket
+     replaces that with "pick it up now, put it down where you want it later". */
+  const pocketBinder = () => useCanvasStore.getState().pocketObject(obj.id);
 
   const sendToChat = () => {
     const label = `📁 ${(title || 'Binder').slice(0, 56)}`;
@@ -99,12 +99,12 @@ export default function BinderBlock({ obj }: { obj: CanvasObjectData }) {
 
           <button
             type="button"
-            onClick={(e) => { stopDrag(e); sendToCanvas(); }}
+            onClick={(e) => { stopDrag(e); pocketBinder(); }}
             onMouseDown={stopDrag}
-            title="Send this binder to another canvas (Warp)"
+            title="Pocket this binder — carry it to another canvas"
             className="w-7 h-7 rounded-lg border border-[var(--border-strong)] bg-black/5 dark:bg-white/5 text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors flex items-center justify-center cursor-pointer"
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 3a9 9 0 0 0 0 18M12 3a9 9 0 0 1 0 18M3 12h18" /></svg>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h16a1 1 0 0 1 1 1v5a9 9 0 0 1-18 0V6a1 1 0 0 1 1-1Z" /><path d="M8 5v5a4 4 0 0 0 8 0V5" /></svg>
           </button>
 
           <button

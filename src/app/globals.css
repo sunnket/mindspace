@@ -1,9 +1,25 @@
-@import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Anton&family=Bebas+Neue&family=Caveat:wght@400..700&family=Fira+Code:wght@300..700&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Lora:ital,wght@400..700;1,400..700&family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400;1,700;1,900&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Outfit:wght@100..900&family=Oswald:wght@200..700&family=Pacifico&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&family=Comfortaa:wght@300..700&family=Fredoka:wght@300..700&family=Quicksand:wght@300..700&family=Cinzel:wght@400..900&family=Sacramento&family=Shadows+Into+Light&family=Gloria+Hallelujah&family=Permanent+Marker&family=Spicy+Rice&family=Lobster&family=Abril+Fatface&family=Righteous&family=Press+Start+2P&family=Creepster&family=Architects+Daughter&family=Dancing+Script:wght@400..700&family=Amatic+SC:wght@400;700&family=Bangers&family=Chewy&family=Cinzel+Decorative:wght@400;700&family=Special+Elite&family=Monoton&family=Poiret+One&family=Shrikhand&family=Ultra&family=VT323&family=Bungee&family=Fredericka+the+Great&family=Luckiest+Guy&family=Pinyon+Script&family=Kelly+Slab&family=Kranky&family=Slackey&family=Rye&family=Pirata+One&family=Uncial+Antiqua&family=Nosifer&family=Eater&family=Monofett&family=Syne+Tactile&family=Butcherman&family=Codystar&family=Fascinate+Inline&family=Rubik+Beastly&family=Shantell+Sans:ital,wght@0,300..800;1,300..800&family=Literata:ital,opsz,wght@0,7..72,200..900;1,7..72,200..900&family=EB+Garamond:ital,wght@0,400..800;1,400..800&family=Crimson+Pro:ital,wght@0,200..900;1,200..900&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&display=swap');
+/* The 65-family Google Fonts @import that used to sit on this line is gone.
+   A CSS @import of a remote stylesheet is the slowest way to load a font: the
+   browser has to fetch and parse THIS file before it even discovers the
+   request, then open a connection to fonts.googleapis.com, and the result is
+   render-blocking — so nothing on any page could paint until 65 families had
+   been negotiated. The four the interface itself is built from now load from a
+   normal <link> in layout.tsx, and the other 62 (all of them user-selectable
+   decorative faces) are injected after first paint by DeferredFonts. */
 @import "tailwindcss";
 @import "./text-anim.css";
 @import "./flow.css";
-@import "./pdf-reader.css";
-@import "./pdf-rooms.css";
+/* Every phone-only rule in the app, in one file. Imported LAST of the three so
+   its media queries win over anything above them at the same specificity —
+   which is the whole point: the desktop sheet states the layout, and this one
+   states the exceptions. It costs a desktop nothing at runtime, since not a
+   single selector in it matches outside a `max-width: 820px` viewport. */
+@import "./mobile.css";
+/* pdf-reader.css (48KB) and pdf-rooms.css (92KB) used to be @imported here,
+   which put 140KB of reading-room styling into the render-blocking stylesheet
+   of every single route — the landing page included, which has no PDF on it.
+   They're imported by PdfReaderLayer instead, so they arrive with the reader
+   and only for someone who opened one. */
 
 /* Drive Tailwind's `dark:` variant from the canvas color mode (set by
    canvasTheme.ts on :root) instead of the OS preference, so every existing
@@ -99,8 +115,11 @@ html, body {
    Warm-tinted shadows only — never neutral gray.
    ============================================ */
 
-/* Soft-extruded clay surface: outer diffusion shadow + inner top highlight */
-.clay-card {
+/* Soft-extruded clay surface: outer diffusion shadow + inner top highlight.
+   `.tool-panel` is the SAME material with a radius baked in — see the note
+   below for why menus wear it instead of glass. */
+.clay-card,
+.tool-panel {
   background: #FFFDFA;
   border: 1px solid rgba(var(--accent-rgb), 0.10);
   box-shadow:
@@ -108,6 +127,23 @@ html, body {
     inset 0 -1px 0 rgba(90, 62, 40, 0.04),
     0 18px 40px -18px rgba(90, 62, 40, 0.20),
     0 4px 10px -6px rgba(90, 62, 40, 0.08);
+}
+
+/* ------------------------------------------------------------------
+   Menus and option cards — deliberately NOT glass.
+
+   Every toolbar flyout used to be `.glass-panel`: a 65%-opaque wash
+   over a live canvas. Whatever you were about to edit showed THROUGH
+   the control you were editing it with, and against a busy or dark
+   board the two images blurred into one unreadable surface. Anything
+   you have to READ and CLICK now wears the same solid material as the
+   AI chat panel, so the canvas behind it is simply behind it.
+
+   Glass is kept for slim chrome (the toolbar bar itself), where there
+   is no content inside to compete with what's underneath.
+   ------------------------------------------------------------------ */
+.tool-panel {
+  border-radius: var(--radius-lg);
 }
 
 /* Pressed-in clay well (active pills, preview recesses) */
@@ -178,7 +214,7 @@ html, body {
 .tour-mode .canvas-chrome,
 .tour-mode .floating-toolbar,
 .tour-mode .minimap-container,
-.tour-mode .scenes-launcher,
+.tour-mode .connector-panel,
 .tour-mode .glow-cursor {
   opacity: 0 !important;
   pointer-events: none !important;
@@ -230,25 +266,19 @@ html, body {
   background: var(--bg-primary);
 }
 
-/* Lock-in mode: a soft accent frame around the viewport that reads as "your
-   space", breathing gently so it feels alive rather than like a disabled state. */
-.view-lock-ring {
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
-              inset 0 0 34px color-mix(in srgb, var(--accent) 16%, transparent);
-  border-radius: 2px;
-  animation: view-lock-breathe 4.5s ease-in-out infinite;
-}
-@keyframes view-lock-breathe {
-  0%, 100% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent), inset 0 0 30px color-mix(in srgb, var(--accent) 12%, transparent); }
-  50%      { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 0 40px color-mix(in srgb, var(--accent) 22%, transparent); }
-}
-
 .canvas-container.mode-pan {
   cursor: grab;
 }
 
 .canvas-container.mode-pan:active {
   cursor: grabbing;
+}
+
+/* Zoomed far enough out that a click dives in rather than creating anything.
+   Blocks set their own cursor inline, so this only ever shows over empty board
+   — which is exactly where the gesture applies. */
+.canvas-container.dive-ready {
+  cursor: zoom-in;
 }
 
 .canvas-container.mode-draw {
@@ -385,10 +415,21 @@ html, body {
   resize: none;
 }
 
+/* The placeholder is a PREVIEW, not a label.
+   It used to be hard-coded to `--text-muted` and italic, which meant the only
+   visible glyphs in an empty block ignored the colour you had just chosen and
+   lied about the typeface you had just picked. Since an empty block is exactly
+   when you're setting those things up, the honest conclusion was "font and
+   colour don't work until I type something" — and that was measurable: the
+   element's own colour changed, the text you could actually SEE did not.
+   Inheriting the block's colour at low opacity means the empty block shows you
+   the style it will have. */
 .text-block-editable:empty::before {
   content: attr(data-placeholder);
-  color: var(--text-muted);
-  font-style: italic;
+  color: currentColor;
+  opacity: 0.4;
+  font-style: normal;
+  pointer-events: none;
 }
 
 .text-block-editable h1,
@@ -573,14 +614,22 @@ html, body {
   opacity: 1;
 }
 
-/* Save indicator */
-.save-indicator {
-  position: fixed;
-  bottom: 40px;
-  left: 48px;
-  z-index: 130;
-}
+/* Save indicator.
 
+   The `.save-indicator` rule that used to sit here — `fixed; bottom: 40px;
+   left: 48px` — is gone, and it is worth saying why, because it was a trap
+   rather than a style. Nothing wore that class: SaveIndicator.tsx positions
+   itself with Tailwind (`fixed bottom-4 right-12`), bottom-RIGHT, and has for
+   as long as the file has existed. The rule was dead, invisible, and describing
+   a corner the component had moved away from.
+
+   Dead CSS keyed on a plausible name is a landmine. Attaching `.save-indicator`
+   to the component — which is the obvious name to reach for, and exactly what
+   the phone layout needed to hook onto — armed it instantly: the chip jumped to
+   the bottom-left of every desktop board and stretched 1344px wide (`left: 48`
+   from here, `right: 48` from Tailwind, width solved between them). Deleting it
+   restores what everyone was already seeing, and leaves the name free for the
+   element it names. */
 .save-pulse {
   width: 8px;
   height: 8px;
@@ -989,25 +1038,102 @@ html, body {
   z-index: 150;
 }
 
+/* ============================================
+   Properties rail — the selection inspector.
+
+   Geometry lives here rather than inline because it's a NEGOTIATION with the
+   rest of the chrome, and all the other parties are already in this file: it
+   right-aligns with the minimap (right: 48px), starts level with the board
+   title (top: 48px), and stops short of the minimap's top edge — hence the
+   248px reserved at the bottom (32 bottom offset + ~150 tall + a 66px gutter).
+   Below 1024px the minimap jumps to the top-right corner, so the rail has to
+   move out from under it; below 768px the minimap is gone and the rail becomes
+   a sheet above the toolbar, because 300px of a 700px screen is not a sidebar,
+   it's a takeover.
+   ============================================ */
+.props-rail {
+  position: fixed;
+  top: 48px;
+  right: 48px;
+  width: 300px;
+  max-width: calc(100vw - 76px);
+  max-height: calc(100vh - 248px);
+  z-index: 140;
+}
+
+/* Slimmer than .custom-scrollbar, and visible on BOTH papers — that one paints
+   a white thumb, which is invisible against a light board. */
+.props-rail-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.props-rail-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.props-rail-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.props-rail-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+  border: 2.5px solid transparent;
+  background-clip: content-box;
+}
+.props-rail-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+  background-clip: content-box;
+}
+
+/* The text-animation gallery, opened from the rail's Motion group. It docks to
+   the rail's left edge (48 + 300 + 12 gutter = 360) so it reads as a drawer of
+   the thing that opened it, and only falls back to a floating centred sheet
+   when there isn't room for the two side by side. */
+.anim-gallery {
+  position: fixed;
+  z-index: 150;
+  top: 48px;
+  right: 360px;
+  width: 468px;
+  max-width: calc(100vw - 384px);
+}
+
 /* Responsive adjustments for Minimap and Floating Toolbar to prevent overlapping */
+@media (max-width: 1100px) {
+  .anim-gallery {
+    top: auto;
+    bottom: 120px;
+    left: 16px;
+    right: 16px;
+    width: auto;
+    max-width: 468px;
+    margin: 0 auto;
+  }
+}
+
 @media (max-width: 1024px) {
   .minimap-container {
     top: 100px !important;
     bottom: auto !important;
     right: 24px !important;
   }
+  .props-rail {
+    top: 268px;
+    right: 24px;
+    /* 268 of clearance above + 112 below: at this width the toolbar is nearly
+       as wide as the window, so the rail has to stop above it rather than
+       beside it. */
+    max-height: calc(100vh - 380px);
+  }
 }
 
-@media (max-width: 768px) {
-  .minimap-container {
-    display: none !important;
-  }
-  .floating-toolbar {
-    bottom: 16px !important;
-    width: 90% !important;
-    max-width: 400px !important;
-  }
-}
+/* The two `max-width: 768px` blocks that used to live here — a props-rail
+   strip pinned 112px up, and a 90%-wide toolbar — are gone, not moved. Both
+   were measured against a desktop toolbar sitting at a desktop height, and both
+   are now stated properly (with the keyboard and the home indicator accounted
+   for) in mobile.css, which owns every phone rule in the app. Leaving them here
+   was not harmless: `width: 90% !important` beat the new full-bleed dock, so the
+   phone toolbar rendered 351px wide inside a 390px screen and sat off-centre.
+   Nothing above 768px ever matched either block, so no desktop is affected. */
 
 /* ============================================
    Dark canvas color modes — keep the couple of
@@ -1031,7 +1157,8 @@ html, body {
 /* Clay & glass materials are hardcoded cream in light mode — give them dark,
    theme-tinted surfaces so every modal/panel built on them (Collaborate,
    Scenes, Margins, Shortcuts, tour bar…) stays legible on dark paper. */
-:root[data-canvas-theme="dark"] .clay-card {
+:root[data-canvas-theme="dark"] .clay-card,
+:root[data-canvas-theme="dark"] .tool-panel {
   background: var(--bg-secondary);
   border-color: rgba(255, 255, 255, 0.10);
   box-shadow:
@@ -1211,3 +1338,35 @@ html, body {
   .data-toolbar,
   .block-head-id { transition: none; }
 }
+
+/* The boot shell's indeterminate sweep (components/providers/BootScreen.tsx).
+   Lives in the global sheet so it animates from the very first paint, with no
+   JavaScript involved — the whole point of that screen is that it exists
+   before the app does. */
+@keyframes boot-sweep {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(360%); }
+}
+.boot-sweep {
+  animation: boot-sweep 1.15s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot-sweep { animation: none; opacity: 0.5; }
+}
+
+/* Ensure datetime-local calendar picker indicator icon is crisp & visible on all themes */
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px;
+  opacity: 0.85;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  background-color: rgba(45, 42, 38, 0.08);
+}
+:where([data-canvas-theme="dark"], [data-canvas-theme="dark"] *) input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.9) hue-rotate(180deg);
+}
+

@@ -810,7 +810,7 @@ function ChatShell({
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: -24 }}
         transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-        className="fixed z-[150] clay-card rounded-[24px] flex flex-col overflow-hidden pointer-events-auto"
+        className="dm-chat-panel fixed z-[150] clay-card rounded-[24px] flex flex-col overflow-hidden pointer-events-auto"
         style={{ left: leftPx, width: widthPx, top: 92, height: '70vh', maxHeight: 560, transition: 'left 160ms ease, width 160ms ease' }}
       >
         <div className="flex items-center justify-between border-b border-[var(--border)] shrink-0" style={P_HEADER}>

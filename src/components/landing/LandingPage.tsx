@@ -22,6 +22,7 @@ import { useRouter } from 'next/navigation';
 import AuthButton from '@/components/ui/AuthButton';
 import ChatPanel from '@/components/chat/ChatPanel';
 import { useChatUnreadTotal } from '@/store/chatStore';
+import { useAuthStore } from '@/store/authStore';
 import { exportBoardById } from '@/lib/boardIO';
 import { applyCanvasTheme, resetCanvasTheme, presetById, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 import { gistOf, rankForPreview, effectiveFontSize, textRole, isSemanticCandidate } from '@/lib/semanticZoom';
@@ -35,7 +36,6 @@ import {
   type CanvasTemplate,
   type TemplateCategory,
 } from '@/lib/canvasTemplates';
-import LandingResident from './LandingResident';
 
 /* ============================================================
    Types
@@ -376,6 +376,11 @@ export default function LandingPage() {
   // Templates
   const [templateCategory, setTemplateCategory] = useState<TemplateCategory | 'All'>('All');
   const [openingTemplate, setOpeningTemplate] = useState<string | null>(null);
+  /* Templates are a first-run aid, not permanent furniture. Once you're signed
+     in you have boards of your own, and "start from a template" was pushing them
+     down the page every single visit — so for a signed-in user templates live in
+     the Templates tab only, which is exactly where you'd go looking for one. */
+  const signedIn = !!useAuthStore((s) => s.user);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sortMenuRef = useRef<HTMLDivElement>(null);
@@ -763,9 +768,6 @@ export default function LandingPage() {
     >
       <div className="noise-overlay" />
 
-      {/* the resident wanders the bottom of the page while you decide */}
-      <LandingResident />
-
       {/* ---------- Floating clay dock ---------- */}
       {/* The dock was rendering flush against x=0 — `ml-4` never did anything
           (one more casualty of the unlayered `* { margin:0 }` reset in
@@ -775,7 +777,7 @@ export default function LandingPage() {
           marginLeft (the one thing that beats the reset) — comfortably inside
           the aside's existing 92px lane (nav itself is only ~46px wide), so
           nothing else in the layout needs to move. */}
-      <aside className="w-[92px] h-screen sticky top-0 z-40 flex items-center shrink-0">
+      <aside className="landing-rail w-[92px] h-screen sticky top-0 z-40 flex items-center shrink-0">
         <nav
           aria-label="Main navigation"
           style={{ marginLeft: 24 }}
@@ -788,7 +790,7 @@ export default function LandingPage() {
           <DockButton label="Checkpoints" active={activeSidebarTab === 'checkpoints'} onClick={() => setActiveSidebarTab('checkpoints')} icon={ICONS.flag} />
           <DockButton label="Chat" active={activeSidebarTab === 'chat'} onClick={() => setActiveSidebarTab('chat')} icon={ICONS.chat} badge={chatUnread || undefined} />
 
-          <div className="w-8 h-px bg-[var(--border-strong)] opacity-50 my-2" />
+          <div className="landing-rail-sep w-8 h-px bg-[var(--border-strong)] opacity-50 my-2" />
 
           <DockButton label="Archive" active={activeSidebarTab === 'archive'} onClick={() => setActiveSidebarTab('archive')} icon={ICONS.archive} />
           <DockButton label="Trash" active={activeSidebarTab === 'deleted'} onClick={() => setActiveSidebarTab('deleted')} icon={ICONS.trash} badge={trashCount || undefined} />
@@ -796,11 +798,11 @@ export default function LandingPage() {
       </aside>
 
       {/* ---------- Main ---------- */}
-      <main className="flex-1 min-h-screen h-screen overflow-y-auto">
+      <main className="landing-main flex-1 min-h-screen h-screen overflow-y-auto">
         <div className="w-full max-w-[1380px] mx-auto pl-6 md:pl-16 pr-6 md:pr-24 pt-10 pb-28 flex flex-col gap-12">
 
           {/* Header */}
-          <header className="flex flex-col lg:flex-row lg:justify-between lg:items-end gap-6 w-full">
+          <header className="landing-header flex flex-col lg:flex-row lg:justify-between lg:items-end gap-6 w-full">
             <div className="min-w-0 flex items-center gap-3.5">
               {/* Wordmark — Bebas Neue, settled on after trying the font list. */}
               <div className="w-12 h-12 rounded-2xl clay-inset flex items-center justify-center shrink-0" aria-hidden="true">
@@ -821,7 +823,7 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="landing-header-actions flex items-center gap-3 shrink-0">
               {/* Recessed clay well — matches the sort button / layout toggle /
                   category pills right below it. glass-bar's dark-theme tint
                   (5% white) was nearly invisible against this page's default
@@ -893,7 +895,7 @@ export default function LandingPage() {
                     <div className="min-w-0">
                       <h2
                         onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
-                        className="text-4xl md:text-5xl leading-[1.02] font-normal tracking-[0.01em] text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors truncate"
+                        className="landing-hero-title text-4xl md:text-5xl leading-[1.02] font-normal tracking-[0.01em] text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors truncate"
                         style={{ fontFamily: "'Bebas Neue', sans-serif" }}
                       >
                         {continueWorkspace.title || 'untitled canvas'}
@@ -997,8 +999,10 @@ export default function LandingPage() {
             </section>
           )}
 
-          {/* ---------- HOME: Start from a template ---------- */}
-          {!isLoading && activeSidebarTab === 'home' && !searchQuery && (
+          {/* ---------- HOME: Start from a template (guests only) ----------
+              Signed in, this section is gone: templates live in the Templates
+              tab, reachable from the dock at any time. */}
+          {!isLoading && activeSidebarTab === 'home' && !searchQuery && !signedIn && (
             <section className="w-full flex flex-col gap-4">
               <div className="flex justify-between items-baseline gap-4">
                 <SectionHeading title="start from a template" sub="finished canvases, not empty shapes" />
@@ -1034,7 +1038,7 @@ export default function LandingPage() {
                     {ICONS.sparkle} Templates
                   </span>
                   <h2
-                    className="text-4xl md:text-5xl leading-[1.02] font-normal tracking-[0.01em] text-[var(--text-primary)]"
+                    className="landing-hero-title text-4xl md:text-5xl leading-[1.02] font-normal tracking-[0.01em] text-[var(--text-primary)]"
                     style={{ fontFamily: "'Bebas Neue', sans-serif" }}
                   >
                     Whole canvases, already made
@@ -1748,9 +1752,9 @@ function TemplateCard({
         >
           {template.category}
         </span>
-        <span className="absolute top-2 right-2.5 text-[19px] select-none" aria-hidden="true">
-          {template.emoji}
-        </span>
+        {/* The emoji that used to sit in this corner is gone — a 19px cartoon
+            glyph on top of a real board preview cheapened the card and said
+            nothing the category chip and the preview don't already say. */}
         <div
           className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
           style={{ background: 'rgba(0,0,0,0.24)' }}

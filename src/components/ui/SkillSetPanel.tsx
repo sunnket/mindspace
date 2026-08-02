@@ -7,6 +7,44 @@ import { SKILL_PRESETS, activeRuleCount, isSkillsetActive } from '@/lib/skillset
 
 const spring = { type: 'spring' as const, stiffness: 300, damping: 30 };
 
+/**
+ * One line-art glyph per preset pack, keyed by its stable id.
+ *
+ * These cards used to carry an emoji each (📚 🚀 🎨 …). Emoji render in the
+ * platform's own colours and its own cartoon style, so eight of them in a grid
+ * fought both the accent colour of the card they sat on and the restrained
+ * outline iconography used everywhere else in the app. A stroked glyph inherits
+ * `currentColor`, so each one now picks up its pack's accent and the grid reads
+ * as one designed set.
+ */
+function PresetGlyph({ id, size = 17 }: { id: string; size?: number }) {
+  const wrap = (children: React.ReactNode) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  );
+  switch (id) {
+    // Study Buddy — an open book
+    case 'study-buddy': return wrap(<><path d="M12 6.5C10.5 5 8.5 4.5 4 4.5v13C8.5 17.5 10.5 18 12 19.5" /><path d="M12 6.5c1.5-1.5 3.5-2 8-2v13c-4.5 0-6.5.5-8 2" /><path d="M12 6.5v13" /></>);
+    // Startup War Room — a trajectory climbing off a launch pad
+    case 'startup-war-room': return wrap(<><path d="M4 20c5-1 9-5 13.5-13.5" /><path d="M14 4.5h5.5V10" /><path d="M7 17l-2.5 3.5" /></>);
+    // Design Studio — compass / bezier node
+    case 'design-studio': return wrap(<><circle cx="12" cy="7" r="3" /><path d="M9.6 9.2 5.5 20l6.5-4 6.5 4-4.1-10.8" /></>);
+    // Research Lab — a flask
+    case 'research-lab': return wrap(<><path d="M9 3h6M10 3v6.2L4.8 18a2 2 0 0 0 1.7 3h11a2 2 0 0 0 1.7-3L14 9.2V3" /><path d="M7.2 14h9.6" /></>);
+    // Code Architect — blueprint grid with a bracket
+    case 'code-architect': return wrap(<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9.5 9 7 12l2.5 3M14.5 9 17 12l-2.5 3" /></>);
+    // Zen Minimalist — a single leaf
+    case 'zen-minimalist': return wrap(<><path d="M4 20c0-8 6-14 16-14 0 10-6 15-16 14Z" /><path d="M9 15c2.5-2.5 5-4 8-5" /></>);
+    // Brainstorm Machine — a lamp
+    case 'brainstorm-machine': return wrap(<><path d="M9 18h6" /><path d="M10 21h4" /><path d="M12 3a6 6 0 0 0-3.5 10.9V18h7v-4.1A6 6 0 0 0 12 3Z" /></>);
+    // Content Kitchen — a nib
+    case 'content-kitchen': return wrap(<><path d="M12 19l7-7-7-7-7 7 7 7Z" opacity="0.35" /><path d="M4 20l3.5-3.5" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" /></>);
+    default: return wrap(<><circle cx="12" cy="12" r="9" /><path d="M12 8v8M8 12h8" /></>);
+  }
+}
+
 /* A small pill toggle switch. Padding/margins are inline throughout this file
    because the app's global reset (`* { padding:0; margin:0 }`) is unlayered and
    overrides Tailwind's spacing utilities. */
@@ -270,7 +308,10 @@ export default function SkillSetPanel() {
               <div className="border-t border-[var(--border)]" style={{ paddingTop: 16, marginBottom: 4 }}>
                 <div className="flex items-center gap-1.5" style={{ marginBottom: 4 }}>
                   <span className="text-[10px] uppercase font-semibold tracking-wider text-[var(--text-muted)]">Install a skill pack</span>
-                  <span className="text-[13px]">✨</span>
+                  {/* Stroked spark, not ✨ — same reason as the pack glyphs. */}
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-[var(--text-muted)]">
+                    <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z" />
+                  </svg>
                 </div>
                 <p className="text-[11px] text-[var(--text-secondary)]" style={{ marginBottom: 12 }}>
                   One click adds a proven persona + rules. Packs stack — mix and match.
@@ -291,10 +332,10 @@ export default function SkillSetPanel() {
                       >
                         <div className="flex items-start gap-2.5">
                           <span
-                            className="shrink-0 flex items-center justify-center rounded-xl text-[17px]"
-                            style={{ width: 34, height: 34, background: `${p.accent}22` }}
+                            className="shrink-0 flex items-center justify-center rounded-xl"
+                            style={{ width: 34, height: 34, background: `${p.accent}22`, color: p.accent }}
                           >
-                            {p.emoji}
+                            <PresetGlyph id={p.id} />
                           </span>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">

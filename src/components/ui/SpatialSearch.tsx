@@ -126,7 +126,7 @@ export default function SpatialSearch() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Search input */}
-            <div className="glass-panel overflow-hidden">
+            <div className="tool-panel overflow-hidden">
               <div className="flex items-center gap-3 px-5 py-4">
                 <span className="text-[var(--text-muted)] text-lg">⌕</span>
                 <input

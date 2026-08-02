@@ -391,48 +391,213 @@ export function playWhoosh() {
 }
 
 /* ------------------------------------------------------------------ paper */
-/* The PDF reader's book. A page turn is not a whoosh: it is a short, bright
-   rustle with a *rise* as the sheet lifts and a duller flap as it lands, and the
-   two halves have to overlap or it reads as one swipe. Everything here is noise
-   through moving filters — paper has no pitch. */
+/* The flipbook's paper. These are the sounds you actually hear on every turn,
+   so they get more care than anything else in this file.
 
-/** A sheet lifting, arcing over and landing. `depth` 0–1 leans heavier/slower. */
-export function playPageTurn(depth = 0.5) {
+   The thing that makes paper sound like paper is not the filter sweep — it's the
+   CRINKLE: an irregular, grainy flutter riding on the noise, because a sheet
+   under tension releases in dozens of tiny snaps rather than one smooth hiss.
+   Filtered white noise alone gives you a cymbal, or a whoosh. So the flutter is
+   baked straight into the buffer here (cheaper and more convincing than
+   modulating a gain node), and the whole thing PANS across the stereo field in
+   the direction the sheet travels, which is most of what sells the illusion. */
+
+/**
+ * Noise with paper's texture: a decay curve, an irregular flutter, and grains.
+ *  · `flutter` — depth of the slow random-walk amplitude wobble (0–1)
+ *  · `grain`   — how many hard little snaps get scattered through it
+ */
+function paperNoise(ac: AudioContext, seconds: number, curve = 1, flutter = 0.55, grain = 26): AudioBufferSourceNode {
+  const src = ac.createBufferSource();
+  const len = Math.max(1, Math.floor(ac.sampleRate * seconds));
+  const buf = ac.createBuffer(1, len, ac.sampleRate);
+  const data = buf.getChannelData(0);
+
+  // Random walk, smoothed — the fibre releasing unevenly along the sheet.
+  let walk = 1;
+  const step = 240 / ac.sampleRate;
+  for (let i = 0; i < len; i++) {
+    walk += (Math.random() * 2 - 1) * step;
+    walk = Math.max(0.25, Math.min(1.6, walk * 0.997 + 0.003));
+    const env = Math.pow(1 - i / len, curve);
+    const mod = 1 - flutter + flutter * walk;
+    data[i] = (Math.random() * 2 - 1) * env * mod;
+  }
+  // Grains: single-sample-ish spikes, the audible edge of paper letting go.
+  for (let g = 0; g < grain; g++) {
+    const at = Math.floor(Math.random() * (len - 40));
+    const amp = 0.5 + Math.random() * 0.9;
+    for (let k = 0; k < 24; k++) {
+      const d = Math.pow(1 - k / 24, 2.4);
+      data[at + k] += (Math.random() * 2 - 1) * amp * d * Math.pow(1 - at / len, curve);
+    }
+  }
+  src.buffer = buf;
+  return src;
+}
+
+/**
+ * A sheet peeling off the stack, arcing over and dropping onto the block.
+ *
+ * Four overlapping layers, because a real turn is four events: the peel (bright,
+ * thin), the sweep (the body of the sheet moving air, opening then closing), the
+ * flap as it lands, and the soft thud of the block taking its weight. `depth`
+ * 0–1 leans heavier and slower; `dir` decides which way it travels.
+ */
+export function playPageTurn(depth = 0.5, dir: 'next' | 'prev' = 'next') {
   const ac = audioCtx();
   if (!ac) return;
   const t = ac.currentTime;
-  const out = voiceOut(ac, 0.28);
-  const dur = 0.34 + depth * 0.2;
+  const out = voiceOut(ac, 0.22);
+  const dur = 0.5 + depth * 0.16;
+  const sign = dir === 'next' ? 1 : -1;
 
-  // the lift: high, thin, opening up as the sheet peels away from the stack
-  const lift = noise(ac, dur * 0.7, 1.8);
-  const hp = ac.createBiquadFilter();
-  hp.type = 'bandpass';
-  hp.Q.value = 0.8;
-  hp.frequency.setValueAtTime(rand(1500, 2100), t);
-  hp.frequency.exponentialRampToValueAtTime(rand(3400, 4600), t + dur * 0.6);
+  /* The sheet crosses the book, so the sound crosses the listener. Without this
+     every turn happens in the middle of your head and sounds like a UI blip. */
+  const pan = ac.createStereoPanner?.();
+  const bus = ac.createGain();
+  if (pan) {
+    pan.pan.setValueAtTime(0.5 * sign, t);
+    pan.pan.linearRampToValueAtTime(-0.42 * sign, t + dur);
+    bus.connect(pan).connect(out);
+  } else {
+    bus.connect(out);
+  }
+
+  // 1. the peel — high and dry, the corner separating
+  const peel = paperNoise(ac, 0.2, 1.9, 0.7, 16);
+  const pf = ac.createBiquadFilter();
+  pf.type = 'bandpass'; pf.Q.value = 0.75;
+  pf.frequency.setValueAtTime(rand(1700, 2300), t);
+  pf.frequency.exponentialRampToValueAtTime(rand(3800, 5200), t + 0.18);
+  const pg = ac.createGain();
+  pg.gain.setValueAtTime(0.0001, t);
+  pg.gain.exponentialRampToValueAtTime(0.042 + depth * 0.02, t + 0.035);
+  pg.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  peel.connect(pf).connect(pg).connect(bus);
+  peel.start(t); peel.stop(t + 0.24);
+
+  // 2. the sweep — the body of it, brightening as the sheet stands up and
+  //    darkening as it falls away. This is the layer you actually recognise.
+  const sweep = paperNoise(ac, dur, 0.9, 0.62, 34);
+  const sf = ac.createBiquadFilter();
+  sf.type = 'bandpass'; sf.Q.value = 0.62;
+  sf.frequency.setValueAtTime(rand(900, 1150), t + 0.02);
+  sf.frequency.exponentialRampToValueAtTime(rand(2400, 3100), t + dur * 0.42);
+  sf.frequency.exponentialRampToValueAtTime(rand(620, 820), t + dur);
+  const sg = ac.createGain();
+  sg.gain.setValueAtTime(0.0001, t + 0.02);
+  sg.gain.exponentialRampToValueAtTime(0.055 + depth * 0.03, t + dur * 0.34);
+  sg.gain.exponentialRampToValueAtTime(0.03, t + dur * 0.72);
+  sg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  sweep.connect(sf).connect(sg).connect(bus);
+  sweep.start(t + 0.02); sweep.stop(t + dur + 0.04);
+
+  // 3. the flap — the sheet meeting the ones already turned
+  const at = t + dur * 0.7;
+  const flap = paperNoise(ac, 0.2, 2.4, 0.5, 14);
+  const ff = ac.createBiquadFilter();
+  ff.type = 'lowpass';
+  ff.frequency.setValueAtTime(3200, at);
+  ff.frequency.exponentialRampToValueAtTime(620, at + 0.2);
+  const fg = ac.createGain();
+  fg.gain.setValueAtTime(0.0001, at);
+  fg.gain.exponentialRampToValueAtTime(0.05 + depth * 0.035, at + 0.022);
+  fg.gain.exponentialRampToValueAtTime(0.0001, at + 0.2);
+  flap.connect(ff).connect(fg).connect(bus);
+  flap.start(at); flap.stop(at + 0.24);
+
+  // 4. the block taking the weight — felt more than heard, and the reason the
+  //    turn lands instead of just stopping
+  const thud = ac.createOscillator();
+  thud.type = 'sine';
+  thud.frequency.setValueAtTime(rand(96, 124), at);
+  thud.frequency.exponentialRampToValueAtTime(58, at + 0.09);
+  const tg = ac.createGain();
+  tg.gain.setValueAtTime(0.0001, at);
+  tg.gain.exponentialRampToValueAtTime(0.03 + depth * 0.02, at + 0.012);
+  tg.gain.exponentialRampToValueAtTime(0.0001, at + 0.1);
+  thud.connect(tg).connect(bus);
+  thud.start(at); thud.stop(at + 0.12);
+}
+
+/** The cover swinging open: board, hinge and the whole block shifting at once. */
+export function playCoverOpen() {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 0.42);
+
+  // the hinge: glue and board under strain, sliding up
+  const n = paperNoise(ac, 0.62, 1.2, 0.45, 10);
+  const b1 = ac.createBiquadFilter();
+  b1.type = 'bandpass'; b1.Q.value = 7;
+  b1.frequency.setValueAtTime(150, t);
+  b1.frequency.exponentialRampToValueAtTime(310, t + 0.6);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.055, t + 0.1);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.62);
+  n.connect(b1).connect(g).connect(out);
+  n.start(t); n.stop(t + 0.66);
+
+  // the block of paper lifting away from the board, a beat later
+  const lift = paperNoise(ac, 0.4, 1.5, 0.6, 22);
+  const lf = ac.createBiquadFilter();
+  lf.type = 'bandpass'; lf.Q.value = 0.7;
+  lf.frequency.setValueAtTime(700, t + 0.1);
+  lf.frequency.exponentialRampToValueAtTime(2200, t + 0.44);
   const lg = ac.createGain();
-  lg.gain.setValueAtTime(0.0001, t);
-  lg.gain.exponentialRampToValueAtTime(0.05 + depth * 0.03, t + 0.06);
-  lg.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.7);
-  lift.connect(hp).connect(lg).connect(out);
-  lift.start(t);
-  lift.stop(t + dur);
+  lg.gain.setValueAtTime(0.0001, t + 0.1);
+  lg.gain.exponentialRampToValueAtTime(0.05, t + 0.24);
+  lg.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  lift.connect(lf).connect(lg).connect(out);
+  lift.start(t + 0.1); lift.stop(t + 0.54);
+}
 
-  // the landing: lower and softer, a beat later, so the sheet has somewhere to go
-  const land = noise(ac, 0.22, 2.6);
-  const lp = ac.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.setValueAtTime(2600, t);
-  lp.frequency.exponentialRampToValueAtTime(700, t + 0.22);
-  const dg = ac.createGain();
-  const at = t + dur * 0.52;
-  dg.gain.setValueAtTime(0.0001, at);
-  dg.gain.exponentialRampToValueAtTime(0.06 + depth * 0.04, at + 0.03);
-  dg.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
-  land.connect(lp).connect(dg).connect(out);
-  land.start(at);
-  land.stop(at + 0.26);
+/** Shutting it: the block compressing, then the board landing on top. */
+export function playCoverClose() {
+  const ac = audioCtx();
+  if (!ac) return;
+  const t = ac.currentTime;
+  const out = voiceOut(ac, 0.4);
+
+  const air = paperNoise(ac, 0.34, 1.4, 0.5, 18);
+  const af = ac.createBiquadFilter();
+  af.type = 'bandpass'; af.Q.value = 0.7;
+  af.frequency.setValueAtTime(1800, t);
+  af.frequency.exponentialRampToValueAtTime(520, t + 0.32);
+  const ag = ac.createGain();
+  ag.gain.setValueAtTime(0.0001, t);
+  ag.gain.exponentialRampToValueAtTime(0.05, t + 0.06);
+  ag.gain.exponentialRampToValueAtTime(0.0001, t + 0.34);
+  air.connect(af).connect(ag).connect(out);
+  air.start(t); air.stop(t + 0.38);
+
+  // the board: a real thump, low and short
+  const at = t + 0.26;
+  const body = ac.createOscillator();
+  body.type = 'sine';
+  body.frequency.setValueAtTime(112, at);
+  body.frequency.exponentialRampToValueAtTime(48, at + 0.14);
+  const bg = ac.createGain();
+  bg.gain.setValueAtTime(0.0001, at);
+  bg.gain.exponentialRampToValueAtTime(0.07, at + 0.014);
+  bg.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
+  body.connect(bg).connect(out);
+  body.start(at); body.stop(at + 0.18);
+
+  const knock = paperNoise(ac, 0.16, 3, 0.3, 8);
+  const kf = ac.createBiquadFilter();
+  kf.type = 'lowpass';
+  kf.frequency.setValueAtTime(1400, at);
+  kf.frequency.exponentialRampToValueAtTime(300, at + 0.16);
+  const kg = ac.createGain();
+  kg.gain.setValueAtTime(0.0001, at);
+  kg.gain.exponentialRampToValueAtTime(0.055, at + 0.01);
+  kg.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
+  knock.connect(kf).connect(kg).connect(out);
+  knock.start(at); knock.stop(at + 0.2);
 }
 
 /** Opening the covers: a low resonant creak from the spine. Used once, on open. */

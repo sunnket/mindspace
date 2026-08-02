@@ -5,6 +5,7 @@ import { useCanvasStore } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
 import { motion, AnimatePresence } from 'framer-motion';
 import { v4 as uuidv4 } from 'uuid';
+import { useDragReorder, moveItem } from '@/hooks/useDragReorder';
 
 // NOTE: Tailwind p-*/m-* utilities are dead in this app (unlayered global
 // reset) — every padding here is inline on purpose.
@@ -98,6 +99,22 @@ export default function TodoBlock({ obj }: { obj: CanvasObjectData }) {
   const pct = items.length > 0 ? (doneCount / items.length) * 100 : 0;
   const allDone = items.length > 0 && doneCount === items.length;
 
+  /* Drag a row by its grip to reorder. A checklist is a plan, and a plan has an
+     order — before this the only way to move a task up was to retype it.
+
+     Routed through `save`, deliberately: writing to the store from inside a
+     `setItems(cur => …)` updater looked tempting (it reads the freshest list)
+     but React runs updaters DURING render, so the store write became a
+     setState-in-render and React warned about updating ConnectionsLayer while
+     rendering TodoBlock. `save` already closes over the current `items` and is
+     the one place that persists this block. */
+  const { dragIndex, dropIndex, startDrag } = useDragReorder(
+    listRef,
+    useCallback((from: number, to: number) => {
+      save(moveItem(items, from, to));
+    }, [items, save]),
+  );
+
   return (
     <div className="w-full h-full flex flex-col bg-[var(--bg-card)] rounded-2xl border border-[var(--border)] shadow-xl overflow-hidden backdrop-blur-md">
       {/* Header */}
@@ -143,11 +160,22 @@ export default function TodoBlock({ obj }: { obj: CanvasObjectData }) {
       </div>
 
       {/* List Area */}
-      <div ref={listRef} className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-3" style={{ padding: '14px 16px' }}>
-        {items.map((item) => (
+      <div
+        ref={listRef}
+        className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-3"
+        style={{ padding: '14px 16px', overscrollBehavior: 'contain' }}
+      >
+        {items.map((item, i) => (
           <TodoRow
             key={item.id}
             item={item}
+            index={i}
+            dragging={dragIndex === i}
+            /* The gap the row would drop into. Drawn on the row currently at
+               that index, above or below depending on travel direction. */
+            dropBefore={dragIndex !== null && dropIndex === i && dragIndex > i}
+            dropAfter={dragIndex !== null && dropIndex === i && dragIndex < i}
+            onGrab={(e) => startDrag(e, i)}
             onToggle={() => toggleItem(item.id)}
             onUpdate={(text) => updateItemText(item.id, text)}
             onRemove={() => removeItem(item.id)}
@@ -192,8 +220,16 @@ export default function TodoBlock({ obj }: { obj: CanvasObjectData }) {
   );
 }
 
-function TodoRow({ item, onToggle, onUpdate, onRemove, onEnter, onBackspaceEmpty }: {
+function TodoRow({
+  item, index, dragging, dropBefore, dropAfter, onGrab,
+  onToggle, onUpdate, onRemove, onEnter, onBackspaceEmpty,
+}: {
   item: TodoItem;
+  index: number;
+  dragging: boolean;
+  dropBefore: boolean;
+  dropAfter: boolean;
+  onGrab: (e: React.PointerEvent) => void;
   onToggle: () => void;
   onUpdate: (text: string) => void;
   onRemove: () => void;
@@ -202,8 +238,46 @@ function TodoRow({ item, onToggle, onUpdate, onRemove, onEnter, onBackspaceEmpty
 }) {
   const textRef = useRef<HTMLDivElement>(null);
 
+  /** The line showing where the carried row will land. */
+  const dropLine = (
+    <span
+      aria-hidden="true"
+      className="absolute left-0 right-0 rounded-full"
+      style={{ height: 2, background: 'var(--accent)', boxShadow: '0 0 6px rgba(var(--accent-rgb),0.7)' }}
+    />
+  );
+
   return (
-    <div className="flex items-start gap-3 group">
+    <div
+      data-reorder-index={index}
+      className="relative flex items-start gap-2 group"
+      style={{
+        // The carried row dims and lifts so it reads as picked up.
+        opacity: dragging ? 0.4 : 1,
+        transition: 'opacity 120ms ease',
+      }}
+    >
+      {dropBefore && <span style={{ position: 'absolute', top: -7, left: 0, right: 0 }}>{dropLine}</span>}
+      {dropAfter && <span style={{ position: 'absolute', bottom: -7, left: 0, right: 0 }}>{dropLine}</span>}
+
+      {/* Grip. Quiet until you're over the row, and it's the ONLY thing that
+          starts a reorder — dragging the text would fight editing it. */}
+      <button
+        onPointerDown={onGrab}
+        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+        onClick={(e) => e.stopPropagation()}
+        title="Drag to reorder"
+        aria-label="Reorder this task"
+        className="shrink-0 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+        style={{ width: 12, height: 20, marginTop: 3, touchAction: 'none' }}
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="9" cy="6" r="1.6" /><circle cx="15" cy="6" r="1.6" />
+          <circle cx="9" cy="12" r="1.6" /><circle cx="15" cy="12" r="1.6" />
+          <circle cx="9" cy="18" r="1.6" /><circle cx="15" cy="18" r="1.6" />
+        </svg>
+      </button>
+
       <button
         onClick={(e) => { e.stopPropagation(); onToggle(); }}
         onMouseDown={(e) => e.stopPropagation()}

@@ -1,187 +1,114 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
+import {
+  buildConnector,
+  capGeom,
+  chooseSides,
+  dashArray,
+  dashCycle,
+  rectOf,
+  resolveConnector,
+  type ConnectorStyle,
+  type Rect,
+  type Side,
+} from '@/lib/connectors';
 
 /* ------------------------------------------------------------------
-   Smart routing.
+   Drawing the links.
 
-   A connector used to be a straight segment between two box centres,
-   clipped where it crossed each edge. That reads fine for one link and
-   badly for everything else: lines leave a card at whatever random
-   angle the geometry produced, several links from one block stack into
-   the same spot, and a run of them turns into a starburst.
+   All the geometry lives in `lib/connectors` — shapes, subtypes, caps,
+   attachment. This file is only responsible for three things the geometry
+   can't know on its own:
 
-   So a connection now LEAVES AND ARRIVES THROUGH A FACE. Pick the pair
-   of facing sides, anchor on those, and sweep between them with a cubic
-   whose tangents are perpendicular to the faces — the line departs
-   square to the card and arrives square to the next one, which is what
-   makes a fan of them read as one flowing bundle instead of a scribble.
+     · FANNING. A link can only know where to sit on a face relative to its
+       SIBLINGS, so the offsets are solved once per render for the whole board.
+       Without it, six links out of one card stack onto the same point and the
+       result reads as a starburst instead of a bundle.
+     · INTERACTION. Hover to reveal the cut button, click to select — which is
+       what opens the connector options panel at the top of the screen.
+     · The brainstorm THREAD, which is not a diagram connector at all but
+       string on a cork wall, and keeps its own drawing entirely.
    ------------------------------------------------------------------ */
 
-type Side = 'l' | 'r' | 't' | 'b';
-type Rect = { x: number; y: number; width: number; height: number; centerX: number; centerY: number };
-
-/**
- * Which faces should this link use?
- *
- * Whichever axis the two blocks are more separated on wins, with a bias
- * toward horizontal: cards on a board sit side by side far more often than
- * stacked, and left→right reads as flow. The bias is proportional (not a
- * fixed nudge) so it survives any zoom or card size.
- */
-const chooseSides = (a: Rect, b: Rect): [Side, Side] => {
-  const dx = b.centerX - a.centerX;
-  const dy = b.centerY - a.centerY;
-  // Gap along each axis — the space actually between the boxes, not the
-  // distance between their centres, so a tall card beside a short one
-  // doesn't read as "vertically separated" just because it's tall.
-  const gapX = Math.max(0, Math.abs(dx) - (a.width + b.width) / 2);
-  const gapY = Math.max(0, Math.abs(dy) - (a.height + b.height) / 2);
-  const horizontal = gapX * 1.35 >= gapY;
-  if (horizontal) return dx >= 0 ? ['r', 'l'] : ['l', 'r'];
-  return dy >= 0 ? ['b', 't'] : ['t', 'b'];
-};
-
-/**
- * Where on that face to sit.
- *
- * `spread` slides the anchor along the face so several links leaving one
- * block fan out across it instead of piling onto its midpoint — the
- * difference between the reference's clean bundle and a single overloaded
- * point. Clamped to the middle 70% so an anchor never lands on a corner.
- */
-const anchorOn = (r: Rect, side: Side, spread: number) => {
-  const t = Math.max(-0.35, Math.min(0.35, spread));
-  switch (side) {
-    case 'l': return { x: r.x, y: r.centerY + r.height * t, nx: -1, ny: 0 };
-    case 'r': return { x: r.x + r.width, y: r.centerY + r.height * t, nx: 1, ny: 0 };
-    case 't': return { x: r.centerX + r.width * t, y: r.y, nx: 0, ny: -1 };
-    default:  return { x: r.centerX + r.width * t, y: r.y + r.height, nx: 0, ny: 1 };
-  }
-};
-
-/** The sweeping cubic between two face anchors. */
-const smartPath = (a: Rect, b: Rect, spreadA: number, spreadB: number) => {
-  const [sideA, sideB] = chooseSides(a, b);
-  const p = anchorOn(a, sideA, spreadA);
-  const q = anchorOn(b, sideB, spreadB);
-
-  const dist = Math.hypot(q.x - p.x, q.y - p.y);
-  /* How far the curve runs straight out of each face before it turns.
-     Proportional to the span so short links stay taut and long ones bow
-     gracefully, but floored so touching cards still leave squarely, and
-     capped so a link across the whole board doesn't balloon. */
-  const reach = Math.max(26, Math.min(150, dist * 0.42));
-
-  const c1 = { x: p.x + p.nx * reach, y: p.y + p.ny * reach };
-  const c2 = { x: q.x + q.nx * reach, y: q.y + q.ny * reach };
-
-  return {
-    d: `M ${p.x} ${p.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${q.x} ${q.y}`,
-    start: { x: p.x, y: p.y },
-    end: { x: q.x, y: q.y },
-    // Midpoint of the cubic (t=0.5) — where the delete button belongs. The
-    // straight-line average sat off the curve on anything but a gentle bend.
-    mid: {
-      x: (p.x + 3 * c1.x + 3 * c2.x + q.x) / 8,
-      y: (p.y + 3 * c1.y + 3 * c2.y + q.y) / 8,
-    },
-  };
-};
+type Fanned = { from: number; to: number };
 
 export default function ConnectionsLayer() {
   const connections = useCanvasStore((s) => s.connections);
   const objects = useCanvasStore((s) => s.objects);
   const removeConnection = useCanvasStore((s) => s.removeConnection);
-  const mode = useCanvasStore((s) => s.mode);
+  const selectedConnectionId = useCanvasStore((s) => s.selectedConnectionId);
+  const setSelectedConnectionId = useCanvasStore((s) => s.setSelectedConnectionId);
 
   const [hoveredConnId, setHoveredConnId] = useState<string | null>(null);
 
-  const getObjectVisualRect = (id: string) => {
-    const obj = objects.find((o) => o.id === id);
-    if (!obj || obj.style?.isMinimized) return null;
+  /** Live box of a block, or null if it isn't on the board to point at. */
+  const rects = useMemo(() => {
+    const map = new Map<string, Rect>();
+    for (const o of objects) {
+      if (o.style?.isMinimized) continue;
+      map.set(o.id, rectOf(o));
+    }
+    return map;
+  }, [objects]);
 
-    return {
-      x: obj.x,
-      y: obj.y,
-      width: obj.width,
-      height: obj.height,
-      centerX: obj.x + obj.width / 2,
-      centerY: obj.y + obj.height / 2,
-    };
-  };
-
-  const getIntersectionPoint = (rect: any, otherX: number, otherY: number) => {
-    const cx = rect.centerX;
-    const cy = rect.centerY;
-
-    const dx = otherX - cx;
-    const dy = otherY - cy;
-
-    if (dx === 0 && dy === 0) return { x: cx, y: cy };
-
-    const halfW = rect.width / 2;
-    const halfH = rect.height / 2;
-
-    // Line equation: (x-cx)/dx = (y-cy)/dy = t
-    // Check intersection with vertical edges
-    const tX = dx > 0 ? halfW / dx : -halfW / dx;
-    // Check intersection with horizontal edges
-    const tY = dy > 0 ? halfH / dy : -halfH / dy;
-
-    const t = Math.min(Math.abs(tX), Math.abs(tY));
-
-    return {
-      x: cx + dx * t,
-      y: cy + dy * t
-    };
-  };
-
-  /**
-   * Fan offsets: for every block, spread the links that share it evenly
-   * across the face they use. Computed once per render for the whole layer
-   * because a link can only know where to sit relative to its SIBLINGS.
-   */
-  const fanOffsets = useMemo(() => {
-    const rectOf = (id: string) => {
-      const o = objects.find((ob) => ob.id === id);
-      if (!o || o.style?.isMinimized) return null;
-      return { x: o.x, y: o.y, width: o.width, height: o.height, centerX: o.x + o.width / 2, centerY: o.y + o.height / 2 };
-    };
-    // key: `${objectId}|${side}` → the connection ids landing there
-    const groups = new Map<string, string[]>();
-    const sideOf = new Map<string, { from: Side; to: Side }>();
-
+  /** Each connection's resolved look — read once, used by fanning and drawing. */
+  const configs = useMemo(() => {
+    const map = new Map<string, ConnectorStyle>();
     for (const c of connections) {
       if (c.style?.thread) continue;
-      const a = rectOf(c.fromId);
-      const b = rectOf(c.toId);
+      const workflow =
+        !!c.style?.isWorkflowConnection ||
+        (objects.find((o) => o.id === c.fromId)?.type === 'workflow-node' &&
+          objects.find((o) => o.id === c.toId)?.type === 'workflow-node');
+      map.set(c.id, resolveConnector(c.style, { workflow }));
+    }
+    return map;
+  }, [connections, objects]);
+
+  /**
+   * Spread the links that share a face evenly across it, ordered so the fan
+   * never crosses itself. Only the face-anchored shapes take part: an arc and
+   * a direct straight line are measured from the centres, so nudging them
+   * along a face would just detach them.
+   */
+  const fanOffsets = useMemo(() => {
+    const groups = new Map<string, string[]>();
+
+    for (const c of connections) {
+      const cfg = configs.get(c.id);
+      if (!cfg) continue;
+      const faceAnchored =
+        cfg.shape === 'curve' || cfg.shape === 'scribble' || cfg.shape === 'elbow' ||
+        (cfg.shape === 'straight' && cfg.variant === 'square');
+      if (!faceAnchored) continue;
+      const a = rects.get(c.fromId);
+      const b = rects.get(c.toId);
       if (!a || !b) continue;
-      const [sa, sb] = chooseSides(a, b);
-      sideOf.set(c.id, { from: sa, to: sb });
+      const prefer = cfg.shape === 'elbow' && (cfg.variant === 'h' || cfg.variant === 'v')
+        ? (cfg.variant as 'h' | 'v')
+        : undefined;
+      const [sa, sb] = chooseSides(a, b, prefer);
       const ka = `${c.fromId}|${sa}`;
       const kb = `${c.toId}|${sb}`;
       groups.set(ka, [...(groups.get(ka) || []), c.id]);
       groups.set(kb, [...(groups.get(kb) || []), c.id]);
     }
 
-    // Order each group along the face so the fan never crosses itself.
-    const offset = new Map<string, { from: number; to: number }>();
+    const offset = new Map<string, Fanned>();
     for (const [key, ids] of groups) {
       const [objId, side] = key.split('|') as [string, Side];
-      const here = rectOf(objId);
-      if (!here) continue;
       const sorted = [...ids].sort((x, y) => {
         const cx = connections.find((c) => c.id === x)!;
         const cy = connections.find((c) => c.id === y)!;
-        const ox = rectOf(cx.fromId === objId ? cx.toId : cx.fromId);
-        const oy = rectOf(cy.fromId === objId ? cy.toId : cy.fromId);
+        const ox = rects.get(cx.fromId === objId ? cx.toId : cx.fromId);
+        const oy = rects.get(cy.fromId === objId ? cy.toId : cy.fromId);
         if (!ox || !oy) return 0;
         // Along a vertical face rank by the other block's Y; along a
         // horizontal face rank by its X.
-        return side === 'l' || side === 'r' ? ox.centerY - oy.centerY : ox.centerX - oy.centerX;
+        return side === 'l' || side === 'r' ? ox.cy - oy.cy : ox.cx - oy.cx;
       });
       const n = sorted.length;
       sorted.forEach((id, i) => {
@@ -193,7 +120,12 @@ export default function ConnectionsLayer() {
       });
     }
     return offset;
-  }, [connections, objects]);
+  }, [connections, configs, rects]);
+
+  const unique = useMemo(
+    () => Array.from(new Map(connections.map((c) => [c.id, c])).values()),
+    [connections],
+  );
 
   return (
     <div className="absolute top-0 left-0 pointer-events-none overflow-visible">
@@ -209,55 +141,34 @@ export default function ConnectionsLayer() {
             <feGaussianBlur stdDeviation="3" result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
-          <marker 
-            id="workflow-arrow" 
-            viewBox="0 0 10 10"
-            refX="6" 
-            refY="5" 
-            markerWidth="7" 
-            markerHeight="7" 
-            orient="auto"
-          >
-            <path d="M 0 1.5 L 8 5 L 0 8.5 Z" fill="currentColor" />
-          </marker>
           <style>{`
-            @keyframes workflow-pulse {
-              from {
-                stroke-dashoffset: 24;
-              }
-              to {
-                stroke-dashoffset: 0;
-              }
+            /* Marching dashes. The cycle length differs per connector (it scales
+               with the line weight), so the distance travelled comes in as a
+               custom property — that's what keeps the loop seamless instead of
+               visibly jumping every repeat. */
+            @keyframes conn-flow {
+              to { stroke-dashoffset: calc(var(--conn-cycle, 8px) * -1); }
             }
-            .workflow-pulse-path {
-              /* Static dashes at rest: the infinite animation forced a repaint of the
-                 connection layer every frame, which stacks up badly on large canvases */
-              stroke-dasharray: 8, 4;
-            }
-            .workflow-pulse-path-hover {
-              stroke-dasharray: 8, 4;
-              animation: workflow-pulse 0.7s linear infinite;
-            }
+            .conn-flow { animation: conn-flow 0.55s linear infinite; }
           `}</style>
         </defs>
         <AnimatePresence>
-          {Array.from(new Map(connections.map(c => [c.id, c])).values()).map((conn) => {
-            const rectA = getObjectVisualRect(conn.fromId);
-            const rectB = getObjectVisualRect(conn.toId);
-
+          {unique.map((conn) => {
+            const rectA = rects.get(conn.fromId);
+            const rectB = rects.get(conn.toId);
             if (!rectA || !rectB) return null;
 
             /* A brainstorm THREAD is drawn like real string on a cork wall:
                centre-to-centre with a gravity sag, a soft drop shadow, and a
-               little knot tied at each pin. It skips the workflow/edge-clip
-               geometry entirely. */
+               little knot tied at each pin. It skips the connector geometry
+               entirely — it isn't a diagram line. */
             if (conn.style?.thread) {
               const isHovered = hoveredConnId === conn.id;
-              const ax = rectA.centerX, ay = rectA.centerY;
-              const bx = rectB.centerX, by = rectB.centerY;
-              const dist = Math.hypot(bx - ax, by - ay);
+              const ax = rectA.cx, ay = rectA.cy;
+              const bx = rectB.cx, by = rectB.cy;
+              const span = Math.hypot(bx - ax, by - ay);
               // Sag grows with span but is capped so long runs don't droop forever.
-              const sag = Math.min(90, dist * 0.18);
+              const sag = Math.min(90, span * 0.18);
               const midX = (ax + bx) / 2;
               const midY = (ay + by) / 2 + sag;
               const d = `M ${ax} ${ay} Q ${midX} ${midY} ${bx} ${by}`;
@@ -314,133 +225,192 @@ export default function ConnectionsLayer() {
               );
             }
 
-            const isWorkflow = conn.style?.isWorkflowConnection ||
-                               (objects.find(o => o.id === conn.fromId)?.type === 'workflow-node' && 
-                                objects.find(o => o.id === conn.toId)?.type === 'workflow-node');
-            
-            let d = '';
-            let start = { x: 0, y: 0 };
-            let end = { x: 0, y: 0 };
-            let mid: { x: number; y: number } | null = null;
+            const cfg = configs.get(conn.id) || resolveConnector(conn.style);
+            const fan = fanOffsets.get(conn.id) || { from: 0, to: 0 };
+            const built = buildConnector(rectA, rectB, cfg, fan, conn.id);
 
-            if (!isWorkflow) {
-              /* Smart routing — leave through a face, arrive through a face,
-                 fanned so siblings don't stack. `straight` on a connection
-                 opts back into the old dead-straight centre-to-centre line
-                 for anyone who wants it. */
-              if (conn.style?.straight) {
-                start = getIntersectionPoint(rectA, rectB.centerX, rectB.centerY);
-                end = getIntersectionPoint(rectB, rectA.centerX, rectA.centerY);
-                d = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
-              } else {
-                const fan = fanOffsets.get(conn.id) || { from: 0, to: 0 };
-                const routed = smartPath(rectA, rectB, fan.from, fan.to);
-                d = routed.d;
-                start = routed.start;
-                end = routed.end;
-                mid = routed.mid;
-              }
-            } else {
-              const dx = rectB.centerX - rectA.centerX;
-              const dy = rectB.centerY - rectA.centerY;
-              
-              if (Math.abs(dx) > Math.abs(dy)) {
-                if (dx >= 0) {
-                  start = { x: rectA.x + rectA.width, y: rectA.centerY };
-                  end = { x: rectB.x - 3, y: rectB.centerY }; // offset slightly for arrowhead clearance
-                } else {
-                  start = { x: rectA.x, y: rectA.centerY };
-                  end = { x: rectB.x + rectB.width + 3, y: rectB.centerY };
-                }
-                const offset = Math.abs(end.x - start.x) * 0.45;
-                const cpx1 = start.x + (dx >= 0 ? offset : -offset);
-                const cpy1 = start.y;
-                const cpx2 = end.x - (dx >= 0 ? offset : -offset);
-                const cpy2 = end.y;
-                d = `M ${start.x} ${start.y} C ${cpx1} ${cpy1}, ${cpx2} ${cpy2}, ${end.x} ${end.y}`;
-              } else {
-                if (dy >= 0) {
-                  start = { x: rectA.centerX, y: rectA.y + rectA.height };
-                  end = { x: rectB.centerX, y: rectB.y - 3 };
-                } else {
-                  start = { x: rectA.centerX, y: rectA.y };
-                  end = { x: rectB.centerX, y: rectB.y + rectB.height + 3 };
-                }
-                const offset = Math.abs(end.y - start.y) * 0.45;
-                const cpx1 = start.x;
-                const cpy1 = start.y + (dy >= 0 ? offset : -offset);
-                const cpx2 = end.x;
-                const cpy2 = end.y - (dy >= 0 ? offset : -offset);
-                d = `M ${start.x} ${start.y} C ${cpx1} ${cpy1}, ${cpx2} ${cpy2}, ${end.x} ${end.y}`;
-              }
-            }
-
+            const isSelected = selectedConnectionId === conn.id;
             const isHovered = hoveredConnId === conn.id;
-            // On a routed curve the true midpoint is the cubic's t=0.5, not the
-            // average of the endpoints — that sat well off the line on a bend.
-            const midX = mid ? mid.x : (start.x + end.x) / 2;
-            const midY = mid ? mid.y : (start.y + end.y) / 2;
-            /* A plain connector used to be hard-coded `rgba(0,0,0,0.8)` —
-               black ink, which simply disappears on the dark canvas. It reads
-               off a theme variable now so a link is equally legible either
-               way, and the smarter routing is actually visible. */
-            const connColor = isHovered
-              ? "var(--accent)"
-              : ((conn.style?.color as string) || (isWorkflow ? '#C97B4B' : 'var(--connector-ink)'));
+            const lit = isSelected || isHovered;
+
+            /* A plain connector used to be hard-coded black ink, which simply
+               disappears on the dark canvas. It reads off a theme variable
+               unless the user picked an ink, so a link is equally legible
+               either way. */
+            const ink = cfg.color || 'var(--connector-ink)';
+            const stroke = isSelected ? 'var(--accent)' : isHovered ? 'var(--accent)' : ink;
+            const weight = lit ? cfg.weight + 0.7 : cfg.weight;
+
+            const dashes = dashArray(cfg);
+            // A cap must never wear the dash pattern — a dashed arrowhead is
+            // just a broken arrowhead.
+            const startCap = capGeom(cfg.startCap, built.tipStart, built.startAngle + Math.PI, weight);
+            const endCap = capGeom(cfg.endCap, built.tipEnd, built.endAngle, weight);
+
+            const labelW = Math.max(24, cfg.label.length * 6.4 + 14);
 
             return (
               <g key={conn.id}>
-                {/* Hit area for hover */}
+                {/* Hit area. Wide enough to catch a line you're aiming at, and
+                    it's what makes a connector clickable — selecting one is how
+                    the options panel opens. */}
                 <path
-                  d={d}
+                  d={built.d}
                   fill="none"
                   stroke="transparent"
                   strokeWidth={20}
                   style={{ cursor: 'pointer', pointerEvents: 'auto' }}
                   onMouseEnter={() => setHoveredConnId(conn.id)}
                   onMouseLeave={() => setHoveredConnId(null)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Picking a link puts down whatever block was held.
+                    if (!isSelected) useCanvasStore.getState().setSelectedId(null);
+                    setSelectedConnectionId(isSelected ? null : conn.id);
+                  }}
                 />
 
-                {/* Background Shadow Line */}
-                <motion.path
-                  initial={{ pathLength: 0, opacity: 0 }}
-                  animate={{ pathLength: 1, opacity: 0.15 }}
-                  d={d}
+                {/* Lit up: a soft halo behind the stroke, so the line you're
+                    pointing at or editing is obvious even where it runs over
+                    busy content.
+
+                    This used to be `filter: url(#line-glow)` on the stroke
+                    itself, which had a catastrophic edge case: a filter region
+                    is measured from the element's BOUNDING BOX, and a perfectly
+                    horizontal (or vertical) line has a box of zero height. The
+                    filter then had nothing to render into and the whole stroke
+                    disappeared — so linking two cards sitting side by side drew
+                    an arrowhead attached to nothing. A second path can't have
+                    that problem. */}
+                {lit && (
+                  <path
+                    d={built.d}
+                    fill="none"
+                    stroke="var(--accent)"
+                    strokeOpacity={isSelected ? 0.22 : 0.14}
+                    strokeWidth={weight + (isSelected ? 7 : 5)}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+
+                {/* The shadow the line casts on the paper */}
+                <path
+                  d={built.d}
                   fill="none"
                   stroke="#000"
-                  strokeWidth={4}
+                  strokeOpacity={0.13}
+                  strokeWidth={weight + 1.6}
                   strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeDasharray={dashes}
                 />
 
-                {/* The visible connection line */}
+                {/* The line itself.
+                    NOT a `pathLength` draw-on animation. Framer implements that
+                    by stamping `pathLength="1"` plus a normalised dash pattern
+                    onto the element, and it only re-measures the path when it
+                    animates — so the first time a re-render changed `d` (a
+                    restyle, a card moved) the stale pattern left the stroke
+                    unpainted: arrowhead on screen, line gone. A connector's
+                    geometry changes constantly, so it fades in instead. */}
                 <motion.path
-                  initial={{ pathLength: 0, opacity: 0 }}
-                  animate={{ pathLength: 1, opacity: 1 }}
-                  exit={{ pathLength: 0, opacity: 0 }}
-                  transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
-                  d={d}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                  d={built.d}
                   fill="none"
-                  stroke={connColor}
-                  strokeWidth={isHovered ? 2.6 : isWorkflow ? 2 : 1.8}
+                  stroke={stroke}
+                  strokeWidth={weight}
                   strokeLinecap="round"
-                  className={
-                    isWorkflow
-                      ? (isHovered ? 'workflow-pulse-path-hover' : 'workflow-pulse-path')
-                      : ''
-                  }
-                  style={{ 
-                    color: connColor,
-                    filter: isHovered ? 'url(#line-glow)' : 'none',
-                    transition: 'stroke 0.3s, stroke-width 0.3s'
+                  strokeLinejoin="round"
+                  strokeDasharray={dashes}
+                  className={cfg.flow ? 'conn-flow' : undefined}
+                  style={{
+                    transition: 'stroke 0.25s, stroke-width 0.2s',
+                    ['--conn-cycle' as string]: `${dashCycle(cfg)}px`,
                   }}
-                  markerEnd={isWorkflow ? "url(#workflow-arrow)" : undefined}
                 />
 
-                {/* Delete button on hover */}
-                {isHovered && (
+                {/* Ends. Drawn as real geometry rather than SVG markers: a
+                    marker's refX is a guess about the stroke it's attached to,
+                    and every wrong guess shows up as a gap at the card edge or
+                    a line poking through its own arrowhead. */}
+                {[startCap, endCap].map((cap, i) =>
+                  !cap ? null : cap.kind === 'dot' ? (
+                    <circle key={i} cx={cap.cx} cy={cap.cy} r={cap.r} fill={stroke} />
+                  ) : cap.kind === 'fill' ? (
+                    <path key={i} d={cap.d} fill={stroke} stroke="none" />
+                  ) : (
+                    <path
+                      key={i}
+                      d={cap.d}
+                      fill="none"
+                      stroke={stroke}
+                      strokeWidth={weight}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  ),
+                )}
+
+                {/* Where the two ends actually attach — shown only while the
+                    connector is selected, as confirmation that it's fastened. */}
+                {isSelected && (
+                  <>
+                    {[built.tipStart, built.tipEnd].map((p, i) => (
+                      <circle
+                        key={i}
+                        cx={p.x}
+                        cy={p.y}
+                        r={3.4}
+                        fill="var(--bg-primary)"
+                        stroke="var(--accent)"
+                        strokeWidth={1.8}
+                      />
+                    ))}
+                  </>
+                )}
+
+                {/* A label rides the middle of the line, on a plate punched out
+                    of it so the ink doesn't run through the words. */}
+                {cfg.label && (
+                  <g transform={`translate(${built.mid.x} ${built.mid.y})`} style={{ pointerEvents: 'none' }}>
+                    <rect
+                      x={-labelW / 2}
+                      y={-9}
+                      width={labelW}
+                      height={18}
+                      rx={9}
+                      fill="var(--bg-primary)"
+                      stroke={stroke}
+                      strokeOpacity={0.35}
+                      strokeWidth={1}
+                    />
+                    <text
+                      x={0}
+                      y={0}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fill="var(--text-secondary)"
+                      style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.01em' }}
+                    >
+                      {cfg.label}
+                    </text>
+                  </g>
+                )}
+
+                {/* Cut it. On hover only — once selected, the panel at the top
+                    of the screen owns the destructive action. */}
+                {isHovered && !isSelected && (
                   <foreignObject
-                    x={midX - 15}
-                    y={midY - 15}
+                    /* Beside the label rather than above it. Above put the button
+                       under whatever card the line passes behind — this layer
+                       draws BENEATH the blocks, so it simply vanished. */
+                    x={built.mid.x - 15 + (cfg.label ? labelW / 2 + 18 : 0)}
+                    y={built.mid.y - 15}
                     width={30}
                     height={30}
                     style={{ pointerEvents: 'auto' }}
@@ -454,6 +424,7 @@ export default function ConnectionsLayer() {
                         removeConnection(conn.id);
                       }}
                       onMouseEnter={() => setHoveredConnId(conn.id)}
+                      title="Remove this link — click the line to restyle it"
                     >
                       <span className="text-[12px] font-bold">✕</span>
                     </motion.button>

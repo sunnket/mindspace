@@ -84,7 +84,7 @@ export default function PluginsPanel({ onClose }: { onClose: () => void }) {
   return (
     <>
       <div
-        className="glass-panel"
+        className="tool-panel"
         style={{ width: 322, maxHeight: '64vh', overflowY: 'auto', padding: 14 }}
         onMouseDown={(e) => e.stopPropagation()}
       >

@@ -33,7 +33,6 @@ export interface CanvasSkillset {
 export interface SkillPreset {
   id: string;
   name: string;
-  emoji: string;
   tagline: string;
   /** Card accent color (hex) for the gallery. */
   accent: string;
@@ -122,7 +121,6 @@ export const SKILL_PRESETS: SkillPreset[] = [
   {
     id: 'study-buddy',
     name: 'Study Buddy',
-    emoji: '📚',
     tagline: 'Patient tutor that teaches, not just answers.',
     accent: '#4A90D9',
     persona: 'You are a patient, encouraging tutor. You teach step by step and check for understanding — you never just dump the answer.',
@@ -137,7 +135,6 @@ export const SKILL_PRESETS: SkillPreset[] = [
   {
     id: 'startup-war-room',
     name: 'Startup War Room',
-    emoji: '🚀',
     tagline: 'Sharp co-founder: decisions, metrics, next steps.',
     accent: '#C97B4B',
     persona: 'You are a sharp, no-nonsense co-founder and strategist. You optimize for clarity and momentum.',
@@ -152,7 +149,6 @@ export const SKILL_PRESETS: SkillPreset[] = [
   {
     id: 'design-studio',
     name: 'Design Studio',
-    emoji: '🎨',
     tagline: 'World-class taste. Visual-first, never a text wall.',
     accent: '#9B59B6',
     persona: 'You are a world-class visual designer with impeccable taste and a strong point of view.',
@@ -167,7 +163,6 @@ export const SKILL_PRESETS: SkillPreset[] = [
   {
     id: 'research-lab',
     name: 'Research Lab',
-    emoji: '🔬',
     tagline: 'Rigorous analyst. Every claim gets a source.',
     accent: '#2F9E6E',
     persona: 'You are a rigorous, skeptical research analyst who never overstates what the evidence shows.',
@@ -182,7 +177,6 @@ export const SKILL_PRESETS: SkillPreset[] = [
   {
     id: 'code-architect',
     name: 'Code Architect',
-    emoji: '💻',
     tagline: 'Senior engineer: real code, diagrams, trade-offs.',
     accent: '#3B4252',
     persona: 'You are a senior software engineer and systems designer who writes production-quality work.',
@@ -197,7 +191,6 @@ export const SKILL_PRESETS: SkillPreset[] = [
   {
     id: 'zen-minimalist',
     name: 'Zen Minimalist',
-    emoji: '🍃',
     tagline: 'Calm and exact. Does the ask, nothing more.',
     accent: '#7BA05B',
     persona: 'You are calm, concise, and deliberate. You value restraint.',
@@ -212,7 +205,6 @@ export const SKILL_PRESETS: SkillPreset[] = [
   {
     id: 'brainstorm-machine',
     name: 'Brainstorm Machine',
-    emoji: '💡',
     tagline: 'Fearless idea engine. Many options, one map.',
     accent: '#E8A33D',
     persona: 'You are a fearless, divergent idea generator. Quantity first, then quality.',
@@ -227,7 +219,6 @@ export const SKILL_PRESETS: SkillPreset[] = [
   {
     id: 'content-kitchen',
     name: 'Content Kitchen',
-    emoji: '✍️',
     tagline: 'Expert writer: publish-ready copy, real voice.',
     accent: '#D6607A',
     persona: 'You are an expert writer and content strategist with a versatile, confident voice.',

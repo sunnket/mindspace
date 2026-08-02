@@ -2,9 +2,16 @@ import { create } from 'zustand';
 
 interface VoiceState {
   isListening: boolean;
-  /** Everything said this session, finalised. Appended to — never replaced. */
+  /**
+   * The session's own record of what was heard, for the HUD caption only.
+   *
+   * It is NOT what gets written to the canvas — words are typed into the target
+   * at the caret as each phrase finishes (see lib/voice/dictation). Deriving the
+   * block's content from this string is what used to duplicate text and fight
+   * the caret, so nothing reads it back any more.
+   */
   transcript: string;
-  /** The words currently being guessed at, before they settle. */
+  /** The words currently being guessed at, before they settle. HUD only. */
   interimTranscript: string;
   isPaused: boolean;
   /** Not supported by this browser (Firefox, most of Safari). */
@@ -19,6 +26,11 @@ interface VoiceState {
   session: number;
   /** The recogniser has actually started (onstart fired), not just been asked to. */
   live: boolean;
+  /** It has been live at least once this session. Chrome hangs its recogniser up
+   *  every minute or so and we restart it — without this the caption drops back
+   *  to "Starting the microphone…" mid-sentence and a healthy session reads as
+   *  one that keeps falling over. */
+  everLive: boolean;
   /** The recogniser has the microphone open and is taking audio. */
   hearing: boolean;
   /** Which recogniser is doing the work — the browser's (Google's cloud) or
@@ -27,8 +39,15 @@ interface VoiceState {
   /** Something worth saying that isn't a failure: switching engines, downloading
    *  the on-device model. Shown in place of the caption, not in red. */
   notice: string | null;
+  /** Utterances heard but not yet transcribed. Nothing is ever lost while this
+   *  is above zero — it's the difference between "thinking" and "idle". */
+  pending: number;
+  /** On-device model download, 0–100, or null when there's nothing to wait for. */
+  progress: number | null;
 
   setIsListening: (val: boolean) => void;
+  setPending: (val: number) => void;
+  setProgress: (val: number | null) => void;
   setLive: (val: boolean) => void;
   setHearing: (val: boolean) => void;
   setEngine: (val: 'browser' | 'local' | null) => void;
@@ -40,8 +59,9 @@ interface VoiceState {
   setUnsupported: (val: boolean) => void;
   setError: (val: string | null) => void;
   setTargetId: (id: string | null) => void;
-  /** Start a fresh dictation session against a block. */
-  beginSession: (targetId: string) => void;
+  /** Start a fresh dictation session. `targetId` is null when the words are
+   *  going somewhere that isn't a canvas block — a chat box, a search field. */
+  beginSession: (targetId: string | null) => void;
   reset: () => void;
 }
 
@@ -55,12 +75,17 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   targetId: null,
   session: 0,
   live: false,
+  everLive: false,
   hearing: false,
   engine: null,
   notice: null,
+  pending: 0,
+  progress: null,
 
   setIsListening: (val) => set({ isListening: val }),
-  setLive: (val) => set({ live: val }),
+  setPending: (val) => set({ pending: Math.max(0, val) }),
+  setProgress: (val) => set({ progress: val }),
+  setLive: (val) => set((s) => ({ live: val, everLive: s.everLive || val })),
   setHearing: (val) => set({ hearing: val }),
   setEngine: (val) => set({ engine: val }),
   setNotice: (val) => set({ notice: val }),
@@ -87,12 +112,13 @@ export const useVoiceStore = create<VoiceState>((set) => ({
     set((s) => ({
       targetId, session: s.session + 1,
       transcript: '', interimTranscript: '', isPaused: false,
-      error: null, notice: null, live: false, hearing: false,
+      error: null, notice: null, live: false, everLive: false, hearing: false, pending: 0,
     })),
 
   reset: () =>
     set({
       transcript: '', interimTranscript: '', isListening: false, isPaused: false,
-      targetId: null, error: null, notice: null, live: false, hearing: false, engine: null,
+      targetId: null, error: null, notice: null, live: false, everLive: false, hearing: false,
+      engine: null, pending: 0, progress: null,
     }),
 }));

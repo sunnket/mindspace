@@ -95,7 +95,7 @@ export default function CommandPalette() {
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="glass-panel overflow-hidden shadow-xl">
+            <div className="tool-panel overflow-hidden shadow-xl">
               <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--border)]">
                 <span className="text-[var(--text-muted)]">⌘</span>
                 <input

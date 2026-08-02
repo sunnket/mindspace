@@ -17,6 +17,7 @@ import {
 import DataToolbar from './DataToolbar';
 import { useDataView, requestAiFill } from '@/lib/useDataView';
 import { DataColumn, DataRow, applyView } from '@/lib/dataTools';
+import { useDragReorder, moveItem } from '@/hooks/useDragReorder';
 
 /* ============================================================
    Shared bits — every block is a light "clay" tile that matches
@@ -127,6 +128,25 @@ function MiniIcon({ children, size = 11 }: { children: React.ReactNode; size?: n
    COUNTDOWN — ticking timer to an editable date
    ============================================================ */
 
+function formatCountdownDate(dateStr: string): string {
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const day = pad(d.getDate());
+    const month = pad(d.getMonth() + 1);
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const minutes = pad(d.getMinutes());
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    return `${day}-${month}-${year} ${pad(hours)}:${minutes} ${ampm}`;
+  } catch {
+    return dateStr;
+  }
+}
+
 export function CountdownBlock({ obj }: { obj: CanvasObjectData }) {
   const updateObject = useCanvasStore((s) => s.updateObject);
   const tint = '#C97B4B';
@@ -221,17 +241,51 @@ export function CountdownBlock({ obj }: { obj: CanvasObjectData }) {
         </div>
       )}
 
-      {/* the date itself is the editor — click it and pick */}
-      <input
-        type="datetime-local"
-        value={targetDateStr.slice(0, 16)}
-        onChange={(e) => patch({ countdownDate: e.target.value })}
-        onMouseDown={stop}
-        onPointerDown={stop}
-        onClick={stop}
-        className="w-full text-center text-[10px] font-semibold text-[var(--text-secondary)] bg-transparent outline-none rounded-lg hover:bg-[#F5EFE7] focus:bg-[#F5EFE7] dark:hover:bg-white/10 dark:focus:bg-white/10 transition-colors cursor-pointer"
-        style={{ marginTop: 10, padding: '4px 8px' }}
-      />
+      {/* Date & time selector pill with guaranteed high-contrast calendar icon */}
+      <div
+        className="relative flex items-center justify-between gap-2 w-full text-[10.5px] font-semibold text-[var(--text-secondary)] bg-[var(--well)] hover:bg-[var(--bg-tertiary)] dark:bg-white/10 dark:hover:bg-white/15 border border-[var(--border)] rounded-xl px-2.5 py-1.5 transition-colors cursor-pointer group shadow-xs mt-2.5"
+        onClick={(e) => {
+          stop(e);
+          const input = e.currentTarget.querySelector<HTMLInputElement>('input[type="datetime-local"]');
+          if (input) {
+            if ('showPicker' in input && typeof input.showPicker === 'function') {
+              try { input.showPicker(); } catch {}
+            } else {
+              input.focus();
+              input.click();
+            }
+          }
+        }}
+      >
+        <span className="flex-1 text-center font-bold tracking-tight text-[var(--text-primary)] select-none">
+          {formatCountdownDate(targetDateStr)}
+        </span>
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="shrink-0 text-[var(--text-primary)] opacity-70 group-hover:opacity-100 group-hover:text-[var(--accent)] transition-all"
+        >
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+        <input
+          type="datetime-local"
+          value={targetDateStr.slice(0, 16)}
+          onChange={(e) => patch({ countdownDate: e.target.value })}
+          onMouseDown={stop}
+          onPointerDown={stop}
+          onClick={stop}
+          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+        />
+      </div>
     </BlockShell>
   );
 }
@@ -2298,8 +2352,25 @@ export function TableBlock({ obj }: { obj: CanvasObjectData }) {
     }
   };
 
-  const template = `repeat(${visibleColIdx.length}, minmax(${CELL_MIN_W}px, 1fr)) 26px`;
-  const minW = visibleColIdx.length * CELL_MIN_W + 26;
+  /* Rows are draggable ONLY when what you see is what's stored: no sort, and
+     nothing filtered out. A sorted or searched table is a lens over the data
+     (that's a deliberate design rule here), so "drag row 3 above row 1" has no
+     single honest meaning while a lens is on — the grip stays hidden instead of
+     silently rearranging rows you can't see. */
+  const canReorder = !view.sort && visible.length === rows.length;
+
+  const { dragIndex, dropIndex, startDrag } = useDragReorder(
+    rootRef,
+    useCallback((from: number, to: number) => {
+      const live = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+      const cur = Array.isArray(live?.style?.tableRows) ? (live!.style!.tableRows as string[][]) : rows;
+      updateObject(obj.id, { style: { ...(live?.style || obj.style), tableRows: moveItem(cur, from, to) } });
+    }, [obj.id, obj.style, rows, updateObject]),
+  );
+
+  const GRIP_W = 18;
+  const template = `${canReorder ? `${GRIP_W}px ` : ''}repeat(${visibleColIdx.length}, minmax(${CELL_MIN_W}px, 1fr)) 26px`;
+  const minW = visibleColIdx.length * CELL_MIN_W + 26 + (canReorder ? GRIP_W : 0);
   const filled = rows.reduce((n, row) => n + (row.some((cell) => cell.trim() !== '') ? 1 : 0), 0);
   const hiddenRows = rows.length - visible.length;
 
@@ -2340,6 +2411,8 @@ export function TableBlock({ obj }: { obj: CanvasObjectData }) {
             className="sticky top-0 z-10 grid bg-[#F5EFE7] dark:bg-[#26221E] border-b border-[var(--border-strong)]"
             style={{ gridTemplateColumns: template }}
           >
+            {/* Spacer above the grip column, so headers stay over their cells */}
+            {canReorder && <div aria-hidden="true" />}
             {visibleColIdx.map((c) => (
               <div key={c} className="group/th relative flex items-center border-r border-[var(--border)] last:border-r-0">
                 <input
@@ -2406,12 +2479,50 @@ export function TableBlock({ obj }: { obj: CanvasObjectData }) {
               the stored array. A sorted view is a lens, never a reordering. */}
           {visible.map(({ index: r }, n) => {
             const row = rows[r];
+            const isDragging = canReorder && dragIndex === r;
+            const showDropLine = canReorder && dragIndex !== null && dropIndex === r && dragIndex !== r;
             return (
               <div
                 key={r}
-                className="group/tr grid border-b border-[var(--border)] last:border-b-0 hover:bg-[rgba(139,95,191,0.045)] transition-colors"
-                style={{ gridTemplateColumns: template, background: n % 2 === 1 ? 'rgba(90,62,40,0.025)' : undefined }}
+                // Only tagged when reordering is honest, so the hook can't pick
+                // up rows whose visual order isn't the stored order.
+                data-reorder-index={canReorder ? r : undefined}
+                className="group/tr grid border-b border-[var(--border)] last:border-b-0 hover:bg-[rgba(139,95,191,0.045)] transition-colors relative"
+                style={{
+                  gridTemplateColumns: template,
+                  background: n % 2 === 1 ? 'rgba(90,62,40,0.025)' : undefined,
+                  opacity: isDragging ? 0.4 : 1,
+                }}
               >
+                {showDropLine && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 right-0 rounded-full z-20"
+                    style={{
+                      height: 2,
+                      background: 'var(--accent)',
+                      boxShadow: '0 0 6px rgba(var(--accent-rgb),0.7)',
+                      ...(dragIndex! > r ? { top: -1 } : { bottom: -1 }),
+                    }}
+                  />
+                )}
+                {canReorder && (
+                  <button
+                    onPointerDown={(e) => startDrag(e, r)}
+                    onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                    onClick={stop}
+                    title="Drag to reorder this row"
+                    aria-label="Reorder this row"
+                    className="flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] opacity-0 group-hover/tr:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+                    style={{ touchAction: 'none' }}
+                  >
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <circle cx="9" cy="6" r="1.7" /><circle cx="15" cy="6" r="1.7" />
+                      <circle cx="9" cy="12" r="1.7" /><circle cx="15" cy="12" r="1.7" />
+                      <circle cx="9" cy="18" r="1.7" /><circle cx="15" cy="18" r="1.7" />
+                    </svg>
+                  </button>
+                )}
                 {visibleColIdx.map((c) => (
                   <div key={c} className="flex items-center border-r border-[var(--border)] last:border-r-0 min-w-0">
                     <input

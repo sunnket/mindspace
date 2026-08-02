@@ -8,6 +8,7 @@ import { CanvasSkillset, emptySkillset, makeRule, getPreset, installPreset } fro
 import { cameraForRect, objectsInFrame, strokesInFrame, type FrameKind } from '@/lib/frames';
 import { isStackable, stackIdOf, membersOf, stackSlots } from '@/lib/stacks';
 import { sameLink } from '@/lib/constellations';
+import { DEFAULT_CONNECTOR, type ConnectorStyle } from '@/lib/connectors';
 import {
   BrainstormTool,
   DEFAULT_PIN_COLOR,
@@ -17,6 +18,20 @@ import {
 } from '@/lib/brainstorm';
 
 export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax' | 'brainstorm';
+
+/**
+ * The Pocket's home in storage.
+ *
+ * A pocketed block is re-homed under this sentinel parentId, which is not a
+ * canvas and never will be. That single fact is what makes the Pocket work
+ * ACROSS boards: `getAllObjects(undefined)` keeps only rows with no parent (so
+ * the root board never sees it), every real canvas reads its own id, and the
+ * landing gallery walks actual canvas states — so a pocketed block belongs to
+ * no board at all until you drop it onto one. It is the same primitive Warp
+ * used to teleport with, minus the destination picker: the Pocket IS the
+ * destination, and the drop chooses the board.
+ */
+export const POCKET_PARENT = '__pocket__';
 
 /* ------------------------------------------------------------------
    Collaboration bridge — inert unless a live session sets these.
@@ -189,6 +204,9 @@ interface CanvasStore {
   /** Which kind of frame the frame tool will place next. */
   frameDraftKind: FrameKind;
   setFrameDraftKind: (kind: FrameKind) => void;
+  /** …and in which colour, for grouping frames. */
+  frameDraftColor: string;
+  setFrameDraftColor: (hex: string) => void;
 
   // Layer ordering (z-index)
   bringToFront: (id: string) => void;
@@ -196,12 +214,27 @@ interface CanvasStore {
   bringForward: (id: string) => void;
   sendBackward: (id: string) => void;
 
-  // Minimize dock — slide any object into the corner shelf, drag it back out anywhere
-  minimizeObject: (id: string) => void;
-  restoreMinimized: (id: string, worldX: number, worldY: number) => void;
+  /* The Pocket — a board-independent tray you can carry blocks in.
+     Pocketed blocks live under POCKET_PARENT rather than any canvas, so the
+     tray looks identical on every board: pocket something here, open another
+     canvas, drop it there. This replaced both the old corner "minimize" shelf
+     (which was per-canvas, so the chips vanished the moment you navigated) and
+     Warp's separate hot zone + destination picker. */
+  pocket: CanvasObjectData[];
+  /** Replace the tray wholesale — used once on load. */
+  setPocket: (items: CanvasObjectData[]) => void;
+  /** Read the tray out of storage. Safe to call repeatedly. */
+  loadPocket: () => Promise<void>;
+  /** Take a block off this canvas and into the tray. */
+  pocketObject: (id: string) => void;
+  /** Drop a pocketed block onto the CURRENT canvas at a world point. */
+  restoreFromPocket: (id: string, worldX: number, worldY: number) => void;
+  /** Throw a pocketed block away for good. */
+  discardFromPocket: (id: string) => void;
 
-  // Warp — teleport an object to another canvas/board (changes its parentId,
-  // persists under the new parent, and removes it from the current canvas).
+  // Teleport an object to another canvas/board (changes its parentId, persists
+  // under the new parent, and removes it from the current canvas). Still the
+  // primitive behind filing a block into a binder.
   teleportObject: (id: string, targetParentId: string) => void;
 
   // Strokes
@@ -243,15 +276,6 @@ interface CanvasStore {
   previousMode: InteractionMode;
   setPreviousMode: (mode: InteractionMode) => void;
 
-  /* Lock-in mode: the viewport becomes the user's fixed "space" — no panning,
-     no scrolling the board away, no stray click that spawns a block on empty
-     canvas. Zooming (like zooming into an image) and editing the blocks that
-     ARE there both still work, so it reads as a framed, protected workspace
-     rather than a read-only freeze. */
-  viewLocked: boolean;
-  setViewLocked: (v: boolean) => void;
-  toggleViewLocked: () => void;
-  
   // Focus mode
   focusedId: string | null;
   setFocusedId: (id: string | null) => void;
@@ -342,10 +366,12 @@ interface CanvasStore {
   plusMenuPos: { x: number; y: number; isToolbar?: boolean } | null;
   setPlusMenuPos: (pos: { x: number; y: number; isToolbar?: boolean } | null) => void;
 
-  // Canvas Resident — the pixel cat that lives on the board
-  residentEnabled: boolean;
-  setResidentEnabled: (v: boolean) => void;
-  
+  /* Workflows are the one rail context that isn't a canvas mode — you stay in
+     select while browsing them — so the toolbar and the rail need somewhere
+     shared to agree that it's open. */
+  workflowOpen: boolean;
+  setWorkflowOpen: (v: boolean) => void;
+
   // Slash menu
   slashMenu: { objectId: string; query: string; x: number; y: number } | null;
   setSlashMenu: (menu: { objectId: string; query: string; x: number; y: number } | null) => void;
@@ -398,6 +424,12 @@ interface CanvasStore {
   arrowStyle: { color: string; thickness: number; dashStyle: string; pointerType: string };
   setArrowStyle: (patch: Partial<{ color: string; thickness: number; dashStyle: string; pointerType: string }>) => void;
 
+  // Default finish applied to the NEXT shape you stamp. Chosen in the rail
+  // beside the catalogue, so "which shape" and "which colour" are one decision
+  // made before the click instead of a shape you place and then repaint.
+  shapeStyle: { color: string; borderColor: string };
+  setShapeStyle: (patch: Partial<{ color: string; borderColor: string }>) => void;
+
   // Default style applied to the NEXT text block you create (editable in the
   // panel while in text mode, before clicking on the canvas).
   textStyle: {
@@ -441,11 +473,20 @@ interface CanvasStore {
   // Connections
   connections: ConnectionData[];
   setConnections: (conns: ConnectionData[]) => void;
-  addConnection: (fromId: string, toId: string, style?: Record<string, any>) => void;
+  addConnection: (fromId: string, toId: string, style?: Record<string, any>) => ConnectionData;
   removeConnection: (id: string) => void;
+  /** Restyle one connector in place (shape, ends, ink, label…). */
+  updateConnection: (id: string, stylePatch: Record<string, unknown>) => void;
   connectorSelectedIds: string[];
   toggleConnectorSelection: (id: string) => void;
   resetConnectorSelection: () => void;
+  /** The connector whose options panel is open. Independent of `selectedId`. */
+  selectedConnectionId: string | null;
+  setSelectedConnectionId: (id: string | null) => void;
+  /* The look given to the NEXT connector you draw — edited in the connector
+     panel while nothing is selected, exactly like arrowStyle/textStyle. */
+  connectorStyle: ConnectorStyle;
+  setConnectorStyle: (patch: Partial<ConnectorStyle>) => void;
 
   // Workflow settings
   activeWorkflowId: string | null;
@@ -1023,6 +1064,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   frameDraftKind: 'normal',
   setFrameDraftKind: (frameDraftKind) => set({ frameDraftKind }),
+  frameDraftColor: '#C97B4B',
+  setFrameDraftColor: (frameDraftColor) => set({ frameDraftColor }),
 
   // Clone an object (offset a little so it's visible), give it a fresh id and the
   // top z-index, and select it. Arrows clone their start/end/bend geometry too.
@@ -1078,34 +1121,118 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     get().updateObject(id, { zIndex: (obj.zIndex ?? 0) - 1 });
   },
 
-  minimizeObject: (id) => {
-    const obj = get().objects.find((o) => o.id === id);
-    if (!obj) return;
-    get().updateObject(id, {
-      style: {
-        ...obj.style,
-        isMinimized: true,
-        minimizedAt: Date.now(),
-        preMinimizeWidth: obj.width,
-        preMinimizeHeight: obj.height,
-      },
-    });
-    if (get().selectedId === id) set({ selectedId: null });
-    if (get().editingId === id) set({ editingId: null });
+  /* ---- The Pocket ---------------------------------------------------------
+     A pocketed block leaves this canvas entirely (parentId → POCKET_PARENT) and
+     is held in its own list. The old dock kept it in `objects` behind an
+     `isMinimized` flag, which is why it never survived navigating: `objects` is
+     replaced wholesale by every canvas load. */
+  pocket: [],
+
+  setPocket: (items) => set({ pocket: items }),
+
+  loadPocket: async () => {
+    try {
+      const { getAllObjects } = await import('@/lib/db');
+      const items = await getAllObjects(POCKET_PARENT);
+      set({
+        pocket: items.sort(
+          (a, b) => ((a.style?.pocketedAt as number) || 0) - ((b.style?.pocketedAt as number) || 0),
+        ),
+      });
+    } catch (err) {
+      console.error('Failed to load the pocket:', err);
+    }
   },
 
-  restoreMinimized: (id, worldX, worldY) => {
+  pocketObject: (id) => {
     const obj = get().objects.find((o) => o.id === id);
     if (!obj) return;
-    const width = (obj.style?.preMinimizeWidth as number) || obj.width;
-    const height = (obj.style?.preMinimizeHeight as number) || obj.height;
-    get().updateObject(id, {
+
+    /* Its connections don't come along — they describe a relationship between
+       two blocks on ONE board, and the pocket is not a board. Dropping the
+       block somewhere else can't recreate a link to a node that isn't there. */
+    const relatedConns = get().connections.filter((c) => c.fromId === id || c.toId === id);
+
+    const stashed: CanvasObjectData = {
+      ...obj,
+      parentId: POCKET_PARENT,
+      style: {
+        ...obj.style,
+        // Where it came from, so "send back" can put it home again.
+        pocketedFrom: obj.parentId ?? 'root',
+        pocketedAt: Date.now(),
+        // The dock used to leave these behind; the pocket restores real size.
+        pocketWidth: obj.width,
+        pocketHeight: obj.height,
+        // Never carry per-board scaffolding into the tray.
+        frameParentId: undefined,
+        isMinimized: undefined,
+      },
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      objects: state.objects.filter((o) => o.id !== id),
+      connections: state.connections.filter((c) => c.fromId !== id && c.toId !== id),
+      pocket: [...state.pocket, stashed],
+      selectedId: state.selectedId === id ? null : state.selectedId,
+      editingId: state.editingId === id ? null : state.editingId,
+      isDirty: true,
+    }));
+    emitCollab({ kind: 'remove', id });
+
+    import('@/lib/db').then(({ saveObject, deleteConnection }) => {
+      saveObject(stashed).catch((err) => console.error('Failed to persist pocketed object:', err));
+      relatedConns.forEach((c) =>
+        deleteConnection(c.id).catch((err) => console.error('Failed to delete connection:', err)),
+      );
+    });
+  },
+
+  restoreFromPocket: (id, worldX, worldY) => {
+    const obj = get().pocket.find((o) => o.id === id);
+    if (!obj) return;
+
+    const width = (obj.style?.pocketWidth as number) || obj.width;
+    const height = (obj.style?.pocketHeight as number) || obj.height;
+    // Whichever board is on screen right now takes it — that's the whole point.
+    const parent = resolveParentId(get().canvasStack, get().urlCanvasId);
+
+    const dropped: CanvasObjectData = {
+      ...obj,
+      parentId: parent,
       x: worldX - width / 2,
       y: worldY - height / 2,
       width,
       height,
       zIndex: get().getNextZIndex(),
-      style: { ...obj.style, isMinimized: false },
+      style: {
+        ...obj.style,
+        pocketedFrom: undefined,
+        pocketedAt: undefined,
+        pocketWidth: undefined,
+        pocketHeight: undefined,
+      },
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      pocket: state.pocket.filter((o) => o.id !== id),
+      objects: [...state.objects, dropped],
+      selectedId: dropped.id,
+      isDirty: true,
+    }));
+    emitCollab({ kind: 'add', object: dropped });
+
+    import('@/lib/db').then(({ saveObject }) => {
+      saveObject(dropped).catch((err) => console.error('Failed to persist restored object:', err));
+    });
+  },
+
+  discardFromPocket: (id) => {
+    set((state) => ({ pocket: state.pocket.filter((o) => o.id !== id) }));
+    import('@/lib/db').then(({ deleteObject }) => {
+      deleteObject(id).catch((err) => console.error('Failed to discard pocketed object:', err));
     });
   },
 
@@ -1280,7 +1407,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     });
 
     blankObjects.forEach(o => state.removeObject(o.id));
-    set({ selectedId: id });
+    /* Selecting a block lets go of any selected connector. Two things selected
+       at once means two option panels claiming the screen, and a Delete key
+       with no obvious target. */
+    set(id ? { selectedId: id, selectedConnectionId: null } : { selectedId: id });
   },
 
   /* ---- Stacks ---------------------------------------------------------
@@ -1366,10 +1496,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   previousMode: 'select',
   setPreviousMode: (mode) => set({ previousMode: mode }),
 
-  viewLocked: false,
-  setViewLocked: (v) => set({ viewLocked: v }),
-  toggleViewLocked: () => set((s) => ({ viewLocked: !s.viewLocked })),
-  
   // Focus mode
   focusedId: null,
   setFocusedId: (id) => set({ focusedId: id }),
@@ -1631,15 +1757,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   plusMenuPos: null,
   setPlusMenuPos: (pos) => set({ plusMenuPos: pos }),
 
-  // Canvas Resident — on by default; the choice is remembered
-  residentEnabled: typeof window !== 'undefined'
-    ? localStorage.getItem('mindspace-resident-enabled') !== 'false'
-    : true,
-  setResidentEnabled: (v) => {
-    try { localStorage.setItem('mindspace-resident-enabled', String(v)); } catch { /* private mode */ }
-    set({ residentEnabled: v });
-  },
-  
+  workflowOpen: false,
+  setWorkflowOpen: (workflowOpen) => set({ workflowOpen }),
+
   // Slash menu
   slashMenu: null,
   setSlashMenu: (menu) => set({ slashMenu: menu }),
@@ -1713,6 +1833,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   arrowStyle: { color: '#2D2A26', thickness: 3, dashStyle: 'solid', pointerType: 'arrow' },
   setArrowStyle: (patch) => set((s) => ({ arrowStyle: { ...s.arrowStyle, ...patch } })),
+
+  shapeStyle: { color: 'rgba(255, 252, 248, 0.75)', borderColor: 'var(--accent-light)' },
+  setShapeStyle: (patch) => set((s) => ({ shapeStyle: { ...s.shapeStyle, ...patch } })),
 
   textStyle: {
     fontSize: 15, fontFamily: "'Outfit', sans-serif", fontWeight: 400,
@@ -1810,12 +1933,31 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     emitCollab({ kind: 'connection-add', connection: newConn });
     // Save to DB
     import('@/lib/db').then(({ saveConnection }) => saveConnection(newConn));
+    return newConn;
   },
   removeConnection: (id) => {
-    set((state) => ({ connections: state.connections.filter(c => c.id !== id), isDirty: true }));
+    set((state) => ({
+      connections: state.connections.filter(c => c.id !== id),
+      selectedConnectionId: state.selectedConnectionId === id ? null : state.selectedConnectionId,
+      isDirty: true,
+    }));
     emitCollab({ kind: 'connection-remove', id });
     // Delete from DB
     import('@/lib/db').then(({ deleteConnection }) => deleteConnection(id));
+  },
+  /* Restyle a live connector. There's no `connection-update` op: peers apply
+     `connection-add` as an upsert (it filters the id out before adding), so
+     re-broadcasting the whole connection is the update. */
+  updateConnection: (id, stylePatch) => {
+    const existing = get().connections.find((c) => c.id === id);
+    if (!existing) return;
+    const updated: ConnectionData = { ...existing, style: { ...(existing.style || {}), ...stylePatch } };
+    set((state) => ({
+      connections: state.connections.map((c) => (c.id === id ? updated : c)),
+      isDirty: true,
+    }));
+    emitCollab({ kind: 'connection-add', connection: updated });
+    import('@/lib/db').then(({ saveConnection }) => saveConnection(updated));
   },
   connectorSelectedIds: [],
   toggleConnectorSelection: (id) => {
@@ -1825,16 +1967,22 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     } else {
       const next = [...current, id];
       if (next.length === 2) {
-        // Connect them!
-        get().addConnection(next[0], next[1]);
-        set({ connectorSelectedIds: [] }); // Reset selection after connecting
-        console.log('Connected objects:', next[0], next[1]);
+        /* Both ends picked — draw it in whatever look the connector panel is
+           currently set to, then SELECT it, so the same panel you chose the
+           look in switches to editing the line you just made. */
+        const bag = { ...get().connectorStyle } as Record<string, unknown>;
+        const conn = get().addConnection(next[0], next[1], bag);
+        set({ connectorSelectedIds: [], selectedConnectionId: conn.id });
       } else {
         set({ connectorSelectedIds: next });
       }
     }
   },
   resetConnectorSelection: () => set({ connectorSelectedIds: [] }),
+  selectedConnectionId: null,
+  setSelectedConnectionId: (selectedConnectionId) => set({ selectedConnectionId }),
+  connectorStyle: { ...DEFAULT_CONNECTOR },
+  setConnectorStyle: (patch) => set((s) => ({ connectorStyle: { ...s.connectorStyle, ...patch } })),
 
   // Workflow settings
   activeWorkflowId: null,
