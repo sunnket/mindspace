@@ -25,7 +25,9 @@ import { useChatUnreadTotal } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { exportBoardById } from '@/lib/boardIO';
 import { applyCanvasTheme, resetCanvasTheme, presetById, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
-import { gistOf, rankForPreview, effectiveFontSize, textRole, isSemanticCandidate } from '@/lib/semanticZoom';
+import { CanvasBlueprint, CanvasCardPreview, Highlight } from './CanvasPreview';
+import { searchCanvases, type Scored } from '@/lib/canvasSearch';
+import { useCanvasStore } from '@/store/canvasStore';
 import {
   CANVAS_TEMPLATES,
   TEMPLATE_CATEGORIES,
@@ -50,7 +52,34 @@ type WorkspaceWithStats = CanvasState & {
 };
 
 type SidebarTab = 'home' | 'templates' | 'favorites' | 'images' | 'checkpoints' | 'chat' | 'archive' | 'deleted';
-type SortMode = 'recent' | 'name' | 'cards';
+
+/**
+ * How the gallery is ordered.
+ *
+ * `relevance` only exists while something is being searched for, and is the
+ * default the moment you start typing — the whole point of scoring results is
+ * that the best one is first. `oldest` is the odd one out and earns its place:
+ * "what have I not touched in months" is a real question about your own boards
+ * that no other ordering answers, and it is the one that finds the thing you
+ * forgot you started.
+ */
+type SortMode = 'relevance' | 'recent' | 'oldest' | 'name' | 'cards';
+
+const SORT_OPTIONS: { id: SortMode; label: string; hint: string; searchOnly?: boolean }[] = [
+  { id: 'relevance', label: 'Best match', hint: 'Closest to what you typed', searchOnly: true },
+  { id: 'recent', label: 'Recently edited', hint: 'What you touched last' },
+  { id: 'oldest', label: 'Forgotten first', hint: 'Untouched the longest' },
+  { id: 'name', label: 'Name A → Z', hint: 'Alphabetical by title' },
+  { id: 'cards', label: 'Biggest boards', hint: 'Most cards first' },
+];
+
+const SORT_SHORT: Record<SortMode, string> = {
+  relevance: 'best match',
+  recent: 'recent',
+  oldest: 'forgotten',
+  name: 'a → z',
+  cards: 'biggest',
+};
 
 
 const spring = { type: 'spring' as const, stiffness: 260, damping: 26 };
@@ -170,180 +199,15 @@ const ICONS = {
 };
 
 /* ============================================================
-   Canvas mini preview (memoized — renders tiny abstract map)
+   Canvas preview
+
+   The hand-rolled `CanvasMiniPreview` that used to live here — a scaled-down
+   wireframe with every block's label drawn into it as 3–8px SVG text — has
+   moved to ./CanvasPreview.tsx and been rebuilt. At thumbnail scale that text
+   was not small type, it was texture: the preview showed you rectangles and
+   answered "what is in this board?" with "open it and see". See the note at
+   the top of that file for what replaced it and why.
    ============================================================ */
-
-/*
- * A thumbnail is the canvas at roughly 4% zoom, so it answers the same
- * question the board answers when you pull the camera back: not what every
- * block says, but what this canvas is ABOUT. It uses the same summariser the
- * canvas does (lib/semanticZoom.ts), which is why a heading you can read on a
- * gallery card is the heading you'll find when you open it.
- */
-
-/** Blocks a preview will draw. Ranked, so headings survive the cut. */
-const PREVIEW_LIMIT = 18;
-
-/** Non-prose types that still carry a short label of their own. */
-const LABELLED_TYPES = new Set(['shape', 'workflow-node', 'frame']);
-
-/** The label a block shows at thumbnail scale, or '' when its box is too small. */
-function previewLabel(obj: CanvasObjectData, rectW: number): { text: string; size: number; lead: boolean } {
-  const blank = { text: '', size: 0, lead: false };
-  // Prose summarises; a shape, node or frame just wears its own short label.
-  // What never gets one is a functional card — a poll or a countdown keeps its
-  // data in `style`, so printing its `content` prints a stray fragment.
-  const prose = isSemanticCandidate(obj);
-  if (!prose && !(LABELLED_TYPES.has(obj.type) && (obj.content || '').trim())) return blank;
-
-  // Headings and display type are the canvas's landmarks: bigger, bolder, and
-  // worth showing in boxes too narrow to justify body copy.
-  const lead = obj.type === 'heading' || (prose && textRole(effectiveFontSize(obj)) === 'display');
-  if (rectW < (lead ? 16 : 24)) return blank;
-
-  const size = lead
-    ? Math.max(4.6, Math.min(8.5, rectW / 6.5))
-    : Math.max(3.2, Math.min(5.4, rectW / 9));
-  // SVG <text> never wraps, so the budget is one line's worth.
-  const budget = Math.max(4, Math.floor((rectW * 0.92) / (size * 0.52)));
-  const { text } = gistOf(obj, budget);
-  return text ? { text, size, lead } : blank;
-}
-
-const CanvasMiniPreview = React.memo(function CanvasMiniPreview({
-  objects = [],
-  connections = [],
-  width = 240,
-  height = 140,
-  limit = PREVIEW_LIMIT,
-}: {
-  objects?: CanvasObjectData[];
-  connections?: ConnectionData[];
-  width?: number;
-  height?: number;
-  /** How many blocks the thumbnail may draw. Dense boards want more. */
-  limit?: number;
-}) {
-  if (objects.length === 0) {
-    return (
-      <div className="w-full h-full flex items-center justify-center opacity-40">
-        <Icon size={22}><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 17V9h6" /></Icon>
-      </div>
-    );
-  }
-
-  /* A canvas object's x/y is its TOP-LEFT corner. This used to read them as a
-     centre, which shifts every block up-left by half its own size — invisible
-     on a 200px sticky, half a screen on a frame, so section frames floated off
-     the sections they wrap. Top-left in, top-left out; only connections work
-     from centres, because that is where a thread actually attaches. */
-  let minX = Math.min(...objects.map((o) => o.x));
-  let maxX = Math.max(...objects.map((o) => o.x + o.width));
-  let minY = Math.min(...objects.map((o) => o.y));
-  let maxY = Math.max(...objects.map((o) => o.y + o.height));
-  const pad = 30;
-  minX -= pad; maxX += pad; minY -= pad; maxY += pad;
-
-  const boxW = Math.max(100, maxX - minX);
-  const boxH = Math.max(100, maxY - minY);
-  const scale = Math.min(width / boxW, height / boxH, 0.45);
-  const centerX = (minX + maxX) / 2;
-  const centerY = (minY + maxY) / 2;
-  const getX = (cx: number) => (cx - centerX) * scale + width / 2;
-  const getY = (cy: number) => (cy - centerY) * scale + height / 2;
-
-  return (
-    <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
-      {connections.map((conn) => {
-        const from = objects.find((o) => o.id === conn.fromId);
-        const to = objects.find((o) => o.id === conn.toId);
-        if (!from || !to) return null;
-        const fx = getX(from.x + from.width / 2); const fy = getY(from.y + from.height / 2);
-        const tx = getX(to.x + to.width / 2); const ty = getY(to.y + to.height / 2);
-        return (
-          <path
-            key={conn.id}
-            d={`M ${fx} ${fy} Q ${(fx + tx) / 2} ${(fy + ty) / 2 - 10} ${tx} ${ty}`}
-            stroke="var(--accent)"
-            strokeWidth="1.2"
-            fill="none"
-            strokeDasharray="2 2"
-            opacity="0.5"
-          />
-        );
-      })}
-      {/* Ranked to choose, z-order to draw. A frame is a backdrop on the board,
-          so it has to be a backdrop here too — drawn first and translucent.
-          Painted opaque in array order it hid the whole section it wraps. */}
-      {[...rankForPreview(objects, limit)].sort((a, b) => a.zIndex - b.zIndex).map((obj) => {
-        const rw = obj.width * scale;
-        const rh = obj.height * scale;
-        const rx = getX(obj.x);
-        const ry = getY(obj.y);
-        let fill = '#FFFFFF';
-        let stroke = 'rgba(45,42,38,0.08)';
-        let radius = 4;
-        if (obj.type === 'frame') {
-          const frameColor = (obj.style?.frameColor as string) || 'var(--accent)';
-          return (
-            <rect
-              key={obj.id}
-              x={rx}
-              y={ry}
-              width={rw}
-              height={rh}
-              rx={6}
-              ry={6}
-              fill={frameColor}
-              fillOpacity={0.07}
-              stroke={frameColor}
-              strokeWidth="0.9"
-              strokeOpacity={0.45}
-              strokeDasharray="3 2"
-            />
-          );
-        }
-        if (obj.type === 'shape') {
-          fill = (obj.style?.color as string) || 'var(--accent-light)';
-          stroke = (obj.style?.borderColor as string) || 'var(--accent)';
-          if (obj.style?.shapeType === 'pill') radius = rh / 2;
-          else if (obj.style?.shapeType === 'oval') radius = Math.min(rw, rh) / 2;
-        } else if (obj.type === 'sticky') {
-          fill = (obj.style?.color as string) || 'var(--sticky-yellow)';
-          radius = 1;
-        } else if (obj.type === 'workflow-node') {
-          fill = 'var(--bg-primary)';
-          stroke = 'var(--accent)';
-          radius = 8;
-        }
-        const label = previewLabel(obj, rw);
-        return (
-          <g key={obj.id}>
-            <rect x={rx} y={ry} width={rw} height={rh} rx={radius} ry={radius} fill={fill} stroke={stroke} strokeWidth="0.8" />
-            {label.text && (
-              <text
-                x={rx + rw / 2}
-                y={ry + rh / 2 + label.size * 0.34}
-                fill={
-                  obj.type === 'shape' ? '#FFFFFF'
-                  : label.lead ? 'var(--accent)'
-                  : 'var(--text-primary)'
-                }
-                fontWeight={label.lead ? 700 : 500}
-                textAnchor="middle"
-                opacity={label.lead ? 0.95 : 0.7}
-                className="select-none pointer-events-none"
-                style={{ fontSize: label.size + 'px', letterSpacing: '-0.01em' }}
-              >
-                {label.text}
-              </text>
-            )}
-          </g>
-        );
-      })}
-    </svg>
-  );
-});
 
 /* ============================================================
    Main component
@@ -653,33 +517,96 @@ export default function LandingPage() {
     ? [...nonDeleted].sort((a, b) => b.lastModified - a.lastModified)[0]
     : null;
 
-  const filteredList = useMemo(() => {
-    let list = [...workspaces];
-    if (activeSidebarTab === 'favorites') list = list.filter((w) => w.isFavorite && !w.deleted && !w.archived);
-    else if (activeSidebarTab === 'archive') list = list.filter((w) => w.archived && !w.deleted);
-    else if (activeSidebarTab === 'deleted') list = list.filter((w) => w.deleted);
-    else list = list.filter((w) => !w.deleted && !w.archived);
+  /* Which canvases this tab is about, before any category pill or query. */
+  const tabList = useMemo(() => {
+    if (activeSidebarTab === 'favorites') return workspaces.filter((w) => w.isFavorite && !w.deleted && !w.archived);
+    if (activeSidebarTab === 'archive') return workspaces.filter((w) => w.archived && !w.deleted);
+    if (activeSidebarTab === 'deleted') return workspaces.filter((w) => w.deleted);
+    return workspaces.filter((w) => !w.deleted && !w.archived);
+  }, [workspaces, activeSidebarTab]);
 
+  const scopedList = useMemo(() => {
     if (activeSidebarTab === 'home' && activeCategory !== 'all') {
-      list = list.filter((w) => w.category === activeCategory);
+      return tabList.filter((w) => w.category === activeCategory);
     }
+    return tabList;
+  }, [tabList, activeSidebarTab, activeCategory]);
 
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(
-        (w) =>
-          (w.title || 'untitled canvas').toLowerCase().includes(q) ||
-          (w.category || '').toLowerCase().includes(q) ||
-          w.objects.some((o) => o.content.toLowerCase().includes(q))
-      );
-    }
+  /* The search, scored (lib/canvasSearch.ts). This used to be a `.filter()`
+     that returned a boolean, so a canvas came back with no indication of what
+     in it had matched — the single worst thing about the old gallery. Now each
+     result carries its score, the ranges that matched in its title, and the
+     blocks that matched with a snippet apiece. */
+  const results = useMemo(
+    () => (searchQuery.trim() ? searchCanvases(scopedList, searchQuery) : []),
+    [scopedList, searchQuery]
+  );
 
-    if (sortMode === 'recent') list.sort((a, b) => b.lastModified - a.lastModified);
-    else if (sortMode === 'name') list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-    else list.sort((a, b) => b.objectCount - a.objectCount);
+  /** Result metadata by canvas id — the cards read their own hits out of this. */
+  const resultById = useMemo(() => {
+    const map = new Map<string, Scored<WorkspaceWithStats>>();
+    results.forEach((r) => map.set(r.item.id, r));
+    return map;
+  }, [results]);
 
-    return list;
-  }, [workspaces, activeSidebarTab, activeCategory, searchQuery, sortMode]);
+  const isSearching = searchQuery.trim().length > 0;
+
+  /* "Best match" cannot mean anything without a query, so when the box empties
+     it quietly reads as "recent" instead of leaving the control labelled with
+     an ordering that is no longer being applied. One derived value, used by the
+     list, the button and the menu alike, so the three can never disagree. */
+  const effectiveSort: SortMode = !isSearching && sortMode === 'relevance' ? 'recent' : sortMode;
+
+  const filteredList = useMemo(() => {
+    const list = isSearching ? results.map((r) => r.item) : [...scopedList];
+    // `relevance` is already the order `searchCanvases` returned, so leave it.
+    if (effectiveSort === 'relevance') return list;
+    const sorted = [...list];
+    if (effectiveSort === 'recent') sorted.sort((a, b) => b.lastModified - a.lastModified);
+    else if (effectiveSort === 'oldest') sorted.sort((a, b) => a.lastModified - b.lastModified);
+    else if (effectiveSort === 'name') sorted.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    else sorted.sort((a, b) => b.objectCount - a.objectCount);
+    return sorted;
+  }, [scopedList, results, isSearching, effectiveSort]);
+
+  /** One place a sort is chosen, however it was chosen. */
+  const chooseSort = useCallback((mode: SortMode) => {
+    sortTouched.current = true;
+    setSortMode(mode);
+  }, []);
+
+  /** Matching cards across everything, for the "N cards in M boards" read-out. */
+  const totalCardHits = useMemo(
+    () => results.reduce((n, r) => n + r.totalHits, 0),
+    [results]
+  );
+
+  /* A category pill and a search box are two filters, and when they disagree
+     the box silently loses: sitting on "work" and searching for something you
+     filed under "personal" returns nothing, with no hint that the thing you
+     wanted is one click away. So we also run the query across the whole tab and
+     offer the difference — a search should never dead-end on a filter the user
+     set ten minutes ago and forgot about. */
+  const hiddenByCategory = useMemo(() => {
+    if (!isSearching || activeSidebarTab !== 'home' || activeCategory === 'all') return 0;
+    return Math.max(0, searchCanvases(tabList, searchQuery).length - results.length);
+  }, [isSearching, activeSidebarTab, activeCategory, tabList, searchQuery, results.length]);
+
+  /* Typing a query switches to Best match, and clearing it switches back — but
+     only ever OVER the mode the search itself imposed. Pick "Biggest boards"
+     by hand and it survives both, because an explicit choice outranks a
+     default; that's what `sortTouched` records. */
+  const sortTouched = useRef(false);
+  useEffect(() => {
+    if (sortTouched.current) return;
+    setSortMode(isSearching ? 'relevance' : 'recent');
+  }, [isSearching]);
+
+  /** Open a canvas at a specific block: the board flies to it and pulses. */
+  const openAtBlock = useCallback((canvasId: string, objectId: string) => {
+    useCanvasStore.getState().setPendingFocusId(objectId);
+    router.push(`/canvas?id=${canvasId}`);
+  }, [router]);
 
   const counts = useMemo(() => {
     const activeCanvases = workspaces.filter((w) => !w.deleted && !w.archived);
@@ -834,20 +761,38 @@ export default function LandingPage() {
                 <input
                   ref={searchInputRef}
                   type="text"
-                  placeholder="search titles & card contents"
+                  placeholder="search every board and card"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   aria-label="Search canvases and card contents"
                   className="bg-transparent border-none outline-none text-[13px] w-full placeholder-[var(--text-muted)] text-[var(--text-primary)] font-medium"
                 />
                 {searchQuery ? (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    aria-label="Clear search"
-                    className="p-1.5 rounded-full text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-black/5 transition-colors cursor-pointer"
-                  >
-                    <Icon size={13}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>
-                  </button>
+                  <>
+                    {/* The count, live, in the box you are typing into. Waiting
+                        for your eye to travel to the section heading below is a
+                        beat too slow when you are refining a query. */}
+                    <span
+                      aria-live="polite"
+                      className="shrink-0 rounded-full text-[9.5px] font-extrabold tabular-nums whitespace-nowrap select-none"
+                      style={{
+                        padding: '3px 8px',
+                        background: filteredList.length ? 'rgba(var(--accent-rgb),0.14)' : 'var(--well)',
+                        color: filteredList.length ? 'var(--accent)' : 'var(--text-tertiary)',
+                      }}
+                    >
+                      {filteredList.length === 0
+                        ? 'no match'
+                        : `${filteredList.length} board${filteredList.length === 1 ? '' : 's'}${totalCardHits ? ` · ${totalCardHits} card${totalCardHits === 1 ? '' : 's'}` : ''}`}
+                    </span>
+                    <button
+                      onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
+                      aria-label="Clear search"
+                      className="p-1.5 rounded-full text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-black/5 transition-colors cursor-pointer shrink-0"
+                    >
+                      <Icon size={13}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>
+                    </button>
+                  </>
                 ) : (
                   <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-bold text-[var(--text-tertiary)] bg-white/70 dark:bg-white/10 px-2 py-1 rounded-full border border-[var(--border)] select-none shrink-0">
                     ⌘K
@@ -929,10 +874,9 @@ export default function LandingPage() {
                     transition={spring}
                     className="clay-inset w-full h-48 md:h-56 rounded-2xl overflow-hidden relative cursor-pointer"
                   >
-                    <CanvasMiniPreview
+                    <CanvasCardPreview
                       objects={continueWorkspace.objects}
                       connections={continueWorkspace.connections}
-                      width={380}
                       height={220}
                     />
                     <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-t from-[rgba(90,62,40,0.12)] to-transparent flex items-end justify-end p-3 pointer-events-none">
@@ -968,7 +912,7 @@ export default function LandingPage() {
                     className="clay-card rounded-3xl overflow-hidden p-3 flex flex-col gap-3 group cursor-pointer"
                   >
                     <div className="clay-inset h-32 rounded-2xl relative overflow-hidden">
-                      <CanvasMiniPreview objects={ws.objects} connections={ws.connections} width={220} height={128} />
+                      <CanvasCardPreview objects={ws.objects} connections={ws.connections} height={128} compact />
                     </div>
                     <div className="flex justify-between items-center gap-2" style={CARD_TEXT_PAD}>
                       <div className="min-w-0">
@@ -1209,7 +1153,15 @@ export default function LandingPage() {
                 <SectionHeading
                   title={sectionTitles[activeSidebarTab]}
                   count={filteredList.length}
-                  sub={searchQuery ? `matching "${searchQuery}"` : undefined}
+                  /* Say what was actually found, not just that a filter ran.
+                     "4 · 12 cards matching pricing" tells you whether to keep
+                     typing; "matching pricing" told you nothing you didn't
+                     already know, because you typed it. */
+                  sub={
+                    isSearching
+                      ? `${totalCardHits > 0 ? `${totalCardHits} card${totalCardHits === 1 ? '' : 's'} ` : ''}matching “${searchQuery.trim()}”`
+                      : undefined
+                  }
                 />
 
                 <div className="flex items-center gap-3 flex-wrap justify-end">
@@ -1237,32 +1189,44 @@ export default function LandingPage() {
                       style={CONTROL_PAD}
                       className="clay-inset flex items-center gap-1.5 rounded-full text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
                     >
-                      {sortMode === 'recent' ? 'recent' : sortMode === 'name' ? 'a → z' : 'most cards'}
+                      {SORT_SHORT[effectiveSort]}
                       {ICONS.chevron}
                     </button>
                     <AnimatePresence>
                       {sortMenuOpen && (
                         <motion.ul
                           role="listbox"
+                          aria-label="Sort canvases"
                           initial={{ opacity: 0, y: -6, scale: 0.96 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: -6, scale: 0.96 }}
                           transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
                           style={{ ...MENU_PAD, marginTop: 8 }}
-                          className="glass-bar absolute right-0 top-full rounded-2xl flex flex-col w-36 z-30"
+                          className="glass-bar absolute right-0 top-full rounded-2xl flex flex-col w-[212px] z-30"
                         >
-                          {(['recent', 'name', 'cards'] as SortMode[]).map((mode) => (
-                            <li key={mode}>
+                          {/* Every option says what it DOES underneath its name.
+                              "Most cards" and "a → z" were guessable; "Forgotten
+                              first" is not, and an ordering nobody understands
+                              is an ordering nobody uses. */}
+                          {SORT_OPTIONS.filter((o) => !o.searchOnly || isSearching).map((opt) => (
+                            <li key={opt.id}>
                               <button
                                 role="option"
-                                aria-selected={sortMode === mode}
-                                onClick={() => { setSortMode(mode); setSortMenuOpen(false); }}
+                                aria-selected={effectiveSort === opt.id}
+                                onClick={() => { chooseSort(opt.id); setSortMenuOpen(false); }}
                                 style={MENU_ITEM_PAD}
-                                className={`w-full text-left rounded-xl text-[11px] font-bold transition-colors cursor-pointer ${
-                                  sortMode === mode ? 'bg-[var(--accent)]/15 text-[var(--accent)] font-extrabold' : 'text-[var(--text-secondary)] hover:bg-black/5'
+                                className={`w-full text-left rounded-xl transition-colors cursor-pointer flex flex-col ${
+                                  effectiveSort === opt.id ? 'bg-[var(--accent)]/15' : 'hover:bg-black/5 dark:hover:bg-white/5'
                                 }`}
                               >
-                                {mode === 'recent' ? 'Most recent' : mode === 'name' ? 'Name a → z' : 'Most cards'}
+                                <span className={`text-[11.5px] leading-tight ${
+                                  effectiveSort === opt.id ? 'text-[var(--accent)] font-extrabold' : 'text-[var(--text-primary)] font-bold'
+                                }`}>
+                                  {opt.label}
+                                </span>
+                                <span className="text-[9.5px] font-semibold text-[var(--text-tertiary)] leading-tight" style={{ marginTop: 2 }}>
+                                  {opt.hint}
+                                </span>
                               </button>
                             </li>
                           ))}
@@ -1300,6 +1264,38 @@ export default function LandingPage() {
                   </div>
                 </div>
               </div>
+
+              {/* A search that dead-ends on a filter you set earlier is the
+                  most frustrating kind of empty result, because the thing you
+                  asked for IS there. One click puts it back. */}
+              <AnimatePresence>
+                {hiddenByCategory > 0 && (
+                  <motion.button
+                    key="cat-escape"
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={spring}
+                    onClick={() => setActiveCategory('all')}
+                    className="self-start inline-flex items-center gap-2 rounded-full cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+                    style={{
+                      padding: '7px 14px',
+                      background: 'rgba(var(--accent-rgb),0.1)',
+                      border: '1px solid rgba(var(--accent-rgb),0.2)',
+                    }}
+                  >
+                    <span className="text-[var(--accent)]" aria-hidden="true">
+                      <Icon size={13}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></Icon>
+                    </span>
+                    <span className="text-[11px] font-bold text-[var(--text-primary)]">
+                      {hiddenByCategory} more {hiddenByCategory === 1 ? 'board matches' : 'boards match'} outside “{activeCategory}”
+                    </span>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-[var(--accent)]">
+                      search all
+                    </span>
+                  </motion.button>
+                )}
+              </AnimatePresence>
 
               {/* Category pills (home only) */}
               {activeSidebarTab === 'home' && (
@@ -1402,9 +1398,10 @@ export default function LandingPage() {
                           transition={spring}
                           whileHover={{ y: -4 }}
                           onClick={() => router.push(`/canvas?id=${ws.id}`)}
-                          className="clay-card rounded-3xl flex items-center justify-between group cursor-pointer relative"
+                          className="clay-card rounded-3xl flex flex-col group cursor-pointer relative"
                           style={GRID_CARD_PAD}
                         >
+                         <div className="flex items-center justify-between w-full">
                           <div className="flex items-center gap-4 min-w-0 flex-1 pr-2">
                             <button
                               onClick={(e) => cycleCategory(e, ws)}
@@ -1446,7 +1443,9 @@ export default function LandingPage() {
                                 />
                               ) : (
                                 <h4 className="text-[16px] font-semibold truncate group-hover:text-[var(--accent)] transition-colors flex items-center gap-1.5 tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
-                                  {ws.title || 'untitled canvas'}
+                                  <span className="truncate">
+                                    <Highlight text={ws.title || 'untitled canvas'} ranges={resultById.get(ws.id)?.titleRanges} />
+                                  </span>
                                   {ws.isFavorite && (
                                     <span className="text-[var(--accent)] shrink-0" aria-label="Favorite">
                                       <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -1501,6 +1500,10 @@ export default function LandingPage() {
                               </>
                             )}
                           </div>
+                         </div>
+
+                          {/* WHY this canvas is in the results — and a way in. */}
+                          <SearchHits result={resultById.get(ws.id)} onOpen={openAtBlock} />
                         </motion.div>
                       ))}
                     </AnimatePresence>
@@ -1526,23 +1529,40 @@ export default function LandingPage() {
                       <table className="w-full border-collapse text-left min-w-[640px]">
                         <thead>
                           <tr className="border-b border-[var(--border)] bg-[#FAF6F1]/60 dark:bg-white/5 text-[10px] uppercase font-extrabold tracking-[0.15em] text-[var(--text-secondary)] select-none">
-                            <th className="text-left" style={TABLE_CELL_PAD}>Title</th>
+                            {/* The headings sort. A table that shows a column
+                                and then hides its ordering behind a dropdown
+                                somewhere else is asking you to learn two
+                                controls for one idea — and every spreadsheet
+                                anyone has ever used has taught the other one.
+                                Edited toggles direction, because "newest" and
+                                "what have I abandoned" are the same column read
+                                from opposite ends. */}
+                            <SortableTh label="Title" active={effectiveSort === 'name'} onClick={() => chooseSort('name')} />
                             <th className="text-left" style={TABLE_CELL_PAD}>Category</th>
-                            <th className="text-left" style={TABLE_CELL_PAD}>Contents</th>
-                            <th className="text-left" style={TABLE_CELL_PAD}>Edited</th>
+                            <SortableTh label="Contents" active={effectiveSort === 'cards'} onClick={() => chooseSort('cards')} />
+                            <SortableTh
+                              label="Edited"
+                              active={effectiveSort === 'recent' || effectiveSort === 'oldest'}
+                              flipped={effectiveSort === 'oldest'}
+                              onClick={() => chooseSort(effectiveSort === 'recent' ? 'oldest' : 'recent')}
+                            />
                             <th className="text-right" style={TABLE_CELL_PAD}>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredList.map((ws) => (
+                          {filteredList.map((ws) => {
+                            const res = resultById.get(ws.id);
+                            return (
+                            <React.Fragment key={ws.id}>
                             <tr
-                              key={ws.id}
                               onClick={() => router.push(`/canvas?id=${ws.id}`)}
-                              className="border-b border-[var(--border)] last:border-b-0 hover:bg-[#FAF6F1]/50 dark:hover:bg-white/5 cursor-pointer transition-colors group"
+                              className={`hover:bg-[#FAF6F1]/50 dark:hover:bg-white/5 cursor-pointer transition-colors group ${
+                                res && res.hits.length ? '' : 'border-b border-[var(--border)] last:border-b-0'
+                              }`}
                             >
                               <td className="font-semibold text-[16px] tracking-tight group-hover:text-[var(--accent)] transition-colors" style={{ ...TABLE_CELL_PAD, fontFamily: "'Playfair Display', serif" }}>
                                 <span className="flex items-center gap-1.5">
-                                  {ws.title || 'untitled canvas'}
+                                  <Highlight text={ws.title || 'untitled canvas'} ranges={res?.titleRanges} />
                                   {ws.isFavorite && (
                                     <svg width="11" height="11" viewBox="0 0 24 24" fill="var(--accent)" aria-label="Favorite">
                                       <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
@@ -1556,7 +1576,13 @@ export default function LandingPage() {
                                 </span>
                               </td>
                               <td className="text-xs text-[var(--text-secondary)] tabular-nums" style={TABLE_CELL_PAD}>
-                                {ws.objectCount} cards · {ws.strokeCount} sketches · {ws.connectionCount} threads
+                                {res && res.totalHits > 0 ? (
+                                  <span className="font-bold text-[var(--accent)]">
+                                    {res.totalHits} matching card{res.totalHits === 1 ? '' : 's'}
+                                  </span>
+                                ) : (
+                                  <>{ws.objectCount} cards · {ws.strokeCount} sketches · {ws.connectionCount} threads</>
+                                )}
                               </td>
                               <td className="text-xs text-[var(--text-secondary)] tabular-nums" style={TABLE_CELL_PAD}>{getRelativeTime(ws.lastModified)}</td>
                               <td className="text-right" style={TABLE_CELL_PAD} onClick={(e) => e.stopPropagation()}>
@@ -1595,7 +1621,18 @@ export default function LandingPage() {
                                 </div>
                               </td>
                             </tr>
-                          ))}
+                            {res && res.hits.length > 0 && (
+                              <tr className="border-b border-[var(--border)] last:border-b-0">
+                                {/* The matches, spanning the whole row: a table
+                                    column is the wrong shape for a sentence. */}
+                                <td colSpan={5} style={{ padding: '0 24px 14px' }}>
+                                  <SearchHits result={res} onOpen={openAtBlock} bare />
+                                </td>
+                              </tr>
+                            )}
+                            </React.Fragment>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1650,6 +1687,122 @@ export default function LandingPage() {
 /* ============================================================
    Sub-components
    ============================================================ */
+
+/**
+ * The cards inside a canvas that actually matched — the part the old gallery
+ * never showed.
+ *
+ * Search used to end at "this board contains your word somewhere". Four boards
+ * would come back looking exactly as they always do, and the only way to find
+ * out which one you wanted was to open all four and search again inside each.
+ * Every row here is the block itself: what kind it is, the sentence it sits in
+ * with the query marked up, and — because knowing where it is only helps if you
+ * can get there — a click that opens the canvas already flown to it.
+ *
+ * Renders nothing at all when there is no query, so the card is byte-identical
+ * to how it looks the rest of the time.
+ */
+function SearchHits({
+  result,
+  onOpen,
+  bare = false,
+}: {
+  result?: Scored<WorkspaceWithStats>;
+  onOpen: (canvasId: string, objectId: string) => void;
+  /** Inside a table row the surrounding cell already provides the separation. */
+  bare?: boolean;
+}) {
+  if (!result || result.hits.length === 0) return null;
+  const more = result.totalHits - result.hits.length;
+
+  return (
+    <div
+      className="w-full flex flex-col"
+      style={
+        bare
+          ? { gap: 4 }
+          : { marginTop: 14, paddingTop: 12, borderTop: '1px dashed var(--border-strong)', gap: 4 }
+      }
+      onClick={(e) => e.stopPropagation()}
+    >
+      <p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-[var(--text-tertiary)]" style={{ marginBottom: 2 }}>
+        {result.totalHits === 1 ? '1 matching card' : `${result.totalHits} matching cards`}
+      </p>
+
+      {result.hits.map((hit) => (
+        <button
+          key={hit.objectId}
+          onClick={() => onOpen(result.item.id, hit.objectId)}
+          title="Open this canvas at this card"
+          className="group/hit w-full text-left rounded-xl flex items-start gap-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
+          style={{ padding: '6px 8px' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--well)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+        >
+          <span
+            className="shrink-0 rounded-md text-[8px] font-extrabold uppercase tracking-[0.06em] text-[var(--text-tertiary)] bg-[var(--well)] group-hover/hit:text-[var(--accent)] transition-colors"
+            style={{ padding: '3px 5px', marginTop: 1 }}
+          >
+            {hit.kind}
+          </span>
+          <span className="min-w-0 flex-1 text-[11px] leading-snug text-[var(--text-secondary)] line-clamp-2">
+            <Highlight text={hit.snippet} ranges={hit.ranges} />
+          </span>
+          <span
+            className="shrink-0 text-[var(--text-muted)] opacity-0 group-hover/hit:opacity-100 transition-opacity"
+            style={{ marginTop: 2 }}
+            aria-hidden="true"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h13M13 6l6 6-6 6" />
+            </svg>
+          </span>
+        </button>
+      ))}
+
+      {more > 0 && (
+        <p className="text-[9.5px] font-bold text-[var(--text-muted)]" style={{ paddingLeft: 8, marginTop: 1 }}>
+          +{more} more inside
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** A list-view column heading that sorts by its own column. */
+function SortableTh({
+  label, active, flipped = false, onClick,
+}: {
+  label: string;
+  active: boolean;
+  /** Ascending rather than descending — flips the arrow. */
+  flipped?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <th className="text-left" style={TABLE_CELL_PAD} aria-sort={active ? (flipped ? 'ascending' : 'descending') : 'none'}>
+      <button
+        onClick={onClick}
+        className={`inline-flex items-center gap-1.5 uppercase tracking-[0.15em] font-extrabold text-[10px] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 rounded ${
+          active ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+        }`}
+      >
+        {label}
+        <svg
+          width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+          style={{
+            opacity: active ? 1 : 0.28,
+            transform: flipped ? 'rotate(180deg)' : 'none',
+            transition: 'transform 160ms ease, opacity 160ms ease',
+          }}
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+    </th>
+  );
+}
 
 function DockButton({
   icon,
@@ -1739,7 +1892,11 @@ function TemplateCard({
           background: `linear-gradient(150deg, ${template.accent}18, transparent 62%)`,
         }}
       >
-        <CanvasMiniPreview
+        {/* The blueprint alone here, with no text laid over it: a template
+            card already prints the template's name, tagline and highlights
+            directly beneath, so a readable overlay would just say the same
+            thing twice. What the picture is for is the SHAPE of the board. */}
+        <CanvasBlueprint
           objects={build.objects}
           connections={build.connections}
           width={expanded ? 420 : 340}

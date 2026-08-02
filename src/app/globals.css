@@ -76,6 +76,12 @@
   --sticky-blue: #E0F2FE;
   --sticky-green: #DCFCE7;
   --sticky-purple: #F3E8FF;
+
+  /* The wash a gallery preview lays over its blueprint so the readable text on
+     top never has to compete with whatever block happens to be behind it. It is
+     the surface colour of `.clay-inset` (the well a preview sits in), so the
+     bottom of the fade is indistinguishable from the card itself. */
+  --preview-scrim: rgba(245, 239, 231, 0.94);
 }
 
 * {
@@ -1146,6 +1152,17 @@ html, body {
   --well-inset-deep: inset 0 2px 6px rgba(0, 0, 0, 0.55);
   --track: rgba(255, 255, 255, 0.14);
   --connector-ink: rgba(233, 226, 218, 0.55);
+  /* Same idea on dark paper: the fade has to land on the dark well, or the
+     preview text sits in a pale box cut out of the card. */
+  --preview-scrim: rgba(16, 15, 14, 0.96);
+}
+/* …and exactly the dark well, whichever paper preset is applied: `.clay-inset`
+   on dark is 26% black over the card, so mixing the same two gives a scrim that
+   is invisible against it instead of approximately right for one preset. */
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  :root[data-canvas-theme="dark"] {
+    --preview-scrim: color-mix(in srgb, var(--bg-secondary) 72%, #000 28%);
+  }
 }
 :root[data-canvas-theme="dark"] .focus-overlay {
   background: rgba(10, 10, 12, 0.72);
