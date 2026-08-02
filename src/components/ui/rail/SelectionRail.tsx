@@ -7,6 +7,7 @@ import TextAnimPanel, { LetterSparkIcon } from '../TextAnimPanel';
 import { getAnimPreset } from '@/lib/textAnim';
 import type { TextAnimConfig } from '@/lib/textAnim';
 import { getFrameKind, frameKindMeta, frameTitle } from '@/lib/frames';
+import { paperColor, ensureReadableInk } from '@/lib/canvasTheme';
 import RailShell, { type RailAction } from './RailShell';
 import ShapePicker from './ShapePicker';
 import {
@@ -115,6 +116,7 @@ export default function SelectionRail() {
   const sendBackward = useCanvasStore((s) => s.sendBackward);
   const arrowStyle = useCanvasStore((s) => s.arrowStyle);
   const setArrowStyle = useCanvasStore((s) => s.setArrowStyle);
+  const canvasBackground = useCanvasStore((s) => s.canvasBackground);
   const textStyleDefaults = useCanvasStore((s) => s.textStyle);
   const setTextStyle = useCanvasStore((s) => s.setTextStyle);
 
@@ -162,6 +164,16 @@ export default function SelectionRail() {
   const opacity = ((S.opacity as number | undefined) ?? 1) * 100;
   const align = (S.textAlign as string) || 'left';
   const activeAnim = getAnimPreset((S.textAnim as TextAnimConfig | undefined)?.preset);
+
+  /* The specimen's surface and ink, resolved exactly the way the canvas
+     resolves them: the block's own background if it has one, otherwise the
+     board's paper — and the ink auto-contrasted against whichever it lands on
+     (`ensureReadableInk` keeps your colour when it's legible and substitutes a
+     readable one when it isn't, which is what stops cream-on-cream). */
+  const specimenPaper = (S.bgColor as string) && S.bgColor !== 'transparent'
+    ? (S.bgColor as string)
+    : paperColor(canvasBackground);
+  const specimenInk = ensureReadableInk(S.textColor as string | undefined, specimenPaper);
 
   const del = () => {
     if (!obj) return;
@@ -381,30 +393,43 @@ export default function SelectionRail() {
               something first — an empty block shows only its placeholder, and
               with the text tool up there is no block at all, so every choice
               here was made blind. This is the face, the size, the weight, the
-              colour and the alignment you have actually selected. */}
-          <div
-            className="rounded-[10px] overflow-hidden"
-            style={{
-              background: (S.bgColor as string) && S.bgColor !== 'transparent' ? (S.bgColor as string) : 'var(--well)',
-              padding: '10px 12px',
-            }}
-          >
+              colour and the alignment you have actually selected.
+
+              It stands on the BOARD'S paper and runs the ink through the same
+              readability correction the canvas does, because a preview that
+              doesn't match the thing it previews is worse than none: the first
+              version painted the raw text colour on the rail's own surface, and
+              the default ink (#F4EFE8, cream) on a cream board rendered an
+              empty box — the preview showed you nothing and looked broken. */}
+          <Field label="Preview">
             <div
-              className="truncate"
-              style={{
-                fontFamily: (S.fontFamily as string) || "'Inter', sans-serif",
-                fontWeight: (S.fontWeight as number) || 400,
-                // Clamped: an H1 at 40px would blow the rail apart, but the
-                // relative jump between the presets still reads.
-                fontSize: Math.max(11, Math.min(26, ((S.fontSize as number) || 15) * 0.62)),
-                color: (S.textColor as string) || 'var(--text-primary)',
-                textAlign: (align as 'left' | 'center' | 'right'),
-                lineHeight: 1.35,
-              }}
+              className="rounded-[10px] overflow-hidden"
+              style={{ background: specimenPaper, padding: '10px 12px' }}
             >
-              {obj?.content?.trim()?.slice(0, 28) || 'The quick brown fox'}
+              <div
+                className="truncate"
+                style={{
+                  fontFamily: (S.fontFamily as string) || "'Inter', sans-serif",
+                  fontWeight: (S.fontWeight as number) || 400,
+                  // Clamped: an H1 at 40px would blow the rail apart, but the
+                  // relative jump between the presets still reads.
+                  fontSize: Math.max(11, Math.min(26, ((S.fontSize as number) || 15) * 0.62)),
+                  color: specimenInk,
+                  textAlign: (align as 'left' | 'center' | 'right'),
+                  lineHeight: 1.35,
+                }}
+              >
+                {/* A fixed specimen, not the block's own words. Two reasons:
+                    `obj.content` is only committed on blur, so while you are
+                    typing it lags — the preview showed "t" while the block on
+                    the board already said "this" — and four letters is a poor
+                    sample of a typeface anyway. Caps, lowercase and figures is
+                    what a specimen is for; the real text is right there on the
+                    canvas next to it. */}
+                Aa Bb Cc 123
+              </div>
             </div>
-          </div>
+          </Field>
 
           <SearchBox value={fontQuery} onChange={setFontQuery} placeholder="Search fonts…" />
           <div className="flex flex-wrap gap-1 overflow-y-auto props-rail-scroll" style={{ maxHeight: 118 }}>
