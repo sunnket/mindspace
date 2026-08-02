@@ -183,17 +183,27 @@ interface Typo {
 }
 const TYPO: Typo = { font: 'literata', size: 20, leading: 1.62, measure: 66, justify: false, bionic: false, paper: 'cream' };
 
+type FocusMode = 'ruler' | 'spotlight' | 'torch' | 'keyhole' | 'matchstick';
+const FOCUS_MODES: { id: FocusMode; label: string; icon: string }[] = [
+  { id: 'ruler',      label: 'Line ruler',   icon: 'M3 8h18M3 16h18M6 12h12' },
+  { id: 'spotlight',  label: 'Spotlight',     icon: 'M12 2v4M4.93 4.93l2.83 2.83M2 12h4M4.93 19.07l2.83-2.83M12 18v4M19.07 19.07l-2.83-2.83M22 12h-4M19.07 4.93l-2.83 2.83' },
+  { id: 'torch',      label: 'Torch',         icon: 'M12 2v6M8 14a4 4 0 0 0 8 0l-2-8h-4zM10 18h4M11 22h2' },
+  { id: 'keyhole',    label: 'Keyhole',       icon: 'M12 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM10 10v10h4V10' },
+  { id: 'matchstick', label: 'Matchlight',    icon: 'M12 2c-2 3-4 5-4 8a4 4 0 0 0 8 0c0-3-2-5-4-8zM10 20h4v2h-4z' },
+];
+
 interface ReaderState {
   page: number; layout: Layout; atmos: Atmos; aged: boolean; strip: boolean; sound: boolean;
-  zen: boolean; ruler: boolean; typo: Typo;
+  zen: boolean; ruler: boolean; focusMode: FocusMode; focusDarkness: number; typo: Typo;
   bookmarks: number[]; highlights: Highlight[]; drawings: Stroke[]; stickies: Sticky[];
 }
 const DEFAULTS: ReaderState = {
   page: 1, layout: 'scroll', atmos: 'library', aged: false, strip: true, sound: false,
-  zen: false, ruler: false, typo: TYPO,
+  zen: false, ruler: false, focusMode: 'ruler', focusDarkness: 0.72, typo: TYPO,
   bookmarks: [], highlights: [], drawings: [], stickies: [],
 };
 function arr<T>(v: unknown): T[] { return Array.isArray(v) ? v as T[] : []; }
+const VALID_FOCUS_MODES: FocusMode[] = ['ruler', 'spotlight', 'torch', 'keyhole', 'matchstick'];
 function initState(raw: unknown): ReaderState {
   const r = (raw && typeof raw === 'object') ? raw as Partial<ReaderState> : {};
   return {
@@ -201,6 +211,8 @@ function initState(raw: unknown): ReaderState {
     atmos: isRoom(r.atmos) ? r.atmos : DEFAULTS.atmos,
     sound: r.sound === true,
     zen: false,                                   // never start hidden — you'd think it broke
+    focusMode: VALID_FOCUS_MODES.includes(r.focusMode as FocusMode) ? r.focusMode as FocusMode : DEFAULTS.focusMode,
+    focusDarkness: typeof r.focusDarkness === 'number' ? Math.max(0.4, Math.min(0.95, r.focusDarkness)) : DEFAULTS.focusDarkness,
     typo: { ...TYPO, ...(r.typo && typeof r.typo === 'object' ? r.typo : {}) },
     page: Math.max(1, r.page || 1),
     bookmarks: arr(r.bookmarks), highlights: arr(r.highlights),
@@ -436,6 +448,7 @@ const I = {
   play: 'M6 4l14 8-14 8z',
   define: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2zM10 7h6M10 11h4',
   ruler: 'M3 8h18M3 16h18M6 12h12',
+  focusMenu: 'M12 3v1m0 16v1m-9-9H2m20 0h-1m-2.64-6.36-.7.7M6.34 17.66l-.7.7m12.72 0-.7-.7M6.34 6.34l-.7-.7M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0z',
 };
 function Ico({ d, s = 16 }: { d: string; s?: number }) {
   return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
@@ -492,6 +505,7 @@ function Reader({ objId }: { objId: string }) {
   const [annot, setAnnot] = useState(false);
   const [roomOpen, setRoomOpen] = useState(false);
   const [typeOpen, setTypeOpen] = useState(false);
+  const [focusOpen, setFocusOpen] = useState(false);
   const [roomTab, setRoomTab] = useState<RoomGroup | 'All'>('All');
   const [card, setCard] = useState<{ label: string; blurb: string } | null>(null);
   const [toast, setToast] = useState('');
@@ -510,7 +524,8 @@ function Reader({ objId }: { objId: string }) {
   const voices = useVoices();
   const [define, setDefine] = useState(false);
   const [lookup, setLookup] = useState<null | { word: string; x: number; y: number; loading: boolean; phonetic?: string; defs?: { pos: string; text: string }[]; error?: string }>(null);
-  const [rulerY, setRulerY] = useState(0.5);
+  const [focusY, setFocusY] = useState(0.5);
+  const [focusX, setFocusX] = useState(0.5);
   const toggleBookmarkRef = useRef<null | (() => void)>(null);
   const once = useOnce();
 
@@ -1193,7 +1208,10 @@ function Reader({ objId }: { objId: string }) {
       <div className="pdfr-stage" data-define={define ? '1' : '0'}
         style={{ position: 'absolute', inset: 0, top: st.zen ? 0 : 14, bottom: st.zen ? 0 : stripShown ? 190 : 82, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto', padding: st.zen ? '4px 8px' : '10px 22px', zIndex: 5 }}
         onClick={onStageClick}
-        onMouseMove={st.ruler ? (e) => setRulerY(e.clientY / Math.max(1, window.innerHeight)) : undefined}>
+        onMouseMove={st.ruler ? (e) => {
+          setFocusY(e.clientY / Math.max(1, window.innerHeight));
+          setFocusX(e.clientX / Math.max(1, window.innerWidth));
+        } : undefined}>
         {loadErr ? (
           <div className="pdfr-loading"><div style={{ fontSize: 15, fontWeight: 600 }}>{loadErr}</div><button className="pdfr-btn active" onClick={doClose}>Close</button></div>
         ) : !session ? (
@@ -1210,10 +1228,29 @@ function Reader({ objId }: { objId: string }) {
         )}
       </div>
 
-      {/* the line you are on — everything else dims away */}
+      {/* Focus overlay — multiple creative reading-aid modes */}
       {st.ruler && (
-        <div className="pdfr-ruler" aria-hidden style={{ ['--y' as string]: `${(rulerY * 100).toFixed(2)}%` }}>
-          <div className="above" /><div className="band" /><div className="below" />
+        <div
+          className={`pdfr-focus pdfr-focus-${st.focusMode}`}
+          aria-hidden
+          style={{
+            ['--fy' as string]: `${(focusY * 100).toFixed(2)}%`,
+            ['--fx' as string]: `${(focusX * 100).toFixed(2)}%`,
+            ['--focus-dim' as string]: String(st.focusDarkness),
+            /* In book mode, confine the ruler to whichever half the cursor is on.
+               The spine sits roughly at 50% of the stage; cursor left of it →
+               clip the overlay to the left page, cursor right → right page. */
+            ['--ruler-left' as string]: isBook && st.focusMode === 'ruler' && focusX > 0.52 ? '50%' : '0',
+            ['--ruler-right' as string]: isBook && st.focusMode === 'ruler' && focusX < 0.48 ? '50%' : '0',
+          }}
+        >
+          {st.focusMode === 'ruler' && (
+            <><div className="above" /><div className="band" /><div className="below" /></>
+          )}
+          {st.focusMode === 'spotlight' && <div className="spot" />}
+          {st.focusMode === 'torch' && <div className="cone" />}
+          {st.focusMode === 'keyhole' && <div className="slit" />}
+          {st.focusMode === 'matchstick' && <div className="glow" />}
         </div>
       )}
 
@@ -1261,7 +1298,10 @@ function Reader({ objId }: { objId: string }) {
         <button className={`pdfr-btn ${speech.on ? 'active' : ''}`} title={speech.on ? 'Stop reading aloud' : 'Read this page aloud'}
           onClick={once(() => setSpeech((sp) => ({ ...sp, on: !sp.on, paused: false, idx: sp.on ? 0 : sp.idx })))}><Ico d={I.speak} s={15} /></button>
         <button className={`pdfr-btn ${define ? 'active' : ''}`} title="Tap any word for its meaning" onClick={once(() => { setDefine(!define); setLookup(null); })}><Ico d={I.define} s={15} /></button>
-        <button className={`pdfr-btn ${st.ruler ? 'active' : ''}`} title="Focus the line you're on" onClick={once(() => set({ ruler: !st.ruler }))}><Ico d={I.ruler} s={15} /></button>
+        <button className={`pdfr-btn ${st.ruler ? 'active' : ''}`} title="Reading focus" onClick={once(() => {
+          if (st.ruler) { set({ ruler: false }); setFocusOpen(false); }
+          else { set({ ruler: true }); setFocusOpen(true); setRoomOpen(false); setTypeOpen(false); }
+        })}><Ico d={I.focusMenu} s={15} /></button>
         <div className="pdfr-sep" />
         <button className={`pdfr-btn ${bookmarked ? 'active' : ''}`} title="Bookmark this page (B)" onClick={once(() => toggleBookmark(st.page))}><Ico d={I.bookmark} s={15} /></button>
         <button className={`pdfr-btn ${annot || tool !== 'none' ? 'active' : ''}`} title="Mark up the page" onClick={once(() => { setAnnot(!annot); if (annot) setTool('none'); })}><Ico d={I.draw} s={15} /></button>
@@ -1278,6 +1318,17 @@ function Reader({ objId }: { objId: string }) {
       {typeOpen && (
         <TypePanel typo={st.typo} onChange={(t) => set({ typo: { ...st.typo, ...t } })} onClose={() => setTypeOpen(false)}
           layout={st.layout} onTypeset={() => setLayout('typeset')} />
+      )}
+
+      {focusOpen && st.ruler && (
+        <FocusPanel
+          mode={st.focusMode}
+          darkness={st.focusDarkness}
+          onModeChange={(m) => set({ focusMode: m })}
+          onDarknessChange={(d) => set({ focusDarkness: d })}
+          onClose={() => setFocusOpen(false)}
+          bottom={stripShown ? 236 : 128}
+        />
       )}
 
       {roomOpen && (
@@ -1398,6 +1449,41 @@ function Typeset({ paras, typo, width, speaking }: { paras: string[][] | null; t
           })}
         </p>
       ))}
+    </div>
+  );
+}
+/* ------------------------------ focus panel ------------------------------ */
+/** Floating panel for the reading-focus toolkit: five modes + a darkness dial.
+ *  Styled like the speak-bar (same glass, same border, same positioning). */
+function FocusPanel({ mode, darkness, onModeChange, onDarknessChange, onClose, bottom }: {
+  mode: FocusMode; darkness: number;
+  onModeChange: (m: FocusMode) => void; onDarknessChange: (d: number) => void;
+  onClose: () => void; bottom: number;
+}) {
+  return (
+    <div className="pdfr-speakbar pdfr-focuspanel" style={{ bottom }} onClick={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
+      <div className="row" style={{ gap: 6 }}>
+        <span className="lbl" style={{ marginRight: 2 }}>Mode</span>
+        <div className="pdfr-seg">
+          {FOCUS_MODES.map((f) => (
+            <button key={f.id} className={`pdfr-btn ${mode === f.id ? 'active' : ''}`} title={f.label}
+              onClick={() => onModeChange(f.id)}>
+              <Ico d={f.icon} s={14} />
+            </button>
+          ))}
+        </div>
+        <div className="pdfr-sep" />
+        <button className="pdfr-btn" title="Close" onClick={onClose}><Ico d={I.close} s={13} /></button>
+      </div>
+      <div className="row" style={{ gap: 6 }}>
+        <span className="lbl" style={{ marginRight: 2 }}>Dim</span>
+        <input className="pdfr-range" style={{ flex: 1 }} type="range" min={0.4} max={0.95} step={0.01}
+          value={darkness} onChange={(e) => onDarknessChange(parseFloat(e.target.value))} />
+        <span className="rate" style={{ width: 38 }}>{Math.round(darkness * 100)}%</span>
+      </div>
+      <div className="row" style={{ gap: 6, fontSize: 10.5, opacity: 0.55, fontWeight: 500 }}>
+        {FOCUS_MODES.find((f) => f.id === mode)?.label} — move the cursor across the page
+      </div>
     </div>
   );
 }

@@ -466,14 +466,95 @@
 .pdfr-root[data-aged="1"] .pdfr-typeset { filter: sepia(0.4) saturate(1.2) contrast(0.97); }
 
 /* ============================== reading aids ============================= */
-/* The line you're on. Everything above and below is dimmed, not hidden — you
-   still want to see where you are in the page. */
-.pdfr-ruler { position: absolute; inset: 0; z-index: 12; pointer-events: none; }
-.pdfr-ruler .above, .pdfr-ruler .below { position: absolute; left: 0; right: 0; background: rgba(4,3,2,0.55); backdrop-filter: saturate(0.7); }
-.pdfr-ruler .above { top: 0; height: calc(var(--y) - 3.2em); }
-.pdfr-ruler .below { top: calc(var(--y) + 3.2em); bottom: 0; }
-.pdfr-ruler .band { position: absolute; left: 0; right: 0; top: calc(var(--y) - 3.2em); height: 6.4em;
-  box-shadow: inset 0 22px 26px -22px rgba(4,3,2,0.55), inset 0 -22px 26px -22px rgba(4,3,2,0.55); }
+/* The focus toolkit — five modes, all driven by custom properties set from JSX:
+   --fy, --fx (cursor %), --focus-dim (overlay darkness), --ruler-left/right (page clip). */
+.pdfr-focus { position: absolute; inset: 0; z-index: 12; pointer-events: none; }
+
+/* --- RULER: horizontal band follows cursor Y, everything else dimmed --- */
+.pdfr-focus-ruler { left: var(--ruler-left, 0); right: var(--ruler-right, 0); }
+.pdfr-focus-ruler .above, .pdfr-focus-ruler .below {
+  position: absolute; left: 0; right: 0;
+  background: rgba(4,3,2, var(--focus-dim, 0.72));
+  backdrop-filter: saturate(0.65);
+  transition: background 120ms ease;
+}
+.pdfr-focus-ruler .above { top: 0; height: calc(var(--fy) - 2.8em); }
+.pdfr-focus-ruler .below { top: calc(var(--fy) + 2.8em); bottom: 0; }
+.pdfr-focus-ruler .band {
+  position: absolute; left: 0; right: 0;
+  top: calc(var(--fy) - 2.8em); height: 5.6em;
+  box-shadow: inset 0 18px 22px -18px rgba(4,3,2, var(--focus-dim, 0.72)),
+              inset 0 -18px 22px -18px rgba(4,3,2, var(--focus-dim, 0.72));
+}
+
+/* --- SPOTLIGHT: soft circular reveal centered on cursor --- */
+.pdfr-focus-spotlight .spot {
+  position: absolute; inset: 0;
+  background: rgba(4,3,2, var(--focus-dim, 0.72));
+  mask-image: radial-gradient(circle 180px at var(--fx) var(--fy), transparent 40%, black 100%);
+  -webkit-mask-image: radial-gradient(circle 180px at var(--fx) var(--fy), transparent 40%, black 100%);
+  backdrop-filter: saturate(0.6);
+  transition: mask-image 60ms ease, -webkit-mask-image 60ms ease;
+}
+
+/* --- TORCH: downward cone of light from cursor position --- */
+.pdfr-focus-torch .cone {
+  position: absolute; inset: 0;
+  background: rgba(4,3,2, var(--focus-dim, 0.72));
+  mask-image: radial-gradient(ellipse 200px 260px at var(--fx) var(--fy), transparent 30%, black 100%);
+  -webkit-mask-image: radial-gradient(ellipse 200px 260px at var(--fx) var(--fy), transparent 30%, black 100%);
+  backdrop-filter: saturate(0.6);
+}
+
+/* --- KEYHOLE: tall narrow vertical strip centered on cursor X --- */
+.pdfr-focus-keyhole .slit {
+  position: absolute; inset: 0;
+  background: rgba(4,3,2, var(--focus-dim, 0.72));
+  mask-image:
+    linear-gradient(to right,
+      black 0%, black calc(var(--fx) - 120px),
+      transparent calc(var(--fx) - 80px),
+      transparent calc(var(--fx) + 80px),
+      black calc(var(--fx) + 120px), black 100%
+    );
+  -webkit-mask-image:
+    linear-gradient(to right,
+      black 0%, black calc(var(--fx) - 120px),
+      transparent calc(var(--fx) - 80px),
+      transparent calc(var(--fx) + 80px),
+      black calc(var(--fx) + 120px), black 100%
+    );
+  backdrop-filter: saturate(0.6);
+}
+
+/* --- MATCHSTICK: warm amber glow with subtle flicker animation --- */
+.pdfr-focus-matchstick .glow {
+  position: absolute; inset: 0;
+  background: rgba(4,3,2, var(--focus-dim, 0.72));
+  mask-image: radial-gradient(ellipse 160px 180px at var(--fx) var(--fy), transparent 35%, black 100%);
+  -webkit-mask-image: radial-gradient(ellipse 160px 180px at var(--fx) var(--fy), transparent 35%, black 100%);
+  backdrop-filter: saturate(0.6);
+  animation: matchFlicker 0.8s ease-in-out infinite alternate;
+}
+/* The warm tint: a second pseudo-layer that adds amber inside the reveal */
+.pdfr-focus-matchstick::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 160px 180px at var(--fx) var(--fy), rgba(255,180,80,0.08) 0%, transparent 70%);
+  pointer-events: none;
+  animation: matchFlicker 0.8s ease-in-out infinite alternate-reverse;
+}
+
+@keyframes matchFlicker {
+  0%   { opacity: 1; }
+  25%  { opacity: 0.94; }
+  50%  { opacity: 0.98; }
+  75%  { opacity: 0.92; }
+  100% { opacity: 0.97; }
+}
+
+/* The focus panel inherits .pdfr-speakbar; this just tightens it a little. */
+.pdfr-focuspanel { width: min(94vw, 480px); }
 
 /* Tap-to-define: the pointer says so, and the card lands under the word. */
 .pdfr-stage[data-define="1"] { cursor: help; }
