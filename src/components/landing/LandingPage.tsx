@@ -27,6 +27,7 @@ import { exportBoardById } from '@/lib/boardIO';
 import { applyCanvasTheme, resetCanvasTheme, presetById, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 import { CanvasBlueprint, CanvasCardPreview, Highlight } from './CanvasPreview';
 import { searchCanvases, type Scored } from '@/lib/canvasSearch';
+import { toast } from '@/store/toastStore';
 import { useCanvasStore } from '@/store/canvasStore';
 import {
   CANVAS_TEMPLATES,
@@ -404,7 +405,11 @@ export default function LandingPage() {
       return;
     }
     if (categories.includes(finalNewName)) {
-      alert('Category name already exists!');
+      /* Was `alert()` — a modal browser dialog that freezes the page, cannot be
+         styled, and lands like a system error on top of a hand-tuned interface,
+         for what is merely a naming collision. The rename is abandoned either
+         way; the user just needs to know why. */
+      toast.error(`There's already a category called "${finalNewName}"`);
       setEditingCategory(null);
       return;
     }
@@ -481,7 +486,23 @@ export default function LandingPage() {
     }
     setArmedDeleteId(null);
     setWorkspaces((prev) => prev.filter((w) => w.id !== ws.id));
-    await deleteCanvasPermanently(ws.id);
+    try {
+      await deleteCanvasPermanently(ws.id);
+      /* The card vanishing is ambiguous — it looks the same as a card being
+         filtered out of the current view. This is the one action in the app
+         with no undo, so it is the one that most needs an explicit receipt
+         naming exactly what went. */
+      toast.success(`Deleted “${ws.title || 'Untitled canvas'}”`, { detail: 'This one could not be undone.' });
+    } catch (err) {
+      /* The row was already removed from the list optimistically, so a failure
+         here means the screen and the database now disagree — the user has to
+         be told, or they will believe a board is gone that is about to
+         reappear on the next load. */
+      setWorkspaces((prev) => [...prev, ws]);
+      toast.error("Couldn't delete that board", {
+        detail: err instanceof Error ? err.message : 'It has been put back.',
+      });
+    }
   };
 
   const trashCount = workspaces.filter((w) => w.deleted).length;
@@ -496,6 +517,12 @@ export default function LandingPage() {
     const doomed = workspaces.filter((w) => w.deleted);
     setWorkspaces((prev) => prev.filter((w) => !w.deleted));
     for (const ws of doomed) await deleteCanvasPermanently(ws.id);
+    // Emptying the trash removes several boards at once from a list the user
+    // may not have been reading closely. Saying how many landed is the
+    // difference between "did that work?" and a completed action.
+    if (doomed.length) {
+      toast.success(`Trash emptied — ${doomed.length} ${doomed.length === 1 ? 'board' : 'boards'} deleted`);
+    }
   };
 
   const startRenaming = (e: React.MouseEvent, id: string, currentTitle: string) => {

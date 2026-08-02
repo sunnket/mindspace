@@ -8,6 +8,7 @@ import { getAnimPreset } from '@/lib/textAnim';
 import type { TextAnimConfig } from '@/lib/textAnim';
 import { getFrameKind, frameKindMeta, frameTitle } from '@/lib/frames';
 import { paperColor, ensureReadableInk } from '@/lib/canvasTheme';
+import { toast } from '@/store/toastStore';
 import RailShell, { type RailAction } from './RailShell';
 import ShapePicker from './ShapePicker';
 import {
@@ -195,7 +196,13 @@ export default function SelectionRail() {
       await navigator.clipboard.writeText(url);
       setLinked(true);
       setTimeout(() => setLinked(false), 1400);
-    } catch { /* clipboard blocked */ }
+    } catch {
+      /* The clipboard API rejects on an insecure origin and whenever the
+         browser decides the write wasn't user-initiated. Silently swallowing
+         that left the button looking like it had done nothing — the user
+         pastes, gets their previous clipboard contents, and never learns why. */
+      toast.error("Couldn't copy the link", { detail: 'Your browser blocked clipboard access.' });
+    }
   };
 
   const activeHeading = HEADINGS.find((h) => h.size === (S.fontSize as number) && h.weight === (S.fontWeight as number))?.id

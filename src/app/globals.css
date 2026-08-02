@@ -1387,3 +1387,233 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
   filter: invert(0.9) hue-rotate(180deg);
 }
 
+/* ============================================
+   The notice layer (components/ui/Toaster.tsx).
+
+   Sits in the one lane no other chrome claims — directly above the floating
+   toolbar (bottom: 32px, ~56px tall), centred. The CONTAINER never takes a
+   pointer event; only the cards do. That distinction is the whole reason a
+   notice can float over a live board without ever eating a drag, a marquee
+   selection, or a toolbar flyout opening underneath it.
+
+   The z-index is one above the tour player's 999999 — the only thing in the
+   app deliberately painted over everything else. A message about a failed save
+   has to be readable even while a guided tour is running.
+   ============================================ */
+.toaster {
+  position: fixed;
+  left: 50%;
+  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 1000000;
+  pointer-events: none;
+  width: min(420px, calc(100vw - 32px));
+}
+
+.toaster-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px 11px 13px;
+  border-radius: var(--radius-md);
+  background: #FFFDFA;
+  border: 1px solid rgba(var(--accent-rgb), 0.10);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.95),
+    0 18px 40px -18px rgba(90, 62, 40, 0.28),
+    0 4px 10px -6px rgba(90, 62, 40, 0.10);
+  /* Clay, not glass, for the same reason every menu in this app is clay: a
+     notice is something you READ, and 65% opacity over a busy board is not a
+     surface you can read on. See the "Menus and option cards" note above. */
+}
+
+/* The kind is carried by a colour BAR on the leading edge rather than by
+   tinting the whole card. Tinting the surface would fight the warm paper the
+   rest of the app is made of — and, more practically, a full red card reads as
+   an alarm for something that is usually just information. */
+.toast::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--toast-accent);
+}
+.toast { position: relative; overflow: hidden; }
+
+.toast-success { --toast-accent: #4B9E6A; }
+.toast-error   { --toast-accent: #C4553D; }
+.toast-info    { --toast-accent: var(--accent); }
+
+.toast-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: var(--toast-accent);
+}
+
+.toast-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toast-message {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+
+.toast-detail {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  /* Detail lines are frequently a raw server message, which can be one
+     unbroken 300-character string. Without this it would push the card wider
+     than the viewport. */
+  overflow-wrap: anywhere;
+}
+
+.toast-action {
+  flex: none;
+  align-self: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--toast-accent);
+  background: color-mix(in srgb, var(--toast-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--toast-accent) 22%, transparent);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+.toast-action:hover {
+  background: color-mix(in srgb, var(--toast-accent) 20%, transparent);
+}
+
+.toast-close {
+  flex: none;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-top: -1px;
+  border-radius: 6px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms ease, color 140ms ease, background 140ms ease;
+}
+/* The close button is revealed on hover OR on keyboard focus. Without the
+   `:focus-within` half, a keyboard user tabbing to it would be moving focus to
+   something invisible. */
+.toast:hover .toast-close,
+.toast:focus-within .toast-close {
+  opacity: 1;
+}
+.toast-close:hover {
+  color: var(--text-primary);
+  background: rgba(45, 42, 38, 0.07);
+}
+
+:root[data-canvas-theme="dark"] .toast {
+  background: #1C1A18;
+  border-color: rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 20px 44px -18px rgba(0, 0, 0, 0.7);
+}
+:root[data-canvas-theme="dark"] .toast-close:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+@media (max-width: 820px) {
+  /* The phone toolbar sits lower and the trash bin is gone, so the notice
+     column can come down with it and use the full width it is given. */
+  .toaster {
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+    width: calc(100vw - 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-action,
+  .toast-close { transition: none; }
+}
+
+/* The shared-board skeleton (app/s/[token]/page.tsx).
+
+   Its own keyframes rather than `.clay-skeleton`, because that one shimmers a
+   light warm gradient built for the cream paper — on the black screen this
+   route paints, it reads as a bright flashing rectangle. Here the cards breathe
+   between two barely-there values instead. */
+@keyframes share-skeleton-breathe {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+.share-skeleton-card {
+  background: rgba(255, 253, 250, 0.05);
+  border: 1px solid rgba(255, 253, 250, 0.07);
+  animation: share-skeleton-breathe 1.9s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .share-skeleton-card { animation: none; opacity: 0.75; }
+}
+
+/* ============================================
+   Keyboard focus.
+
+   This app had exactly one `:focus-within` rule in 1400 lines — which meant
+   that for anyone driving it from the keyboard, focus was INVISIBLE. Tabbing
+   moved an unseeable cursor through a canvas full of icon-only buttons.
+
+   `:focus-visible` (not `:focus`) is the correct selector: the browser only
+   matches it when focus arrived by keyboard, so a mouse click on a button does
+   NOT leave a ring stuck behind it. That single distinction is why this can be
+   applied globally without the visual noise that made everyone turn outlines
+   off in the first place.
+
+   `:where()` keeps the specificity of the whole selector at ZERO, so any
+   component that wants a different focus treatment overrides this with a plain
+   class — nothing here needs `!important` to beat, and nothing here will
+   silently win over a deliberate local style.
+   ============================================ */
+:where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Contenteditable surfaces (RichText blocks) are the exception: they show a
+   caret, which is already an unambiguous focus indicator, and a ring around a
+   block you are typing into is pure noise. */
+:where([contenteditable="true"]):focus-visible {
+  outline: none;
+}
+
+/* On the dark paper the warm accent alone is too low-contrast against a dark
+   card, so the ring gets a light halo to separate it from whatever is behind. */
+:root[data-canvas-theme="dark"] :where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline-color: var(--accent-light);
+  box-shadow: 0 0 0 4px rgba(232, 169, 123, 0.16);
+}
+

@@ -25,6 +25,7 @@ import {
 } from '@/lib/db';
 import dynamic from 'next/dynamic';
 import CanvasObject from './CanvasObject';
+import BlockErrorBoundary from './BlockErrorBoundary';
 import FlowModeLayer from './FlowModeLayer';
 import DrawingLayer from './DrawingLayer';
 import ConnectionsLayer from './ConnectionsLayer';
@@ -1937,11 +1938,26 @@ export default function InfiniteCanvas() {
               full real component at every zoom level. */}
           {visibleObjects.map((obj) => (
             <div key={obj.id} data-object-id={obj.id}>
-              <CanvasObject
-                obj={obj}
-                isSelected={selectedId === obj.id}
-                isFocused={focusedId === obj.id}
-              />
+              {/* Per-block crash shield. A block renders data the app did not
+                  author — a pasted URL, an imported file, an older schema, an
+                  AI response — so any one of them can throw on render. Without
+                  a boundary here that throw reaches the root and React unmounts
+                  the whole board to a white page. Scoped this tightly, the
+                  blast radius is one card and the other ninety-nine stay live.
+                  See BlockErrorBoundary for why it isn't a class component. */}
+              <BlockErrorBoundary
+                x={obj.x}
+                y={obj.y}
+                width={obj.width}
+                height={obj.height}
+                label={obj.type}
+              >
+                <CanvasObject
+                  obj={obj}
+                  isSelected={selectedId === obj.id}
+                  isFocused={focusedId === obj.id}
+                />
+              </BlockErrorBoundary>
             </div>
           ))}
 
