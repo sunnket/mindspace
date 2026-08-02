@@ -21,7 +21,7 @@
  * signed-in users) and is flushed synchronously on close.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 /* The reader's own stylesheets, imported HERE rather than from globals.css.
    Together they're 140KB, and as globals they sat in the render-blocking CSS of
@@ -183,27 +183,111 @@ interface Typo {
 }
 const TYPO: Typo = { font: 'literata', size: 20, leading: 1.62, measure: 66, justify: false, bionic: false, paper: 'cream' };
 
-type FocusMode = 'ruler' | 'spotlight' | 'torch' | 'keyhole' | 'matchstick';
-const FOCUS_MODES: { id: FocusMode; label: string; icon: string }[] = [
-  { id: 'ruler',      label: 'Line ruler',   icon: 'M3 8h18M3 16h18M6 12h12' },
-  { id: 'spotlight',  label: 'Spotlight',     icon: 'M12 2v4M4.93 4.93l2.83 2.83M2 12h4M4.93 19.07l2.83-2.83M12 18v4M19.07 19.07l-2.83-2.83M22 12h-4M19.07 4.93l-2.83 2.83' },
-  { id: 'torch',      label: 'Torch',         icon: 'M12 2v6M8 14a4 4 0 0 0 8 0l-2-8h-4zM10 18h4M11 22h2' },
-  { id: 'keyhole',    label: 'Keyhole',       icon: 'M12 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM10 10v10h4V10' },
-  { id: 'matchstick', label: 'Matchlight',    icon: 'M12 2c-2 3-4 5-4 8a4 4 0 0 0 8 0c0-3-2-5-4-8zM10 20h4v2h-4z' },
+/* ------------------------------------------------------------------
+   READING FOCUS — eleven ways to light a page.
+
+   The first version of this was five masks: a black rectangle with a hole
+   punched in it, the hole a slightly different shape each time. That is not
+   how any of the things it was named after behave. A match does not dim the
+   room by 72% inside a tidy ellipse; it throws a small, hot, unsteady light
+   that is nearly white at the wick, orange a hand's width out, and gone. A
+   torch has a beam you can see. A keyhole is a keyhole shape. And a reading
+   ruler is a physical card lying on the paper — it has edges, and edges cast
+   shadows.
+
+   Two ideas carry the rebuild, and they are what make these read as light
+   rather than as holes:
+
+     · LIGHT IS ADDITIVE. Every lamp here paints a `plus-lighter` layer that
+       genuinely brightens the paper inside its pool, on top of the layer that
+       darkens everything else. A hole in a dark sheet can only ever reveal;
+       real light arrives.
+     · LIGHT HAS A COLOUR, AND IT CHANGES AS IT FALLS OFF. Warm sources go
+       amber then red at the edge of their reach, cold ones go blue. That
+       gradient across a single pool is most of what your eye reads as
+       "a flame" versus "a circle".
+
+   Flame modes get a third: they MOVE. A flicker that only changes opacity
+   reads as a failing bulb; a real flame wanders a few pixels and changes size
+   while it does it.
+   ------------------------------------------------------------------ */
+type FocusMode =
+  | 'ruler' | 'typoscope' | 'tint'
+  | 'spotlight' | 'torch' | 'lamp' | 'keyhole'
+  | 'matchstick' | 'candle'
+  | 'window' | 'moon';
+
+type FocusGroup = 'Guides' | 'Lamps' | 'Flame' | 'Daylight';
+const FOCUS_GROUPS: FocusGroup[] = ['Guides', 'Lamps', 'Flame', 'Daylight'];
+
+interface FocusDef {
+  id: FocusMode;
+  group: FocusGroup;
+  label: string;
+  blurb: string;
+  icon: string;
+  /** Reveal follows the cursor's X as well as its Y. */
+  tracksX?: boolean;
+}
+
+const FOCUS_MODES: FocusDef[] = [
+  { id: 'ruler', group: 'Guides', label: 'Line ruler', icon: 'M3 8h18M3 16h18M6 12h12',
+    blurb: 'A card with a slot cut in it, laid across the line you are on.' },
+  { id: 'typoscope', group: 'Guides', label: 'Typoscope', icon: 'M4 5h16v14H4zM8 9h8v6H8z', tracksX: true,
+    blurb: 'The same card, but a window — a few lines at a time instead of one.' },
+  { id: 'tint', group: 'Guides', label: 'Colour film', icon: 'M12 3l7 5v8l-7 5-7-5V8z', tracksX: true,
+    blurb: 'A coloured sheet over the page. Hides nothing, calms everything.' },
+
+  { id: 'spotlight', group: 'Lamps', label: 'Spotlight', icon: 'M12 2v4M4.93 4.93l2.83 2.83M2 12h4M4.93 19.07l2.83-2.83M12 18v4M19.07 19.07l-2.83-2.83M22 12h-4M19.07 4.93l-2.83 2.83', tracksX: true,
+    blurb: 'A theatre lamp overhead. Clean white, hard centre, soft rim.' },
+  { id: 'torch', group: 'Lamps', label: 'Torch', icon: 'M12 2v6M8 14a4 4 0 0 0 8 0l-2-8h-4zM10 18h4M11 22h2', tracksX: true,
+    blurb: 'A hand torch: you can see the beam, and its hot spot.' },
+  { id: 'lamp', group: 'Lamps', label: 'Desk lamp', icon: 'M9 3h6l3 8H6zM12 11v7M8 21h8', tracksX: true,
+    blurb: 'Steady, warm, angled in from the left the way a desk lamp is.' },
+  { id: 'keyhole', group: 'Lamps', label: 'Keyhole', icon: 'M12 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM10 10v10h4V10', tracksX: true,
+    blurb: 'Read it like you are not supposed to be.' },
+
+  { id: 'matchstick', group: 'Flame', label: 'Matchlight', icon: 'M12 2c-2 3-4 5-4 8a4 4 0 0 0 8 0c0-3-2-5-4-8zM10 20h4v2h-4z', tracksX: true,
+    blurb: 'Small, hot and never quite still. Burns for as long as you read.' },
+  { id: 'candle', group: 'Flame', label: 'Candle', icon: 'M12 2c-1.6 2.4-3 4-3 6a3 3 0 0 0 6 0c0-2-1.4-3.6-3-6zM9 12h6v9H9z', tracksX: true,
+    blurb: 'Wider than a match and far calmer. Leans when it breathes.' },
+
+  { id: 'window', group: 'Daylight', label: 'Window light', icon: 'M4 3h16v18H4zM12 3v18M4 12h16', tracksX: true,
+    blurb: 'An afternoon shaft falling across the page, dust and all.' },
+  { id: 'moon', group: 'Daylight', label: 'Moonlight', icon: 'M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z', tracksX: true,
+    blurb: 'Cold, dim and wide. Just enough to make out the words.' },
+];
+
+const FOCUS_BY_ID = new Map(FOCUS_MODES.map((f) => [f.id, f]));
+
+/** Colours for the film — the classic overlay tints, not a rainbow picker. */
+const FILM_TINTS: { id: string; label: string; rgb: string }[] = [
+  { id: 'amber', label: 'Amber', rgb: '214, 158, 74' },
+  { id: 'rose', label: 'Rose', rgb: '212, 128, 138' },
+  { id: 'mint', label: 'Mint', rgb: '116, 186, 152' },
+  { id: 'sky', label: 'Sky', rgb: '116, 162, 210' },
+  { id: 'violet', label: 'Violet', rgb: '150, 132, 208' },
+  { id: 'grey', label: 'Grey', rgb: '150, 148, 146' },
 ];
 
 interface ReaderState {
   page: number; layout: Layout; atmos: Atmos; aged: boolean; strip: boolean; sound: boolean;
   zen: boolean; ruler: boolean; focusMode: FocusMode; focusDarkness: number; typo: Typo;
+  /** How far the light reaches, as a multiplier on each mode's natural size. */
+  focusSize: number;
+  /** Kill the flicker and the wander. Some people cannot read next to them. */
+  focusSteady: boolean;
+  /** Which tint the colour film uses. */
+  focusTint: string;
   bookmarks: number[]; highlights: Highlight[]; drawings: Stroke[]; stickies: Sticky[];
 }
 const DEFAULTS: ReaderState = {
   page: 1, layout: 'scroll', atmos: 'library', aged: false, strip: true, sound: false,
   zen: false, ruler: false, focusMode: 'ruler', focusDarkness: 0.72, typo: TYPO,
+  focusSize: 1, focusSteady: false, focusTint: 'amber',
   bookmarks: [], highlights: [], drawings: [], stickies: [],
 };
 function arr<T>(v: unknown): T[] { return Array.isArray(v) ? v as T[] : []; }
-const VALID_FOCUS_MODES: FocusMode[] = ['ruler', 'spotlight', 'torch', 'keyhole', 'matchstick'];
 function initState(raw: unknown): ReaderState {
   const r = (raw && typeof raw === 'object') ? raw as Partial<ReaderState> : {};
   return {
@@ -211,8 +295,13 @@ function initState(raw: unknown): ReaderState {
     atmos: isRoom(r.atmos) ? r.atmos : DEFAULTS.atmos,
     sound: r.sound === true,
     zen: false,                                   // never start hidden — you'd think it broke
-    focusMode: VALID_FOCUS_MODES.includes(r.focusMode as FocusMode) ? r.focusMode as FocusMode : DEFAULTS.focusMode,
+    // A board saved before a mode existed (or after one was renamed) falls back
+    // rather than rendering an overlay with no rules attached to it.
+    focusMode: FOCUS_BY_ID.has(r.focusMode as FocusMode) ? r.focusMode as FocusMode : DEFAULTS.focusMode,
     focusDarkness: typeof r.focusDarkness === 'number' ? Math.max(0.4, Math.min(0.95, r.focusDarkness)) : DEFAULTS.focusDarkness,
+    focusSize: typeof r.focusSize === 'number' ? Math.max(0.55, Math.min(2, r.focusSize)) : DEFAULTS.focusSize,
+    focusSteady: r.focusSteady === true,
+    focusTint: FILM_TINTS.some((t) => t.id === r.focusTint) ? r.focusTint as string : DEFAULTS.focusTint,
     typo: { ...TYPO, ...(r.typo && typeof r.typo === 'object' ? r.typo : {}) },
     page: Math.max(1, r.page || 1),
     bookmarks: arr(r.bookmarks), highlights: arr(r.highlights),
@@ -1208,7 +1297,12 @@ function Reader({ objId }: { objId: string }) {
       <div className="pdfr-stage" data-define={define ? '1' : '0'}
         style={{ position: 'absolute', inset: 0, top: st.zen ? 0 : 14, bottom: st.zen ? 0 : stripShown ? 190 : 82, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto', padding: st.zen ? '4px 8px' : '10px 22px', zIndex: 5 }}
         onClick={onStageClick}
-        onMouseMove={st.ruler ? (e) => {
+        /* Pointer, not mouse. A touchscreen never sends a mousemove for a
+           travelling finger, so on a phone or a tablet every one of these
+           lights sat frozen at the middle of the page — the one place you are
+           not reading. `pointermove` is the same event for a mouse and adds
+           the finger and the pen for nothing. */
+        onPointerMove={st.ruler ? (e) => {
           setFocusY(e.clientY / Math.max(1, window.innerHeight));
           setFocusX(e.clientX / Math.max(1, window.innerWidth));
         } : undefined}>
@@ -1228,30 +1322,17 @@ function Reader({ objId }: { objId: string }) {
         )}
       </div>
 
-      {/* Focus overlay — multiple creative reading-aid modes */}
+      {/* Focus overlay — eleven reading lights, see FOCUS_MODES */}
       {st.ruler && (
-        <div
-          className={`pdfr-focus pdfr-focus-${st.focusMode}`}
-          aria-hidden
-          style={{
-            ['--fy' as string]: `${(focusY * 100).toFixed(2)}%`,
-            ['--fx' as string]: `${(focusX * 100).toFixed(2)}%`,
-            ['--focus-dim' as string]: String(st.focusDarkness),
-            /* In book mode, confine the ruler to whichever half the cursor is on.
-               The spine sits roughly at 50% of the stage; cursor left of it →
-               clip the overlay to the left page, cursor right → right page. */
-            ['--ruler-left' as string]: isBook && st.focusMode === 'ruler' && focusX > 0.52 ? '50%' : '0',
-            ['--ruler-right' as string]: isBook && st.focusMode === 'ruler' && focusX < 0.48 ? '50%' : '0',
-          }}
-        >
-          {st.focusMode === 'ruler' && (
-            <><div className="above" /><div className="band" /><div className="below" /></>
-          )}
-          {st.focusMode === 'spotlight' && <div className="spot" />}
-          {st.focusMode === 'torch' && <div className="cone" />}
-          {st.focusMode === 'keyhole' && <div className="slit" />}
-          {st.focusMode === 'matchstick' && <div className="glow" />}
-        </div>
+        <FocusOverlay
+          mode={st.focusMode} dim={st.focusDarkness} size={st.focusSize}
+          steady={st.focusSteady} tint={st.focusTint} x={focusX} y={focusY}
+          /* In book mode a ruler stays on the page you are reading. The spine
+             sits at ~50% of the stage, so a cursor past it clips the card to
+             that half instead of laying it across both pages at once. */
+          clipLeft={isBook && st.focusMode === 'ruler' && focusX > 0.52}
+          clipRight={isBook && st.focusMode === 'ruler' && focusX < 0.48}
+        />
       )}
 
       {lookup && <DefineCard {...lookup} onClose={() => setLookup(null)} />}
@@ -1287,8 +1368,8 @@ function Reader({ objId }: { objId: string }) {
             it's a property of the BOOK, and you reach for it while looking at
             the page. */}
         <button className={`pdfr-btn ${st.aged ? 'active' : ''}`} title={st.aged ? 'Crisp paper' : 'Aged paper — foxed, yellowed, older'} onClick={once(() => set({ aged: !st.aged }))}><Ico d={I.aged} s={15} /></button>
-        <button className={`pdfr-btn ${typeOpen ? 'active' : ''}`} title="Typography" onClick={once(() => { setTypeOpen(!typeOpen); setRoomOpen(false); })}><Ico d={I.type} s={15} /></button>
-        <button className={`pdfr-btn ${roomOpen ? 'active' : ''}`} title="Reading room" onClick={once(() => { setRoomOpen(!roomOpen); setTypeOpen(false); })}><Ico d={I.room} s={15} /> {room.label}</button>
+        <button className={`pdfr-btn ${typeOpen ? 'active' : ''}`} title="Typography" onClick={once(() => { setTypeOpen(!typeOpen); setRoomOpen(false); setFocusOpen(false); })}><Ico d={I.type} s={15} /></button>
+        <button className={`pdfr-btn ${roomOpen ? 'active' : ''}`} title="Reading room" onClick={once(() => { setRoomOpen(!roomOpen); setTypeOpen(false); setFocusOpen(false); })}><Ico d={I.room} s={15} /> {room.label}</button>
         {room.sound && (
           <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} title={st.sound ? 'Mute the room' : 'Let the room be heard'} onClick={once(() => set({ sound: !st.sound }))}>
             <Ico d={st.sound ? I.sound : I.mute} s={15} />
@@ -1298,9 +1379,14 @@ function Reader({ objId }: { objId: string }) {
         <button className={`pdfr-btn ${speech.on ? 'active' : ''}`} title={speech.on ? 'Stop reading aloud' : 'Read this page aloud'}
           onClick={once(() => setSpeech((sp) => ({ ...sp, on: !sp.on, paused: false, idx: sp.on ? 0 : sp.idx })))}><Ico d={I.speak} s={15} /></button>
         <button className={`pdfr-btn ${define ? 'active' : ''}`} title="Tap any word for its meaning" onClick={once(() => { setDefine(!define); setLookup(null); })}><Ico d={I.define} s={15} /></button>
-        <button className={`pdfr-btn ${st.ruler ? 'active' : ''}`} title="Reading focus" onClick={once(() => {
-          if (st.ruler) { set({ ruler: false }); setFocusOpen(false); }
-          else { set({ ruler: true }); setFocusOpen(true); setRoomOpen(false); setTypeOpen(false); }
+        <button className={`pdfr-btn ${st.ruler ? 'active' : ''}`} title="Reading focus — light to read by" onClick={once(() => {
+          /* Three states, one button, in the order you want them: off → on with
+             the picker open → on with the picker shut → off. Before, closing
+             the picker also blew the light out, so you could not have the light
+             without the panel sitting over the page you were reading. */
+          if (!st.ruler) { set({ ruler: true }); setFocusOpen(true); setRoomOpen(false); setTypeOpen(false); }
+          else if (focusOpen) setFocusOpen(false);
+          else set({ ruler: false });
         })}><Ico d={I.focusMenu} s={15} /></button>
         <div className="pdfr-sep" />
         <button className={`pdfr-btn ${bookmarked ? 'active' : ''}`} title="Bookmark this page (B)" onClick={once(() => toggleBookmark(st.page))}><Ico d={I.bookmark} s={15} /></button>
@@ -1324,10 +1410,15 @@ function Reader({ objId }: { objId: string }) {
         <FocusPanel
           mode={st.focusMode}
           darkness={st.focusDarkness}
+          size={st.focusSize}
+          steady={st.focusSteady}
+          tint={st.focusTint}
           onModeChange={(m) => set({ focusMode: m })}
           onDarknessChange={(d) => set({ focusDarkness: d })}
+          onSizeChange={(v) => set({ focusSize: v })}
+          onSteadyChange={(v) => set({ focusSteady: v })}
+          onTintChange={(t) => set({ focusTint: t })}
           onClose={() => setFocusOpen(false)}
-          bottom={stripShown ? 236 : 128}
         />
       )}
 
@@ -1455,34 +1546,249 @@ function Typeset({ paras, typo, width, speaking }: { paras: string[][] | null; t
 /* ------------------------------ focus panel ------------------------------ */
 /** Floating panel for the reading-focus toolkit: five modes + a darkness dial.
  *  Styled like the speak-bar (same glass, same border, same positioning). */
-function FocusPanel({ mode, darkness, onModeChange, onDarknessChange, onClose, bottom }: {
-  mode: FocusMode; darkness: number;
-  onModeChange: (m: FocusMode) => void; onDarknessChange: (d: number) => void;
-  onClose: () => void; bottom: number;
+/**
+ * The light itself.
+ *
+ * One component for the real overlay and for every swatch in the picker, which
+ * is the only way a preview can be trusted: the card you click renders exactly
+ * the layers that are about to land on your page, at a smaller `--r`. A
+ * hand-drawn approximation of a lighting effect is a promise the effect then
+ * has to keep.
+ *
+ * Everything geometric is expressed against `--r`, the light's reach in
+ * pixels, so a preview only has to say `--r: 34px` to become a thumbnail.
+ */
+function FocusOverlay({
+  mode, dim, size, steady, tint, x = 0.5, y = 0.52, clipLeft, clipRight, mini,
+}: {
+  mode: FocusMode; dim: number; size: number; steady: boolean; tint: string;
+  x?: number; y?: number; clipLeft?: boolean; clipRight?: boolean; mini?: boolean;
 }) {
+  const film = FILM_TINTS.find((t) => t.id === tint) || FILM_TINTS[0];
+  const base = mini ? 34 : 190;
+  const R = base * size;
+  /* Every overlay on screen owns its mask ids — the picker renders eleven of
+     these at once, and duplicate ids would have them all wear the first one's
+     keyhole. */
+  const maskId = useId().replace(/[:]/g, '');
+
+  /* The keyhole is the one shape gradients cannot draw, so it is cut with a
+     real SVG mask — and an SVG mask needs numbers, not the percentages and
+     `calc()` the rest of this file runs on. Measuring the box is the honest
+     way to get them; everything else here stays declarative. */
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el || mode !== 'keyhole') return;
+    const read = () => setBox({ w: el.clientWidth, h: el.clientHeight });
+    read();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [mode]);
+
+  const kh = useMemo(() => {
+    const cx = x * box.w;
+    const cy = y * box.h;
+    const head = R * 0.46;
+    // A real escutcheon: the bore is round, the ward slot below it tapers out
+    // to take the bit of the key. Proportions from an ordinary mortice lock.
+    const stemTop = cy + head * 0.55;
+    const stemBot = cy + R * 1.05;
+    const halfTop = head * 0.30;
+    const halfBot = head * 0.86;
+    return {
+      cx, cy: cy - R * 0.22,
+      head,
+      pts: [
+        `${cx - halfTop},${stemTop - R * 0.22}`,
+        `${cx + halfTop},${stemTop - R * 0.22}`,
+        `${cx + halfBot},${stemBot}`,
+        `${cx - halfBot},${stemBot}`,
+      ].join(' '),
+    };
+  }, [x, y, box.w, box.h, R]);
+
   return (
-    <div className="pdfr-speakbar pdfr-focuspanel" style={{ bottom }} onClick={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
-      <div className="row" style={{ gap: 6 }}>
-        <span className="lbl" style={{ marginRight: 2 }}>Mode</span>
-        <div className="pdfr-seg">
-          {FOCUS_MODES.map((f) => (
-            <button key={f.id} className={`pdfr-btn ${mode === f.id ? 'active' : ''}`} title={f.label}
-              onClick={() => onModeChange(f.id)}>
-              <Ico d={f.icon} s={14} />
-            </button>
-          ))}
+    <div
+      ref={boxRef}
+      className={`pdfr-focus pdfr-focus-${mode}${steady ? ' steady' : ''}${mini ? ' mini' : ''}`}
+      aria-hidden
+      style={{
+        ['--fy' as string]: `${(y * 100).toFixed(2)}%`,
+        ['--fx' as string]: `${(x * 100).toFixed(2)}%`,
+        ['--focus-dim' as string]: String(dim),
+        ['--r' as string]: `${(base * size).toFixed(1)}px`,
+        ['--film' as string]: film.rgb,
+        ['--ruler-left' as string]: clipLeft ? '50%' : '0',
+        ['--ruler-right' as string]: clipRight ? '50%' : '0',
+      }}
+    >
+      {/* --- Guides: physical cards and films, no light involved --- */}
+      {mode === 'ruler' && <><div className="card above" /><div className="band" /><div className="card below" /></>}
+      {mode === 'typoscope' && (
+        <><div className="card above" /><div className="card below" /><div className="card left" /><div className="card right" /><div className="win" /></>
+      )}
+      {mode === 'tint' && <><div className="film" /><div className="sheen" /></>}
+
+      {/* --- Lamps: a shade that darkens, and light that genuinely adds --- */}
+      {(mode === 'spotlight' || mode === 'lamp' || mode === 'moon') && (
+        <><div className="shade" /><div className="lit" /></>
+      )}
+      {mode === 'torch' && <><div className="shade" /><div className="beam" /><div className="lit" /></>}
+
+      {/* A keyhole is a keyhole. */}
+      {mode === 'keyhole' && box.w > 0 && (
+        <svg className="cut" width="100%" height="100%">
+          <defs>
+            <mask id={`kh-${maskId}`} maskUnits="userSpaceOnUse">
+              <rect x="0" y="0" width={box.w} height={box.h} fill="#fff" />
+              {/* Blurred, because a door is not a stencil — the edge of what
+                  you can see through a keyhole is soft. */}
+              <g fill="#000" filter={`url(#khb-${maskId})`}>
+                <circle cx={kh.cx} cy={kh.cy} r={kh.head} />
+                <polygon points={kh.pts} />
+              </g>
+            </mask>
+            <filter id={`khb-${maskId}`} x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation={mini ? 1.6 : 6} />
+            </filter>
+          </defs>
+          <rect x="0" y="0" width={box.w} height={box.h} fill="#050403"
+            fillOpacity={dim} mask={`url(#kh-${maskId})`} />
+        </svg>
+      )}
+
+      {/* --- Flame: light that moves, because a flame does --- */}
+      {(mode === 'matchstick' || mode === 'candle') && (
+        <div className="wick">
+          <div className="shade" />
+          <div className="lit" />
+          <div className="flame"><i /><b /></div>
         </div>
-        <div className="pdfr-sep" />
-        <button className="pdfr-btn" title="Close" onClick={onClose}><Ico d={I.close} s={13} /></button>
+      )}
+
+      {/* --- Daylight --- */}
+      {mode === 'window' && <><div className="shade" /><div className="shaft" /><div className="motes" /></>}
+    </div>
+  );
+}
+
+/* --------------------------- the focus drawer ---------------------------- */
+/**
+ * Picking a light by looking at it.
+ *
+ * The old panel was a row of five 28px icon buttons and a Dim slider. Nothing
+ * was named on screen, nothing was previewed, and the icons for "spotlight"
+ * and "matchlight" are — at that size — the same small blob. You chose by
+ * trying all five and remembering which position you liked.
+ *
+ * This is the Rooms drawer's shape, for the same reason Rooms uses it: when
+ * the thing being chosen is *visual*, the list has to be visual too. Every
+ * card runs the real overlay over a scrap of type, so you see the actual light
+ * — its colour, its falloff, its flicker — before it touches your page.
+ */
+function FocusPanel({
+  mode, darkness, size, steady, tint,
+  onModeChange, onDarknessChange, onSizeChange, onSteadyChange, onTintChange, onClose,
+}: {
+  mode: FocusMode; darkness: number; size: number; steady: boolean; tint: string;
+  onModeChange: (m: FocusMode) => void;
+  onDarknessChange: (d: number) => void;
+  onSizeChange: (s: number) => void;
+  onSteadyChange: (v: boolean) => void;
+  onTintChange: (t: string) => void;
+  onClose: () => void;
+}) {
+  const def = FOCUS_BY_ID.get(mode);
+  /* The film tints itself rather than dimming the page, so a "Dim" slider
+     under it would be a control with nothing to do. Each mode shows the
+     controls that actually reach it. */
+  const isFilm = mode === 'tint';
+  const isFlame = mode === 'matchstick' || mode === 'candle';
+
+  return (
+    <div className="pdfr-drawer focus" onClick={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
+      <div className="head">
+        <div>
+          <h3>Reading focus</h3>
+          <p>Something to read by. {FOCUS_MODES.length} of them — move the pointer and the light follows.</p>
+        </div>
+        <div className="x" title="Close" onClick={onClose}><Ico d={I.close} s={15} /></div>
       </div>
-      <div className="row" style={{ gap: 6 }}>
-        <span className="lbl" style={{ marginRight: 2 }}>Dim</span>
-        <input className="pdfr-range" style={{ flex: 1 }} type="range" min={0.4} max={0.95} step={0.01}
-          value={darkness} onChange={(e) => onDarknessChange(parseFloat(e.target.value))} />
-        <span className="rate" style={{ width: 38 }}>{Math.round(darkness * 100)}%</span>
-      </div>
-      <div className="row" style={{ gap: 6, fontSize: 10.5, opacity: 0.55, fontWeight: 500 }}>
-        {FOCUS_MODES.find((f) => f.id === mode)?.label} — move the cursor across the page
+
+      <div className="body">
+        {FOCUS_GROUPS.map((g) => (
+          <div key={g}>
+            <h4>{g}</h4>
+            <div className="pdfr-grid">
+              {FOCUS_MODES.filter((f) => f.group === g).map((f) => (
+                <div
+                  key={f.id}
+                  className={`pdfr-focuscard ${mode === f.id ? 'active' : ''}`}
+                  title={f.blurb}
+                  onClick={() => onModeChange(f.id)}
+                >
+                  <div className="prev">
+                    {/* A scrap of type for the light to fall on. Bars, not
+                        lorem: at 150px wide real words are noise, and what
+                        this card is showing is the LIGHT. */}
+                    <div className="lines">
+                      {[92, 78, 96, 64, 88, 71, 94, 58].map((w, i) => (
+                        <span key={i} style={{ width: `${w}%` }} />
+                      ))}
+                    </div>
+                    <FocusOverlay mode={f.id} dim={darkness} size={1} steady={steady} tint={tint} mini />
+                  </div>
+                  <div className="cap"><Ico d={f.icon} s={12} />{f.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <h4>The light</h4>
+        <p className="pdfr-focusnote">{def?.blurb}</p>
+
+        {isFilm ? (
+          <div className="pdfr-swatches">
+            {FILM_TINTS.map((t) => (
+              <button
+                key={t.id}
+                className={`sw ${tint === t.id ? 'active' : ''}`}
+                title={t.label}
+                onClick={() => onTintChange(t.id)}
+                style={{ background: `rgb(${t.rgb})` }}
+              />
+            ))}
+          </div>
+        ) : (
+          <label className="pdfr-slide">
+            <span>Dim</span>
+            <input className="pdfr-range" type="range" min={0.4} max={0.95} step={0.01}
+              value={darkness} onChange={(e) => onDarknessChange(parseFloat(e.target.value))} />
+            <b>{Math.round(darkness * 100)}%</b>
+          </label>
+        )}
+
+        <label className="pdfr-slide">
+          <span>Reach</span>
+          <input className="pdfr-range" type="range" min={0.55} max={2} step={0.05}
+            value={size} onChange={(e) => onSizeChange(parseFloat(e.target.value))} />
+          <b>{Math.round(size * 100)}%</b>
+        </label>
+
+        {isFlame && (
+          <button className={`pdfr-toggle ${steady ? 'on' : ''}`} onClick={() => onSteadyChange(!steady)}>
+            <span className="knob" />
+            <span className="t">
+              Hold it steady
+              <i>Stops the flicker and the wander — kinder to read beside</i>
+            </span>
+          </button>
+        )}
       </div>
     </div>
   );

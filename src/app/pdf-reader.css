@@ -466,95 +466,411 @@
 .pdfr-root[data-aged="1"] .pdfr-typeset { filter: sepia(0.4) saturate(1.2) contrast(0.97); }
 
 /* ============================== reading aids ============================= */
-/* The focus toolkit — five modes, all driven by custom properties set from JSX:
-   --fy, --fx (cursor %), --focus-dim (overlay darkness), --ruler-left/right (page clip). */
-.pdfr-focus { position: absolute; inset: 0; z-index: 12; pointer-events: none; }
+/*
+   THE READING LIGHTS.
 
-/* --- RULER: horizontal band follows cursor Y, everything else dimmed --- */
-.pdfr-focus-ruler { left: var(--ruler-left, 0); right: var(--ruler-right, 0); }
-.pdfr-focus-ruler .above, .pdfr-focus-ruler .below {
-  position: absolute; left: 0; right: 0;
-  background: rgba(4,3,2, var(--focus-dim, 0.72));
-  backdrop-filter: saturate(0.65);
-  transition: background 120ms ease;
+   Eleven modes, all driven by custom properties set from JSX:
+     --fx, --fy      where the pointer is, as percentages
+     --r             how far this light reaches, in px (mode size x user Reach)
+     --focus-dim     how dark everything outside it goes
+     --film          rgb triplet for the colour film
+     --ruler-left/right   clip the ruler card to one page of an open book
+
+   The rule that makes these read as LIGHT rather than as holes cut in a black
+   sheet: every lamp has two layers. `.shade` darkens the page and is masked
+   away where the light falls; `.lit` sits on top in `plus-lighter` and
+   genuinely ADDS brightness and colour in the middle of the pool. Take the
+   second layer away and you are back to the old version — a window onto
+   undimmed paper, which is not what a lamp does to a page.
+
+   The second rule: light changes colour as it falls off. Warm sources run
+   white-hot to amber to red at the limit of their reach; cold ones run white
+   to blue. That single gradient across one pool is most of what your eye
+   reads as "a flame" rather than "a circle".
+*/
+.pdfr-focus {
+  position: absolute; inset: 0; z-index: 12; pointer-events: none;
+  --r: 190px;
+  --dim-col: 6, 5, 4;
 }
-.pdfr-focus-ruler .above { top: 0; height: calc(var(--fy) - 2.8em); }
-.pdfr-focus-ruler .below { top: calc(var(--fy) + 2.8em); bottom: 0; }
+/* `.wick` too, and not just direct children: the flame modes nest their shade
+   and light inside it so the wander animation can move the light source and the
+   drawn flame as one body. Without this they'd be static divs with no size. */
+.pdfr-focus > *,
+.pdfr-focus .wick > * { position: absolute; inset: 0; }
+
+/* Shared: the darkening sheet. Each mode masks it into its own shape. */
+.pdfr-focus .shade {
+  background: rgba(var(--dim-col), var(--focus-dim, 0.72));
+  backdrop-filter: saturate(0.55) brightness(0.96);
+  -webkit-backdrop-filter: saturate(0.55) brightness(0.96);
+}
+/* Shared: the light itself. plus-lighter, so it adds to the paper beneath. */
+.pdfr-focus .lit { mix-blend-mode: plus-lighter; }
+
+/* ---------------------------------------------------------------- GUIDES --
+   Not light at all: things you put ON the page. A card has thickness, and a
+   cut edge in a card throws a thin shadow onto the paper under it — that
+   shadow is the whole reason this reads as an object rather than a gap. */
+.pdfr-focus-ruler, .pdfr-focus-typoscope { left: var(--ruler-left, 0); right: var(--ruler-right, 0); }
+
+.pdfr-focus .card {
+  /* Card, not glass: a faint tooth across it, and no blur behind it. */
+  background-color: rgba(20, 17, 14, calc(var(--focus-dim, 0.72) * 1.06));
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.03) 0 1px, transparent 1px 4px);
+}
+.pdfr-focus-ruler .above { top: 0; height: calc(var(--fy) - 2.75em); }
+.pdfr-focus-ruler .below { top: calc(var(--fy) + 2.75em); bottom: 0; }
+/* The slot. Warm, because a reading ruler is usually tinted, and the two inset
+   shadows are the cut edges of the card catching the page below it. */
 .pdfr-focus-ruler .band {
-  position: absolute; left: 0; right: 0;
-  top: calc(var(--fy) - 2.8em); height: 5.6em;
-  box-shadow: inset 0 18px 22px -18px rgba(4,3,2, var(--focus-dim, 0.72)),
-              inset 0 -18px 22px -18px rgba(4,3,2, var(--focus-dim, 0.72));
+  top: calc(var(--fy) - 2.75em); height: 5.5em; bottom: auto;
+  background: linear-gradient(180deg,
+    rgba(255, 214, 150, 0.05) 0%, rgba(255, 214, 150, 0.012) 34%,
+    rgba(255, 214, 150, 0.012) 66%, rgba(255, 214, 150, 0.05) 100%);
+  box-shadow:
+    inset 0 14px 16px -14px rgba(0,0,0,0.85),
+    inset 0 -14px 16px -14px rgba(0,0,0,0.85),
+    inset 0 1px 0 rgba(255,235,205,0.13),
+    inset 0 -1px 0 rgba(255,235,205,0.09);
 }
 
-/* --- SPOTLIGHT: soft circular reveal centered on cursor --- */
-.pdfr-focus-spotlight .spot {
-  position: absolute; inset: 0;
-  background: rgba(4,3,2, var(--focus-dim, 0.72));
-  mask-image: radial-gradient(circle 180px at var(--fx) var(--fy), transparent 40%, black 100%);
-  -webkit-mask-image: radial-gradient(circle 180px at var(--fx) var(--fy), transparent 40%, black 100%);
-  backdrop-filter: saturate(0.6);
-  transition: mask-image 60ms ease, -webkit-mask-image 60ms ease;
+/* Typoscope: the same card, cut as a window. Four pieces, so each edge gets
+   its own shadow and the corners meet the way a real cut-out does. */
+.pdfr-focus-typoscope .above { top: 0; height: calc(var(--fy) - var(--r) * 0.62); }
+.pdfr-focus-typoscope .below { top: calc(var(--fy) + var(--r) * 0.62); bottom: 0; }
+.pdfr-focus-typoscope .left {
+  top: calc(var(--fy) - var(--r) * 0.62); height: calc(var(--r) * 1.24); bottom: auto;
+  left: 0; right: auto; width: calc(var(--fx) - var(--r) * 1.5);
+}
+.pdfr-focus-typoscope .right {
+  top: calc(var(--fy) - var(--r) * 0.62); height: calc(var(--r) * 1.24); bottom: auto;
+  left: calc(var(--fx) + var(--r) * 1.5); right: 0; width: auto;
+}
+.pdfr-focus-typoscope .win {
+  top: calc(var(--fy) - var(--r) * 0.62); height: calc(var(--r) * 1.24); bottom: auto;
+  left: calc(var(--fx) - var(--r) * 1.5); width: calc(var(--r) * 3); right: auto;
+  box-shadow:
+    inset 0 0 22px -8px rgba(0,0,0,0.9),
+    inset 0 1px 0 rgba(255,235,205,0.12);
+  border-radius: 2px;
 }
 
-/* --- TORCH: downward cone of light from cursor position --- */
-.pdfr-focus-torch .cone {
-  position: absolute; inset: 0;
-  background: rgba(4,3,2, var(--focus-dim, 0.72));
-  mask-image: radial-gradient(ellipse 200px 260px at var(--fx) var(--fy), transparent 30%, black 100%);
-  -webkit-mask-image: radial-gradient(ellipse 200px 260px at var(--fx) var(--fy), transparent 30%, black 100%);
-  backdrop-filter: saturate(0.6);
+/* Colour film — the Irlen kind. It tints; it never dims, which is the entire
+   point of one, so it carries no shade layer at all. */
+.pdfr-focus-tint .film {
+  background: rgba(var(--film), 0.22);
+  mix-blend-mode: multiply;
+}
+/* The sheen is what says "there is a sheet of something lying here": one soft
+   diagonal highlight where the room's light catches the plastic. */
+.pdfr-focus-tint .sheen {
+  background: linear-gradient(112deg,
+    transparent 0%, transparent 34%,
+    rgba(255,255,255,0.055) 44%, rgba(255,255,255,0.085) 50%, rgba(255,255,255,0.04) 56%,
+    transparent 66%, transparent 100%);
+  mix-blend-mode: screen;
 }
 
-/* --- KEYHOLE: tall narrow vertical strip centered on cursor X --- */
-.pdfr-focus-keyhole .slit {
-  position: absolute; inset: 0;
-  background: rgba(4,3,2, var(--focus-dim, 0.72));
-  mask-image:
-    linear-gradient(to right,
-      black 0%, black calc(var(--fx) - 120px),
-      transparent calc(var(--fx) - 80px),
-      transparent calc(var(--fx) + 80px),
-      black calc(var(--fx) + 120px), black 100%
-    );
-  -webkit-mask-image:
-    linear-gradient(to right,
-      black 0%, black calc(var(--fx) - 120px),
-      transparent calc(var(--fx) - 80px),
-      transparent calc(var(--fx) + 80px),
-      black calc(var(--fx) + 120px), black 100%
-    );
-  backdrop-filter: saturate(0.6);
+/* ----------------------------------------------------------------- LAMPS --
+   A theatre lamp: a bright even pool, a short penumbra, and a cutoff. */
+.pdfr-focus-spotlight .shade {
+  mask-image: radial-gradient(circle calc(var(--r) * 1.15) at var(--fx) var(--fy),
+    transparent 0%, transparent 52%, rgba(0,0,0,0.55) 76%, #000 100%);
+  -webkit-mask-image: radial-gradient(circle calc(var(--r) * 1.15) at var(--fx) var(--fy),
+    transparent 0%, transparent 52%, rgba(0,0,0,0.55) 76%, #000 100%);
+}
+.pdfr-focus-spotlight .lit {
+  background:
+    radial-gradient(circle calc(var(--r) * 1.15) at var(--fx) var(--fy),
+      rgba(255, 252, 244, 0.16) 0%, rgba(255, 246, 228, 0.09) 38%,
+      rgba(255, 232, 198, 0.03) 64%, transparent 82%);
 }
 
-/* --- MATCHSTICK: warm amber glow with subtle flicker animation --- */
-.pdfr-focus-matchstick .glow {
-  position: absolute; inset: 0;
-  background: rgba(4,3,2, var(--focus-dim, 0.72));
-  mask-image: radial-gradient(ellipse 160px 180px at var(--fx) var(--fy), transparent 35%, black 100%);
-  -webkit-mask-image: radial-gradient(ellipse 160px 180px at var(--fx) var(--fy), transparent 35%, black 100%);
-  backdrop-filter: saturate(0.6);
-  animation: matchFlicker 0.8s ease-in-out infinite alternate;
+/* Torch: the beam is visible, and its hot centre is much smaller than the pool
+   it makes. Both matter — a torch on paper leaves a small white core inside a
+   far wider warm wash, and the old single ellipse had neither. */
+.pdfr-focus-torch .shade {
+  mask-image: radial-gradient(ellipse calc(var(--r) * 1.05) calc(var(--r) * 1.25) at var(--fx) var(--fy),
+    transparent 0%, transparent 34%, rgba(0,0,0,0.5) 62%, #000 100%);
+  -webkit-mask-image: radial-gradient(ellipse calc(var(--r) * 1.05) calc(var(--r) * 1.25) at var(--fx) var(--fy),
+    transparent 0%, transparent 34%, rgba(0,0,0,0.5) 62%, #000 100%);
 }
-/* The warm tint: a second pseudo-layer that adds amber inside the reveal */
-.pdfr-focus-matchstick::after {
-  content: '';
-  position: absolute; inset: 0;
-  background: radial-gradient(ellipse 160px 180px at var(--fx) var(--fy), rgba(255,180,80,0.08) 0%, transparent 70%);
+.pdfr-focus-torch .beam {
+  /* The throw, from above the pointer down through it: what you see when a
+     beam crosses dust. Narrow at the lens, wide where it lands. */
+  top: calc(var(--fy) - var(--r) * 2.1); height: calc(var(--r) * 2.6); bottom: auto;
+  left: calc(var(--fx) - var(--r) * 1.1); width: calc(var(--r) * 2.2); right: auto;
+  /* Strongest near the lens and gone by the time it lands: the throw is what
+     you see in the air, and it is brightest where the air is thinnest. */
+  background: linear-gradient(180deg, rgba(255,246,224,0.26) 0%, rgba(255,238,205,0.10) 48%, transparent 92%);
+  clip-path: polygon(44% 0%, 56% 0%, 100% 100%, 0% 100%);
+  mix-blend-mode: plus-lighter;
+  filter: blur(9px);
+}
+.pdfr-focus-torch .lit {
+  background:
+    radial-gradient(circle calc(var(--r) * 0.34) at var(--fx) var(--fy), rgba(255,255,250,0.30) 0%, transparent 100%),
+    radial-gradient(ellipse calc(var(--r) * 1.05) calc(var(--r) * 1.25) at var(--fx) var(--fy),
+      rgba(255, 240, 210, 0.13) 0%, rgba(255, 220, 165, 0.05) 55%, transparent 82%);
+}
+
+/* Desk lamp: steady, warm, and ANGLED. The pool leans down and right, and is
+   brightest at its top-left — exactly where a lamp standing to your left puts
+   it. That offset between the pool's centre and its hotspot is the whole
+   difference between "directional" and "another spotlight". */
+.pdfr-focus-lamp .shade {
+  mask-image: radial-gradient(ellipse calc(var(--r) * 1.7) calc(var(--r) * 1.15)
+      at calc(var(--fx) + var(--r) * 0.12) calc(var(--fy) + var(--r) * 0.1),
+    transparent 0%, transparent 44%, rgba(0,0,0,0.45) 70%, #000 100%);
+  -webkit-mask-image: radial-gradient(ellipse calc(var(--r) * 1.7) calc(var(--r) * 1.15)
+      at calc(var(--fx) + var(--r) * 0.12) calc(var(--fy) + var(--r) * 0.1),
+    transparent 0%, transparent 44%, rgba(0,0,0,0.45) 70%, #000 100%);
+}
+.pdfr-focus-lamp .lit {
+  background:
+    radial-gradient(ellipse calc(var(--r) * 1.1) calc(var(--r) * 0.8)
+        at calc(var(--fx) - var(--r) * 0.3) calc(var(--fy) - var(--r) * 0.22),
+      rgba(255, 236, 198, 0.19) 0%, rgba(255, 222, 168, 0.08) 45%, transparent 78%),
+    radial-gradient(ellipse calc(var(--r) * 1.7) calc(var(--r) * 1.15)
+        at calc(var(--fx) + var(--r) * 0.12) calc(var(--fy) + var(--r) * 0.1),
+      rgba(255, 208, 140, 0.05) 0%, transparent 74%);
+}
+
+/* Keyhole: the shade is an SVG (see FocusOverlay) because a bore and a ward
+   slot are not a gradient. The warm spill through the hole is still CSS. */
+.pdfr-focus-keyhole .cut { position: absolute; inset: 0; }
+.pdfr-focus-keyhole::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse calc(var(--r) * 0.9) calc(var(--r) * 1.3) at var(--fx) var(--fy),
+    rgba(255, 226, 176, 0.10) 0%, transparent 72%);
+  mix-blend-mode: plus-lighter;
+}
+
+/* ----------------------------------------------------------------- FLAME --
+   The mode that was least like the thing it is named after.
+
+   A match is SMALL, very warm, and never still. Three things it needs, and the
+   old fading ellipse had none of them:
+     · a colour ramp — white-hot at the wick, through amber, to a red limit;
+     · a WANDER. The light source physically moves a few px and changes size,
+       which is what a draught does to a flame. Opacity alone reads as a bulb
+       with a loose contact, which is exactly how it looked;
+     · a flame you can actually see, at the pointer, leaning as it burns.
+   The candle is the same machinery, slower and wider, because it is. */
+.pdfr-focus .wick { position: absolute; inset: 0; }
+
+.pdfr-focus-matchstick { --flame-r: calc(var(--r) * 0.62); }
+.pdfr-focus-candle     { --flame-r: calc(var(--r) * 1.05); }
+
+.pdfr-focus-matchstick .shade,
+.pdfr-focus-candle .shade {
+  mask-image: radial-gradient(circle var(--flame-r, 120px) at var(--fx) var(--fy),
+    transparent 0%, transparent 26%, rgba(0,0,0,0.42) 55%, rgba(0,0,0,0.85) 80%, #000 100%);
+  -webkit-mask-image: radial-gradient(circle var(--flame-r, 120px) at var(--fx) var(--fy),
+    transparent 0%, transparent 26%, rgba(0,0,0,0.42) 55%, rgba(0,0,0,0.85) 80%, #000 100%);
+}
+/* Firelight is AMBER, and the old version's mistake was to make the middle of
+   the pool white. A white core over cream paper is a blown-out hole; what a
+   flame actually does is lay a warm cast over everything it reaches, hottest
+   at the wick. So the white is small and weak, the amber is broad and strong,
+   and there is a red-brown wash out at the limit where the light gives up. */
+.pdfr-focus-matchstick .lit,
+.pdfr-focus-candle .lit {
+  background:
+    radial-gradient(circle calc(var(--flame-r, 120px) * 0.18) at var(--fx) var(--fy), rgba(255, 248, 226, 0.22) 0%, transparent 100%),
+    radial-gradient(circle calc(var(--flame-r, 120px) * 0.55) at var(--fx) var(--fy), rgba(255, 178, 86, 0.26) 0%, transparent 100%),
+    radial-gradient(circle var(--flame-r, 120px) at var(--fx) var(--fy), rgba(214, 96, 34, 0.16) 0%, rgba(150, 58, 20, 0.05) 62%, transparent 92%);
+}
+
+/* The flame, drawn at the pointer. Two shapes: the teardrop body you actually
+   see, and the blue-white base where it meets the wick. */
+.pdfr-focus .flame {
+  position: absolute; inset: auto;
+  left: var(--fx); top: var(--fy);
+  /* A match flame is about a centimetre. Sized off the light's reach rather
+     than off nothing, so Reach scales the flame and its pool together. */
+  width: calc(var(--flame-r, 120px) * 0.135); height: calc(var(--flame-r, 120px) * 0.36);
+  transform: translate(-50%, -78%);
+  transform-origin: 50% 100%;
   pointer-events: none;
-  animation: matchFlicker 0.8s ease-in-out infinite alternate-reverse;
+  mix-blend-mode: plus-lighter;
+}
+.pdfr-focus .flame i, .pdfr-focus .flame b {
+  position: absolute; inset: 0; display: block;
+  border-radius: 50% 50% 46% 46% / 62% 62% 38% 38%;
+}
+.pdfr-focus .flame i {
+  background: radial-gradient(ellipse 62% 74% at 50% 74%,
+    rgba(255,252,238,0.95) 0%, rgba(255,214,122,0.85) 30%,
+    rgba(248,146,44,0.68) 58%, rgba(196,74,22,0.28) 80%, transparent 100%);
+  filter: blur(1.2px);
+}
+.pdfr-focus .flame b {
+  inset: auto 22% 0 22%; height: 34%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse 70% 100% at 50% 80%,
+    rgba(150,196,255,0.55) 0%, rgba(90,150,255,0.18) 55%, transparent 100%);
+  filter: blur(1.6px);
 }
 
-@keyframes matchFlicker {
-  0%   { opacity: 1; }
-  25%  { opacity: 0.94; }
-  50%  { opacity: 0.98; }
-  75%  { opacity: 0.92; }
-  100% { opacity: 0.97; }
+/* The wander. Transforming the whole group moves the light source AND the drawn
+   flame together, which is why it looks like one thing burning rather than a
+   picture sitting over a hole. Durations chosen not to share a beat.
+
+   Every keyframe scales UP, never down, and the origin is the flame itself.
+   That is not a stylistic choice: `.shade` is the sheet that darkens the page,
+   and nudging it by even a pixel slid it off one edge of the stage and left a
+   bright undimmed hairline down the side of the paper. Scaling past 1 always
+   overhangs, so the translation has room to happen inside it. */
+.pdfr-focus-matchstick .wick  { animation: pdfrFlameWander 1.9s ease-in-out infinite alternate; }
+.pdfr-focus-matchstick .flame { animation: pdfrFlameLick 0.42s ease-in-out infinite alternate; }
+.pdfr-focus-matchstick .lit   { animation: pdfrFlameBreath 0.63s ease-in-out infinite alternate; }
+.pdfr-focus-candle .wick  { animation: pdfrFlameWander 4.3s ease-in-out infinite alternate; }
+.pdfr-focus-candle .flame { animation: pdfrFlameLick 1.15s ease-in-out infinite alternate; }
+.pdfr-focus-candle .lit   { animation: pdfrFlameBreath 2.1s ease-in-out infinite alternate; }
+
+.pdfr-focus .wick { transform-origin: var(--fx) var(--fy); }
+@keyframes pdfrFlameWander {
+  0%   { transform: scale(1.030) translate(-1.5px, 0.5px); }
+  35%  { transform: scale(1.075) translate(1px, -1px); }
+  70%  { transform: scale(1.015) translate(-0.5px, 1px); }
+  100% { transform: scale(1.055) translate(1.5px, -0.5px); }
+}
+@keyframes pdfrFlameLick {
+  0%   { transform: translate(-50%, -78%) scaleY(1)    skewX(-3deg); }
+  40%  { transform: translate(-50%, -78%) scaleY(1.14) skewX(2deg); }
+  100% { transform: translate(-50%, -78%) scaleY(0.94) skewX(-1deg); }
+}
+@keyframes pdfrFlameBreath {
+  0%   { opacity: 0.86; }
+  30%  { opacity: 1; }
+  60%  { opacity: 0.92; }
+  100% { opacity: 0.98; }
 }
 
-/* The focus panel inherits .pdfr-speakbar; this just tightens it a little. */
-.pdfr-focuspanel { width: min(94vw, 480px); }
+/* -------------------------------------------------------------- DAYLIGHT --
+   A shaft through a window: a slab of light at an angle, hard-ish at its edges
+   because a window frame is hard, with the page beyond it in shadow. */
+/* A window throws a BAND, not a wash. The first cut faded from clear to dark
+   over 1.5x the reach on each side, which on any real page meant the whole
+   sheet was lit and there was nothing to focus on. A sash bar is a hard edge:
+   clear across 0.7x, gone by 1.05x, and the sill shadow beyond that. */
+.pdfr-focus-window .shade {
+  mask-image: linear-gradient(105deg,
+    #000 0%, #000 calc(var(--fx) - var(--r) * 1.05),
+    rgba(0,0,0,0.28) calc(var(--fx) - var(--r) * 0.8),
+    transparent calc(var(--fx) - var(--r) * 0.62),
+    transparent calc(var(--fx) + var(--r) * 0.62),
+    rgba(0,0,0,0.28) calc(var(--fx) + var(--r) * 0.8),
+    #000 calc(var(--fx) + var(--r) * 1.05), #000 100%);
+  -webkit-mask-image: linear-gradient(105deg,
+    #000 0%, #000 calc(var(--fx) - var(--r) * 1.05),
+    rgba(0,0,0,0.28) calc(var(--fx) - var(--r) * 0.8),
+    transparent calc(var(--fx) - var(--r) * 0.62),
+    transparent calc(var(--fx) + var(--r) * 0.62),
+    rgba(0,0,0,0.28) calc(var(--fx) + var(--r) * 0.8),
+    #000 calc(var(--fx) + var(--r) * 1.05), #000 100%);
+}
+.pdfr-focus-window .shaft {
+  background: linear-gradient(105deg,
+    transparent calc(var(--fx) - var(--r) * 0.9),
+    rgba(255, 240, 202, 0.05) calc(var(--fx) - var(--r) * 0.6),
+    rgba(255, 246, 220, 0.13) var(--fx),
+    rgba(255, 240, 202, 0.05) calc(var(--fx) + var(--r) * 0.6),
+    transparent calc(var(--fx) + var(--r) * 0.9));
+  mix-blend-mode: plus-lighter;
+}
+/* Dust, because a sunbeam without it is just a gradient. */
+.pdfr-focus-window .motes {
+  background-image:
+    radial-gradient(circle 1.4px at 18% 24%, rgba(255,248,226,0.5) 0%, transparent 100%),
+    radial-gradient(circle 1px   at 34% 62%, rgba(255,248,226,0.42) 0%, transparent 100%),
+    radial-gradient(circle 1.7px at 52% 38%, rgba(255,248,226,0.36) 0%, transparent 100%),
+    radial-gradient(circle 1.1px at 61% 78%, rgba(255,248,226,0.45) 0%, transparent 100%),
+    radial-gradient(circle 1.3px at 76% 30%, rgba(255,248,226,0.4)  0%, transparent 100%),
+    radial-gradient(circle 1px   at 88% 58%, rgba(255,248,226,0.34) 0%, transparent 100%);
+  mask-image: linear-gradient(105deg, transparent calc(var(--fx) - var(--r) * 1.1),
+    #000 var(--fx), transparent calc(var(--fx) + var(--r) * 1.1));
+  -webkit-mask-image: linear-gradient(105deg, transparent calc(var(--fx) - var(--r) * 1.1),
+    #000 var(--fx), transparent calc(var(--fx) + var(--r) * 1.1));
+  mix-blend-mode: plus-lighter;
+  animation: pdfrMotes 15s linear infinite alternate;
+}
+@keyframes pdfrMotes {
+  0%   { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-14px, -22px, 0); }
+}
+
+/* Moonlight: wide, weak and cold. The trick is that it is barely brighter than
+   the shade — you read by it, you do not see by it. */
+.pdfr-focus-moon .shade {
+  mask-image: radial-gradient(ellipse calc(var(--r) * 2.4) calc(var(--r) * 1.9) at var(--fx) var(--fy),
+    rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.4) 46%, rgba(0,0,0,0.82) 74%, #000 100%);
+  -webkit-mask-image: radial-gradient(ellipse calc(var(--r) * 2.4) calc(var(--r) * 1.9) at var(--fx) var(--fy),
+    rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.4) 46%, rgba(0,0,0,0.82) 74%, #000 100%);
+}
+.pdfr-focus-moon .lit {
+  background:
+    radial-gradient(ellipse calc(var(--r) * 2.4) calc(var(--r) * 1.9) at var(--fx) var(--fy),
+      rgba(196, 216, 255, 0.09) 0%, rgba(160, 186, 240, 0.04) 48%, transparent 80%);
+}
+
+/* Steady: the accessibility switch, and the same thing prefers-reduced-motion
+   asks for. A flicker you cannot turn off is a reason not to use the feature. */
+.pdfr-focus.steady .wick,
+.pdfr-focus.steady .flame,
+.pdfr-focus.steady .lit,
+.pdfr-focus.steady .motes { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .pdfr-focus .wick, .pdfr-focus .flame, .pdfr-focus .lit, .pdfr-focus .motes { animation: none !important; }
+}
+
+/* ------------------------------------------------------- the focus drawer */
+/* Swatches run the REAL overlay over a scrap of type, so what you click is
+   what lands on the page. `--r` is the only thing a preview overrides. */
+.pdfr-focuscard { position: relative; cursor: pointer; border-radius: 12px; padding: 3px;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09);
+  transition: transform .16s ease, background .16s ease, border-color .16s ease; }
+.pdfr-focuscard:hover { transform: translateY(-2px); background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.18); }
+.pdfr-focuscard.active { border-color: rgba(var(--accent),0.85); background: rgba(var(--accent),0.14);
+  box-shadow: 0 0 0 1px rgba(var(--accent),0.4), 0 10px 26px -14px rgba(0,0,0,0.8); }
+.pdfr-focuscard .prev { position: relative; height: 78px; border-radius: 9px; overflow: hidden;
+  background: linear-gradient(178deg, #efe6d6, #e3d7c2); }
+.pdfr-focuscard .prev .lines { position: absolute; inset: 9px 10px; display: flex; flex-direction: column; gap: 5px; }
+.pdfr-focuscard .prev .lines span { display: block; height: 3px; border-radius: 2px; background: rgba(48,38,28,0.5); }
+.pdfr-focuscard .cap { display: flex; align-items: center; gap: 5px; padding: 6px 5px 3px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .01em; }
+.pdfr-focuscard .cap svg { opacity: .6; flex: 0 0 auto; }
+
+.pdfr-focusnote { margin: 0 0 12px; font-size: 11.5px; line-height: 1.5; color: rgba(244,236,224,0.55); }
+
+.pdfr-slide { display: flex; align-items: center; gap: 10px; padding: 7px 2px; font-size: 11px; font-weight: 700; }
+.pdfr-slide > span { width: 40px; flex: 0 0 auto; color: rgba(244,236,224,0.55); }
+.pdfr-slide > input { flex: 1; }
+.pdfr-slide > b { width: 38px; text-align: right; font-variant-numeric: tabular-nums; font-size: 10.5px; opacity: .75; }
+
+.pdfr-swatches { display: flex; gap: 8px; padding: 4px 2px 10px; }
+.pdfr-swatches .sw { width: 30px; height: 30px; border-radius: 9px; cursor: pointer;
+  border: 2px solid transparent; box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
+  transition: transform .14s ease, border-color .14s ease; }
+.pdfr-swatches .sw:hover { transform: translateY(-2px); }
+.pdfr-swatches .sw.active { border-color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 0 0 2px rgba(0,0,0,0.5); }
+
+.pdfr-toggle { display: flex; align-items: center; gap: 11px; width: 100%; margin-top: 6px; padding: 10px 11px;
+  border-radius: 12px; cursor: pointer; text-align: left; background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09); color: inherit; transition: background .16s ease, border-color .16s ease; }
+.pdfr-toggle:hover { background: rgba(255,255,255,0.09); }
+.pdfr-toggle .knob { flex: 0 0 auto; width: 34px; height: 19px; border-radius: 10px; position: relative;
+  background: rgba(255,255,255,0.14); transition: background .18s ease; }
+.pdfr-toggle .knob::after { content: ''; position: absolute; top: 2.5px; left: 2.5px; width: 14px; height: 14px;
+  border-radius: 50%; background: #efe6da; transition: transform .18s cubic-bezier(.16,1,.3,1); }
+.pdfr-toggle.on .knob { background: rgba(var(--accent),0.85); }
+.pdfr-toggle.on .knob::after { transform: translateX(15px); }
+.pdfr-toggle .t { display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; font-weight: 700; }
+.pdfr-toggle .t i { font-style: normal; font-size: 10px; font-weight: 500; opacity: .55; line-height: 1.4; }
 
 /* Tap-to-define: the pointer says so, and the card lands under the word. */
 .pdfr-stage[data-define="1"] { cursor: help; }
