@@ -109,7 +109,7 @@ export default function VoiceOrb() {
                 : 'Listening — start speaking';
 
   return (
-    <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[200] pointer-events-none">
+    <div className="voice-orb fixed bottom-20 left-1/2 -translate-x-1/2 z-[200] pointer-events-none">
       <div className="relative flex flex-col items-center">
         {/* Caption: what it heard, what it's doing, or what actually went wrong */}
         <AnimatePresence>

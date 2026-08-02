@@ -124,7 +124,7 @@ export default function CollabBar() {
        to sit at z-120 and PulseLayer painted later, so opening Participants
        drew the roster UNDER the emoji row — the names came out half-buried in
        reaction buttons. A popover you just asked for wins over ambient chrome. */
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[124] pointer-events-none flex flex-col items-center gap-2">
+    <div className="collab-bar fixed top-4 left-1/2 -translate-x-1/2 z-[124] pointer-events-none flex flex-col items-center gap-2">
       <AnimatePresence mode="wait">
         <motion.div
           key="session"

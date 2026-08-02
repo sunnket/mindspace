@@ -9,6 +9,12 @@
 @import "tailwindcss";
 @import "./text-anim.css";
 @import "./flow.css";
+/* Every phone-only rule in the app, in one file. Imported LAST of the three so
+   its media queries win over anything above them at the same specificity —
+   which is the whole point: the desktop sheet states the layout, and this one
+   states the exceptions. It costs a desktop nothing at runtime, since not a
+   single selector in it matches outside a `max-width: 820px` viewport. */
+@import "./mobile.css";
 /* pdf-reader.css (48KB) and pdf-rooms.css (92KB) used to be @imported here,
    which put 140KB of reading-room styling into the render-blocking stylesheet
    of every single route — the landing page included, which has no PDF on it.
@@ -608,14 +614,22 @@ html, body {
   opacity: 1;
 }
 
-/* Save indicator */
-.save-indicator {
-  position: fixed;
-  bottom: 40px;
-  left: 48px;
-  z-index: 130;
-}
+/* Save indicator.
 
+   The `.save-indicator` rule that used to sit here — `fixed; bottom: 40px;
+   left: 48px` — is gone, and it is worth saying why, because it was a trap
+   rather than a style. Nothing wore that class: SaveIndicator.tsx positions
+   itself with Tailwind (`fixed bottom-4 right-12`), bottom-RIGHT, and has for
+   as long as the file has existed. The rule was dead, invisible, and describing
+   a corner the component had moved away from.
+
+   Dead CSS keyed on a plausible name is a landmine. Attaching `.save-indicator`
+   to the component — which is the obvious name to reach for, and exactly what
+   the phone layout needed to hook onto — armed it instantly: the chip jumped to
+   the bottom-left of every desktop board and stretched 1344px wide (`left: 48`
+   from here, `right: 48` from Tailwind, width solved between them). Deleting it
+   restores what everyone was already seeing, and leaves the name free for the
+   element it names. */
 .save-pulse {
   width: 8px;
   height: 8px;
@@ -1112,28 +1126,14 @@ html, body {
   }
 }
 
-@media (max-width: 768px) {
-  .props-rail {
-    top: auto;
-    bottom: 112px;
-    left: 12px;
-    right: 12px;
-    width: auto;
-    max-width: none;
-    max-height: 46vh;
-  }
-}
-
-@media (max-width: 768px) {
-  .minimap-container {
-    display: none !important;
-  }
-  .floating-toolbar {
-    bottom: 16px !important;
-    width: 90% !important;
-    max-width: 400px !important;
-  }
-}
+/* The two `max-width: 768px` blocks that used to live here — a props-rail
+   strip pinned 112px up, and a 90%-wide toolbar — are gone, not moved. Both
+   were measured against a desktop toolbar sitting at a desktop height, and both
+   are now stated properly (with the keyboard and the home indicator accounted
+   for) in mobile.css, which owns every phone rule in the app. Leaving them here
+   was not harmless: `width: 90% !important` beat the new full-bleed dock, so the
+   phone toolbar rendered 351px wide inside a 390px screen and sat off-centre.
+   Nothing above 768px ever matched either block, so no desktop is affected. */
 
 /* ============================================
    Dark canvas color modes — keep the couple of

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import AuthProvider from "@/components/providers/AuthProvider";
 import DeferredFonts from "@/components/providers/DeferredFonts";
@@ -7,6 +7,32 @@ export const metadata: Metadata = {
   title: "Canvabrains — Your Infinite Thinking Space",
   description: "An infinite canvas for creative thinking. Draw, write, and organize your thoughts in a beautiful spatial mind space. No sign up required.",
   keywords: ["infinite canvas", "thinking space", "creative tool", "drawing", "notes", "spatial thinking"],
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Canvabrains" },
+};
+
+/**
+ * THE PHONE CONTRACT.
+ *
+ * Next's default viewport is `width=device-width, initial-scale=1` and nothing
+ * else, which is wrong for this app in two specific ways:
+ *
+ *  · `maximumScale: 1` / `userScalable: false`. The board has its own pinch
+ *    zoom. Without this the browser's page zoom fires on the SAME gesture, so a
+ *    pinch scaled the canvas and the whole UI at once and left the page zoomed
+ *    with no way back — plus iOS Safari's double-tap-to-zoom stole every
+ *    double-tap the canvas wanted. This is an infinite canvas, not a document:
+ *    magnification is a first-class control inside the app, so nothing is lost.
+ *  · `viewportFit: 'cover'`. Lets the board paint under the notch and the home
+ *    indicator, and turns on the `env(safe-area-inset-*)` values that every
+ *    piece of chrome below is inset by.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#000000",
 };
 
 export default function RootLayout({

@@ -606,7 +606,7 @@ export default function TrashPile() {
       <AnimatePresence>
         {isTrashOpen && visibleTrashItems.length > 0 && (
           <motion.div
-            className="fixed bottom-24 left-6 z-[9995] flex flex-col w-[340px] max-h-[420px] bg-[#FAF6F1]/95 dark:bg-[#191714]/95 backdrop-blur-xl border border-black/10 dark:border-white/10 rounded-2xl shadow-xl overflow-hidden pointer-events-auto"
+            className="trash-drawer fixed bottom-24 left-6 z-[9995] flex flex-col w-[340px] max-h-[420px] bg-[#FAF6F1]/95 dark:bg-[#191714]/95 backdrop-blur-xl border border-black/10 dark:border-white/10 rounded-2xl shadow-xl overflow-hidden pointer-events-auto"
             initial={{ opacity: 0, scale: 0.95, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
@@ -713,7 +713,7 @@ export default function TrashPile() {
       <AnimatePresence>
         {isPileVisible && (
           <motion.div
-            className="fixed z-[9990] flex flex-col items-center pointer-events-auto"
+            className="trash-bin fixed z-[9990] flex flex-col items-center pointer-events-auto"
             style={{ left: BIN_LEFT, bottom: -BIN_SUNK }}
             initial={{ opacity: 0, y: 34 }}
             animate={{ opacity: 1, y: 0 }}

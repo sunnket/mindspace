@@ -192,7 +192,7 @@ export default function AgentChatPanel() {
               const files = e.dataTransfer?.files;
               if (files && files.length) void addFiles(files);
             }}
-            className="fixed z-[160] flex flex-col pointer-events-auto clay-card"
+            className="agent-chat-panel fixed z-[160] flex flex-col pointer-events-auto clay-card"
             style={{
               top: 76, right: 16, bottom: 16, width: panelWidth,
               borderRadius: 20,

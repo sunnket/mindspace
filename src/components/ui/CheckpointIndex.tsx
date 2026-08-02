@@ -182,7 +182,7 @@ export default function CheckpointIndex() {
   if (checkpoints.length === 0) {
     return (
       <div
-        className="fixed right-6 top-1/2 -translate-y-1/2 z-50 pointer-events-auto flex items-center select-none"
+        className="checkpoint-index fixed right-6 top-1/2 -translate-y-1/2 z-50 pointer-events-auto flex items-center select-none"
         onMouseEnter={openHover}
         onMouseLeave={closeHover}
       >
@@ -223,7 +223,7 @@ export default function CheckpointIndex() {
 
   return (
     <div
-      className="fixed right-6 top-1/2 -translate-y-1/2 z-50 pointer-events-auto flex items-center select-none"
+      className="checkpoint-index fixed right-6 top-1/2 -translate-y-1/2 z-50 pointer-events-auto flex items-center select-none"
       onMouseEnter={openHover}
       onMouseLeave={closeHover}
     >

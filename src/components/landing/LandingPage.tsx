@@ -777,7 +777,7 @@ export default function LandingPage() {
           marginLeft (the one thing that beats the reset) — comfortably inside
           the aside's existing 92px lane (nav itself is only ~46px wide), so
           nothing else in the layout needs to move. */}
-      <aside className="w-[92px] h-screen sticky top-0 z-40 flex items-center shrink-0">
+      <aside className="landing-rail w-[92px] h-screen sticky top-0 z-40 flex items-center shrink-0">
         <nav
           aria-label="Main navigation"
           style={{ marginLeft: 24 }}
@@ -790,7 +790,7 @@ export default function LandingPage() {
           <DockButton label="Checkpoints" active={activeSidebarTab === 'checkpoints'} onClick={() => setActiveSidebarTab('checkpoints')} icon={ICONS.flag} />
           <DockButton label="Chat" active={activeSidebarTab === 'chat'} onClick={() => setActiveSidebarTab('chat')} icon={ICONS.chat} badge={chatUnread || undefined} />
 
-          <div className="w-8 h-px bg-[var(--border-strong)] opacity-50 my-2" />
+          <div className="landing-rail-sep w-8 h-px bg-[var(--border-strong)] opacity-50 my-2" />
 
           <DockButton label="Archive" active={activeSidebarTab === 'archive'} onClick={() => setActiveSidebarTab('archive')} icon={ICONS.archive} />
           <DockButton label="Trash" active={activeSidebarTab === 'deleted'} onClick={() => setActiveSidebarTab('deleted')} icon={ICONS.trash} badge={trashCount || undefined} />
@@ -798,11 +798,11 @@ export default function LandingPage() {
       </aside>
 
       {/* ---------- Main ---------- */}
-      <main className="flex-1 min-h-screen h-screen overflow-y-auto">
+      <main className="landing-main flex-1 min-h-screen h-screen overflow-y-auto">
         <div className="w-full max-w-[1380px] mx-auto pl-6 md:pl-16 pr-6 md:pr-24 pt-10 pb-28 flex flex-col gap-12">
 
           {/* Header */}
-          <header className="flex flex-col lg:flex-row lg:justify-between lg:items-end gap-6 w-full">
+          <header className="landing-header flex flex-col lg:flex-row lg:justify-between lg:items-end gap-6 w-full">
             <div className="min-w-0 flex items-center gap-3.5">
               {/* Wordmark — Bebas Neue, settled on after trying the font list. */}
               <div className="w-12 h-12 rounded-2xl clay-inset flex items-center justify-center shrink-0" aria-hidden="true">
@@ -823,7 +823,7 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="landing-header-actions flex items-center gap-3 shrink-0">
               {/* Recessed clay well — matches the sort button / layout toggle /
                   category pills right below it. glass-bar's dark-theme tint
                   (5% white) was nearly invisible against this page's default
@@ -895,7 +895,7 @@ export default function LandingPage() {
                     <div className="min-w-0">
                       <h2
                         onClick={() => router.push(`/canvas?id=${continueWorkspace.id}`)}
-                        className="text-4xl md:text-5xl leading-[1.02] font-normal tracking-[0.01em] text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors truncate"
+                        className="landing-hero-title text-4xl md:text-5xl leading-[1.02] font-normal tracking-[0.01em] text-[var(--text-primary)] hover:text-[var(--accent)] cursor-pointer transition-colors truncate"
                         style={{ fontFamily: "'Bebas Neue', sans-serif" }}
                       >
                         {continueWorkspace.title || 'untitled canvas'}
@@ -1038,7 +1038,7 @@ export default function LandingPage() {
                     {ICONS.sparkle} Templates
                   </span>
                   <h2
-                    className="text-4xl md:text-5xl leading-[1.02] font-normal tracking-[0.01em] text-[var(--text-primary)]"
+                    className="landing-hero-title text-4xl md:text-5xl leading-[1.02] font-normal tracking-[0.01em] text-[var(--text-primary)]"
                     style={{ fontFamily: "'Bebas Neue', sans-serif" }}
                   >
                     Whole canvases, already made

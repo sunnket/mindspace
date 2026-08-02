@@ -1,11 +1,12 @@
 'use client';
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, InteractionMode } from '@/store/canvasStore';
 import { useAgentChatStore } from '@/store/agentChatStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import { useSpeechRecognition, warmVoiceEngine } from '@/hooks/useSpeechRecognition';
+import { useIsPhone } from '@/lib/responsive';
 
 /**
  * The toolbar: which tool you're holding, and nothing else.
@@ -50,6 +51,13 @@ export default function FloatingToolbar() {
      several times a second for a button that only cares whether the mic is on. */
   const isListening = useVoiceStore((s) => s.isListening);
   const { startRecognition, stopRecognition } = useSpeechRecognition();
+
+  /* A phone gets the same tools through a different door — see PhoneDock at the
+     bottom of this file. Thirteen 36px buttons in one row is 500px of chrome,
+     which does not exist on a 390px screen: it overflowed off both edges, so
+     the insert (+) button and undo/redo were literally unreachable. */
+  const isPhone = useIsPhone();
+  const [moreOpen, setMoreOpen] = React.useState(false);
 
   const tools: { id: InteractionMode | 'workflow'; icon: React.ReactNode; label: string }[] = [
     {
@@ -143,6 +151,71 @@ export default function FloatingToolbar() {
       ),
     },
   ];
+
+  /* One definition of "pick up this tool", so the phone dock and the desktop
+     bar can never drift into behaving differently. */
+  const activate = (id: InteractionMode | 'workflow') => {
+    setCommentMode(false);
+    setThreadsSidebarOpen(false);
+
+    if (id === 'voice' as unknown as InteractionMode) {
+      setWorkflowOpen(false);
+      if (isListening) stopRecognition();
+      else startRecognition();
+      return;
+    }
+
+    if (id === 'workflow' as unknown as InteractionMode) {
+      const wasOpen = useCanvasStore.getState().workflowOpen;
+      setWorkflowOpen(!wasOpen);
+      if (!wasOpen) setMode('select');
+      return;
+    }
+
+    setWorkflowOpen(false);
+    setMode(mode === (id as InteractionMode) ? 'select' : (id as InteractionMode));
+    if (id === 'arrow') setSelectedId(null);
+  };
+
+  const isActive = (id: InteractionMode | 'workflow') =>
+    mode === id
+    || (id === 'voice' as unknown as InteractionMode && isListening)
+    || (id === 'workflow' as unknown as InteractionMode && workflowOpen);
+
+  const openInsertMenu = (el: HTMLElement) => {
+    setWorkflowOpen(false);
+    if (useCanvasStore.getState().plusMenuPos) {
+      setPlusMenuPos(null);
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    setPlusMenuPos({ x: rect.left, y: rect.top, isToolbar: true });
+  };
+
+  if (isPhone) {
+    return (
+      <PhoneDock
+        tools={tools}
+        activate={activate}
+        isActive={isActive}
+        openInsertMenu={openInsertMenu}
+        moreOpen={moreOpen}
+        setMoreOpen={setMoreOpen}
+        undo={undo}
+        redo={redo}
+        canUndo={undoStack.length > 0}
+        canRedo={redoStack.length > 0}
+        agentChatOpen={agentChatOpen}
+        agentStreaming={agentStreaming}
+        toggleAgentChat={() => {
+          setWorkflowOpen(false);
+          setCommentMode(false);
+          setThreadsSidebarOpen(false);
+          toggleAgentChat();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="floating-toolbar">
@@ -321,5 +394,201 @@ export default function FloatingToolbar() {
         </motion.button>
       </motion.div>
     </div>
+  );
+}
+
+/* ==================================================================
+   PhoneDock — the same toolbar, for a hand.
+
+   Two decisions carry the whole thing.
+
+   FIVE BUTTONS, NOT THIRTEEN. The desktop bar is a flat row because a mouse
+   can reach any of thirteen 36px targets instantly and a 1440px screen has the
+   room. Neither is true here: 13×36 is 500px of chrome on a 390px screen, so
+   the row simply ran off both edges — insert and undo were unreachable, which
+   is exactly the "the menu is hiding everything" complaint. What stays out is
+   what you reach for constantly while thinking on a board: add something,
+   point at something, draw, ask the AI, undo. Everything else is one tap away
+   behind ⋯, in a sheet with room for real labels — which is more discoverable
+   than a 36px glyph with a `title` no touchscreen will ever show.
+
+   44px TARGETS. A fingertip is ~9mm. Below 44px the misses stop being
+   occasional and start being the experience.
+   ================================================================== */
+function PhoneDock({
+  tools, activate, isActive, openInsertMenu, moreOpen, setMoreOpen,
+  undo, redo, canUndo, canRedo, agentChatOpen, agentStreaming, toggleAgentChat,
+}: {
+  tools: { id: InteractionMode | 'workflow'; icon: React.ReactNode; label: string }[];
+  activate: (id: InteractionMode | 'workflow') => void;
+  isActive: (id: InteractionMode | 'workflow') => boolean;
+  openInsertMenu: (el: HTMLElement) => void;
+  moreOpen: boolean;
+  setMoreOpen: (v: boolean) => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  agentChatOpen: boolean;
+  agentStreaming: boolean;
+  toggleAgentChat: () => void;
+}) {
+  const byId = (id: string) => tools.find((t) => t.id === id);
+  /** Out on the bar: the things you use without thinking. */
+  const PRIMARY = ['select', 'draw'];
+  const overflow = tools.filter((t) => !PRIMARY.includes(t.id as string));
+
+  const dockBtn =
+    'relative shrink-0 w-11 h-11 rounded-xl flex items-center justify-center transition-colors';
+
+  return (
+    <>
+      <div className="floating-toolbar phone-dock">
+        <motion.div
+          className="glass-panel flex items-center gap-0.5"
+          style={{ padding: '5px 6px' }}
+          initial={{ y: 24, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.25, duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <button
+            data-plus-button
+            onClick={(e) => openInsertMenu(e.currentTarget)}
+            className={`${dockBtn} text-[var(--accent)] active:bg-[var(--accent-subtle)]`}
+            style={{ background: 'var(--accent-subtle)' }}
+            aria-label="Insert"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+
+          {PRIMARY.map((id) => {
+            const tool = byId(id);
+            if (!tool) return null;
+            const active = isActive(tool.id);
+            return (
+              <button
+                key={id}
+                onClick={() => activate(tool.id)}
+                aria-pressed={active}
+                aria-label={tool.label}
+                className={`${dockBtn} ${active ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}
+              >
+                {active && <span className="absolute inset-0 rounded-xl clay-inset" />}
+                <span className="relative flex items-center justify-center">{tool.icon}</span>
+              </button>
+            );
+          })}
+
+          <button
+            onClick={toggleAgentChat}
+            aria-pressed={agentChatOpen}
+            aria-label="AI agent"
+            className={`${dockBtn} ${agentChatOpen ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}
+          >
+            {agentChatOpen && <span className="absolute inset-0 rounded-xl clay-inset" />}
+            <span className="relative flex items-center justify-center">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+              </svg>
+            </span>
+            {agentStreaming && !agentChatOpen && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[var(--accent)]" />
+            )}
+          </button>
+
+          <div className="w-px h-6 shrink-0 bg-[var(--border)] mx-0.5" />
+
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            aria-label="Undo"
+            className={`${dockBtn} text-base ${canUndo ? 'text-[var(--text-secondary)]' : 'text-[var(--text-muted)]'}`}
+          >
+            ↺
+          </button>
+
+          <button
+            onClick={() => setMoreOpen(!moreOpen)}
+            aria-expanded={moreOpen}
+            aria-label="More tools"
+            className={`${dockBtn} ${moreOpen ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}
+          >
+            {moreOpen && <span className="absolute inset-0 rounded-xl clay-inset" />}
+            <svg className="relative" width="19" height="19" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="5" cy="12" r="1.9" /><circle cx="12" cy="12" r="1.9" /><circle cx="19" cy="12" r="1.9" />
+            </svg>
+          </button>
+        </motion.div>
+      </div>
+
+      {/* ---- The rest of the tools, as a proper sheet ---- */}
+      <AnimatePresence>
+        {moreOpen && (
+          <>
+            <motion.div
+              key="more-scrim"
+              className="mobile-scrim"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMoreOpen(false)}
+            />
+            <motion.div
+              key="more-sheet"
+              className="mobile-sheet clay-card"
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 32, stiffness: 340 }}
+              style={{ fontFamily: "'Outfit', sans-serif" }}
+            >
+              <div className="mobile-sheet-grip" />
+              <div className="grid grid-cols-4" style={{ gap: 8, padding: '4px 14px 6px' }}>
+                {overflow.map((tool) => {
+                  const active = isActive(tool.id);
+                  return (
+                    <button
+                      key={tool.id}
+                      onClick={() => { activate(tool.id); setMoreOpen(false); }}
+                      className="flex flex-col items-center justify-center gap-1.5 rounded-2xl transition-colors"
+                      style={{
+                        padding: '12px 4px',
+                        minHeight: 74,
+                        background: active ? 'var(--accent-subtle)' : 'var(--well)',
+                        color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                      }}
+                    >
+                      {tool.icon}
+                      <span className="text-[10px] font-bold leading-tight text-center">
+                        {/* "Shape (S)" is a keyboard hint on a device with no
+                            keyboard — the shortcut is dropped, the word kept. */}
+                        {tool.label.replace(/\s*\(.\)$/, '').split('—')[0].trim()}
+                      </span>
+                    </button>
+                  );
+                })}
+
+                <button
+                  onClick={() => { redo(); setMoreOpen(false); }}
+                  disabled={!canRedo}
+                  className="flex flex-col items-center justify-center gap-1.5 rounded-2xl"
+                  style={{
+                    padding: '12px 4px',
+                    minHeight: 74,
+                    background: 'var(--well)',
+                    color: canRedo ? 'var(--text-secondary)' : 'var(--text-muted)',
+                  }}
+                >
+                  <span className="text-lg leading-none">↻</span>
+                  <span className="text-[10px] font-bold leading-tight">Redo</span>
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </>
   );
 }

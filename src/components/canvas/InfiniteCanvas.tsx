@@ -10,6 +10,7 @@ import { ingestFile } from '@/lib/fileIngest';
 import { collectDropEntries, hasDirectoryEntry, ingestDroppedFolder } from '@/lib/repoIngest';
 import { applyCanvasTheme, resetCanvasTheme, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
 import { IMAGE_SHAPE_CLIP, imageClipId } from '@/lib/imageShapes';
+import { attachTouchCanvas } from '@/lib/touchCanvas';
 import {
   saveObjects,
   saveStrokes,
@@ -37,6 +38,7 @@ import AtMentionMenu from '@/components/ui/AtMentionMenu';
 import { isSkillsetActive, activeRuleCount } from '@/lib/skillset';
 import ContextRail from '@/components/ui/rail/ContextRail';
 import Minimap from '@/components/ui/Minimap';
+import MobileViewControls from '@/components/ui/MobileViewControls';
 import ReturnToWork from '@/components/ui/ReturnToWork';
 import CheckpointIndex from '@/components/ui/CheckpointIndex';
 import SaveIndicator from '@/components/ui/SaveIndicator';
@@ -819,6 +821,126 @@ export default function InfiniteCanvas() {
     container.addEventListener('wheel', handleWheel, { passive: false });
     return () => container.removeEventListener('wheel', handleWheel);
   }, [handleWheel]);
+
+  /* ------------------------------------------------------------------
+     The same board, driven by fingers.
+
+     Everything above this point speaks mouse, and a touchscreen never sends a
+     mousemove for a travelling finger — which is precisely why the board could
+     not be dragged, moved or zoomed on a phone. lib/touchCanvas.ts reads the
+     touches and translates; see the essay at the top of that file for why the
+     translation lives at the boundary instead of in forty call sites.
+
+     Binds once and reads everything it needs live from the store, so no gesture
+     is ever driven by a stale camera or a stale mode.
+     ------------------------------------------------------------------ */
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    return attachTouchCanvas(container, {
+      getCamera: () => useCanvasStore.getState().camera,
+      setCamera: (cam) => useCanvasStore.getState().setCamera(cam),
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+      isSuspended: () => useCanvasStore.getState().isTouring,
+      isDrawing: () => useCanvasStore.getState().mode === 'draw',
+      /* What a finger may pick up and move. Two things qualify, and the
+         distinction is the whole reason panning works on a screen that is
+         mostly covered in cards:
+
+           · A block that is ALREADY selected. Tap it once to pick it up, then
+             drag. Without that rule the first finger-drag over any card
+             flung it across the board instead of scrolling past it — the
+             single most common complaint about canvases on phones.
+           · A handle that only exists because something is selected: resize
+             dots, arrow endpoints, connector grips. Those are unambiguous —
+             you cannot land on one by accident — so they drag immediately. */
+      isDraggable: (el) => {
+        if (el.closest('[data-touch-drag="handle"], .resize-handle')) return true;
+        const block = el.closest('.canvas-object');
+        if (!block || !block.classList.contains('selected')) return false;
+        /* …with one exception, and it is the one that matters most: while you
+           are actually TYPING into a block, a finger dragged across its words
+           is a text selection, not a move. That is the same division of labour
+           the mouse path already draws (see handleMouseDown in CanvasObject) —
+           the difference is that a mouse can grab the 6px of padding around
+           the words and a fingertip cannot, so on touch the whole block is a
+           handle right up until the caret is in it. */
+        const id = block.closest('[data-object-id]')?.getAttribute('data-object-id');
+        return !!id && useCanvasStore.getState().editingId !== id;
+      },
+      /* A second finger during a stroke means "zoom", not "draw a fork". The
+         drawing layer throws the half-finished stroke away when it hears this. */
+      onMultiTouch: () => window.dispatchEvent(new CustomEvent('canvas-abort-stroke')),
+    });
+  }, []);
+
+  /* ------------------------------------------------------------------
+     The on-screen keyboard, and "there is nowhere to write".
+
+     `body` is `position: fixed`, so a phone keyboard does not resize the
+     layout — it slides a panel over the bottom half of a viewport that still
+     believes it is 844px tall. Tap the lower two thirds of the board to start
+     a note and the caret you just created is behind the keys, with no scroll
+     to recover it because an infinite canvas has no scroll.
+
+     Two fixes, and they are separate:
+
+       · `--kb-inset` is published to CSS so every piece of bottom chrome
+         (toolbar, sheets, zoom pill) rides above the keyboard instead of under
+         it. The visual viewport is the only honest source for that number.
+       · The camera lifts the block being edited into the space that is
+         actually still visible. Only when it needs to — a block already in the
+         clear is left exactly where the user put it, because an unrequested
+         camera move is its own kind of disorienting.
+     ------------------------------------------------------------------ */
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const sync = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty('--kb-inset', `${Math.round(inset)}px`);
+
+      // Under ~120px it is a URL bar collapsing, not a keyboard.
+      if (inset < 120) return;
+      const id = useCanvasStore.getState().editingId;
+      if (!id) return;
+      const obj = useCanvasStore.getState().objects.find((o) => o.id === id);
+      if (!obj) return;
+
+      const cam = useCanvasStore.getState().camera;
+      const top = obj.y * cam.zoom + cam.y;
+      const bottom = top + obj.height * cam.zoom;
+      const safeBottom = vv.height - 16;
+      if (bottom <= safeBottom && top >= 8) return;
+
+      /* Lift it to sit just above the keys — not to the middle of the free
+         strip, because what you are typing belongs at the bottom of your
+         attention, with the rest of the board still readable above it. */
+      const wanted = Math.min(safeBottom - obj.height * cam.zoom, vv.height * 0.34);
+      useCanvasStore.getState().animateCamera({ ...cam, y: cam.y + (wanted - top) }, 260);
+    };
+
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+    return () => {
+      vv.removeEventListener('resize', sync);
+      vv.removeEventListener('scroll', sync);
+      document.documentElement.style.removeProperty('--kb-inset');
+    };
+  }, []);
+
+  /* Editing started while the keyboard was already up (tapping straight from
+     one note into another) fires no viewport resize, so it needs its own nudge
+     through the same path. */
+  useEffect(() => {
+    if (!editingId) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const t = setTimeout(() => vv.dispatchEvent(new Event('resize')), 120);
+    return () => clearTimeout(t);
+  }, [editingId]);
 
   /* A pan ends when the BUTTON comes up, wherever that happens to be — over
      the toolbar, a panel, another window, or nowhere at all because the tab
@@ -1980,7 +2102,7 @@ export default function InfiniteCanvas() {
           property group, so which one won would come down to stylesheet order,
           not the order they're written in. A fixed element is already a
           containing block, so the Plugins dropdown's `absolute` anchors to it. */}
-      <div className="canvas-chrome fixed top-12 left-10 z-50 pointer-events-auto flex flex-col items-start">
+      <div className="canvas-chrome board-header fixed top-12 left-10 z-50 pointer-events-auto flex flex-col items-start">
         <div className="group/head flex items-center gap-2.5">
           {isEditingTitle ? (
             <input
@@ -2319,6 +2441,8 @@ export default function InfiniteCanvas() {
             slide capture, and the Ask-AI box for agent frames. */}
         <FrameHUD />
         <Minimap />
+        {/* Zoom / fit, for a screen with no wheel and no minimap. */}
+        <MobileViewControls />
         {/* Scrolled off into empty space? One chip, pointing home. */}
         <ReturnToWork />
 
