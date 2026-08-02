@@ -128,6 +128,25 @@ function MiniIcon({ children, size = 11 }: { children: React.ReactNode; size?: n
    COUNTDOWN — ticking timer to an editable date
    ============================================================ */
 
+function formatCountdownDate(dateStr: string): string {
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const day = pad(d.getDate());
+    const month = pad(d.getMonth() + 1);
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const minutes = pad(d.getMinutes());
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    return `${day}-${month}-${year} ${pad(hours)}:${minutes} ${ampm}`;
+  } catch {
+    return dateStr;
+  }
+}
+
 export function CountdownBlock({ obj }: { obj: CanvasObjectData }) {
   const updateObject = useCanvasStore((s) => s.updateObject);
   const tint = '#C97B4B';
@@ -222,17 +241,51 @@ export function CountdownBlock({ obj }: { obj: CanvasObjectData }) {
         </div>
       )}
 
-      {/* the date itself is the editor — click it and pick */}
-      <input
-        type="datetime-local"
-        value={targetDateStr.slice(0, 16)}
-        onChange={(e) => patch({ countdownDate: e.target.value })}
-        onMouseDown={stop}
-        onPointerDown={stop}
-        onClick={stop}
-        className="w-full text-center text-[10px] font-semibold text-[var(--text-secondary)] bg-transparent outline-none rounded-lg hover:bg-[#F5EFE7] focus:bg-[#F5EFE7] dark:hover:bg-white/10 dark:focus:bg-white/10 transition-colors cursor-pointer"
-        style={{ marginTop: 10, padding: '4px 8px' }}
-      />
+      {/* Date & time selector pill with guaranteed high-contrast calendar icon */}
+      <div
+        className="relative flex items-center justify-between gap-2 w-full text-[10.5px] font-semibold text-[var(--text-secondary)] bg-[var(--well)] hover:bg-[var(--bg-tertiary)] dark:bg-white/10 dark:hover:bg-white/15 border border-[var(--border)] rounded-xl px-2.5 py-1.5 transition-colors cursor-pointer group shadow-xs mt-2.5"
+        onClick={(e) => {
+          stop(e);
+          const input = e.currentTarget.querySelector<HTMLInputElement>('input[type="datetime-local"]');
+          if (input) {
+            if ('showPicker' in input && typeof input.showPicker === 'function') {
+              try { input.showPicker(); } catch {}
+            } else {
+              input.focus();
+              input.click();
+            }
+          }
+        }}
+      >
+        <span className="flex-1 text-center font-bold tracking-tight text-[var(--text-primary)] select-none">
+          {formatCountdownDate(targetDateStr)}
+        </span>
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="shrink-0 text-[var(--text-primary)] opacity-70 group-hover:opacity-100 group-hover:text-[var(--accent)] transition-all"
+        >
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+        <input
+          type="datetime-local"
+          value={targetDateStr.slice(0, 16)}
+          onChange={(e) => patch({ countdownDate: e.target.value })}
+          onMouseDown={stop}
+          onPointerDown={stop}
+          onClick={stop}
+          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+        />
+      </div>
     </BlockShell>
   );
 }

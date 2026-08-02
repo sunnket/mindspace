@@ -1353,3 +1353,20 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .boot-sweep { animation: none; opacity: 0.5; }
 }
+
+/* Ensure datetime-local calendar picker indicator icon is crisp & visible on all themes */
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px;
+  opacity: 0.85;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  background-color: rgba(45, 42, 38, 0.08);
+}
+:where([data-canvas-theme="dark"], [data-canvas-theme="dark"] *) input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.9) hue-rotate(180deg);
+}
+
