@@ -322,7 +322,11 @@ export default function SelectionRail() {
         </Hint>
       )}
 
-      {(t === 'image' || t === 'mirror') && (
+      {t === 'image' && (
+        <Hint>Select it on the canvas for the studio: pull a piece out, cut the background, grab the text, or change its shape.</Hint>
+      )}
+
+      {t === 'mirror' && (
         <Hint>Tap the block on the canvas to cycle its shape, or open it full-view.</Hint>
       )}
 

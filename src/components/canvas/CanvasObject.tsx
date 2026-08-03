@@ -13,6 +13,7 @@ import { reportMeasuredHeight, forgetMeasuredHeight } from '@/lib/canvasLayout';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import VoiceNoteBlock from './VoiceNoteBlock';
 import FileBlock from './FileBlock';
+import ImageStudio from './ImageStudio';
 import MapBlock from './MapBlock';
 import WeatherBlock from './WeatherBlock';
 import RichText from './RichText';
@@ -1699,17 +1700,20 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         return;
       }
 
-      // Instagram-story "tap to cycle shapes": a tap on an already-selected
-      // image or camera-mirror advances it to the next mask (heart → star → …).
-      // The first click just selects (via handleMouseDown); a drag never counts
-      // as a tap (dragMovedRef). The store update broadcasts to collaborators,
-      // so a shape change is seen live by everyone.
+      /* Instagram-story "tap to cycle shapes" — now MIRRORS ONLY.
+         An image used to do this too, and it was the only way to reach the
+         masks at all: undiscoverable if you never tried it, and impossible to
+         avoid once you had, since every click on a selected picture changed it.
+         Images now have an explicit Shape button in the studio that shows all
+         ten masks at once, so a click on the picture is free to mean what a
+         click on a picture should mean — and a stray one no longer turns your
+         screenshot into a heart. A camera mirror has no studio, so it keeps the
+         tap. */
       if (obj.type === 'image' || obj.type === 'mirror') {
         if (dragMovedRef.current) return;
-        if (isSelected && (obj.content || obj.type === 'mirror')) {
-          const shapeKey = obj.type === 'mirror' ? 'mirrorShape' : 'imageShape';
-          const next = nextImageShape(obj.style?.[shapeKey] as ImageShape | undefined);
-          updateObject(obj.id, { style: { ...obj.style, [shapeKey]: next } });
+        if (obj.type === 'mirror' && isSelected) {
+          const next = nextImageShape(obj.style?.mirrorShape as ImageShape | undefined);
+          updateObject(obj.id, { style: { ...obj.style, mirrorShape: next } });
         }
         return;
       }
@@ -5152,26 +5156,51 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         // a shape-following shadow, so overflow must stay visible for that shadow.
         const imageShape = (obj.style?.imageShape as ImageShape) || 'original';
         const shaped = imageShape !== 'original';
+        // A cut-out image needs a checkerboard behind it while you're working
+        // on it, or "transparent" and "white" look identical on a light board
+        // and you cannot tell whether the tool did anything.
+        const isCutout = typeof obj.style?.imageOriginal === 'string';
         return (
-          <div
-            className={shaped ? 'w-full h-full' : 'image-block'}
-            style={{ width: '100%', height: '100%', overflow: shaped ? 'visible' : undefined }}
-          >
-            {obj.content ? (
-              <img
-                src={obj.content}
-                alt="Canvas image"
-                draggable={false}
-                style={{
-                  ...(shaped ? { width: '100%', height: '100%', ...imageShapeStyle(imageShape) } : {}),
-                  transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
-                }}
-              />
-            ) : (
-              <div className="flex items-center justify-center w-full h-full bg-[var(--bg-tertiary)] text-[var(--text-muted)] text-sm">
-                Drop image here
-              </div>
-            )}
+          /* The wrapper exists so ImageStudio is a SIBLING of `.image-block`
+             rather than a child of it: that class sets `overflow: hidden`, which
+             would clip the studio's rail and every panel that opens above it. */
+          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+            <div
+              className={shaped ? 'w-full h-full' : 'image-block'}
+              style={{ width: '100%', height: '100%', overflow: shaped ? 'visible' : undefined, position: 'relative' }}
+            >
+              {obj.content ? (
+                <>
+                  {isCutout && isSelected && (
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        background: 'repeating-conic-gradient(rgba(255,255,255,0.16) 0% 25%, rgba(0,0,0,0.22) 0% 50%) 50% / 14px 14px',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+                  <img
+                    src={obj.content}
+                    alt="Canvas image"
+                    draggable={false}
+                    style={{
+                      ...(shaped ? { width: '100%', height: '100%', ...imageShapeStyle(imageShape) } : {}),
+                      position: 'relative',
+                      transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
+                    }}
+                  />
+                </>
+              ) : (
+                <div className="flex items-center justify-center w-full h-full bg-[var(--bg-tertiary)] text-[var(--text-muted)] text-sm">
+                  Drop image here
+                </div>
+              )}
+            </div>
+
+            {/* Mounted only while selected — that unmount is what resets the
+                tools, so a picture is never left holding an armed wand. */}
+            {obj.content && isSelected && <ImageStudio obj={obj} />}
           </div>
         );
       }
@@ -5730,8 +5759,11 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         />
       )}
 
-      {/* Tap-to-cycle hint — a quiet nudge under a selected image/mirror. */}
-      {(obj.type === 'image' || obj.type === 'mirror') && isSelected && !isDragging && !isResizing && (
+      {/* Tap-to-cycle hint — MIRRORS ONLY now. An image says what it can do
+          through the studio rail sitting on it, and a second floating label
+          underneath repeating a gesture that no longer exists would be worse
+          than nothing. */}
+      {obj.type === 'mirror' && isSelected && !isDragging && !isResizing && (
         <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 z-[101] pointer-events-none whitespace-nowrap px-2.5 py-1 rounded-full bg-black/55 backdrop-blur-sm text-[9px] font-bold uppercase tracking-widest text-white/90 shadow-md flex items-center gap-1.5">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M9 11.5a2.5 2.5 0 1 1 5 0V13" /><path d="M12 2v2M2 12h2m16 0h2M5 5l1.5 1.5M19 5l-1.5 1.5" />
