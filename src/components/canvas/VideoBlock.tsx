@@ -9,6 +9,9 @@ import {
   isVideoClip, clipRange, resolveVideoFile, formatTimecode, formatDuration,
   buildFilmstrip, grabFrameDataUrl, createClipObject, countClipsOf, forceDuration, panIntoView,
 } from '@/lib/video/clips';
+import {
+  exportClipFile, isExportSupported, downloadFile, type ExportProgress,
+} from '@/lib/video/export';
 
 /* Padding and margins are inline throughout, for the reason given at the top of
    FileBlock: the app's unlayered global reset (`* { margin:0; padding:0 }`)
@@ -64,6 +67,7 @@ const Icon = {
   check: (s = 13) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>,
   close: (s = 13) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>,
   source: (s = 12) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>,
+  save: (s = 12) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>,
 };
 
 /** Minimum a clip is allowed to be. Shorter than this and it reads as a glitch
@@ -108,6 +112,15 @@ export default function VideoBlock({ obj, open, embedded }: {
      on sight instead of being drawn under the new video's handles. */
   const [strip, setStrip] = React.useState<{ key: string; frames: string[] }>({ key: '', frames: [] });
   const dragRef = React.useRef<Drag>(null);
+
+  // Real-file export (lib/video/export.ts). Null when idle.
+  const [exporting, setExporting] = React.useState<ExportProgress | null>(null);
+  const exportRef = React.useRef<{ cancel: () => void } | null>(null);
+
+  /* An export is real-time, so it is entirely possible to start one and then
+     delete the block, navigate away, or close the reader. Cancelling on unmount
+     stops a detached <video> playing to a recorder nobody is waiting for. */
+  React.useEffect(() => () => exportRef.current?.cancel(), []);
 
   const committed = React.useMemo(() => clipRange(obj, duration), [obj, duration]);
 
@@ -340,6 +353,53 @@ export default function VideoBlock({ obj, open, embedded }: {
     try { playSnap(); } catch { /* audio is optional */ }
     exitTrim();
     toast.success(`Range updated — ${formatDuration(span)}`);
+  };
+
+  /**
+   * Render this clip's range out as a real, standalone video file.
+   *
+   * The one thing a range-based clip cannot do on its own is leave the app, so
+   * this is the bridge: it plays the span into a MediaRecorder and hands the
+   * result to the browser's downloader. It costs real time — the tooltip and
+   * the progress readout both say so up front, because a twelve-second wait you
+   * were warned about is patience and the same wait unannounced is a bug.
+   */
+  const runExport = () => {
+    if (exporting) return;
+    const src = resolveVideoFile(obj);
+    if (!src) {
+      toast.error("The video's bytes aren't loaded", { detail: 'Re-drop the source file, then export.' });
+      return;
+    }
+    if (!isExportSupported()) {
+      toast.error("This browser can't render video files", {
+        detail: 'Chrome, Edge and Firefox can. The clip itself still works everywhere.',
+      });
+      return;
+    }
+
+    videoRef.current?.pause();
+    const { start, end } = committed;
+    setExporting({ ratio: 0, secondsDone: 0, secondsTotal: end - start });
+
+    const handle = exportClipFile(src, start, end, sourceName, (p) => setExporting(p));
+    exportRef.current = handle;
+
+    void handle.promise.then((res) => {
+      exportRef.current = null;
+      setExporting(null);
+      if ('ok' in res && res.ok) {
+        downloadFile(res.file);
+        try { playSnap(); } catch { /* audio is optional */ }
+        toast.success(`Saved ${res.file.name}`, {
+          detail: `${formatDuration(end - start)} · ${(res.file.size / 1048576).toFixed(1)} MB`,
+        });
+      } else if ('cancelled' in res) {
+        toast.info('Export cancelled');
+      } else {
+        toast.error("Couldn't render that clip", { detail: res.error });
+      }
+    });
   };
 
   const grabStill = () => {
@@ -585,6 +645,8 @@ export default function VideoBlock({ obj, open, embedded }: {
             <div className="absolute left-0 right-0 bottom-0" style={{ height: 3, background: 'rgba(255,255,255,0.16)' }}>
               <div style={{ width: `${progressPct}%`, height: '100%', background: 'var(--accent)' }} />
             </div>
+
+            {exporting && <ExportOverlay progress={exporting} onCancel={() => exportRef.current?.cancel()} />}
           </div>
 
           {/* Label strip: what this is, and where it came from. */}
@@ -610,6 +672,18 @@ export default function VideoBlock({ obj, open, embedded }: {
               style={{ width: 24, height: 22, background: 'var(--well)' }}
             >
               {Icon.scissors(11)}
+            </button>
+            <button
+              {...guard}
+              onClick={(e) => { stop(e); runExport(); }}
+              disabled={!!exporting}
+              /* The wait is quoted BEFORE the click, not discovered after it.
+                 Real-time rendering is a fine trade when it's expected. */
+              title={`Save as a video file — renders in real time (about ${formatDuration(committed.end - committed.start)})`}
+              className="shrink-0 flex items-center justify-center rounded-md text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-wait"
+              style={{ width: 24, height: 22, background: 'var(--well)' }}
+            >
+              {Icon.save(11)}
             </button>
             <button
               {...guard}
@@ -750,6 +824,48 @@ export default function VideoBlock({ obj, open, embedded }: {
 }
 
 /* =========================================================== sub-components = */
+
+/**
+ * What a real-time render looks like while it happens.
+ *
+ * It reports SECONDS, not just a percentage, because the number people actually
+ * want here is "how much longer" — and for a real-time export that number is
+ * exactly the clip's remaining length, which is the one honest thing this can
+ * say. The bar is driven off presented frames, so if decoding stalls the bar
+ * stalls with it instead of sliding on and then hanging at 100%.
+ */
+function ExportOverlay({ progress, onCancel }: { progress: ExportProgress; onCancel: () => void }) {
+  const remaining = Math.max(0, progress.secondsTotal - progress.secondsDone);
+  return (
+    <div
+      className="absolute inset-0 flex flex-col items-center justify-center gap-2.5"
+      style={{ background: 'rgba(8,7,6,0.82)', backdropFilter: 'blur(2px)', padding: 16 }}
+      onMouseDown={stop}
+      onPointerDown={stop}
+    >
+      <span className="text-[11px] font-black uppercase tracking-widest" style={{ color: 'var(--accent)' }}>
+        Rendering clip
+      </span>
+
+      <div className="rounded-full overflow-hidden" style={{ width: '72%', maxWidth: 220, height: 4, background: 'rgba(255,255,255,0.18)' }}>
+        <div style={{ width: `${Math.round(progress.ratio * 100)}%`, height: '100%', background: 'var(--accent)', transition: 'width 120ms linear' }} />
+      </div>
+
+      <span className="text-[10.5px] tabular-nums text-white/60">
+        {remaining > 0.6 ? `about ${formatDuration(remaining)} left` : 'finishing…'}
+      </span>
+
+      <button
+        {...guard}
+        onClick={(e) => { stop(e); onCancel(); }}
+        className="rounded-full text-[10px] font-bold uppercase tracking-wider cursor-pointer text-white/75 hover:text-white transition-colors"
+        style={{ padding: '4px 11px', background: 'rgba(255,255,255,0.12)' }}
+      >
+        Cancel
+      </button>
+    </div>
+  );
+}
 
 /** The card surface — skipped when embedded, because FileBlock's reader has
  *  already drawn one and two stacked cards read as a bug. */
