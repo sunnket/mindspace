@@ -462,6 +462,330 @@ export function extractPalette(img: LoadedImage, count = 6): Swatch[] {
   return out;
 }
 
+/* ========================================================================== */
+/*  Freeform + region pulls                                                    */
+/* ========================================================================== */
+
+export interface Point { x: number; y: number }
+
+/**
+ * Cut along a hand-drawn path.
+ *
+ * A rectangle is the honest default but it is also the reason people give up on
+ * a crop tool: almost nothing worth keeping out of a photograph is a rectangle.
+ * The lasso closes the path, clips to it, and writes the result as a PNG with
+ * everything outside the loop transparent — so the piece arrives on the board
+ * already the shape of the thing, not the shape of a box around the thing.
+ *
+ * The path is smoothed through quadratic midpoints rather than drawn as raw
+ * line segments. A pointer stream is jittery at speed, and a polygon of those
+ * samples has visible corners along every edge; the midpoint construction turns
+ * the same samples into a continuous curve at no extra cost.
+ */
+export function cropLasso(img: LoadedImage, points: Point[], feather = 1.2): { dataUrl: string; width: number; height: number } | null {
+  if (points.length < 3) return null;
+
+  const xs = points.map((p) => p.x * img.width);
+  const ys = points.map((p) => p.y * img.height);
+  const minX = Math.max(0, Math.floor(Math.min(...xs)));
+  const minY = Math.max(0, Math.floor(Math.min(...ys)));
+  const maxX = Math.min(img.width, Math.ceil(Math.max(...xs)));
+  const maxY = Math.min(img.height, Math.ceil(Math.max(...ys)));
+  const w = maxX - minX;
+  const h = maxY - minY;
+  if (w < 2 || h < 2) return null;
+
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  const ctx = out.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.beginPath();
+  ctx.moveTo(xs[0] - minX, ys[0] - minY);
+  for (let i = 1; i < points.length - 1; i++) {
+    const cx = xs[i] - minX;
+    const cy = ys[i] - minY;
+    const nx = (cx + (xs[i + 1] - minX)) / 2;
+    const ny = (cy + (ys[i + 1] - minY)) / 2;
+    ctx.quadraticCurveTo(cx, cy, nx, ny);
+  }
+  ctx.closePath();
+
+  // A hairline of blur on the mask edge: a hard clip against a photograph
+  // stair-steps, and one pixel of softness is the difference between "cut out"
+  // and "cut out with scissors by a child".
+  if (feather > 0) {
+    ctx.save();
+    ctx.filter = `blur(${feather}px)`;
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.restore();
+    ctx.globalCompositeOperation = 'source-in';
+  } else {
+    ctx.clip();
+  }
+
+  ctx.drawImage(img.canvas, minX, minY, w, h, 0, 0, w, h);
+  ctx.globalCompositeOperation = 'source-over';
+
+  return { dataUrl: out.toDataURL('image/png'), width: w, height: h };
+}
+
+/**
+ * Select the connected region under a click and pull just that out.
+ *
+ * The inverse of the background cut: instead of filling from the edges to find
+ * what to DELETE, it fills from a point to find what to KEEP. On flat-coloured
+ * material — a logo, a chart segment, an icon, a block of solid colour — this
+ * grabs the exact object in one click, which no rectangle ever does.
+ */
+export function pullRegion(
+  img: LoadedImage,
+  seed: Point,
+  tolerance = 0.14,
+): { dataUrl: string; width: number; height: number } | null {
+  const { width: w, height: h } = img;
+  const image = img.ctx.getImageData(0, 0, w, h);
+  const data = image.data;
+
+  const sx = Math.max(0, Math.min(w - 1, Math.round(seed.x * w)));
+  const sy = Math.max(0, Math.min(h - 1, Math.round(seed.y * h)));
+  const si = (sy * w + sx) * 4;
+  const ref: BgRef = [data[si], data[si + 1], data[si + 2]];
+
+  const total = w * h;
+  const inRegion = new Uint8Array(total);
+  const stack = new Int32Array(total);
+  let sp = 0;
+  let count = 0;
+  let minX = w, minY = h, maxX = 0, maxY = 0;
+
+  const consider = (p: number) => {
+    if (inRegion[p]) return;
+    const i = p * 4;
+    if (data[i + 3] < 8) return;
+    if (colorDistance(data[i], data[i + 1], data[i + 2], ref[0], ref[1], ref[2]) > tolerance) return;
+    inRegion[p] = 1;
+    stack[sp++] = p;
+    count++;
+    const x = p % w;
+    const y = (p / w) | 0;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  };
+
+  consider(sy * w + sx);
+  while (sp > 0) {
+    const p = stack[--sp];
+    const x = p % w;
+    const y = (p / w) | 0;
+    if (x > 0) consider(p - 1);
+    if (x < w - 1) consider(p + 1);
+    if (y > 0) consider(p - w);
+    if (y < h - 1) consider(p + w);
+  }
+
+  // Fewer than a few hundred pixels is a mis-click on a speck, not a selection.
+  if (count < 200) return null;
+
+  const rw = maxX - minX + 1;
+  const rh = maxY - minY + 1;
+  const out = document.createElement('canvas');
+  out.width = rw;
+  out.height = rh;
+  const octx = out.getContext('2d');
+  if (!octx) return null;
+
+  const region = octx.createImageData(rw, rh);
+  for (let y = 0; y < rh; y++) {
+    for (let x = 0; x < rw; x++) {
+      const src = ((y + minY) * w + (x + minX)) * 4;
+      const dst = (y * rw + x) * 4;
+      region.data[dst] = data[src];
+      region.data[dst + 1] = data[src + 1];
+      region.data[dst + 2] = data[src + 2];
+      region.data[dst + 3] = inRegion[(y + minY) * w + (x + minX)] ? data[src + 3] : 0;
+    }
+  }
+  octx.putImageData(region, 0, 0);
+  return { dataUrl: out.toDataURL('image/png'), width: rw, height: rh };
+}
+
+/* ========================================================================== */
+/*  Trim + shatter                                                             */
+/* ========================================================================== */
+
+/**
+ * Crop away transparent margins.
+ *
+ * The natural companion to the background cut: what is left is a subject
+ * floating in a frame the size of the ORIGINAL photograph, so most of the block
+ * is empty and it neither sits nicely nor scales sensibly on the board. Trimming
+ * to the pixels that survived makes the block the size of the thing in it.
+ */
+export function trimTransparent(img: LoadedImage, threshold = 8): { dataUrl: string; width: number; height: number } | null {
+  const { width: w, height: h } = img;
+  const { data } = img.ctx.getImageData(0, 0, w, h);
+
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (data[(y * w + x) * 4 + 3] > threshold) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return null;                     // nothing opaque at all
+  if (minX === 0 && minY === 0 && maxX === w - 1 && maxY === h - 1) return null; // already tight
+
+  const rw = maxX - minX + 1;
+  const rh = maxY - minY + 1;
+  const out = document.createElement('canvas');
+  out.width = rw;
+  out.height = rh;
+  const ctx = out.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(img.canvas, minX, minY, rw, rh, 0, 0, rw, rh);
+  return { dataUrl: out.toDataURL('image/png'), width: rw, height: rh };
+}
+
+/** One tile of a shattered image, with its place in the grid. */
+export interface Tile { dataUrl: string; col: number; row: number; width: number; height: number }
+
+/**
+ * Break the picture into a grid of independent blocks.
+ *
+ * The most literal reading of "make it breakable": afterwards there is no image,
+ * there are sixteen pieces, and every one is a block that can be moved, sorted,
+ * annotated or thrown away on its own. It is how a contact sheet, a storyboard
+ * or a comparison grid gets taken apart into things you can actually arrange.
+ */
+export function shatter(img: LoadedImage, cols: number, rows: number): Tile[] {
+  const tiles: Tile[] = [];
+  const tw = Math.floor(img.width / cols);
+  const th = Math.floor(img.height / rows);
+  if (tw < 2 || th < 2) return tiles;
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      // The last column and row absorb the remainder, so a size that does not
+      // divide evenly loses no pixels off the right and bottom edges.
+      const w = col === cols - 1 ? img.width - tw * col : tw;
+      const h = row === rows - 1 ? img.height - th * row : th;
+      const out = document.createElement('canvas');
+      out.width = w;
+      out.height = h;
+      const ctx = out.getContext('2d');
+      if (!ctx) continue;
+      ctx.drawImage(img.canvas, tw * col, th * row, w, h, 0, 0, w, h);
+      tiles.push({ dataUrl: out.toDataURL('image/png'), col, row, width: w, height: h });
+    }
+  }
+  return tiles;
+}
+
+/* ========================================================================== */
+/*  Adjustments                                                                */
+/* ========================================================================== */
+
+export interface ImageAdjust {
+  /** All neutral at 0; the ranges are chosen so the extremes are still usable. */
+  exposure: number;   // -100…100
+  contrast: number;   // -100…100
+  saturation: number; // -100…100
+  warmth: number;     // -100…100
+  blur: number;       // 0…20
+  grain?: number;     // 0…100, a sepia veil rather than real noise
+}
+
+export const NEUTRAL_ADJUST: ImageAdjust = { exposure: 0, contrast: 0, saturation: 0, warmth: 0, blur: 0, grain: 0 };
+
+export function isNeutralAdjust(a?: Partial<ImageAdjust> | null): boolean {
+  if (!a) return true;
+  return !a.exposure && !a.contrast && !a.saturation && !a.warmth && !a.blur && !a.grain;
+}
+
+/**
+ * An adjustment as a CSS filter string.
+ *
+ * Deliberately NOT a pixel operation. Written as a filter it costs nothing to
+ * apply, nothing to change, and nothing to undo — the original bytes are never
+ * touched, so a look can be tuned a hundred times and reverted with one click.
+ * The same string is also valid for `ctx.filter`, which is what lets a piece
+ * pulled out of an adjusted picture carry the look with it instead of reverting
+ * to the raw pixels the moment it becomes its own block.
+ */
+export function adjustToFilter(a?: Partial<ImageAdjust> | null): string {
+  if (isNeutralAdjust(a)) return '';
+  const adj = { ...NEUTRAL_ADJUST, ...(a || {}) };
+  /* Every multiplier is floored at zero. `saturate(-0.111)` is not merely
+     ineffective — it is INVALID, and a browser that meets one invalid function
+     discards the whole `filter` declaration. Saturation at its minimum computes
+     to 1 + (−100/90) = −0.111, so the Noir look silently rendered as no filter
+     at all while every other preset worked, which is a maddening thing to
+     diagnose from the outside. Clamping makes the minimum mean what it should:
+     saturate(0), i.e. black and white. */
+  const mul = (v: number) => Math.max(0, v).toFixed(3);
+  const parts: string[] = [];
+  if (adj.exposure) parts.push(`brightness(${mul(1 + adj.exposure / 140)})`);
+  if (adj.contrast) parts.push(`contrast(${mul(1 + adj.contrast / 120)})`);
+  if (adj.saturation) parts.push(`saturate(${mul(1 + adj.saturation / 90)})`);
+  if (adj.warmth) {
+    // Warm leans sepia; cool rotates the hue toward blue. Two different levers
+    // for the two directions, because saturating toward orange and rotating
+    // toward blue are what actually read as warm and cool.
+    if (adj.warmth > 0) parts.push(`sepia(${(adj.warmth / 200).toFixed(3)})`);
+    else parts.push(`hue-rotate(${Math.round(adj.warmth * 0.35)}deg)`);
+  }
+  if (adj.blur) parts.push(`blur(${(adj.blur / 10).toFixed(2)}px)`);
+  if (adj.grain) parts.push(`sepia(${(adj.grain / 260).toFixed(3)}) contrast(${(1 + adj.grain / 700).toFixed(3)})`);
+  return parts.join(' ');
+}
+
+/**
+ * Burn an adjustment into the pixels.
+ *
+ * Used on PULLS ONLY, and the distinction matters. A look lives as a CSS filter
+ * on the block, so the picture you see is filtered at paint time while the
+ * stored bytes stay raw. A piece pulled out becomes a NEW block with no look of
+ * its own, so unless the filter is baked into it, it reverts to the raw pixels
+ * the instant it lands and visibly doesn't match the picture it came from.
+ *
+ * The background cut deliberately does NOT bake: it writes its result back into
+ * the same block, which still carries the CSS filter — baking there would apply
+ * the look twice.
+ */
+export function bakeFilter(img: LoadedImage, filter: string): LoadedImage {
+  if (!filter) return img;
+  const out = document.createElement('canvas');
+  out.width = img.width;
+  out.height = img.height;
+  const ctx = out.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return img;
+  ctx.filter = filter;
+  ctx.drawImage(img.canvas, 0, 0);
+  ctx.filter = 'none';
+  return { canvas: out, ctx, width: img.width, height: img.height };
+}
+
+/** One-tap looks. Each is just a preset of the same five numbers, so any of
+ *  them can be nudged afterwards rather than being a dead end. */
+export const IMAGE_LOOKS: { id: string; label: string; adjust: ImageAdjust }[] = [
+  { id: 'none', label: 'Original', adjust: { ...NEUTRAL_ADJUST } },
+  { id: 'vivid', label: 'Vivid', adjust: { exposure: 6, contrast: 22, saturation: 34, warmth: 4, blur: 0 } },
+  { id: 'noir', label: 'Noir', adjust: { exposure: 2, contrast: 30, saturation: -100, warmth: 0, blur: 0 } },
+  { id: 'fade', label: 'Fade', adjust: { exposure: 12, contrast: -22, saturation: -18, warmth: 14, blur: 0 } },
+  { id: 'warm', label: 'Golden', adjust: { exposure: 6, contrast: 8, saturation: 12, warmth: 44, blur: 0 } },
+  { id: 'cool', label: 'Cool', adjust: { exposure: 3, contrast: 10, saturation: 6, warmth: -40, blur: 0 } },
+  { id: 'soft', label: 'Dream', adjust: { exposure: 10, contrast: -10, saturation: 8, warmth: 10, blur: 6 } },
+];
+
 /** Natural on-canvas size for a pulled-out piece: big enough to see, never so
  *  big it covers the board. */
 export function fitPulledBox(width: number, height: number, target = 240): { width: number; height: number } {

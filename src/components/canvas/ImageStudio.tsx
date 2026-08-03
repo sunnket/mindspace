@@ -8,7 +8,9 @@ import { playSnap } from '@/lib/relaxAudio';
 import { screenToCanvas } from '@/lib/utils';
 import {
   cropRegion, removeBackground, extractPalette, fitPulledBox, estimateTolerance,
-  type LoadedImage, type Region, type Swatch,
+  cropLasso, pullRegion, trimTransparent, shatter, bakeFilter,
+  adjustToFilter, isNeutralAdjust, IMAGE_LOOKS, NEUTRAL_ADJUST,
+  type LoadedImage, type Region, type Swatch, type Point, type ImageAdjust,
 } from '@/lib/image/pixels';
 import { loadForPixels } from '@/lib/image/source';
 import { grabText, detectObjects, type DetectedObject } from '@/lib/image/extract';
@@ -47,7 +49,20 @@ import { IMAGE_SHAPE_CYCLE, IMAGE_SHAPE_LABEL, imageShapeStyle, type ImageShape 
 const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 const guard = { onMouseDown: stop, onPointerDown: stop };
 
-type Tool = null | 'pull' | 'cutout' | 'objects' | 'shape' | 'palette';
+type Tool = null | 'pull' | 'cutout' | 'adjust' | 'objects' | 'shape' | 'palette';
+
+/**
+ * How a piece is chosen.
+ *
+ *  · box    — a rectangle. Honest, precise, and the wrong shape for almost
+ *             anything worth keeping out of a photograph.
+ *  · lasso  — draw around it freehand. The piece arrives shaped like the thing
+ *             rather than like a box around the thing.
+ *  · magic  — click it. Flood fills outward from the point to find the whole
+ *             connected region of that colour, which on flat material (a logo,
+ *             a chart segment, an icon) grabs the exact object in one tap.
+ */
+type PullMode = 'box' | 'lasso' | 'magic';
 
 const Icon = {
   pull: (s = 13) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="M3 8V5a2 2 0 0 1 2-2h3" /><path d="M16 3h3a2 2 0 0 1 2 2v3" /><path d="M21 16v3a2 2 0 0 1-2 2h-3" /><path d="M8 21H5a2 2 0 0 1-2-2v-3" /></svg>,
@@ -58,6 +73,7 @@ const Icon = {
   palette: (s = 13) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><circle cx="9" cy="9" r="1.3" fill="currentColor" /><circle cx="15" cy="9" r="1.3" fill="currentColor" /><circle cx="8" cy="14" r="1.3" fill="currentColor" /><circle cx="14.5" cy="14.5" r="1.3" fill="currentColor" /></svg>,
   restore: (s = 13) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7" /><polyline points="3 4 3 9 8 9" /></svg>,
   wand: (s = 13) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="m4 20 11-11" /><path d="m14 6 4 4" /><path d="M17 3v3M20.5 4.5 18.5 6.5M21 9h-3" /></svg>,
+  adjust: (s = 13) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="21" x2="5" y2="13" /><line x1="5" y1="9" x2="5" y2="3" /><line x1="12" y1="21" x2="12" y2="15" /><line x1="12" y1="11" x2="12" y2="3" /><line x1="19" y1="21" x2="19" y2="17" /><line x1="19" y1="13" x2="19" y2="3" /><circle cx="5" cy="11" r="2" /><circle cx="12" cy="13" r="2" /><circle cx="19" cy="15" r="2" /></svg>,
 };
 
 /**
@@ -100,8 +116,11 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
   const [busy, setBusy] = React.useState<string | null>(null);
 
   // Pull
+  const [pullMode, setPullMode] = React.useState<PullMode>('box');
   const [region, setRegion] = React.useState<Region | null>(null);
+  const [lasso, setLasso] = React.useState<Point[] | null>(null);
   const drawRef = React.useRef<{ x0: number; y0: number } | null>(null);
+  const lassoRef = React.useRef<Point[] | null>(null);
   /* Mirrors `drawRef` for the RENDER pass. The ref is what the pointer handlers
      read (it must be up to date within a single gesture, before any re-render),
      but reading a ref while rendering is not allowed — React can't know the
@@ -117,8 +136,24 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
   const [objects, setObjects] = React.useState<DetectedObject[] | null>(null);
   const [palette, setPalette] = React.useState<Swatch[] | null>(null);
 
+  // Shatter
+  const [grid, setGrid] = React.useState({ cols: 3, rows: 3 });
+
   const shape = (obj.style?.imageShape as ImageShape) || 'original';
   const hasOriginal = typeof obj.style?.imageOriginal === 'string';
+
+  /* The look, as live state. Adjustments are a CSS filter on the block, so
+     dragging a slider repaints instantly and touches no pixels — the store is
+     only written on release, which keeps a drag from queueing sixty undo
+     entries and sixty collaborator broadcasts. */
+  const savedAdjust = (obj.style?.imageAdjust as Partial<ImageAdjust> | undefined) || NEUTRAL_ADJUST;
+  const [adjust, setAdjust] = React.useState<ImageAdjust>({ ...NEUTRAL_ADJUST, ...savedAdjust });
+  const commitAdjust = (next: ImageAdjust) => {
+    setAdjust(next);
+    const live = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+    updateObject(obj.id, { style: { ...(live?.style || obj.style), imageAdjust: next } });
+  };
+  const filterCss = adjustToFilter(adjust);
 
   /* The picture's true aspect ratio, needed to know where it is being drawn
      inside the block. Read off a detached <img>, which the browser serves from
@@ -199,6 +234,16 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
     if (!p) return;
 
     if (wand) { void eraseAt(p); return; }
+    if (pullMode === 'magic') { void pullMagic(p); return; }
+
+    if (pullMode === 'lasso') {
+      lassoRef.current = [p];
+      setLasso([p]);
+      setRegion(null);
+      setDrawing(true);
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      return;
+    }
 
     // Pressing INSIDE an existing selection starts the drag-out, not a new box.
     if (region && p.x >= region.x && p.x <= region.x + region.w && p.y >= region.y && p.y <= region.y + region.h) {
@@ -215,6 +260,22 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
 
   const onSurfaceMove = (e: React.PointerEvent) => {
     if (dragOut) { e.stopPropagation(); setDragOut({ x: e.clientX, y: e.clientY }); return; }
+
+    if (lassoRef.current) {
+      e.stopPropagation();
+      const p = regionFromEvent(e);
+      if (!p) return;
+      const pts = lassoRef.current;
+      const last = pts[pts.length - 1];
+      // Thin the stream: a pointer emits far more samples than the curve needs,
+      // and keeping all of them makes the path heavy to draw and to clip with
+      // for no visible gain.
+      if (Math.hypot(p.x - last.x, p.y - last.y) < 0.004) return;
+      pts.push(p);
+      setLasso([...pts]);
+      return;
+    }
+
     const start = drawRef.current;
     if (!start) return;
     e.stopPropagation();
@@ -238,6 +299,17 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
       void pullOut(drop);
       return;
     }
+    if (lassoRef.current) {
+      e.stopPropagation();
+      const pts = lassoRef.current;
+      lassoRef.current = null;
+      setDrawing(false);
+      // A tap, or a scribble too small to enclose anything.
+      if (pts.length < 6) { setLasso(null); return; }
+      void pullLasso(pts);
+      return;
+    }
+
     if (!drawRef.current) return;
     e.stopPropagation();
     drawRef.current = null;
@@ -247,32 +319,78 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
     setRegion((r) => (r && (r.w < 0.012 || r.h < 0.012) ? null : r));
   };
 
+  /** Where a pulled piece should land: under the cursor if it was dragged out,
+   *  otherwise beside its source, stepping down so repeated pulls stack
+   *  readably instead of burying each other. */
+  const placeFor = (w: number, h: number, at?: { x: number; y: number }) => {
+    if (at) {
+      const world = screenToCanvas(at.x, at.y, useCanvasStore.getState().camera);
+      return { x: world.x - w / 2, y: world.y - h / 2 };
+    }
+    const siblings = useCanvasStore.getState().objects
+      .filter((o) => o.style?.pulledFrom === obj.id).length;
+    return { x: obj.x + obj.width + 48, y: obj.y + siblings * 26 };
+  };
+
+  const spawnPiece = (dataUrl: string, width: number, height: number, at?: { x: number; y: number }) => {
+    const box = fitPulledBox(width, height);
+    const { x, y } = placeFor(box.width, box.height, at);
+    const created = addObject({
+      type: 'image', x, y, width: box.width, height: box.height, content: dataUrl,
+      // Remembered so repeated pulls from one picture fan out rather than pile.
+      style: { pulledFrom: obj.id },
+    });
+    setSelectedId(created.id);
+    try { playSnap(); } catch { /* audio is optional */ }
+    return created;
+  };
+
   /** Turn the selected region into its own block. `at` = drop point in screen
    *  coords when it was dragged out; otherwise it lands beside the source. */
   const pullOut = async (at?: { x: number; y: number }) => {
     if (!region || region.w < 0.012 || region.h < 0.012) return;
     const r = region;
 
-    await withPixels('Cutting', (img) => {
+    await withPixels('Cutting', (raw) => {
+      // Baked, so the piece keeps the look of the picture it came from.
+      const img = bakeFilter(raw, filterCss);
       const { dataUrl, width, height } = cropRegion(img, r);
-      const box = fitPulledBox(width, height);
-
-      let x: number;
-      let y: number;
-      if (at) {
-        const world = screenToCanvas(at.x, at.y, useCanvasStore.getState().camera);
-        x = world.x - box.width / 2;
-        y = world.y - box.height / 2;
-      } else {
-        x = obj.x + obj.width + 48;
-        y = obj.y;
-      }
-
-      const created = addObject({ type: 'image', x, y, width: box.width, height: box.height, content: dataUrl });
-      setSelectedId(created.id);
-      try { playSnap(); } catch { /* audio is optional */ }
+      spawnPiece(dataUrl, width, height, at);
       toast.success(`Pulled out ${width}×${height}`, { detail: 'A real image block — it stands on its own now.' });
       setRegion(null);
+      return null;
+    });
+  };
+
+  const pullLasso = async (pts: Point[]) => {
+    await withPixels('Cutting', (raw) => {
+      const img = bakeFilter(raw, filterCss);
+      const cut = cropLasso(img, pts);
+      setLasso(null);
+      if (!cut) {
+        toast.info('That loop was too small to cut');
+        return null;
+      }
+      spawnPiece(cut.dataUrl, cut.width, cut.height);
+      toast.success('Pulled out along your line', {
+        detail: 'Everything outside the loop came away transparent.',
+      });
+      return null;
+    });
+  };
+
+  const pullMagic = async (p: Point) => {
+    await withPixels('Selecting', (raw) => {
+      const img = bakeFilter(raw, filterCss);
+      const cut = pullRegion(img, p, tolerance);
+      if (!cut) {
+        toast.info('Nothing solid enough there', {
+          detail: 'Magic pull works on areas of one colour. Try the lasso for a photo.',
+        });
+        return null;
+      }
+      spawnPiece(cut.dataUrl, cut.width, cut.height);
+      toast.success(`Pulled that region — ${cut.width}×${cut.height}`);
       return null;
     });
   };
@@ -335,6 +453,94 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
     });
   };
 
+  /**
+   * The inverse of cutting: take the SUBJECT out and leave the picture alone.
+   *
+   * Cut out edits the block in place, which is right when you wanted this
+   * picture without its background. Often what you actually want is the thing
+   * ON its own, next to the original — so this runs the same removal, trims the
+   * empty margin the removal leaves behind, and hands back a block that is the
+   * size and shape of the subject.
+   */
+  const pullSubject = async () => {
+    await withPixels('Lifting subject', (raw) => {
+      const img = bakeFilter(raw, filterCss);
+      const cut = removeBackground(img, { tolerance });
+      if (cut.removedRatio < 0.02 || cut.removedRatio > 0.97) {
+        toast.info("Couldn't tell subject from background", {
+          detail: 'Adjust the tolerance, or draw round it with the lasso.',
+        });
+        return null;
+      }
+      return cut.dataUrl;
+    }, 'original').then(async (cutUrl) => {
+      if (!cutUrl) return;
+      // Second pass on the RESULT to trim the transparent margin — the subject
+      // is somewhere inside a frame the size of the whole photograph.
+      const img = await loadForPixels(cutUrl);
+      const trimmed = trimTransparent(img) || { dataUrl: cutUrl, width: img.width, height: img.height };
+      spawnPiece(trimmed.dataUrl, trimmed.width, trimmed.height);
+      toast.success('Subject lifted out', { detail: 'Trimmed to its own edges, on its own block.' });
+    });
+  };
+
+  /** Crop away the transparent margin left behind by a cut. */
+  const trimEdges = async () => {
+    await withPixels('Trimming', (img) => {
+      const trimmed = trimTransparent(img);
+      if (!trimmed) {
+        toast.info('Nothing to trim — no empty margin');
+        return null;
+      }
+      applyPixels(trimmed.dataUrl);
+      // The block keeps its width and follows the new proportions, so the
+      // picture doesn't stretch the moment it's trimmed.
+      updateObject(obj.id, { height: Math.round(obj.width * (trimmed.height / trimmed.width)) });
+      toast.success(`Trimmed to ${trimmed.width}×${trimmed.height}`);
+      return null;
+    });
+  };
+
+  /**
+   * Break the picture into a grid of independent blocks.
+   *
+   * The most literal reading of "make it breakable": afterwards there is no
+   * picture, there are pieces, and each is a block you can move, sort, annotate
+   * or throw away on its own. Laid out in their original arrangement with a
+   * small gap, so the grid still reads as the picture until you disturb it.
+   */
+  const runShatter = async () => {
+    await withPixels('Shattering', (raw) => {
+      const img = bakeFilter(raw, filterCss);
+      const tiles = shatter(img, grid.cols, grid.rows);
+      if (!tiles.length) {
+        toast.info('This picture is too small to break up');
+        return null;
+      }
+      const GAP = 10;
+      const tileW = Math.round((obj.width - GAP * (grid.cols - 1)) / grid.cols);
+      const tileH = Math.round((obj.height - GAP * (grid.rows - 1)) / grid.rows);
+      const originX = obj.x + obj.width + 56;
+
+      for (const t of tiles) {
+        addObject({
+          type: 'image',
+          x: originX + t.col * (tileW + GAP),
+          y: obj.y + t.row * (tileH + GAP),
+          width: tileW,
+          height: tileH,
+          content: t.dataUrl,
+          style: { pulledFrom: obj.id },
+        });
+      }
+      try { playSnap(); } catch { /* audio is optional */ }
+      toast.success(`Broken into ${tiles.length} pieces`, {
+        detail: 'Each one is its own block now — move them anywhere.',
+      });
+      return null;
+    });
+  };
+
   const restore = () => {
     const original = obj.style?.imageOriginal as string | undefined;
     if (!original) return;
@@ -347,25 +553,61 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
 
   /* ------------------------------------------------------------ text/objects */
 
+  /**
+   * Grab the words AND the way they were set.
+   *
+   * Transcribing into a default 15px Inter paragraph loses the thing that made
+   * the text worth grabbing: a pull-quote in a serif display face, a code
+   * snippet, a handwritten note, a centred title. The block is born wearing the
+   * closest match this app has for the lettering it came from — face, weight,
+   * size and alignment — so it reads on the board the way it read in the
+   * picture, and every one of those is an ordinary property you can change
+   * afterwards.
+   *
+   * The COLOUR is measured off the pixels rather than taken from the model (see
+   * measureInkColor); a hex a model invents is worse than none at all.
+   */
   const runText = async () => {
     setBusy('Reading');
     try {
-      const { text, empty } = await grabText(obj.content);
+      /* The block is born the same width as the picture, and the type is sized
+         against that width — so lettering that filled a third of the picture
+         fills a third of the block, and the transcription lands looking like
+         what it was lifted from rather than like a default paragraph. */
+      const width = Math.max(240, Math.min(680, Math.round(obj.width)));
+      const { text, empty, style } = await grabText(obj.content, width);
       if (empty) {
         toast.info('No readable text in this image');
         return;
       }
+
+      const lines = text.split('\n').length;
       const created = addObject({
         type: 'text',
         x: obj.x + obj.width + 48,
         y: obj.y,
-        width: 340,
-        height: Math.max(120, Math.min(520, 40 + text.length * 0.42)),
+        width,
+        height: Math.max(90, Math.min(640, lines * style.fontSize * 1.7 + 44)),
         content: text,
+        style: {
+          fontFamily: style.fontFamily,
+          fontSize: style.fontSize,
+          fontWeight: style.fontWeight,
+          textAlign: style.textAlign,
+          ...(style.textColor ? { textColor: style.textColor } : {}),
+        },
       });
       setSelectedId(created.id);
       try { playSnap(); } catch { /* audio is optional */ }
-      toast.success('Text grabbed', { detail: `${text.split(/\s+/).length} words, now editable on your board.` });
+
+      const face = /Lora/.test(style.fontFamily) ? 'serif'
+        : /JetBrains/.test(style.fontFamily) ? 'monospace'
+        : /Caveat/.test(style.fontFamily) ? 'handwritten'
+        : /Bebas/.test(style.fontFamily) ? 'display'
+        : 'sans';
+      toast.success(`Text grabbed — ${text.trim().split(/\s+/).length} words`, {
+        detail: `Set in ${face}, ${style.fontWeight >= 600 ? 'bold' : 'regular'}, ${style.fontSize}px — matching the picture.`,
+      });
     } catch (err) {
       toast.error("Couldn't read the text", { detail: err instanceof Error ? err.message : '' });
     } finally {
@@ -463,6 +705,25 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
           </>
         )}
 
+        {/* The lasso, drawn live. Two strokes: a dark one underneath so the
+            line stays visible over a pale picture, the accent on top. */}
+        {lasso && lasso.length > 1 && (
+          <svg className="absolute inset-0 pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+            {(() => {
+              const d = `M ${lasso.map((p) => `${(p.x * 100).toFixed(2)} ${(p.y * 100).toFixed(2)}`).join(' L ')}${drawing ? '' : ' Z'}`;
+              return (
+                <>
+                  {/* vectorEffect keeps the line one pixel wide however the
+                      block is scaled — without it the 0–100 viewBox stretches
+                      the stroke into a smear on a wide image. */}
+                  <path d={d} fill="none" stroke="rgba(0,0,0,0.55)" strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+                  <path d={d} fill="rgba(201,123,75,0.18)" stroke="var(--accent)" strokeWidth={1.6} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" strokeDasharray="5 4" />
+                </>
+              );
+            })()}
+          </svg>
+        )}
+
         {/* Detected objects — proposals, each with its own pull button. */}
         {tool === 'objects' && objects?.map((o, i) => (
           <div
@@ -537,6 +798,7 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
             setTool('cutout');
             if (!hasOriginal) void runCutout();
           }} label="Cut out">{Icon.cutout()}</Tab>
+          <Tab active={tool === 'adjust'} onClick={() => setTool(tool === 'adjust' ? null : 'adjust')} label="Adjust">{Icon.adjust()}</Tab>
           <Tab onClick={() => void runText()} label="Text">{Icon.text()}</Tab>
           <Tab active={tool === 'objects'} onClick={() => { if (tool === 'objects') { setTool(null); return; } void runObjects(); }} label="Objects">{Icon.objects()}</Tab>
           <Tab active={tool === 'palette'} onClick={() => { if (tool === 'palette') { setTool(null); return; } void runPalette(); }} label="Colours">{Icon.palette()}</Tab>
@@ -592,9 +854,15 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
               />
               <span className="text-[10px] tabular-nums text-white/70 shrink-0" style={{ width: 24 }}>{Math.round(tolerance * 100)}</span>
             </div>
-            <div className="flex items-center gap-1.5" style={{ marginTop: 7 }}>
+            <div className="flex items-center gap-1.5" style={{ marginTop: 7, flexWrap: 'wrap' }}>
               <RailBtn active={wand} onClick={() => setWand((v) => !v)} title="Click a colour on the picture to erase it">
                 {Icon.wand(11)} Wand
+              </RailBtn>
+              <RailBtn onClick={() => void pullSubject()} title="Lift the subject out onto its own block, leaving this picture as it was" primary>
+                Lift subject
+              </RailBtn>
+              <RailBtn onClick={() => void trimEdges()} title="Crop away the empty margin left behind">
+                Trim edges
               </RailBtn>
               <RailBtn onClick={() => void runCutout(tolerance)} title="Remove the background again at this tolerance">
                 Re-run
@@ -631,20 +899,103 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
           </Panel>
         )}
 
-        {tool === 'pull' && !region && (
+        {tool === 'pull' && (
           <Panel>
-            <span className="text-[10px] text-white/70">Drag a box over anything — then drag it onto the board.</span>
+            <div className="flex items-center gap-1.5">
+              {([
+                ['box', 'Box', 'Drag a rectangle'],
+                ['lasso', 'Lasso', 'Draw freehand around anything'],
+                ['magic', 'Magic', 'Click an area of one colour to lift it'],
+              ] as const).map(([m, label, title]) => (
+                <RailBtn key={m} active={pullMode === m} onClick={() => { setPullMode(m); setRegion(null); setLasso(null); }} title={title}>
+                  {label}
+                </RailBtn>
+              ))}
+              <span style={{ width: 1, height: 15, background: 'rgba(255,255,255,0.16)', margin: '0 3px' }} />
+              <RailBtn onClick={() => void runShatter()} title={`Break the picture into ${grid.cols}×${grid.rows} separate blocks`}>
+                Shatter {grid.cols}×{grid.rows}
+              </RailBtn>
+              <select
+                value={`${grid.cols}x${grid.rows}`}
+                onChange={(e) => { const [c, r] = e.target.value.split('x').map(Number); setGrid({ cols: c, rows: r }); }}
+                onMouseDown={stop} onPointerDown={stop} onClick={stop}
+                className="rounded-full text-[9.5px] font-bold uppercase tracking-wider cursor-pointer outline-none"
+                style={{ padding: '4px 6px', background: 'rgba(255,255,255,0.12)', color: '#fff', border: 'none' }}
+              >
+                {['2x2', '3x3', '4x4', '3x1', '1x3', '4x2'].map((g) => (
+                  <option key={g} value={g} style={{ background: '#1a1918' }}>{g}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="text-[10px] text-white/60" style={{ marginTop: 7 }}>
+              {pullMode === 'box' && (region
+                ? 'Drag the box onto the board, or press Pull out.'
+                : 'Drag a rectangle over anything — then drag it onto the board.')}
+              {pullMode === 'lasso' && 'Draw a loop around anything. It comes away in that exact shape.'}
+              {pullMode === 'magic' && 'Click any area of flat colour to lift the whole of it out.'}
+            </div>
+
+            {region && pullMode === 'box' && (
+              <div className="flex items-center gap-1.5" style={{ marginTop: 7 }}>
+                <RailBtn onClick={() => void pullOut()} title="Place it beside this image" primary>Pull out</RailBtn>
+                <RailBtn onClick={() => setRegion(null)} title="Clear the box">Clear</RailBtn>
+              </div>
+            )}
           </Panel>
         )}
 
-        {region && tool === 'pull' && (
+        {tool === 'adjust' && (
           <Panel>
-            <div className="flex items-center gap-1.5">
-              <RailBtn onClick={() => void pullOut()} title="Place it beside this image" primary>
-                Pull out
-              </RailBtn>
-              <RailBtn onClick={() => setRegion(null)} title="Clear the box">Clear</RailBtn>
+            <div className="flex items-center gap-1" style={{ marginBottom: 8 }}>
+              {IMAGE_LOOKS.map((look) => (
+                <button
+                  key={look.id}
+                  {...guard}
+                  onClick={(e) => { stop(e); commitAdjust({ ...look.adjust }); }}
+                  title={look.label}
+                  className="rounded-full text-[9.5px] font-bold uppercase tracking-wider cursor-pointer transition-colors"
+                  style={{
+                    padding: '5px 9px',
+                    background: JSON.stringify({ ...NEUTRAL_ADJUST, ...adjust }) === JSON.stringify({ ...NEUTRAL_ADJUST, ...look.adjust })
+                      ? 'var(--accent)' : 'rgba(255,255,255,0.12)',
+                    color: '#fff',
+                  }}
+                >
+                  {look.label}
+                </button>
+              ))}
             </div>
+
+            {([
+              ['exposure', 'Light', -100, 100],
+              ['contrast', 'Contrast', -100, 100],
+              ['saturation', 'Colour', -100, 100],
+              ['warmth', 'Warmth', -100, 100],
+              ['blur', 'Blur', 0, 20],
+            ] as const).map(([key, label, min, max]) => (
+              <div key={key} className="flex items-center gap-2" style={{ minWidth: 250, marginTop: 3 }}>
+                <span className="text-[9.5px] font-bold uppercase tracking-widest text-white/55 shrink-0" style={{ width: 56 }}>{label}</span>
+                <input
+                  type="range" min={min} max={max} value={adjust[key]}
+                  // Repaint on every frame of the drag (cheap — it is a CSS
+                  // filter), but only WRITE to the store on release.
+                  onChange={(e) => setAdjust((a) => ({ ...a, [key]: Number(e.target.value) }))}
+                  onPointerUp={() => commitAdjust(adjust)}
+                  onMouseDown={stop} onPointerDown={stop}
+                  className="flex-1 min-w-0" style={{ accentColor: 'var(--accent)' }}
+                />
+                <span className="text-[10px] tabular-nums text-white/60 shrink-0" style={{ width: 28 }}>{adjust[key]}</span>
+              </div>
+            ))}
+
+            {!isNeutralAdjust(adjust) && (
+              <div style={{ marginTop: 8 }}>
+                <RailBtn onClick={() => commitAdjust({ ...NEUTRAL_ADJUST })} title="Back to the untouched look">
+                  {Icon.restore(11)} Reset look
+                </RailBtn>
+              </div>
+            )}
           </Panel>
         )}
       </div>

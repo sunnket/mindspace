@@ -37,6 +37,7 @@ import { semanticView } from '@/lib/semanticZoom';
 import { stackSlots, stackTargetAt, membersOf, isStackable } from '@/lib/stacks';
 import { createPortal } from 'react-dom';
 import { ImageShape, imageShapeStyle, nextImageShape, IMAGE_SHAPE_LABEL } from '@/lib/imageShapes';
+import { adjustToFilter, type ImageAdjust } from '@/lib/image/pixels';
 import { getFrameKind, frameColorOf, frameKindMeta, objectsInFrame, type FrameKind } from '@/lib/frames';
 import { PIN_COLORS, pinShade, DEFAULT_PIN_COLOR } from '@/lib/brainstorm';
 
@@ -5173,6 +5174,18 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
            of nothing. */
         const isCutout = typeof obj.style?.imageOriginal === 'string';
         const bare = shaped || isCutout;
+
+        /* The look, as a CSS filter. Adjustments are stored as five numbers and
+           resolved at paint time, so they cost nothing, change nothing, and can
+           be reverted with one click — the stored pixels are never touched.
+           Composed with (not replacing) the shape and cutout shadows, since
+           `filter` is a single property and the last one written would
+           otherwise silently drop the others. */
+        const look = adjustToFilter(obj.style?.imageAdjust as Partial<ImageAdjust> | undefined);
+        const shadow = shaped
+          ? 'drop-shadow(0 6px 14px rgba(0,0,0,0.28))'
+          : isCutout ? 'drop-shadow(0 4px 12px rgba(0,0,0,0.28))' : '';
+        const imageFilter = [look, shadow].filter(Boolean).join(' ') || undefined;
         return (
           /* The wrapper exists so ImageStudio is a SIBLING of `.image-block`
              rather than a child of it: that class sets `overflow: hidden`, which
@@ -5193,13 +5206,11 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                       // `.image-block img` supplied these; without the class they
                       // have to be stated. `contain` matches the unmasked case so
                       // a cutout doesn't suddenly reframe itself.
-                      ? {
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'contain' as const,
-                        filter: 'drop-shadow(0 4px 12px rgba(0,0,0,0.28))',
-                      }
+                      ? { width: '100%', height: '100%', objectFit: 'contain' as const }
                       : {}),
+                    // Written last so it wins over the shape helper's own filter,
+                    // which it has already absorbed.
+                    ...(imageFilter ? { filter: imageFilter } : {}),
                     position: 'relative',
                     transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
                   }}
