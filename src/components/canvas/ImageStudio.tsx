@@ -7,7 +7,7 @@ import { toast } from '@/store/toastStore';
 import { playSnap } from '@/lib/relaxAudio';
 import { screenToCanvas } from '@/lib/utils';
 import {
-  cropRegion, removeBackground, extractPalette, fitPulledBox,
+  cropRegion, removeBackground, extractPalette, fitPulledBox, estimateTolerance,
   type LoadedImage, type Region, type Swatch,
 } from '@/lib/image/pixels';
 import { loadForPixels } from '@/lib/image/source';
@@ -145,11 +145,29 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
     [blockAspect, imageAspect, shape],
   );
 
-  /** Load the pixels, routing through the proxy for cross-origin images. */
-  const withPixels = async <T,>(label: string, fn: (img: LoadedImage) => T | Promise<T>): Promise<T | null> => {
+  /**
+   * Load the pixels, routing through the proxy for cross-origin images.
+   *
+   * `from` picks WHICH picture. This is not a detail: cutting the background
+   * used to re-read `obj.content`, which after the first cut is the ALREADY-CUT
+   * image — so every nudge of the tolerance slider ran the removal again on the
+   * result of the last one and ate further into the subject each time. Nothing
+   * in the interface said so; it just looked like the tool was too aggressive.
+   * A tolerance change is a re-decision, so it must always start from the
+   * untouched original. The wand is the deliberate exception — clicking a
+   * second colour is meant to accumulate.
+   */
+  const withPixels = async <T,>(
+    label: string,
+    fn: (img: LoadedImage) => T | Promise<T>,
+    from: 'original' | 'current' = 'current',
+  ): Promise<T | null> => {
     setBusy(label);
     try {
-      const img = await loadForPixels(obj.content);
+      const src = from === 'original'
+        ? ((obj.style?.imageOriginal as string) || obj.content)
+        : obj.content;
+      const img = await loadForPixels(src);
       return await fn(img);
     } catch (err) {
       toast.error("Couldn't read this image", {
@@ -271,22 +289,36 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
     updateObject(obj.id, { content: dataUrl, style });
   };
 
-  const runCutout = async (tol: number) => {
+  /** `tol` omitted → measure a starting tolerance from the picture itself. */
+  const runCutout = async (tol?: number) => {
     await withPixels('Cutting out', (img) => {
-      const res = removeBackground(img, { tolerance: tol });
+      const chosen = tol ?? estimateTolerance(img);
+      if (tol === undefined) setTolerance(chosen);
+
+      const res = removeBackground(img, { tolerance: chosen });
       if (res.removedRatio < 0.005) {
         toast.info('Nothing looked like a background', {
           detail: 'Raise the tolerance, or use the wand to click the colour you want gone.',
         });
         return null;
       }
+      /* Above ~92% there is essentially nothing left, which means the tolerance
+         swallowed the subject too. Saying so — and leaving the picture alone —
+         is far better than handing back an empty frame and letting the user
+         work out that Restore is what they need. */
+      if (res.removedRatio > 0.92) {
+        toast.error('That took the whole picture', {
+          detail: 'The subject is too close in colour to its background. Try a lower tolerance.',
+        });
+        return null;
+      }
       applyPixels(res.dataUrl);
       try { playSnap(); } catch { /* audio is optional */ }
       toast.success(`Background removed — ${Math.round(res.removedRatio * 100)}% of the picture`, {
-        detail: 'Fine-tune with the slider, or Restore to put it back.',
+        detail: 'Drag the slider to take more or less; Restore puts it back.',
       });
       return null;
-    });
+    }, 'original');
   };
 
   /** Wand: erase the region connected to the pixel that was clicked. Runs
@@ -503,7 +535,7 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
           <Tab active={tool === 'cutout'} onClick={() => {
             if (tool === 'cutout') { setTool(null); setWand(false); return; }
             setTool('cutout');
-            if (!hasOriginal) void runCutout(tolerance);
+            if (!hasOriginal) void runCutout();
           }} label="Cut out">{Icon.cutout()}</Tab>
           <Tab onClick={() => void runText()} label="Text">{Icon.text()}</Tab>
           <Tab active={tool === 'objects'} onClick={() => { if (tool === 'objects') { setTool(null); return; } void runObjects(); }} label="Objects">{Icon.objects()}</Tab>
@@ -552,7 +584,7 @@ export default function ImageStudio({ obj }: { obj: CanvasObjectData }) {
             <div className="flex items-center gap-2" style={{ minWidth: 216 }}>
               <span className="text-[9.5px] font-bold uppercase tracking-widest text-white/55 shrink-0">Tolerance</span>
               <input
-                type="range" min={4} max={60} value={Math.round(tolerance * 100)}
+                type="range" min={3} max={45} value={Math.round(tolerance * 100)}
                 onChange={(e) => setTolerance(Number(e.target.value) / 100)}
                 onPointerUp={() => void runCutout(tolerance)}
                 onMouseDown={stop} onPointerDown={stop}

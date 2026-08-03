@@ -129,14 +129,30 @@ function colorDistance(
   return Math.sqrt(0.30 * dr * dr + 0.59 * dg * dg + 0.11 * db * db);
 }
 
-/** The dominant colour around the border — our guess at "the background". */
-function sampleBorderColor(data: Uint8ClampedArray, w: number, h: number): [number, number, number] {
+export type BgRef = [number, number, number];
+
+/**
+ * The colours the background is made of — plural, deliberately.
+ *
+ * A single dominant colour is only right for a flat studio backdrop. Real
+ * pictures have a sky that darkens toward the top, a wall with a shadow down
+ * one side, a desk photographed under two lights. Judged against ONE reference,
+ * half of that background reads as "different enough to be the subject" and
+ * stays, so the cut leaves great blotches behind — and raising the tolerance far
+ * enough to catch them is exactly what starts eating the subject.
+ *
+ * Keeping several references means each pixel is judged against the nearest one,
+ * so a two-tone background can be removed cleanly at a TIGHT tolerance.
+ */
+function sampleBackgroundRefs(data: Uint8ClampedArray, w: number, h: number): BgRef[] {
   // Buckets of 32 per channel: fine enough to tell white from off-white paper,
   // coarse enough that JPEG noise in a flat sky lands in one bucket.
   const buckets = new Map<number, { n: number; r: number; g: number; b: number }>();
+  let samples = 0;
   const add = (i: number) => {
     const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
     if (a < 8) return; // already transparent — not evidence of a background colour
+    samples++;
     const key = ((r >> 5) << 10) | ((g >> 5) << 5) | (b >> 5);
     const cur = buckets.get(key) || { n: 0, r: 0, g: 0, b: 0 };
     cur.n++; cur.r += r; cur.g += g; cur.b += b;
@@ -152,10 +168,70 @@ function sampleBorderColor(data: Uint8ClampedArray, w: number, h: number): [numb
     add((y * w + (w - 1)) * 4);      // right column
   }
 
-  let best = { n: 0, r: 255, g: 255, b: 255 };
-  for (const v of buckets.values()) if (v.n > best.n) best = v;
-  if (!best.n) return [255, 255, 255];
-  return [best.r / best.n, best.g / best.n, best.b / best.n];
+  if (!samples) return [[255, 255, 255]];
+
+  const sorted = [...buckets.values()].sort((a, b) => b.n - a.n);
+  const refs: BgRef[] = [];
+  for (const v of sorted) {
+    // A colour has to hold a real share of the border to count as background.
+    // Without this floor, a subject that happens to touch an edge contributes
+    // its own colour as a "background" and gets eaten from the inside.
+    if (v.n / samples < 0.06 && refs.length) break;
+    refs.push([v.r / v.n, v.g / v.n, v.b / v.n]);
+    if (refs.length >= 4) break;
+  }
+  return refs.length ? refs : [[255, 255, 255]];
+}
+
+const nearestRefDistance = (r: number, g: number, b: number, refs: BgRef[]): number => {
+  let best = 1;
+  for (let i = 0; i < refs.length; i++) {
+    const d = colorDistance(r, g, b, refs[i][0], refs[i][1], refs[i][2]);
+    if (d < best) best = d;
+  }
+  return best;
+};
+
+const nearestRef = (r: number, g: number, b: number, refs: BgRef[]): BgRef => {
+  let best = refs[0];
+  let bestD = 2;
+  for (let i = 0; i < refs.length; i++) {
+    const d = colorDistance(r, g, b, refs[i][0], refs[i][1], refs[i][2]);
+    if (d < bestD) { bestD = d; best = refs[i]; }
+  }
+  return best;
+};
+
+/**
+ * A starting tolerance derived from the picture rather than guessed.
+ *
+ * One fixed default cannot serve both a logo on flat white (which wants a very
+ * tight threshold, or the black in the logo starts going) and a photograph on a
+ * mottled wall (which needs a loose one to catch the texture). Measuring how
+ * much the border actually varies gives a first result that is usually right,
+ * which matters more than the slider: most people judge the feature on the
+ * click, not on the tuning afterwards.
+ */
+export function estimateTolerance(img: LoadedImage): number {
+  const { width: w, height: h, ctx } = img;
+  const { data } = ctx.getImageData(0, 0, w, h);
+  const refs = sampleBackgroundRefs(data, w, h);
+
+  let total = 0;
+  let n = 0;
+  const consider = (i: number) => {
+    if (data[i + 3] < 8) return;
+    total += nearestRefDistance(data[i], data[i + 1], data[i + 2], refs);
+    n++;
+  };
+  for (let x = 0; x < w; x += 2) { consider(x * 4); consider(((h - 1) * w + x) * 4); }
+  for (let y = 0; y < h; y += 2) { consider((y * w) * 4); consider((y * w + w - 1) * 4); }
+
+  const mean = n ? total / n : 0.04;
+  // Roughly three times the border's own spread, floored so a perfectly flat
+  // backdrop still tolerates compression noise, and capped so this can never
+  // hand back something aggressive enough to devour a subject unasked.
+  return Math.max(0.055, Math.min(0.22, mean * 3 + 0.035));
 }
 
 export interface RemoveBackgroundOptions {
@@ -190,94 +266,139 @@ export interface RemoveBackgroundResult {
  */
 export function removeBackground(img: LoadedImage, opts: RemoveBackgroundOptions = {}): RemoveBackgroundResult {
   const { width: w, height: h, ctx } = img;
-  const tolerance = Math.max(0.01, Math.min(0.9, opts.tolerance ?? 0.16));
+  const tol = Math.max(0.01, Math.min(0.9, opts.tolerance ?? 0.12));
   const image = ctx.getImageData(0, 0, w, h);
   const data = image.data;
 
-  // Reference colour: the clicked pixel for a wand, else the border's dominant.
-  let ref: [number, number, number];
-  if (opts.seeds?.length) {
-    let r = 0, g = 0, b = 0, n = 0;
-    for (const s of opts.seeds) {
+  /* How far the fill may DRIFT from a reference while following a gradient, and
+     how similar two touching pixels must be for it to keep going. Together
+     these are what let a sky that shades from pale to deep blue come out in one
+     pass at a tight tolerance: each step only has to resemble the step before
+     it. The drift cap is the leash — without it the same rule walks straight
+     down a soft shadow and into the subject, and never stops.
+
+     THE LEASH IS ABSOLUTE, not a multiple. As a pure multiple (tol × 2.4) it
+     grew with the tolerance, so raising the slider lengthened the very thing
+     that is supposed to contain it — and past a point the drift budget exceeded
+     the distance from the background to the SUBJECT. Then a single accepted
+     pixel on an anti-aliased edge was enough: the subject's interior is flat, so
+     every neighbouring pixel is nearly identical to the last, and the fill ate
+     the whole thing in one sweep. Measured on a red disc over a gradient, the
+     slider at 22 took 60% of the subject. Adding a fixed ceiling keeps a raised
+     tolerance meaning "accept colours nearer the background" instead of
+     "let the fill run further from it". */
+  const DRIFT = Math.min(tol * 2.2, tol + 0.14);
+  const LOCAL = Math.max(0.012, tol * 0.3);
+
+  const refs: BgRef[] = opts.seeds?.length
+    ? opts.seeds.map((s) => {
       const x = Math.max(0, Math.min(w - 1, Math.round(s.x * w)));
       const y = Math.max(0, Math.min(h - 1, Math.round(s.y * h)));
       const i = (y * w + x) * 4;
-      r += data[i]; g += data[i + 1]; b += data[i + 2]; n++;
-    }
-    ref = [r / n, g / n, b / n];
-  } else {
-    ref = sampleBorderColor(data, w, h);
-  }
+      return [data[i], data[i + 1], data[i + 2]] as BgRef;
+    })
+    : sampleBackgroundRefs(data, w, h);
 
   const total = w * h;
-  const visited = new Uint8Array(total);
-  const removed = new Uint8Array(total);
+  /* 0 = never looked at, 1 = removed, 2 = looked at and kept (the boundary).
+     Distinguishing 2 from 0 is what makes the feather pass cheap and exact:
+     the edge is precisely the set of 2s, so there is no need to hunt for it. */
+  const state = new Uint8Array(total);
   // A plain number[] used as a stack reallocates constantly at this size; a
   // preallocated Int32Array with a pointer keeps the fill in one buffer.
   const stack = new Int32Array(total);
   let sp = 0;
+  let removedCount = 0;
 
-  const push = (p: number) => {
-    if (p < 0 || p >= total || visited[p]) return;
-    visited[p] = 1;
-    stack[sp++] = p;
-  };
+  const accept = (p: number) => { state[p] = 1; stack[sp++] = p; removedCount++; };
 
+  // Seeds are judged against the references only — they have no parent to
+  // follow a gradient from.
+  const seedPixels: number[] = [];
   if (opts.seeds?.length) {
     for (const s of opts.seeds) {
       const x = Math.max(0, Math.min(w - 1, Math.round(s.x * w)));
       const y = Math.max(0, Math.min(h - 1, Math.round(s.y * h)));
-      push(y * w + x);
+      seedPixels.push(y * w + x);
     }
   } else {
-    for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
-    for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+    for (let x = 0; x < w; x++) { seedPixels.push(x); seedPixels.push((h - 1) * w + x); }
+    for (let y = 0; y < h; y++) { seedPixels.push(y * w); seedPixels.push(y * w + w - 1); }
+  }
+  for (const p of seedPixels) {
+    if (state[p]) continue;
+    const i = p * 4;
+    if (data[i + 3] < 8) { accept(p); continue; }
+    if (nearestRefDistance(data[i], data[i + 1], data[i + 2], refs) <= tol) accept(p);
+    else state[p] = 2;
   }
 
-  let removedCount = 0;
   while (sp > 0) {
     const p = stack[--sp];
-    const i = p * 4;
-    if (data[i + 3] < 8) { removed[p] = 1; removedCount++; continue; }
-    const d = colorDistance(data[i], data[i + 1], data[i + 2], ref[0], ref[1], ref[2]);
-    if (d > tolerance) continue; // subject — stop the fill here
-
-    removed[p] = 1;
-    removedCount++;
+    const pi = p * 4;
+    const parentOpaque = data[pi + 3] >= 8;
+    const pr = data[pi], pg = data[pi + 1], pb = data[pi + 2];
 
     const x = p % w;
     const y = (p / w) | 0;
-    if (x > 0) push(p - 1);
-    if (x < w - 1) push(p + 1);
-    if (y > 0) push(p - w);
-    if (y < h - 1) push(p + w);
+
+    const visit = (n: number) => {
+      if (state[n]) return;
+      const i = n * 4;
+      if (data[i + 3] < 8) { accept(n); return; }
+
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const gd = nearestRefDistance(r, g, b, refs);
+
+      let ok = gd <= tol;
+      // Gradient continuation: still close enough to a reference to be plausible
+      // background, AND nearly identical to the pixel we arrived from.
+      if (!ok && gd <= DRIFT && parentOpaque) {
+        ok = colorDistance(r, g, b, pr, pg, pb) <= LOCAL;
+      }
+      if (ok) accept(n);
+      else state[n] = 2;
+    };
+
+    if (x > 0) visit(p - 1);
+    if (x < w - 1) visit(p + 1);
+    if (y > 0) visit(p - w);
+    if (y < h - 1) visit(p + w);
   }
 
-  /* Feather. Alpha is written into a separate array first: mutating `data` in
-     place would let a pixel already softened this pass act as evidence for its
-     neighbour, and the softening would bleed inward across the whole subject. */
+  /* ---- feather + de-fringe -------------------------------------------------
+     The previous version of this computed `keep = min(1, distance / tolerance)`
+     for kept pixels — but a pixel is only KEPT when its distance already
+     EXCEEDS the tolerance, so that expression was 1 every single time and the
+     feather did precisely nothing. Every edge came out hard and stair-stepped.
+
+     The band is measured ABOVE the tolerance instead: a boundary pixel exactly
+     at the threshold is entirely background and goes to zero, one a little
+     beyond it is a blend and gets partial alpha, and past the band it is the
+     subject and is left alone.
+
+     De-fringe then removes the halo. A boundary pixel is literally a mixture of
+     background and subject, so it still carries the backdrop's colour; leaving
+     it produces the pale outline that makes a cutout look pasted on. Undoing
+     the blend — c = (observed − (1−a)·background) / a — recovers the subject's
+     own colour, which is what makes the result sit on any canvas. */
+  const FEATHER = Math.max(0.02, tol * 0.6);
   const alpha = new Uint8ClampedArray(total);
-  for (let p = 0; p < total; p++) alpha[p] = removed[p] ? 0 : data[p * 4 + 3];
+  for (let p = 0; p < total; p++) alpha[p] = state[p] === 1 ? 0 : data[p * 4 + 3];
 
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const p = y * w + x;
-      if (removed[p]) continue;
+  for (let p = 0; p < total; p++) {
+    if (state[p] !== 2) continue;
+    const i = p * 4;
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    const gd = nearestRefDistance(r, g, b, refs);
+    const a = Math.max(0, Math.min(1, (gd - tol) / FEATHER));
+    alpha[p] = Math.round(data[i + 3] * a);
 
-      let touching = false;
-      if (x > 0 && removed[p - 1]) touching = true;
-      else if (x < w - 1 && removed[p + 1]) touching = true;
-      else if (y > 0 && removed[p - w]) touching = true;
-      else if (y < h - 1 && removed[p + w]) touching = true;
-      if (!touching) continue;
-
-      const i = p * 4;
-      const d = colorDistance(data[i], data[i + 1], data[i + 2], ref[0], ref[1], ref[2]);
-      // At the tolerance edge the pixel is fully the subject's; at zero distance
-      // it is indistinguishable from background. In between it is a blend, and
-      // its alpha should say so.
-      const keep = Math.max(0, Math.min(1, d / tolerance));
-      alpha[p] = Math.round(data[i + 3] * keep);
+    if (a > 0.03 && a < 0.97) {
+      const [br, bg2, bb] = nearestRef(r, g, b, refs);
+      data[i] = Math.max(0, Math.min(255, (r - (1 - a) * br) / a));
+      data[i + 1] = Math.max(0, Math.min(255, (g - (1 - a) * bg2) / a));
+      data[i + 2] = Math.max(0, Math.min(255, (b - (1 - a) * bb) / a));
     }
   }
 

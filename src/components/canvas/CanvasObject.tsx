@@ -5156,41 +5156,54 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         // a shape-following shadow, so overflow must stay visible for that shadow.
         const imageShape = (obj.style?.imageShape as ImageShape) || 'original';
         const shaped = imageShape !== 'original';
-        // A cut-out image needs a checkerboard behind it while you're working
-        // on it, or "transparent" and "white" look identical on a light board
-        // and you cannot tell whether the tool did anything.
+
+        /* A CUT-OUT IMAGE IS NOT A CARD.
+           `.image-block` gives every picture a rounded frame and a rectangular
+           drop shadow, which is right for a photograph and completely wrong for
+           a subject whose background has just been removed: the transparent
+           area let the canvas through, but the card's shadow and corners still
+           drew a box around it, so the cut-out never actually looked cut out.
+           A checkerboard was drawn behind it too, which made "transparent" read
+           as a pattern rather than as the board.
+
+           So a cutout drops the card entirely. The only thing it keeps is a
+           soft shadow — and because `drop-shadow` works off the ALPHA rather
+           than the element's box, that shadow hugs the subject's real silhouette
+           and makes it sit ON the canvas instead of floating above a rectangle
+           of nothing. */
         const isCutout = typeof obj.style?.imageOriginal === 'string';
+        const bare = shaped || isCutout;
         return (
           /* The wrapper exists so ImageStudio is a SIBLING of `.image-block`
              rather than a child of it: that class sets `overflow: hidden`, which
              would clip the studio's rail and every panel that opens above it. */
           <div style={{ position: 'relative', width: '100%', height: '100%' }}>
             <div
-              className={shaped ? 'w-full h-full' : 'image-block'}
-              style={{ width: '100%', height: '100%', overflow: shaped ? 'visible' : undefined, position: 'relative' }}
+              className={bare ? 'w-full h-full' : 'image-block'}
+              style={{ width: '100%', height: '100%', overflow: bare ? 'visible' : undefined, position: 'relative' }}
             >
               {obj.content ? (
-                <>
-                  {isCutout && isSelected && (
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        background: 'repeating-conic-gradient(rgba(255,255,255,0.16) 0% 25%, rgba(0,0,0,0.22) 0% 50%) 50% / 14px 14px',
-                        pointerEvents: 'none',
-                      }}
-                    />
-                  )}
-                  <img
-                    src={obj.content}
-                    alt="Canvas image"
-                    draggable={false}
-                    style={{
-                      ...(shaped ? { width: '100%', height: '100%', ...imageShapeStyle(imageShape) } : {}),
-                      position: 'relative',
-                      transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
-                    }}
-                  />
-                </>
+                <img
+                  src={obj.content}
+                  alt="Canvas image"
+                  draggable={false}
+                  style={{
+                    ...(shaped ? { width: '100%', height: '100%', ...imageShapeStyle(imageShape) } : {}),
+                    ...(isCutout && !shaped
+                      // `.image-block img` supplied these; without the class they
+                      // have to be stated. `contain` matches the unmasked case so
+                      // a cutout doesn't suddenly reframe itself.
+                      ? {
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'contain' as const,
+                        filter: 'drop-shadow(0 4px 12px rgba(0,0,0,0.28))',
+                      }
+                      : {}),
+                    position: 'relative',
+                    transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
+                  }}
+                />
               ) : (
                 <div className="flex items-center justify-center w-full h-full bg-[var(--bg-tertiary)] text-[var(--text-muted)] text-sm">
                   Drop image here
