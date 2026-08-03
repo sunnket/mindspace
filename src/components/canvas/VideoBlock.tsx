@@ -256,9 +256,13 @@ export default function VideoBlock({ obj, open, embedded }: {
     const total = dur ?? duration;
 
     const sheetH = isClip && !open ? 96 : 108;
+    // Live style, not the prop — this can run from `loadedmetadata` (the
+    // auto-trim path), one tick after openReader's own write. Same reasoning as
+    // exitTrim below.
+    const live = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
     updateObject(obj.id, {
       height: obj.height + sheetH,
-      style: { ...obj.style, preTrimHeight: obj.height, autoTrim: false },
+      style: { ...(live?.style || obj.style), preTrimHeight: obj.height, autoTrim: false },
     });
 
     const start = isClip ? committed.start : 0;
@@ -285,15 +289,35 @@ export default function VideoBlock({ obj, open, embedded }: {
     requestAnimationFrame(() => rootRef.current?.focus());
   };
 
-  const exitTrim = () => {
+  /**
+   * Leave the trimmer, optionally COMMITTING style changes in the same write.
+   *
+   * `commit` is not a convenience — it is the fix for a real bug. This used to
+   * take no argument and spread `obj.style`, the prop as it was at the last
+   * render. `commitRetrim` wrote the new clipStart/clipEnd and then called this
+   * synchronously, so React had not re-rendered yet, so `obj.style` here was
+   * still the PRE-UPDATE style — and writing it back reverted the new range a
+   * microsecond after it was set. "Update range" appeared to do nothing.
+   *
+   * It now reads the live object from the store AND folds the commit into a
+   * single `updateObject`, so there is no window between the two writes for one
+   * to clobber the other. (Same class of bug as the stale spread in
+   * FileBlock.openReader — a prop is a snapshot, and any handler that writes
+   * twice in one tick has to read the store, not the snapshot.)
+   */
+  const exitTrim = (commit?: Record<string, unknown>) => {
     setTrimming(false);
     videoRef.current?.pause();
-    const prev = obj.style?.preTrimHeight as number | undefined;
-    if (prev) {
-      const next = { ...obj.style } as Record<string, unknown>;
-      delete next.preTrimHeight;
-      updateObject(obj.id, { height: prev, style: next });
-    }
+
+    const live = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+    const style = { ...(live?.style || obj.style), ...commit } as Record<string, unknown>;
+    const prevHeight = style.preTrimHeight as number | undefined;
+    delete style.preTrimHeight;
+
+    updateObject(obj.id, {
+      ...(prevHeight ? { height: prevHeight } : {}),
+      style,
+    });
   };
 
   const posterAt = (t: number): string => {
@@ -347,11 +371,17 @@ export default function VideoBlock({ obj, open, embedded }: {
   const commitRetrim = () => {
     const span = outPt - inPt;
     if (span < MIN_CLIP_SECONDS) return;
-    updateObject(obj.id, {
-      style: { ...obj.style, clipStart: inPt, clipEnd: outPt, clipPoster: posterAt(inPt) || obj.style?.clipPoster },
+    // The range rides out WITH the exit, as one store write — see exitTrim.
+    exitTrim({
+      clipStart: inPt,
+      clipEnd: outPt,
+      clipPoster: posterAt(inPt) || obj.style?.clipPoster,
     });
+    // The element is parked outside the new window if the in-point moved, so
+    // put it on the first frame of what this clip now is.
+    const v = videoRef.current;
+    if (v) { v.currentTime = inPt; setTime(inPt); }
     try { playSnap(); } catch { /* audio is optional */ }
-    exitTrim();
     toast.success(`Range updated — ${formatDuration(span)}`);
   };
 
