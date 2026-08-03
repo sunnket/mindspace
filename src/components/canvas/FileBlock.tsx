@@ -6,6 +6,8 @@ import { useCanvasStore } from '@/store/canvasStore';
 import { formatBytes, getFileForBlock, extractTextForBlock } from '@/lib/fileIngest';
 import { playSnap } from '@/lib/relaxAudio';
 import { usePdfReaderStore } from '@/store/pdfReaderStore';
+import VideoBlock from './VideoBlock';
+import { isVideoClip, probeVideo, formatTimecode } from '@/lib/video/clips';
 
 /* Padding/margins are inline throughout this file: the app's global reset
    (`* { padding:0; margin:0 }`) is unlayered and overrides Tailwind's spacing
@@ -72,6 +74,11 @@ function metaLine(style: Record<string, unknown>): string {
   return bits.join(' · ');
 }
 
+/** Height of a video card's chrome below the poster: the filename/meta row plus
+ *  the Play / Clip / download row. Added to the poster's own height so the card
+ *  fits its picture AND its controls. */
+const CARD_CHROME_H = 92;
+
 const OPEN_SIZE: Record<ViewerKind, { w: number; h: number }> = {
   pdf: { w: 720, h: 900 },
   office: { w: 560, h: 700 },
@@ -109,6 +116,9 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
   const [mediaUrl, setMediaUrl] = React.useState('');
   const [decoded, setDecoded] = React.useState<string | null>(null);
 
+  const poster = (style.videoPoster as string) || '';
+  const videoDuration = (style.videoDuration as number) || 0;
+
   const patch = React.useCallback((kv: Record<string, unknown>) => {
     const cur = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
     updateObject(obj.id, { style: { ...(cur?.style || obj.style), ...kv } });
@@ -117,7 +127,10 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
   // Build a blob URL for native previews (pdf / image / video / audio) while the
   // reader is open. Blob URLs are efficient and work everywhere, unlike giant
   // data: URLs. Revoked on close.
-  const needsMedia = readerOpen && (viewer === 'pdf' || viewer === 'image' || viewer === 'video' || viewer === 'audio');
+  /* Video is absent from this list on purpose: VideoBlock resolves and revokes
+     its own object URL, and minting a second one here would hold a whole extra
+     handle on what is routinely the largest file on the board. */
+  const needsMedia = readerOpen && (viewer === 'pdf' || viewer === 'image' || viewer === 'audio');
   React.useEffect(() => {
     if (!needsMedia) { setMediaUrl(''); return; }
     const file = getFileForBlock(obj.id);
@@ -144,7 +157,70 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
     }
   }, [readerOpen, viewer, textStatus, obj.id]);
 
-  const openReader = () => {
+  /* A dropped video earns its FACE.
+     Every other file type is legible from its name and a coloured chip, but
+     "clip_0417.mp4" tells you nothing — and the whole reason a video is on a
+     spatial board is so you can see it there. So the moment one lands we read
+     its length and lift a representative frame, and the card becomes a poster
+     with a runtime on it. Done once and cached on the object, so it survives a
+     reload and never re-probes. */
+  React.useEffect(() => {
+    if (viewer !== 'video' || isVideoClip(obj)) return;
+    if (poster || style.videoProbed) return;
+    let alive = true;
+    const file = getFileForBlock(obj.id);
+    if (!file) return;
+    probeVideo(file).then((probe) => {
+      if (!alive) return;
+      // `videoProbed` is set even on failure — an undecodable container would
+      // otherwise re-probe on every single render of this block, forever.
+      if (!probe) { patch({ videoProbed: true }); return; }
+
+      const aspect = probe.width / (probe.height || 1);
+      const live = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
+      const w = live?.width || obj.width;
+
+      /* GROW THE CARD TO FIT ITS POSTER.
+         A file card is dropped at 288×128, which is the right size for a chip
+         and two lines of text. A 16:9 poster at that width is 162px tall on its
+         own, so the poster alone overflowed the card and pushed the filename
+         and the Play/Clip buttons clean out of the block — the first build of
+         this shipped a video card with no controls visible at all. The card is
+         a different shape once it has a picture in it, so it takes a different
+         size. */
+      useCanvasStore.getState().updateObject(obj.id, {
+        height: Math.round(w / (aspect > 0.2 && aspect < 5 ? aspect : 16 / 9)) + CARD_CHROME_H,
+        style: {
+          ...(live?.style || obj.style),
+          videoPoster: probe.poster,
+          videoDuration: probe.duration,
+          videoAspect: aspect,
+          videoProbed: true,
+        },
+      });
+    });
+    return () => { alive = false; };
+  }, [viewer, obj.id, poster, style.videoProbed, patch, obj]);
+
+  /* A clip is not a file card that happens to hold video — it IS the video.
+     It renders as its own looping surface with no filename row, no "Open", and
+     no AI button, because none of those are things you want from an eleven
+     second excerpt sitting next to your notes. */
+  if (isVideoClip(obj)) {
+    return <VideoBlock obj={obj} open={false} />;
+  }
+
+  /**
+   * `extra` rides along in the SAME store write as the open.
+   *
+   * It used to be possible to call `patch({…})` and then `openReader()` back to
+   * back and lose the patch entirely: this spread `obj.style` — the prop as it
+   * was at the last render — so it wrote back a copy of the style from BEFORE
+   * the patch and silently reverted it. Reading the live object here closes
+   * that hole for every caller, and `extra` means an intent like "open, and go
+   * straight to the trimmer" is one atomic write rather than a race.
+   */
+  const openReader = (extra?: Record<string, unknown>) => {
     // PDFs get the immersive full-screen reading room (book mode, atmospheres,
     // aged paper, highlighter, …) instead of the plain embedded iframe.
     if (viewer === 'pdf') {
@@ -152,10 +228,17 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
       return;
     }
     const size = OPEN_SIZE[viewer];
+    const live = useCanvasStore.getState().objects.find((o) => o.id === obj.id);
     updateObject(obj.id, {
       width: size.w,
       height: size.h,
-      style: { ...obj.style, readerOpen: true, prevWidth: obj.width, prevHeight: obj.height },
+      style: {
+        ...(live?.style || obj.style),
+        readerOpen: true,
+        prevWidth: obj.width,
+        prevHeight: obj.height,
+        ...extra,
+      },
     });
   };
 
@@ -340,11 +423,10 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
               : <NoBytes onDownload={download} hasContent={false} />
           )}
 
-          {viewer === 'video' && (
-            mediaUrl
-              ? <div className="w-full h-full flex items-center justify-center bg-black"><video src={mediaUrl} controls className="max-w-full max-h-full" /></div>
-              : <NoBytes onDownload={download} hasContent={false} />
-          )}
+          {/* The player owns this whole area — its own transport, trimmer and
+              frame grab. `embedded` stops it drawing a second card surface
+              inside the one the reader has already drawn. */}
+          {viewer === 'video' && <VideoBlock obj={obj} open embedded />}
 
           {viewer === 'audio' && (
             <div className="w-full h-full flex flex-col items-center justify-center gap-4" style={{ padding: 20 }}>
@@ -422,10 +504,51 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
   // COMPACT CARD
   // ===========================================================================
   const canPreview = viewer !== 'none';
+
+  /* THE POSTER.
+     A video card leads with a frame from the video instead of a coloured chip
+     and a filename. On a spatial board the point of putting a video down is
+     that you can SEE which one it is from across the canvas — "clip_0417.mp4"
+     at 40% zoom is indistinguishable from every other clip_04xx.mp4, and a
+     still from it is instantly recognisable. The play affordance and the
+     runtime sit on the image the way they do on every video thumbnail
+     anybody has ever used. */
+  const videoPoster = viewer === 'video' && poster ? (
+    <button
+      onClick={(e) => { stop(e); openReader(); }}
+      onMouseDown={stop}
+      aria-label={`Play ${name}`}
+      className="relative w-full shrink-0 overflow-hidden cursor-pointer group/poster"
+      style={{ aspectRatio: String((style.videoAspect as number) || 16 / 9), background: '#000' }}
+    >
+      <img src={poster} alt="" draggable={false} className="w-full h-full object-cover" />
+      <span
+        className="absolute inset-0 flex items-center justify-center transition-colors"
+        style={{ background: 'rgba(0,0,0,0.14)' }}
+      >
+        <span
+          className="flex items-center justify-center rounded-full shadow-lg transition-transform group-hover/poster:scale-110"
+          style={{ width: 40, height: 40, background: 'rgba(255,253,250,0.93)', color: '#1A1613', paddingLeft: 3 }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.87l12-7.5a1 1 0 0 0 0-1.74l-12-7.5A1 1 0 0 0 7 4.5Z" /></svg>
+        </span>
+      </span>
+      {videoDuration > 0 && (
+        <span
+          className="absolute text-[10px] font-bold tabular-nums text-white rounded"
+          style={{ right: 7, bottom: 7, padding: '2px 6px', background: 'rgba(0,0,0,0.72)', letterSpacing: '0.02em' }}
+        >
+          {formatTimecode(videoDuration)}
+        </span>
+      )}
+    </button>
+  ) : null;
+
   return (
     <div className={shell} style={{ fontFamily: "'Outfit', sans-serif" }}>
-      <div className="flex items-center gap-3 shrink-0" style={{ padding: '13px 14px 10px' }}>
-        {Chip}
+      {videoPoster}
+      <div className="flex items-center gap-3 shrink-0" style={{ padding: videoPoster ? '9px 12px 8px' : '13px 14px 10px' }}>
+        {!videoPoster && Chip}
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-bold text-[var(--text-primary)] truncate select-text" title={name}>{name}</div>
           <div className="text-[10.5px] text-[var(--text-tertiary)] truncate" style={{ marginTop: 2 }}>
@@ -453,11 +576,31 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
           >
             {viewer === 'pdf'
               ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></svg>
+              : viewer === 'video'
+              ? <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.87l12-7.5a1 1 0 0 0 0-1.74l-12-7.5A1 1 0 0 0 7 4.5Z" /></svg>
               : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>}
-            {viewer === 'pdf' ? 'Read' : 'Open'}
+            {viewer === 'pdf' ? 'Read' : viewer === 'video' ? 'Play' : 'Open'}
           </button>
 
-          <button
+          {/* Clip is offered on the CARD, not just inside the player. Taking a
+              excerpt is the main reason a video is on this board, and burying
+              it one click deep inside a player the user has to open first makes
+              the primary action the secondary one. This lands straight in the
+              trimmer via `autoTrim`. */}
+          {viewer === 'video' && (
+            <button
+              onClick={(e) => { stop(e); openReader({ autoTrim: true }); }}
+              onMouseDown={stop}
+              title="Choose a stretch of this video and put it on the board as its own block"
+              className="flex items-center gap-1.5 rounded-full text-[10px] font-bold tracking-wider uppercase transition-all active:scale-95 cursor-pointer shadow-sm"
+              style={{ padding: '7px 13px', background: 'var(--accent)', color: '#fff', border: '1px solid rgba(var(--accent-rgb),0.5)' }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><line x1="20" y1="4" x2="8.12" y2="15.88" /><line x1="14.47" y1="14.48" x2="20" y2="20" /><line x1="8.12" y1="8.12" x2="12" y2="12" /></svg>
+              Clip
+            </button>
+          )}
+
+          {viewer !== 'video' && <button
             onClick={(e) => { stop(e); setAsking(true); }}
             onMouseDown={stop}
             disabled={busy}
@@ -467,7 +610,7 @@ export default function FileBlock({ obj }: { obj: CanvasObjectData }) {
           >
             {busy ? <span className="rounded-full border-2 border-white border-t-transparent animate-spin" style={{ width: 11, height: 11 }} /> : <SparkleIcon size={12} />}
             {busy ? 'Reading' : 'Ask AI'}
-          </button>
+          </button>}
 
           <button
             onClick={(e) => { stop(e); download(); }}
