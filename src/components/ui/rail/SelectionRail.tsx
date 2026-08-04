@@ -11,9 +11,11 @@ import { paperColor, ensureReadableInk } from '@/lib/canvasTheme';
 import { toast } from '@/store/toastStore';
 import RailShell, { type RailAction } from './RailShell';
 import ShapePicker from './ShapePicker';
+import TextPathPanel from './TextPathPanel';
+import { readTextPath, type PathAlign } from '@/lib/textPath';
 import {
   Icon, Group, Field, OptBtn, RowBtn, Swatch, Slider, ColorRows, SearchBox,
-  Hint, type ColorTarget,
+  Hint, Segmented, QUICK_COLORS, type ColorTarget,
 } from './RailKit';
 
 /**
@@ -73,6 +75,7 @@ const TYPE_META: Record<string, { label: string; icon: React.ReactNode }> = {
   browser: { label: 'Web block', icon: <><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><circle cx="6.5" cy="6.5" r=".6" fill="currentColor" /></> },
   pin: { label: 'Pin', icon: <><line x1="12" y1="21" x2="12" y2="13" /><path d="M8.5 3h7l-1.2 7 2.7 3H7l2.7-3z" /></> },
   'workflow-node': { label: 'Workflow node', icon: <><rect x="3" y="8" width="8" height="8" rx="2" /><rect x="13" y="8" width="8" height="8" rx="2" /><line x1="11" y1="12" x2="13" y2="12" /></> },
+  textpath: { label: 'Text on a path', icon: <><path d="M3 16c5-11 13-11 18 0" /><path d="M7 12.5h.01M12 10.6h.01M17 12.5h.01" /></> },
 };
 
 /** A small labelled number box, four to a row. */
@@ -99,7 +102,17 @@ function NumBox({
   );
 }
 
-export default function SelectionRail() {
+export default function SelectionRail({
+  heldId = null, onDismiss,
+}: {
+  /**
+   * The block the rail is still pointing at after the selection was let go —
+   * see the note in ContextRail. Edits apply to it exactly as if it were
+   * selected; only the on-canvas handles are gone.
+   */
+  heldId?: string | null;
+  onDismiss?: () => void;
+} = {}) {
   const selectedId = useCanvasStore((s) => s.selectedId);
   const objects = useCanvasStore((s) => s.objects);
   const mode = useCanvasStore((s) => s.mode);
@@ -121,7 +134,8 @@ export default function SelectionRail() {
   const textStyleDefaults = useCanvasStore((s) => s.textStyle);
   const setTextStyle = useCanvasStore((s) => s.setTextStyle);
 
-  const obj = useMemo(() => objects.find((o) => o.id === selectedId) || null, [objects, selectedId]);
+  const subjectId = selectedId || heldId;
+  const obj = useMemo(() => objects.find((o) => o.id === subjectId) || null, [objects, subjectId]);
 
   const [fontQuery, setFontQuery] = useState('');
   const [linked, setLinked] = useState(false);
@@ -160,7 +174,13 @@ export default function SelectionRail() {
   if (!t) return null;
 
   const isTextLike = t === 'text' || t === 'heading' || t === 'card' || t === 'sticky';
-  const isHeadingCapable = t === 'text' || t === 'heading';
+  /* Written on a curve. It's still a text block — face, size, weight, colour
+     all mean what they always meant — but the things that describe a BOX
+     (alignment inside it, the type scale, the wrap) don't apply, and a whole
+     panel of things that describe a CURVE does. */
+  const pathCfg = obj ? readTextPath(obj.style?.textPath) : null;
+  const isPathText = !!pathCfg;
+  const isHeadingCapable = (t === 'text' || t === 'heading') && !isPathText;
   const frameKind = t === 'frame' ? getFrameKind(obj) : 'normal';
   const opacity = ((S.opacity as number | undefined) ?? 1) * 100;
   const align = (S.textAlign as string) || 'left';
@@ -210,10 +230,12 @@ export default function SelectionRail() {
 
   /* Header identity. A frame says which KIND of frame it is, because a delete
      frame and a grouping frame do very different things to what you drop in. */
-  const meta = TYPE_META[t] || TYPE_META.text;
-  const title = t === 'frame' && obj ? `${frameKindMeta(frameKind).label} frame` : meta.label;
+  const meta = isPathText ? TYPE_META.textpath : (TYPE_META[t] || TYPE_META.text);
+  const title = t === 'frame' && obj ? `${frameKindMeta(frameKind).label} frame`
+    : isPathText ? 'Text on a path'
+    : meta.label;
   const subtitle = obj
-    ? `${Math.round(obj.width)} × ${Math.round(obj.height)}`
+    ? `${Math.round(obj.width)} × ${Math.round(obj.height)}${selectedId ? '' : ' · held'}`
     : textDefault ? 'Defaults for the next block'
     : 'Defaults for the next arrow';
 
@@ -303,6 +325,83 @@ export default function SelectionRail() {
     </Group>
   );
 
+  /* ---- The mini rail ----------------------------------------------------
+     What survives when the panel is collapsed: the two or three controls you
+     reach for over and over on this KIND of thing, and nothing else. A mini
+     rail is not a shorter list of the same groups — it's the answer to "what
+     am I going to change next?", which is a different question. */
+  const primaryColor = colorTargets[0];
+  const miniStrip = (isTextLike || t === 'shape' || t === 'arrow') ? (
+    <div className="flex flex-col gap-1.5">
+      {isTextLike && (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => patch({ fontSize: Math.max(6, ((S.fontSize as number) || 15) - 1) })}
+            aria-label="Smaller"
+            className="w-7 h-7 shrink-0 rounded-lg bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+          >
+            <Icon size={12}><line x1="5" y1="12" x2="19" y2="12" /></Icon>
+          </button>
+          <span
+            className="flex-1 min-w-0 text-center bg-[var(--well)] rounded-lg text-[11px] font-bold tabular-nums text-[var(--text-primary)]"
+            style={{ padding: '7px 4px', boxShadow: 'inset 0 1px 2px rgba(90,62,40,0.06)' }}
+          >
+            {Math.round((S.fontSize as number) || 15)}
+          </span>
+          <button
+            onClick={() => patch({ fontSize: Math.min(200, ((S.fontSize as number) || 15) + 1) })}
+            aria-label="Bigger"
+            className="w-7 h-7 shrink-0 rounded-lg bg-[var(--well)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+          >
+            <Icon size={12}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Icon>
+          </button>
+        </div>
+      )}
+
+      {/* Where the letters sit, for a curve — the single most-changed thing
+          about path text, and the reason the reference tool leads with it. */}
+      {isPathText && pathCfg && (
+        <Segmented
+          height={26}
+          value={pathCfg.align}
+          onChange={(v: PathAlign) => patch({ textPath: { ...pathCfg, align: v } })}
+          options={[
+            { value: 'above', label: 'Above' },
+            { value: 'on', label: 'On' },
+            { value: 'below', label: 'Below' },
+          ]}
+        />
+      )}
+
+      {!isPathText && isTextLike && (
+        <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+          {([
+            ['left', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="14" y2="12" /><line x1="4" y1="18" x2="18" y2="18" /></>],
+            ['center', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="5" y1="18" x2="19" y2="18" /></>],
+            ['right', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="10" y1="12" x2="20" y2="12" /><line x1="6" y1="18" x2="20" y2="18" /></>],
+          ] as const).map(([a, ic]) => (
+            <OptBtn key={a} height={26} active={align === a} title={`Align ${a}`} onClick={() => patch({ textAlign: a })}>
+              <Icon size={12}>{ic}</Icon>
+            </OptBtn>
+          ))}
+        </div>
+      )}
+
+      {primaryColor && (
+        <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(8, minmax(0, 1fr))' }}>
+          {QUICK_COLORS.map((c) => (
+            <Swatch
+              key={c}
+              color={c}
+              active={(primaryColor.value || '').toLowerCase() === c.toLowerCase()}
+              onClick={() => primaryColor.onChange(c)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  ) : undefined;
+
   return (
     <RailShell
       railKey={`sel:${obj?.id || t}`}
@@ -310,8 +409,16 @@ export default function SelectionRail() {
       title={title}
       subtitle={subtitle}
       actions={actions}
-      closeTitle={obj ? 'Deselect' : 'Back to the select tool'}
-      onClose={() => { if (obj) { setEditingId(null); setSelectedId(null); } else setMode('select'); }}
+      mini={miniStrip}
+      miniHint={primaryColor ? `${primaryColor.label} colour` : undefined}
+      closeTitle={obj ? 'Close — this panel stays until you do' : 'Back to the select tool'}
+      /* ✕ is the ONLY thing that closes the rail. Clicking the board just lets
+         go of the selection; the panel keeps its subject (ContextRail holds it)
+         so a stray click can't cost you the controls you were using. */
+      onClose={() => {
+        if (obj) { setEditingId(null); setSelectedId(null); onDismiss?.(); }
+        else setMode('select');
+      }}
     >
       {/* Why the rail is open with nothing selected. */}
       {(textDefault || arrowDefault) && (
@@ -511,21 +618,42 @@ export default function SelectionRail() {
             </div>
           </Field>
 
-          <Field label="Alignment">
-            <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
-              {([
-                ['left', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="14" y2="12" /><line x1="4" y1="18" x2="18" y2="18" /></>],
-                ['center', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="5" y1="18" x2="19" y2="18" /></>],
-                ['right', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="10" y1="12" x2="20" y2="12" /><line x1="6" y1="18" x2="20" y2="18" /></>],
-              ] as const).map(([a, ic]) => (
-                <OptBtn key={a} active={align === a} title={`Align ${a}`} onClick={() => patch({ textAlign: a })}>
-                  <Icon size={13}>{ic}</Icon>
-                </OptBtn>
-              ))}
-            </div>
-          </Field>
+          {/* Alignment is a property of a BOX. Text on a curve has no box to
+              align inside — where it sits is "on the path", further down. */}
+          {!isPathText && (
+            <Field label="Alignment">
+              <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                {([
+                  ['left', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="14" y2="12" /><line x1="4" y1="18" x2="18" y2="18" /></>],
+                  ['center', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="5" y1="18" x2="19" y2="18" /></>],
+                  ['right', <><line x1="4" y1="6" x2="20" y2="6" /><line x1="10" y1="12" x2="20" y2="12" /><line x1="6" y1="18" x2="20" y2="18" /></>],
+                ] as const).map(([a, ic]) => (
+                  <OptBtn key={a} active={align === a} title={`Align ${a}`} onClick={() => patch({ textAlign: a })}>
+                    <Icon size={13}>{ic}</Icon>
+                  </OptBtn>
+                ))}
+              </div>
+            </Field>
+          )}
+
+          {/* The way in. A straight line under a text block is the least
+              surprising place to find "make this follow a curve", and it puts
+              the feature one press from the thing it transforms. */}
+          {!isPathText && (
+            <RowBtn
+              onClick={() => { setSelectedId(null); setEditingId(null); setMode('textpath'); }}
+              title="Draw a curve and write along it"
+              icon={<Icon size={13}><path d="M3 16c5-11 13-11 18 0" /><path d="M7 12.5h.01M12 10.6h.01M17 12.5h.01" /></Icon>}
+              trailing={<Icon size={11}><polyline points="9 18 15 12 9 6" /></Icon>}
+            >
+              Write on a path
+            </RowBtn>
+          )}
         </Group>
       )}
+
+      {/* THE CURVE — everything that only exists because the text is on one. */}
+      {obj && isPathText && <TextPathPanel obj={obj} patch={patch} />}
 
       {/* Stroke sits above colour for both of the things drawn with a line. */}
       {(t === 'shape' || t === 'arrow') && strokeGroup}
@@ -535,7 +663,7 @@ export default function SelectionRail() {
 
       {/* SKETCH — hand-drawn character, below the colour it's applied to. */}
       {t === 'shape' && (
-        <Group id="sketch" label="Sketch" defaultOpen={false}>
+        <Group id="sketch" label="Sketch">
           <Field label="Sloppiness">
             <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
               {([
@@ -563,9 +691,11 @@ export default function SelectionRail() {
         </Group>
       )}
 
-      {/* MOTION — the effect gallery, and what's currently on. */}
-      {obj && isTextLike && (
-        <Group id="motion" label="Motion" defaultOpen={false}>
+      {/* MOTION — the effect gallery, and what's currently on. Path text has
+          its own motion group (its letters are SVG, not DOM), so this one is
+          for blocks with a box. */}
+      {obj && isTextLike && !isPathText && (
+        <Group id="motion" label="Motion">
           <RowBtn
             active={animOpen || !!activeAnim}
             onClick={() => setAnimOpen((v) => !v)}
@@ -583,7 +713,7 @@ export default function SelectionRail() {
       {/* GEOMETRY — exact position and size. Dragging is for roughing out;
           two blocks that must line up need numbers. */}
       {obj && t !== 'arrow' && (
-        <Group id="geometry" label="Geometry" defaultOpen={false}>
+        <Group id="geometry" label="Geometry">
           <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
             <NumBox label="X" value={obj.x} onChange={(v) => updateObject(obj.id, { x: v })} />
             <NumBox label="Y" value={obj.y} onChange={(v) => updateObject(obj.id, { y: v })} />
@@ -609,7 +739,7 @@ export default function SelectionRail() {
       )}
 
       {obj && (
-        <Group id="arrange" label="Arrange" defaultOpen={false}>
+        <Group id="arrange" label="Arrange">
           <Slider label="Opacity" value={opacity} min={0} max={100} step={1} format={(v) => `${Math.round(v)}%`}
             onChange={(v) => patch({ opacity: v / 100 })} />
           <Field label="Layer">
@@ -632,7 +762,7 @@ export default function SelectionRail() {
       )}
 
       {obj && (
-        <Group id="actions" label="Actions" defaultOpen={false}>
+        <Group id="actions" label="Actions">
           {t === 'frame' && (
             <RowBtn
               onClick={() => setEditingId(obj.id)}

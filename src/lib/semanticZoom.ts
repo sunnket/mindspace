@@ -102,6 +102,10 @@ export function isSemanticCandidate(obj: CanvasObjectData): boolean {
   if (!TEXTUAL_TYPES.has(obj.type)) return false;
   if (!(obj.content || '').trim() && !(obj.summary || '').trim()) return false;
   if (obj.style?.isMinimized) return false;
+  /* Text on a curve is a piece of lettering, not a note. Replacing it with a
+     gist would swap a shape for a paragraph — and the gist would render flat
+     across a block whose whole geometry belongs to the path. */
+  if (obj.style?.textPath) return false;
   if (obj.type === 'card') {
     return !Object.entries(obj.style || {}).some(([k, v]) => /^is[A-Z]/.test(k) && Boolean(v));
   }

@@ -225,6 +225,19 @@ export default function PlusMenu() {
           },
         },
         {
+          icon: (<MenuIcon><path d="M3 16c5-11 13-11 18 0" /><path d="M7 12.5h.01M12 10.6h.01M17 12.5h.01" /></MenuIcon>),
+          label: 'Text on a path',
+          desc: 'Draw a curve, then write along it',
+          keywords: 'curve arc circle warp bend type lettering 3d',
+          action: () => {
+            // The tool, not a block: the curve comes first, and it's drawn
+            // where you want it rather than dropped where the menu was.
+            setPlusMenuPos(null);
+            useCanvasStore.getState().setSelectedId(null);
+            useCanvasStore.getState().setMode('textpath');
+          },
+        },
+        {
           icon: (<MenuIcon><circle cx="12" cy="12" r="9" /><line x1="12" y1="11" x2="12" y2="16" /><line x1="12" y1="8" x2="12" y2="8.01" /></MenuIcon>),
           label: 'Callout',
           desc: 'Note, warning, idea or question',

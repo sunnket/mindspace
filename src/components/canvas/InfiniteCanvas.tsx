@@ -28,6 +28,7 @@ import CanvasObject from './CanvasObject';
 import BlockErrorBoundary from './BlockErrorBoundary';
 import FlowModeLayer from './FlowModeLayer';
 import DrawingLayer from './DrawingLayer';
+import PathDrawLayer from './PathDrawLayer';
 import ConnectionsLayer from './ConnectionsLayer';
 import ConnectorPanel from '@/components/ui/ConnectorPanel';
 import FloatingToolbar from '@/components/ui/FloatingToolbar';
@@ -1967,6 +1968,11 @@ export default function InfiniteCanvas() {
 
         {/* Drawing layer (SVG overlay) */}
         <DrawingLayer />
+
+        {/* Drawing the curve a run of text will sit on. Mounted only while the
+            tool is up, so putting the tool down throws away a half-drawn line
+            by unmounting rather than by remembering to clear it. */}
+        {mode === 'textpath' && <PathDrawLayer />}
 
         {/* Focus mode overlay */}
         <AnimatePresence>

@@ -8,6 +8,7 @@
    decorative faces) are injected after first paint by DeferredFonts. */
 @import "tailwindcss";
 @import "./text-anim.css";
+@import "./text-path.css";
 @import "./flow.css";
 /* Every phone-only rule in the app, in one file. Imported LAST of the three so
    its media queries win over anything above them at the same specificity —
@@ -1065,6 +1066,14 @@ html, body {
   max-width: calc(100vw - 76px);
   max-height: calc(100vh - 248px);
   z-index: 140;
+}
+
+/* Minimised: the same dock, holding only the controls the context nominated as
+   essential. It hugs its content rather than reserving the column, so the board
+   underneath is visible right up to the strip. */
+.props-rail.is-mini {
+  width: 250px;
+  max-height: none;
 }
 
 /* Slimmer than .custom-scrollbar, and visible on BOTH papers — that one paints

@@ -32,7 +32,12 @@ export const ChevronRight = <polyline points="9 18 15 12 9 6" />;
 
 /* -------------------------------------------------- persisted group state -- */
 
-const GROUPS_KEY = 'mindspace:inspector-groups';
+/* Versioned. The rail used to open with Motion, Geometry, Arrange and Actions
+   all shut, so half of what a block can do was behind a chevron nobody had a
+   reason to press. They open by default now — but a remembered `false` from the
+   old default would have quietly overridden that for every existing user, so
+   the key moves and everyone starts from the new defaults once. */
+const GROUPS_KEY = 'mindspace:inspector-groups:v2';
 
 export function readGroups(): Record<string, boolean> {
   if (typeof window === 'undefined') return {};
@@ -247,6 +252,33 @@ export function Toggle({
         />
       </span>
     </button>
+  );
+}
+
+/**
+ * One choice out of a few, all of them visible.
+ *
+ * A dropdown hides the alternatives behind a click; for three or four options
+ * that fit on a line, showing them IS the label — you can see what "above the
+ * line" is an alternative to without opening anything.
+ */
+export function Segmented<T extends string>({
+  value, onChange, options, height = 30,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string; icon?: React.ReactNode; title?: string }[];
+  height?: number;
+}) {
+  return (
+    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+      {options.map((o) => (
+        <OptBtn key={o.value} height={height} active={value === o.value} title={o.title || o.label} onClick={() => onChange(o.value)}>
+          {o.icon}
+          <span className="truncate text-[10.5px]">{o.label}</span>
+        </OptBtn>
+      ))}
+    </div>
   );
 }
 

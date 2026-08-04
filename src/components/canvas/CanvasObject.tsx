@@ -19,6 +19,7 @@ import WeatherBlock from './WeatherBlock';
 import RichText from './RichText';
 import InkText from './InkText';
 import AnimatedText from './AnimatedText';
+import TextPathBlock from './TextPathBlock';
 import { useFlowStore } from '@/store/flowStore';
 import { INK_FONT, intervalToIntensity, foldRhythm } from '@/lib/typingInk';
 import QuoteBlock from './QuoteBlock';
@@ -1803,14 +1804,20 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
      grow the stored height to match. Growth only — a block never shrinks under
      a user's chosen size. Not while editing (the editable element handles its
      own sizing, and the display node isn't mounted). */
-  const growsToFit = obj.type === 'text' || obj.type === 'heading' || obj.type === 'sticky';
+  /* Text written on a curve is measured by its CURVE, not by its words — the
+     block's box is the coordinate space the path is normalised against, so
+     letting it grow to fit would move the line under the letters on every
+     keystroke. Every auto-size path below stands down for it. */
+  const isPathText = obj.type === 'text' && !!obj.style?.textPath;
+
+  const growsToFit = !isPathText && (obj.type === 'text' || obj.type === 'heading' || obj.type === 'sticky');
 
   /* A free text block HUGS its text rather than being born at its full wrap
      width. It still wraps at exactly the same column it always did — wrapWidth
      is that column — the box simply doesn't claim all of it until the words
      reach it. Resizing the block by hand pins its width (isResized) and hands
      control back to the user. */
-  const autoWidth = obj.type === 'text' && !obj.style?.isResized;
+  const autoWidth = obj.type === 'text' && !isPathText && !obj.style?.isResized;
   const wrapWidth = (obj.style?.wrapWidth as number | undefined) ?? TEXT_WRAP_WIDTH;
 
   /** The block's box follows whatever the text element actually measures. */
@@ -1979,9 +1986,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
   // Track native input for all editable text blocks to keep latestContent in sync and handle slash commands
   useEffect(() => {
     if (!isEditing) return;
-    
-    let timeoutId: NodeJS.Timeout;
-    
+
     const handleNativeInput = () => {
       if (contentRef.current) {
         const target = contentRef.current as any;
@@ -2064,18 +2069,12 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         // squatting at its full wrap width from the very first keystroke.
         syncWidth(contentRef.current);
 
-        // Auto-remove empty text blocks after 8 seconds of inactivity
-        if (obj.type === 'text' || obj.type === 'heading') {
-          clearTimeout(timeoutId);
-          if (latestContent.current.trim() === '') {
-            timeoutId = setTimeout(() => {
-              if (latestContent.current.trim() === '' && !isDictationTarget(obj.id)) {
-                removeObject(obj.id);
-                if (editingId === obj.id) setEditingId(null);
-              }
-            }, 8000);
-          }
-        }
+        /* There used to be an 8-second timer here that deleted an empty block
+           out from under the caret. It was meant as tidying and read as data
+           loss: sit and think about a title, and the box you were about to type
+           in disappears while you're looking at it. A blank block is still
+           cleaned up — on blur, in the unmount path below — which is the moment
+           it's genuinely abandoned rather than merely quiet. */
       }
     };
 
@@ -2287,20 +2286,9 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
     if (ref) {
       ref.addEventListener('input', handleNativeInput);
       ref.addEventListener('keydown', handleNativeKeyDown);
-      
-      // Start the timeout initially if it's an empty text/heading block
-      if ((obj.type === 'text' || obj.type === 'heading') && latestContent.current.trim() === '') {
-        timeoutId = setTimeout(() => {
-          if (latestContent.current.trim() === '' && !isDictationTarget(obj.id)) {
-            removeObject(obj.id);
-            if (editingId === obj.id) setEditingId(null);
-          }
-        }, 8000);
-      }
     }
 
     return () => {
-      clearTimeout(timeoutId);
       window.removeEventListener('seed-agent-prompt', handleSeedAgent);
       window.removeEventListener('insert-mention', handleInsertMention);
       if (ref) {
@@ -2899,6 +2887,13 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       }
 
       case 'text':
+        /* Written on a curve: a different renderer entirely (its own SVG, its
+           own caret, its own handles). It stays a `text` object so that drag,
+           resize, delete, undo, collab and export need to know nothing about
+           it — see lib/textPath.ts. */
+        if (isPathText) {
+          return <TextPathBlock obj={obj} isSelected={isSelected} isEditing={isEditing} />;
+        }
         return isEditing ? (
           <div
             key="edit"

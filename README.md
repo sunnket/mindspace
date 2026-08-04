@@ -28,7 +28,7 @@ cloud is a self-healing mirror that converges in the background.
 |---|---|
 | **Infinite board** | Pan, zoom, frames, connectors, stacks, nested sub-spaces, semantic zoom |
 | **Blocks** | Text, sticky notes, drawings, shapes, images, tables, charts, roadmaps, maps, code, mermaid, embeds, repo trees, PDFs, webcam mirrors, and more |
-| **Writing** | Rich text with marks, callouts, @-mentions, KaTeX math, 60+ typefaces, kinetic text animation, typing-as-ink |
+| **Writing** | Rich text with marks, callouts, @-mentions, KaTeX math, 60+ typefaces, kinetic text animation, text on a path (3D + motion), typing-as-ink |
 | **Reading** | Full-screen PDF reading rooms — reflowed typesetting, 40 layered scenes, 11 reading lights, flipbook page turns, read-aloud, tap-to-define |
 | **AI** | Per-canvas agent that builds on the board, canvas-scoped skill sets, vision, braindump-to-structure |
 | **Together** | Live collaboration with cursors, presence, follow/present mode, WebRTC voice, and view-only share links |
@@ -111,6 +111,7 @@ source, next to the code it governs.
 | `src/app/globals.css` | The clay/glass material system, why menus are *not* glass, and the properties-rail geometry negotiation |
 | `src/store/toastStore.ts` | Why notices are keyed and deduped rather than stacked |
 | `src/components/canvas/BlockErrorBoundary.tsx` | Why one broken block can't take the board down |
+| `src/lib/textPath.ts` | **Text on a path** — why letters are placed by hand instead of with SVG `<textPath>`, and why control points are normalised |
 
 > **Framework caveat.** This runs on a Next.js version whose APIs differ from
 > widely-published examples — error boundaries use `unstable_retry` rather than
