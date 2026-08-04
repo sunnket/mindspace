@@ -40,26 +40,49 @@
 .pdfr-page.fit .pdfr-canvas { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
 .pdfr-page.fit .pdfr-canvas canvas { width:auto; height:auto; max-width:100%; max-height:100%; }
 
-/* ------------------------------- aged paper ------------------------------ */
-.pdfr-root[data-aged="1"] .pdfr-canvas, .pdfr-root[data-aged="1"] .pdfr-typeset {
-  filter: sepia(0.62) saturate(1.5) brightness(1.02) contrast(0.94) hue-rotate(-6deg);
-}
-.pdfr-aged { position:absolute; inset:0; pointer-events:none; opacity:0; transition: opacity 500ms ease; mix-blend-mode: multiply;
+/* ------------------------------- aged paper ------------------------------ *
+ * Three layers, and the order is the point:
+ *   .tone    the cast of the sheet — yellowing in the middle, burnt at the edge
+ *   .marks   the SVG, generated per PAGE NUMBER (see lib/pdf/aging.ts)
+ *   .fibres  the pulp, a grain too fine to see and impossible to miss when gone
+ *
+ * All of it multiplies, so the print underneath still reads through a tea
+ * stain — which is what actually happens when you spill on a book, and the
+ * difference between a mark ON the paper and a mark IN it.
+ *
+ * `--age` (0.2–1) is the strength and `--edge` (0–1) how burnt the border is;
+ * both are written from the preset in JSX. There is nothing page-specific in
+ * here at all — that is the SVG's job. */
+.pdfr-aged { position:absolute; inset:0; pointer-events:none; z-index:1;
+  mix-blend-mode: multiply; transition: opacity 400ms ease; }
+.pdfr-aged > * { position:absolute; inset:0; }
+
+.pdfr-aged .tone {
   background:
-    radial-gradient(circle at 18% 24%, rgba(120,80,24,0.24) 0, transparent 3.4%),
-    radial-gradient(circle at 72% 16%, rgba(110,70,20,0.18) 0, transparent 2.6%),
-    radial-gradient(circle at 84% 62%, rgba(120,80,24,0.22) 0, transparent 3%),
-    radial-gradient(circle at 32% 78%, rgba(100,64,18,0.2) 0, transparent 3.6%),
-    radial-gradient(circle at 56% 44%, rgba(120,84,30,0.14) 0, transparent 2.2%),
-    radial-gradient(circle at 8% 66%, rgba(110,72,22,0.16) 0, transparent 2.4%),
-    radial-gradient(130% 130% at 50% 50%, transparent 44%, rgba(92,58,18,0.5) 100%),
-    linear-gradient(115deg, rgba(150,110,40,0.06) 0%, rgba(120,80,20,0.16) 100%),
-    rgba(214,172,104,0.30); }
-.pdfr-aged::before { content:''; position:absolute; inset:0; opacity:.5;
-  background-image: radial-gradient(rgba(90,60,20,0.16) 0.5px, transparent 0.6px), radial-gradient(rgba(120,90,40,0.11) 0.5px, transparent 0.6px);
-  background-size: 3px 3px, 5px 5px; background-position: 0 0, 2px 3px; }
-.pdfr-root[data-aged="1"] .pdfr-aged { opacity:1; }
-.pdfr-root[data-aged="1"] .pdfr-page { border-radius: 4px 11px 5px 9px; }
+    radial-gradient(135% 125% at 50% 46%, transparent 38%,
+      rgba(126,86,36, calc(0.22 * var(--edge, 0.5))) 76%,
+      rgba(84,52,16, calc(0.52 * var(--edge, 0.5))) 100%),
+    linear-gradient(112deg, rgba(168,126,58, calc(0.10 * var(--age, 1))) 0%,
+      rgba(126,86,30, calc(0.20 * var(--age, 1))) 100%),
+    rgba(212,172,108, calc(0.26 * var(--age, 1)));
+}
+/* The pulp. Two offset dot grids at sub-pixel radii read as fibre rather than
+   as a pattern — which is exactly what you want from something whose job is to
+   be believed and not noticed. */
+.pdfr-aged .fibres {
+  opacity: calc(0.5 * var(--age, 1));
+  background-image:
+    radial-gradient(rgba(90,60,20,0.16) 0.5px, transparent 0.6px),
+    radial-gradient(rgba(120,90,40,0.11) 0.5px, transparent 0.6px),
+    repeating-linear-gradient(96deg, rgba(120,88,40,0.05) 0 1px, transparent 1px 5px);
+  background-size: 3px 3px, 5px 5px, auto;
+  background-position: 0 0, 2px 3px, 0 0;
+}
+.pdfr-aged .marks { width:100%; height:100%; overflow:visible; }
+
+/* Old paper does not have square corners, and the outer one has taken the most
+   handling. Kept tiny — a page that visibly bulges reads as a sticker. */
+.pdfr-root[data-aged="1"] .pdfr-page { border-radius: 3px 9px 4px 7px; }
 
 /* ------------------------------- text layer ------------------------------ */
 .pdfr-textlayer { position:absolute; inset:0; overflow:hidden; line-height:1; user-select:text; -webkit-user-select:text; z-index:4; }
@@ -192,7 +215,36 @@
  * as paper rather than a flipping card — a real sheet held at the spine bows
  * as it lifts, leans into the turn, and flattens again as it lands.
  * ------------------------------------------------------------------------- */
-.pdfr-book { --t: 0; --bow: 0; --sheen-front: 0; --sheen-back: 0; --cast-clear: 0; --cast-fall: 0; }
+.pdfr-book { --t: 0; --bow: 0; --sheen-front: 0; --sheen-back: 0; --cast-clear: 0; --cast-fall: 0;
+             --tilt: 0; --rock: 0; }
+
+/* ------------------------------- THE TILT ---------------------------------
+ * A book on a desk does not hold still while you turn a page. Your hand is on
+ * the sheet; the block rocks toward the side the page is coming from, lifts a
+ * few millimetres off the table and settles back as it lands.
+ *
+ * `--tilt` is signed by direction and `--rock` is not, so the book leans the
+ * right way and rises either way. Both are `sin(πt)`-shaped, which means they
+ * are exactly zero at both ends of a turn: interrupt it, reverse it, drag it
+ * half way and let go — the book is level wherever it stops, with no separate
+ * "return to rest" animation that could disagree with the sheet.
+ *
+ * Applied to the case and the leaves TOGETHER, about the same origin, because
+ * they are one object. Tilting only the pages slides them out of their own
+ * covers, which is worse than not tilting at all. */
+.pdfr-book .leaves,
+.pdfr-book .pdfr-case {
+  transform-origin: 50% 52%;
+  transform:
+    translateZ(calc(var(--rock) * 14px))
+    rotateY(calc(var(--tilt) * -3.6deg))
+    rotateX(calc(var(--rock) * 1.7deg));
+}
+/* The boards darken a shade as the book comes up off the desk and turns away
+   from the room's light. (A `filter` flattens the element it is on, which is
+   why this is the case and not the leaves — the leaves have to stay a 3D scene
+   for the flying sheet to live in.) */
+.pdfr-book .pdfr-case { filter: brightness(calc(1 - var(--rock) * 0.07)); }
 
 .pdfr-turn {
   position: absolute; top: 0;
@@ -320,6 +372,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pdfr-book, .pdfr-turn, .pdfr-coverwrap, .pdfr-cast, .pdfr-case { transition:none !important; animation:none !important; }
+  /* The tilt is driven from JS through a custom property, so killing
+     transitions does not stop it — it has to be said explicitly. The sheet
+     still turns; the book just stops rocking under it. */
+  .pdfr-book .leaves, .pdfr-book .pdfr-case { transform:none !important; }
+  .pdfr-focus-room { animation:none !important; }
 }
 
 /* -------------------------------- filmstrip ------------------------------ */
@@ -493,6 +550,58 @@
   --r: 190px;
   --dim-col: 6, 5, 4;
 }
+
+/* ------------------------- LIGHT LANDS ON THE PAGE ------------------------
+ * The single biggest thing wrong with the first version: every one of these was
+ * a full-screen overlay. The shade covered the window, so the pool of light
+ * went wherever the pointer went — a window shaft lit the bookshelf, a candle
+ * lit the desk, and the page was lit only when the cursor happened to be over
+ * it. It read as a filter laid over a screenshot, because that is what it was.
+ *
+ * A lamp lights a PAGE. `.onpage` is positioned on the paper itself (the box is
+ * measured in useLightZone and written as left/top/width/height), and clipped
+ * to it, so no mode can spill a single pixel onto the furniture. Not one of the
+ * eleven modes below changed — they just got a stage the size of the sheet. */
+.pdfr-focus.onpage {
+  inset: auto;
+  border-radius: 4px;
+  overflow: hidden;
+  /* Its own layer: a mask that changes with the pointer, over two page canvases,
+     is not something to re-composite with the room every frame. */
+  will-change: transform;
+}
+/* THE PAGE IS BRIGHT NOW, so the light has to be gentler.
+   Every one of these pools was tuned against a full-screen shade, where the
+   room around the page was competing with it — turn that room off and the same
+   `plus-lighter` layer lands on white paper and blows straight out to a white
+   hole. Dimming the ADDED light rather than its opacity leaves the flame's
+   breathing animation (which owns opacity) alone. */
+.pdfr-focus.onpage .lit { filter: brightness(0.66); }
+.pdfr-focus.onpage .shaft { filter: brightness(0.72); }
+.pdfr-focus.onpage .beam { filter: blur(9px) brightness(0.7); }
+
+/* --------------------------- AND THE ROOM GOES DARK -----------------------
+ * Under the stage, over the room. That position is the entire trick: the page
+ * is inside the stage, so this darkens the shelves, the desk, the window and
+ * the rain without touching the paper — no mask, no hole, nothing to keep
+ * aligned with the page as the book slides and swings.
+ *
+ * The blur is doing as much work as the darkness. A dim room is night; a dim
+ * room slightly out of focus is a room you have stopped looking at, which is
+ * what reading by a small light actually feels like. */
+.pdfr-focus-room {
+  position: absolute; inset: 0; z-index: 4; pointer-events: none;
+  background: rgba(4, 3, 2, calc(var(--focus-dim, 0.72) * 0.94));
+  backdrop-filter: blur(3px) saturate(0.5) brightness(0.8);
+  -webkit-backdrop-filter: blur(3px) saturate(0.5) brightness(0.8);
+  animation: pdfrVeil 420ms ease both;
+}
+@keyframes pdfrVeil { from { opacity: 0; } to { opacity: 1; } }
+/* The room's glow around the page is the room, not the lamp — with a reading
+   light on, the paper is lit by the light and by nothing else. */
+.pdfr-root[data-focus="1"] .pdfr-page,
+.pdfr-root[data-focus="1"] .pdfr-typeset { --glow: 0.06; }
+.pdfr-root[data-focus="1"] .pdfr-case { box-shadow: 0 54px 120px -42px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 0 40px rgba(0,0,0,0.5); }
 /* `.wick` too, and not just direct children: the flame modes nest their shade
    and light inside it so the wander animation can move the light source and the
    drawn flame as one body. Without this they'd be static divs with no size. */
@@ -783,6 +892,33 @@
     transparent calc(var(--fx) + var(--r) * 0.9));
   mix-blend-mode: plus-lighter;
 }
+/* THE SASH. A window is not an aperture, it is a frame — and the shadow of the
+   glazing bar falling across a page is the detail that makes an afternoon
+   shaft read as one. A hairline of shadow down the middle of the beam, and a
+   second one across it, both soft because a bar an arm's length away does not
+   throw a sharp edge. */
+.pdfr-focus-window .sash {
+  background:
+    linear-gradient(105deg,
+      transparent calc(var(--fx) - var(--r) * 0.14),
+      rgba(0,0,0,0.42) calc(var(--fx) - var(--r) * 0.05),
+      rgba(0,0,0,0.42) calc(var(--fx) + var(--r) * 0.05),
+      transparent calc(var(--fx) + var(--r) * 0.14)),
+    linear-gradient(15deg,
+      transparent calc(var(--fy) - var(--r) * 0.2),
+      rgba(0,0,0,0.3) calc(var(--fy) - var(--r) * 0.06),
+      rgba(0,0,0,0.3) calc(var(--fy) + var(--r) * 0.06),
+      transparent calc(var(--fy) + var(--r) * 0.2));
+  mask-image: linear-gradient(105deg, transparent calc(var(--fx) - var(--r) * 1.02),
+    #000 calc(var(--fx) - var(--r) * 0.6), #000 calc(var(--fx) + var(--r) * 0.6),
+    transparent calc(var(--fx) + var(--r) * 1.02));
+  -webkit-mask-image: linear-gradient(105deg, transparent calc(var(--fx) - var(--r) * 1.02),
+    #000 calc(var(--fx) - var(--r) * 0.6), #000 calc(var(--fx) + var(--r) * 0.6),
+    transparent calc(var(--fx) + var(--r) * 1.02));
+  filter: blur(5px);
+  opacity: .85;
+}
+
 /* Dust, because a sunbeam without it is just a gradient. */
 .pdfr-focus-window .motes {
   background-image:
@@ -955,6 +1091,19 @@
 .pdfr-paper.active { border-color: rgb(var(--accent)); }
 .pdfr-paper i { position: absolute; left: 0; right: 0; bottom: 3px; font-size: 8.5px; font-style: normal; font-weight: 700;
   letter-spacing: 0.06em; text-transform: uppercase; opacity: .5; font-family: 'Outfit', sans-serif; }
+
+/* The five papers, each showing its own real marks. A card is a scrap of the
+   sheet it is offering, which is the only honest way to sell a texture. */
+.pdfr-ages { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 8px; }
+.pdfr-agecard { position: relative; display: flex; flex-direction: column; gap: 5px; padding: 3px 3px 5px;
+  border-radius: 10px; cursor: pointer; color: inherit; background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09); transition: transform .16s ease, background .16s, border-color .16s; }
+.pdfr-agecard:hover { transform: translateY(-2px); background: rgba(255,255,255,0.1); }
+.pdfr-agecard.active { border-color: rgba(var(--accent),0.85); background: rgba(var(--accent),0.14); }
+.pdfr-agecard .sheet { position: relative; display: block; height: 46px; border-radius: 7px; overflow: hidden;
+  background: linear-gradient(176deg, #f6efe0, #e9dfc9); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1); }
+.pdfr-agecard b { font-size: 9px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; opacity: .68; }
+.pdfr-agecard.active b { opacity: 1; }
 
 .pdfr-check { display: flex; align-items: flex-start; gap: 9px; padding: 7px 2px; font-size: 12px; cursor: pointer; line-height: 1.45; }
 .pdfr-check input { margin-top: 2px; accent-color: rgb(var(--accent)); cursor: pointer; }
