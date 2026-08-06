@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import { screenToCanvas, clamp, fitImageBox, dragState, endActiveDrag } from '@/lib/utils';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
+import { readPaste } from '@/lib/richPaste';
 import { ingestFile } from '@/lib/fileIngest';
 import { collectDropEntries, hasDirectoryEntry, ingestDroppedFolder } from '@/lib/repoIngest';
 import { applyCanvasTheme, resetCanvasTheme, DEFAULT_BACKGROUND } from '@/lib/canvasTheme';
@@ -1746,16 +1747,26 @@ export default function InfiniteCanvas() {
         return;
       }
 
-      // 4) Plain text dragged in → drop a text card.
-      const text = dt.getData('text/plain');
-      if (text && text.trim()) {
+      /* 4) Text dragged in → drop a text card. Dragging a selection out of a
+         browser or a document carries `text/html` alongside the plain text, so
+         this goes through the same converter as a paste and keeps the source's
+         headings, lists, emphasis, font and size instead of flattening them. */
+      const dragged = readPaste(dt);
+      if (dragged?.markdown.trim()) {
+        const ts = useCanvasStore.getState().textStyle;
         addObject({
           type: 'text',
           x: origin.x - 150,
           y: origin.y - 80,
           width: 300,
           height: 160,
-          content: text.trim(),
+          content: dragged.markdown.trim(),
+          style: {
+            fontSize: dragged.typography.fontSize ?? ts.fontSize,
+            fontFamily: dragged.typography.fontFamily ?? ts.fontFamily,
+            fontWeight: ts.fontWeight,
+            textColor: ts.textColor,
+          },
         });
       }
     },
@@ -1823,6 +1834,33 @@ export default function InfiniteCanvas() {
           width: 800,
           height: 600,
           content: text,
+        });
+        return;
+      }
+
+      /* Rich text pasted onto the bare board — which used to do NOTHING at all
+         (only images and URLs were handled here, so a copied article simply
+         vanished). It becomes a text block carrying the source's structure as
+         canvas markdown, at the source's own font and size. */
+      const parsed = readPaste(e.clipboardData);
+      if (parsed?.markdown) {
+        e.preventDefault();
+        const ts = useCanvasStore.getState().textStyle;
+        addObject({
+          type: 'text',
+          x: centerX - 220,
+          y: centerY - 80,
+          // Start modest: a text block hugs its content and grows out to the
+          // wrap column on its own (CanvasObject syncs width and height).
+          width: 440,
+          height: 120,
+          content: parsed.markdown,
+          style: {
+            fontSize: parsed.typography.fontSize ?? ts.fontSize,
+            fontFamily: parsed.typography.fontFamily ?? ts.fontFamily,
+            fontWeight: ts.fontWeight,
+            textColor: ts.textColor,
+          },
         });
       }
     };

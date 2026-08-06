@@ -11,6 +11,7 @@ import { getSnapPoints, randomStickyColor, dragState, endActiveDrag } from '@/li
 import { ensureReadableInk, readableInk, paperColor } from '@/lib/canvasTheme';
 import { reportMeasuredHeight, forgetMeasuredHeight } from '@/lib/canvasLayout';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
+import { readPaste, typographyPatch } from '@/lib/richPaste';
 import VoiceNoteBlock from './VoiceNoteBlock';
 import FileBlock from './FileBlock';
 import ImageStudio from './ImageStudio';
@@ -2331,6 +2332,97 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
     }
   }, [obj.id, editingId, setEditingId]);
 
+  /**
+   * A paste keeps the shape it was copied with.
+   *
+   * Without this handler the browser takes its default path and splices the
+   * clipboard's `text/html` into the editable as real DOM — <b>, <span
+   * style="font-size:24pt">, <ul>. The block then reads itself back with
+   * `innerText` (which is and must remain the source of truth, because
+   * `obj.content` is stored as plain text), and every bit of that structure is
+   * discarded on the way through. That is why a paste used to arrive flattened
+   * into the block's one font at the block's one size.
+   *
+   * So the clipboard is converted to the canvas's own markdown subset first
+   * (lib/richPaste → the syntax RichText already renders), and inserted with
+   * `execCommand('insertText')` rather than written onto the node. That matters
+   * for three reasons: the element stays plain text, the native `input` event
+   * fires so the block's existing listener updates `latestContent`, auto-grow,
+   * width sync and ink capture exactly as if the text had been typed, and the
+   * browser's own undo stack keeps the paste as one reversible step.
+   */
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLElement>) => {
+      const parsed = readPaste(e.clipboardData);
+      // Nothing textual — a copied bitmap, say. Leave it to the canvas-level
+      // paste handler, which turns it into an image block.
+      if (!parsed || !parsed.markdown) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      /* Only the blocks that actually PARSE the markdown may be given it.
+         text / heading / sticky / card all render through RichText; a
+         workflow-node prints `obj.content` verbatim into a diagram shape, so
+         handing it "# Title" or "**bold**" would show the punctuation as
+         punctuation. A node's label is a few words by design, so it takes the
+         plain-text flavour and keeps its own type — a diagram's font is part of
+         the diagram, not of whatever was on the clipboard. */
+      const rendersMarkdown =
+        obj.type === 'text' || obj.type === 'heading' || obj.type === 'sticky' || obj.type === 'card';
+
+      const text = rendersMarkdown
+        ? parsed.markdown
+        : (e.clipboardData.getData('text/plain') || parsed.markdown).replace(/\s*\n\s*/g, ' ').trim();
+
+      if (rendersMarkdown) {
+        /* Adopt the source's font and size, but only onto a block that is still
+           blank and only over values the user didn't choose themselves (see
+           typographyPatch). The tool defaults are passed in because a fresh text
+           box is born already stamped with them, so they are what "unset" looks
+           like in practice. */
+        const patch = typographyPatch(
+          parsed.typography,
+          latestContent.current,
+          obj.style,
+          useCanvasStore.getState().textStyle
+        );
+        if (patch) updateObject(obj.id, { style: { ...obj.style, ...patch } });
+      }
+
+      /* One newline in, two newlines out: `insertText` splits a contentEditable
+         into block children, so each "\n" reads back from `innerText` with an
+         extra one. That is the same thing that happens when the user presses
+         Enter, and the innerText round-trip is idempotent (verified), so the
+         spacing is stable and never grows across edits — it is not worth
+         fighting the caret to normalise. */
+      const inserted = document.execCommand('insertText', false, text);
+
+      /* execCommand is deprecated-but-universal; if a browser ever refuses it,
+         splice the text in at the caret by hand and tell the block ourselves,
+         so a paste is never silently dropped. */
+      if (!inserted && contentRef.current) {
+        const el = contentRef.current as HTMLElement & { value?: string };
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount && el.contains(sel.anchorNode)) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          const node = document.createTextNode(text);
+          range.insertNode(node);
+          range.setStartAfter(node);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } else {
+          el.innerText = (el.innerText || '') + text;
+        }
+        latestContent.current = el.innerText;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    },
+    [obj.id, obj.type, obj.style, updateObject]
+  );
+
 
 
 
@@ -2902,6 +2994,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
             contentEditable={isEditing}
             suppressContentEditableWarning
             onBlur={handleBlur}
+            onPaste={handlePaste}
             data-placeholder="Start typing..."
             style={{
               fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '15px',
@@ -2957,6 +3050,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                 contentEditable={isEditing}
                 suppressContentEditableWarning
                 onBlur={handleBlur}
+                onPaste={handlePaste}
                 className="text-block-editable"
                 style={{
                   fontFamily: isInkBlock ? INK_FONT : (obj.style?.fontFamily as string) || "'Inter', sans-serif",
@@ -3027,6 +3121,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                 contentEditable={isEditing}
                 suppressContentEditableWarning
                 onBlur={handleBlur}
+                onPaste={handlePaste}
                 className="text-block-editable"
                 data-placeholder="Note..."
                 style={{
@@ -3306,6 +3401,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                 contentEditable={isEditing}
                 suppressContentEditableWarning
                 onBlur={handleBlur}
+                onPaste={handlePaste}
                 className="text-block-editable"
                 data-placeholder="Write something..."
                 style={{
@@ -5106,6 +5202,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                   contentEditable={isEditing}
                   suppressContentEditableWarning
                   onBlur={handleBlur}
+                  onPaste={handlePaste}
                   className="text-block-editable w-full max-h-full overflow-y-auto text-center custom-scrollbar"
                   data-placeholder="Type..."
                   style={{
