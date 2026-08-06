@@ -10,6 +10,7 @@ import {
   getAbsoluteAllStrokes,
   getAbsoluteAllConnections,
 } from './db';
+import { toast } from '@/store/toastStore';
 
 /**
  * Cloud persistence discipline
@@ -23,6 +24,11 @@ import {
 const CLOUD_SYNC_MIN_INTERVAL_MS = 3_500;
 const MAX_BACKOFF_MS = 60_000;
 const UPSERT_CHUNK = 40;
+
+/* How many consecutive failed flushes before the user is told. See the note at
+   the catch site in flushNow() for why this is 2 and not 1. */
+const SYNC_FAILURES_BEFORE_NOTICE = 2;
+const SYNC_FAIL_KEY = 'cloud-sync-failed';
 
 /* ---------------- resilient upsert ----------------
    Chunk writes so a big canvas isn't one giant request, and if a chunk fails
@@ -205,10 +211,28 @@ async function flushNow(): Promise<void> {
   pending = null; // consume; edits arriving mid-upload re-arm `pending`
   try {
     await doUpsert(p);
+    // The condition has cleared. Take the notice down if one is up — otherwise
+    // a warning about a sync that has since succeeded would sit there lying.
+    if (failures >= SYNC_FAILURES_BEFORE_NOTICE) toast.resolve(SYNC_FAIL_KEY);
     failures = 0;
   } catch (err) {
     failures++;
     console.error('[sync] cloud flush failed (will retry):', err);
+    /* Speak up only once the retries have stopped looking like a blip.
+       A single failed flush is normal — a tab waking from sleep, a token being
+       refreshed, one dropped packet — and the backoff swallows it on the next
+       attempt, so warning about it would train the user to ignore this notice.
+       Two consecutive failures means the cloud copy is genuinely falling
+       behind, which is the one thing a local-first app must never hide. */
+    if (failures >= SYNC_FAILURES_BEFORE_NOTICE) {
+      toast.show({
+        kind: 'error',
+        key: SYNC_FAIL_KEY, // keyed: the retry loop re-posts, it must not stack
+        duration: 0,        // a condition, not an event — sticky until resolved
+        message: "Can't reach the cloud",
+        detail: 'Your work is safe on this device. Retrying automatically.',
+      });
+    }
     if (!pending) pending = p; // nothing newer queued — retry this exact state
   } finally {
     inFlight = false;

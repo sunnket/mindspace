@@ -21,7 +21,7 @@
  * signed-in users) and is flushed synchronously on close.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 /* The reader's own stylesheets, imported HERE rather than from globals.css.
    Together they're 140KB, and as globals they sat in the render-blocking CSS of
@@ -36,6 +36,7 @@ import { useCanvasStore } from '@/store/canvasStore';
 import { getFileForBlock } from '@/lib/fileIngest';
 import { PdfSession, type TextSpan } from '@/lib/pdf/pdfReader';
 import { playSnap, startRain, stopRain, startAmbience, stopAmbience, playPageTurn, playCoverOpen, playCoverClose, playSpineCreak, playPaperSettle } from '@/lib/relaxAudio';
+import { ageMarks, ageFilter, agePresetOf, AGE_PRESETS, type AgeCfg } from '@/lib/pdf/aging';
 import { ROOMS, ROOM_GROUPS, RoomScene, RoomPreview, getRoom, isRoom, type Atmos, type RoomGroup } from './pdfRooms';
 
 /* ------------------------------- model ---------------------------------- */
@@ -88,10 +89,18 @@ type BookAnim =
  */
 interface Turning { leaf: Leaf; t: number; dragging: boolean }
 
-/** A full click-driven turn, tip to tail. */
-const LEAF_MS = 420;
+/* A full click-driven turn, tip to tail.
+ *
+ * 420ms was measured against a page you were WAITING for. Reading is a rhythm —
+ * you turn, and you are already looking at the next line — and at that length
+ * the book was politely finishing its animation while your eye had moved on.
+ * A real sheet flicked with a thumb crosses in about a quarter of a second.
+ * The `hurry` variant is what a held arrow key or a burst of clicks gets: once
+ * you are travelling, each turn only has to read as a turn, not perform one. */
+const LEAF_MS = 265;
+const LEAF_MS_HURRY = 190;
 /** Covers are heavier than paper, but 450ms was a doorway you had to wait in. */
-const COVER_MS = 320;
+const COVER_MS = 280;
 /** Past this much of a drag, letting go finishes the turn instead of undoing it. */
 const DRAG_COMMIT = 0.38;
 
@@ -183,27 +192,114 @@ interface Typo {
 }
 const TYPO: Typo = { font: 'literata', size: 20, leading: 1.62, measure: 66, justify: false, bionic: false, paper: 'cream' };
 
-type FocusMode = 'ruler' | 'spotlight' | 'torch' | 'keyhole' | 'matchstick';
-const FOCUS_MODES: { id: FocusMode; label: string; icon: string }[] = [
-  { id: 'ruler',      label: 'Line ruler',   icon: 'M3 8h18M3 16h18M6 12h12' },
-  { id: 'spotlight',  label: 'Spotlight',     icon: 'M12 2v4M4.93 4.93l2.83 2.83M2 12h4M4.93 19.07l2.83-2.83M12 18v4M19.07 19.07l-2.83-2.83M22 12h-4M19.07 4.93l-2.83 2.83' },
-  { id: 'torch',      label: 'Torch',         icon: 'M12 2v6M8 14a4 4 0 0 0 8 0l-2-8h-4zM10 18h4M11 22h2' },
-  { id: 'keyhole',    label: 'Keyhole',       icon: 'M12 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM10 10v10h4V10' },
-  { id: 'matchstick', label: 'Matchlight',    icon: 'M12 2c-2 3-4 5-4 8a4 4 0 0 0 8 0c0-3-2-5-4-8zM10 20h4v2h-4z' },
+/* ------------------------------------------------------------------
+   READING FOCUS — eleven ways to light a page.
+
+   The first version of this was five masks: a black rectangle with a hole
+   punched in it, the hole a slightly different shape each time. That is not
+   how any of the things it was named after behave. A match does not dim the
+   room by 72% inside a tidy ellipse; it throws a small, hot, unsteady light
+   that is nearly white at the wick, orange a hand's width out, and gone. A
+   torch has a beam you can see. A keyhole is a keyhole shape. And a reading
+   ruler is a physical card lying on the paper — it has edges, and edges cast
+   shadows.
+
+   Two ideas carry the rebuild, and they are what make these read as light
+   rather than as holes:
+
+     · LIGHT IS ADDITIVE. Every lamp here paints a `plus-lighter` layer that
+       genuinely brightens the paper inside its pool, on top of the layer that
+       darkens everything else. A hole in a dark sheet can only ever reveal;
+       real light arrives.
+     · LIGHT HAS A COLOUR, AND IT CHANGES AS IT FALLS OFF. Warm sources go
+       amber then red at the edge of their reach, cold ones go blue. That
+       gradient across a single pool is most of what your eye reads as
+       "a flame" versus "a circle".
+
+   Flame modes get a third: they MOVE. A flicker that only changes opacity
+   reads as a failing bulb; a real flame wanders a few pixels and changes size
+   while it does it.
+   ------------------------------------------------------------------ */
+type FocusMode =
+  | 'ruler' | 'typoscope' | 'tint'
+  | 'spotlight' | 'torch' | 'lamp' | 'keyhole'
+  | 'matchstick' | 'candle'
+  | 'window' | 'moon';
+
+type FocusGroup = 'Guides' | 'Lamps' | 'Flame' | 'Daylight';
+const FOCUS_GROUPS: FocusGroup[] = ['Guides', 'Lamps', 'Flame', 'Daylight'];
+
+interface FocusDef {
+  id: FocusMode;
+  group: FocusGroup;
+  label: string;
+  blurb: string;
+  icon: string;
+  /** Reveal follows the cursor's X as well as its Y. */
+  tracksX?: boolean;
+}
+
+const FOCUS_MODES: FocusDef[] = [
+  { id: 'ruler', group: 'Guides', label: 'Line ruler', icon: 'M3 8h18M3 16h18M6 12h12',
+    blurb: 'A card with a slot cut in it, laid across the line you are on.' },
+  { id: 'typoscope', group: 'Guides', label: 'Typoscope', icon: 'M4 5h16v14H4zM8 9h8v6H8z', tracksX: true,
+    blurb: 'The same card, but a window — a few lines at a time instead of one.' },
+  { id: 'tint', group: 'Guides', label: 'Colour film', icon: 'M12 3l7 5v8l-7 5-7-5V8z', tracksX: true,
+    blurb: 'A coloured sheet over the page. Hides nothing, calms everything.' },
+
+  { id: 'spotlight', group: 'Lamps', label: 'Spotlight', icon: 'M12 2v4M4.93 4.93l2.83 2.83M2 12h4M4.93 19.07l2.83-2.83M12 18v4M19.07 19.07l-2.83-2.83M22 12h-4M19.07 4.93l-2.83 2.83', tracksX: true,
+    blurb: 'A theatre lamp overhead. Clean white, hard centre, soft rim.' },
+  { id: 'torch', group: 'Lamps', label: 'Torch', icon: 'M12 2v6M8 14a4 4 0 0 0 8 0l-2-8h-4zM10 18h4M11 22h2', tracksX: true,
+    blurb: 'A hand torch: you can see the beam, and its hot spot.' },
+  { id: 'lamp', group: 'Lamps', label: 'Desk lamp', icon: 'M9 3h6l3 8H6zM12 11v7M8 21h8', tracksX: true,
+    blurb: 'Steady, warm, angled in from the left the way a desk lamp is.' },
+  { id: 'keyhole', group: 'Lamps', label: 'Keyhole', icon: 'M12 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM10 10v10h4V10', tracksX: true,
+    blurb: 'Read it like you are not supposed to be.' },
+
+  { id: 'matchstick', group: 'Flame', label: 'Matchlight', icon: 'M12 2c-2 3-4 5-4 8a4 4 0 0 0 8 0c0-3-2-5-4-8zM10 20h4v2h-4z', tracksX: true,
+    blurb: 'Small, hot and never quite still. Burns for as long as you read.' },
+  { id: 'candle', group: 'Flame', label: 'Candle', icon: 'M12 2c-1.6 2.4-3 4-3 6a3 3 0 0 0 6 0c0-2-1.4-3.6-3-6zM9 12h6v9H9z', tracksX: true,
+    blurb: 'Wider than a match and far calmer. Leans when it breathes.' },
+
+  { id: 'window', group: 'Daylight', label: 'Window light', icon: 'M4 3h16v18H4zM12 3v18M4 12h16', tracksX: true,
+    blurb: 'An afternoon shaft falling across the page, dust and all.' },
+  { id: 'moon', group: 'Daylight', label: 'Moonlight', icon: 'M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z', tracksX: true,
+    blurb: 'Cold, dim and wide. Just enough to make out the words.' },
+];
+
+const FOCUS_BY_ID = new Map(FOCUS_MODES.map((f) => [f.id, f]));
+
+/** Colours for the film — the classic overlay tints, not a rainbow picker. */
+const FILM_TINTS: { id: string; label: string; rgb: string }[] = [
+  { id: 'amber', label: 'Amber', rgb: '214, 158, 74' },
+  { id: 'rose', label: 'Rose', rgb: '212, 128, 138' },
+  { id: 'mint', label: 'Mint', rgb: '116, 186, 152' },
+  { id: 'sky', label: 'Sky', rgb: '116, 162, 210' },
+  { id: 'violet', label: 'Violet', rgb: '150, 132, 208' },
+  { id: 'grey', label: 'Grey', rgb: '150, 148, 146' },
 ];
 
 interface ReaderState {
   page: number; layout: Layout; atmos: Atmos; aged: boolean; strip: boolean; sound: boolean;
+  /** Which paper this book is printed on, and how far gone it is. */
+  age: AgeCfg;
   zen: boolean; ruler: boolean; focusMode: FocusMode; focusDarkness: number; typo: Typo;
+  /** How far the light reaches, as a multiplier on each mode's natural size. */
+  focusSize: number;
+  /** Kill the flicker and the wander. Some people cannot read next to them. */
+  focusSteady: boolean;
+  /** Which tint the colour film uses. */
+  focusTint: string;
   bookmarks: number[]; highlights: Highlight[]; drawings: Stroke[]; stickies: Sticky[];
 }
 const DEFAULTS: ReaderState = {
   page: 1, layout: 'scroll', atmos: 'library', aged: false, strip: true, sound: false,
+  age: { preset: 'foxed', amount: 0.75 },
   zen: false, ruler: false, focusMode: 'ruler', focusDarkness: 0.72, typo: TYPO,
+  focusSize: 1, focusSteady: false, focusTint: 'amber',
   bookmarks: [], highlights: [], drawings: [], stickies: [],
 };
 function arr<T>(v: unknown): T[] { return Array.isArray(v) ? v as T[] : []; }
-const VALID_FOCUS_MODES: FocusMode[] = ['ruler', 'spotlight', 'torch', 'keyhole', 'matchstick'];
 function initState(raw: unknown): ReaderState {
   const r = (raw && typeof raw === 'object') ? raw as Partial<ReaderState> : {};
   return {
@@ -211,8 +307,21 @@ function initState(raw: unknown): ReaderState {
     atmos: isRoom(r.atmos) ? r.atmos : DEFAULTS.atmos,
     sound: r.sound === true,
     zen: false,                                   // never start hidden — you'd think it broke
-    focusMode: VALID_FOCUS_MODES.includes(r.focusMode as FocusMode) ? r.focusMode as FocusMode : DEFAULTS.focusMode,
+    // A board saved before a mode existed (or after one was renamed) falls back
+    // rather than rendering an overlay with no rules attached to it.
+    focusMode: FOCUS_BY_ID.has(r.focusMode as FocusMode) ? r.focusMode as FocusMode : DEFAULTS.focusMode,
     focusDarkness: typeof r.focusDarkness === 'number' ? Math.max(0.4, Math.min(0.95, r.focusDarkness)) : DEFAULTS.focusDarkness,
+    focusSize: typeof r.focusSize === 'number' ? Math.max(0.55, Math.min(2, r.focusSize)) : DEFAULTS.focusSize,
+    focusSteady: r.focusSteady === true,
+    focusTint: FILM_TINTS.some((t) => t.id === r.focusTint) ? r.focusTint as string : DEFAULTS.focusTint,
+    /* `aged` used to be a single boolean, and every board saved with it on means
+       "give me old paper" — so it becomes the middle preset rather than being
+       thrown away. The boolean itself stays as the on/off switch; the preset is
+       WHICH old paper. */
+    age: {
+      preset: AGE_PRESETS.some((a) => a.id === r.age?.preset) ? r.age!.preset : DEFAULTS.age.preset,
+      amount: typeof r.age?.amount === 'number' ? Math.max(0.2, Math.min(1, r.age.amount)) : DEFAULTS.age.amount,
+    },
     typo: { ...TYPO, ...(r.typo && typeof r.typo === 'object' ? r.typo : {}) },
     page: Math.max(1, r.page || 1),
     bookmarks: arr(r.bookmarks), highlights: arr(r.highlights),
@@ -505,6 +614,9 @@ function Reader({ objId }: { objId: string }) {
   const [annot, setAnnot] = useState(false);
   const [roomOpen, setRoomOpen] = useState(false);
   const [typeOpen, setTypeOpen] = useState(false);
+  /* Whether Typography was opened from the PAPER button — it opens on the paper
+     section rather than at the top when it was. */
+  const [typeJump, setTypeJump] = useState(false);
   const [focusOpen, setFocusOpen] = useState(false);
   const [roomTab, setRoomTab] = useState<RoomGroup | 'All'>('All');
   const [card, setCard] = useState<{ label: string; blurb: string } | null>(null);
@@ -622,13 +734,21 @@ function Reader({ objId }: { objId: string }) {
    * animation frame is exactly what makes a page turn feel expensive. The CSS in
    * pdf-reader.css reads these and does the rest.
    */
-  const paintLeaf = useCallback((t: number) => {
+  const paintLeaf = useCallback((t: number, dir: 'next' | 'prev' = 'next') => {
     tRef.current = t;
     const el = bookElRef.current;
     if (!el) return;
     const f = leafFrame(t);
     el.style.setProperty('--t', String(t));
     el.style.setProperty('--bow', f.bow.toFixed(4));
+    /* THE TILT. A book on a desk does not hold still while you turn a page —
+       your hand is on the sheet, and the whole block rocks toward the side the
+       page is coming from and settles back as it lands. Signed by direction and
+       scaled by `bow`, so it peaks edge-on and is exactly zero at both ends: a
+       turn can be interrupted, reversed or dragged and the book is always level
+       wherever it stops. */
+    el.style.setProperty('--tilt', (f.bow * (dir === 'next' ? 1 : -1)).toFixed(4));
+    el.style.setProperty('--rock', f.bow.toFixed(4));
     el.style.setProperty('--sheen-front', f.sheenFront.toFixed(3));
     el.style.setProperty('--sheen-back', f.sheenBack.toFixed(3));
     el.style.setProperty('--cast-clear', f.castClear.toFixed(3));
@@ -655,7 +775,9 @@ function Reader({ objId }: { objId: string }) {
    * already showing precisely what the committed spread is about to.
    */
   const rewindLeaf = useCallback(() => { tRef.current = 0; }, []);
-  useIsomorphicLayoutEffect(() => { paintLeaf(tRef.current); }, [turning, paintLeaf]);
+  useIsomorphicLayoutEffect(() => {
+    paintLeaf(tRef.current, turning?.leaf.dir || 'next');
+  }, [turning, paintLeaf]);
 
   const stopRaf = useCallback(() => {
     if (turnRaf.current !== null) { cancelAnimationFrame(turnRaf.current); turnRaf.current = null; }
@@ -672,17 +794,17 @@ function Reader({ objId }: { objId: string }) {
       first painted frame arrived 30-odd ms in and the sheet was already a
       quarter turned, so every turn began with a jump. Now the expensive frame
       costs the turn nothing but its own duration, and the motion starts at 0. */
-  const glideTo = useCallback((to: number, onDone: () => void) => {
+  const glideTo = useCallback((to: number, onDone: () => void, dir: 'next' | 'prev' = 'next', ms = LEAF_MS) => {
     stopRaf();
     const from = tRef.current;
     const span = to - from;
     if (Math.abs(span) < 0.001) { onDone(); return; }
-    const dur = Math.max(90, LEAF_MS * Math.abs(span));
+    const dur = Math.max(70, ms * Math.abs(span));
     let t0 = -1;
     const step = (now: number) => {
       if (t0 < 0) t0 = now;
       const k = clamp01((now - t0) / dur);
-      paintLeaf(from + span * easeTurn(k));
+      paintLeaf(from + span * easeTurn(k), dir);
       if (k < 1) { turnRaf.current = requestAnimationFrame(step); }
       else { turnRaf.current = null; onDone(); }
     };
@@ -729,7 +851,7 @@ function Reader({ objId }: { objId: string }) {
     [leafFrom],
   );
 
-  const startLeafRef = useRef<((d: 'next' | 'prev', from: number) => boolean) | null>(null);
+  const startLeafRef = useRef<((d: 'next' | 'prev', from: number, hurry?: boolean) => boolean) | null>(null);
 
   /** Land the sheet: commit the spread it was carrying and clear the leaf.
       The sheet is left lying where it landed — see `rewindLeaf`. */
@@ -740,8 +862,10 @@ function Reader({ objId }: { objId: string }) {
     rewindLeaf();
     const q = queued.current;
     queued.current = null;
-    // Straight on from the page we just landed on — no state round-trip.
-    if (q && !startLeafRef.current?.(q, leaf.target)) turnRef.current?.(q);
+    /* Straight on from the page we just landed on — no state round-trip. And
+       faster: a queued turn only exists because the reader is already ahead of
+       the book, so it gets the hurried duration. */
+    if (q && !startLeafRef.current?.(q, leaf.target, true)) turnRef.current?.(q);
   }, [set, rewindLeaf]);
 
   /**
@@ -760,10 +884,13 @@ function Reader({ objId }: { objId: string }) {
    * beat late. Capped, because a page that will not render must delay a turn,
    * never cancel it.
    */
-  const startLeaf = useCallback((dir: 'next' | 'prev', from: number): boolean => {
+  const startLeaf = useCallback((dir: 'next' | 'prev', from: number, hurry = false): boolean => {
     const leaf = leafFrom(dir, from);
     if (!leaf) return false;
-    try { playPageTurn(0.55, dir); } catch { /* ignore */ }
+    const ms = hurry ? LEAF_MS_HURRY : LEAF_MS;
+    // The sound is cut to the length of the turn it belongs to. A 600ms swish
+    // over a 265ms sheet is the page landing while you can still hear it move.
+    try { playPageTurn(0.55, dir, ms / 1000); } catch { /* ignore */ }
     const next = { leaf, t: 0, dragging: false };
     setTurning(next);
     turningRef.current = next;
@@ -774,7 +901,7 @@ function Reader({ objId }: { objId: string }) {
     const launch = () => {
       // Still ours? A drag or another turn may have taken the sheet meanwhile.
       if (turningRef.current?.leaf !== leaf || turningRef.current.dragging) return;
-      glideTo(1, () => settleLeaf(leaf));
+      glideTo(1, () => settleLeaf(leaf), leaf.dir, hurry ? LEAF_MS_HURRY : LEAF_MS);
     };
     if (leafIsWarm(leaf)) launch();
     else void Promise.race([warmLeaf(leaf), new Promise((r) => window.setTimeout(r, 120))]).then(launch);
@@ -814,7 +941,7 @@ function Reader({ objId }: { objId: string }) {
     if (s.layout !== 'book') {
       const target = dir === 'next' ? s.page + 1 : s.page - 1;
       if (target < 1 || target > numPages) return;
-      try { playPageTurn(0.25, dir); } catch { /* ignore */ }
+      try { playPageTurn(0.25, dir, 0.26); } catch { /* ignore */ }
       set({ page: target });
       return;
     }
@@ -904,7 +1031,7 @@ function Reader({ objId }: { objId: string }) {
     const d = dragRef.current;
     if (!d) return;
     const travelled = d.leaf.dir === 'next' ? d.x0 - e.clientX : e.clientX - d.x0;
-    paintLeaf(clamp01(travelled / d.span));
+    paintLeaf(clamp01(travelled / d.span), d.leaf.dir);
   }, [paintLeaf]);
 
   /* Letting go. A corner that was pressed but never pulled (t is still ~0) is
@@ -920,10 +1047,10 @@ function Reader({ objId }: { objId: string }) {
     const live = turningRef.current;
     if (live) { const nxt = { ...live, dragging: false }; turningRef.current = nxt; setTurning(nxt); }
     if (tapped || t >= DRAG_COMMIT) {
-      try { playPageTurn(0.55, d.leaf.dir); } catch { /* ignore */ }
-      glideTo(1, () => settleLeaf(d.leaf));
+      try { playPageTurn(tapped ? 0.55 : 0.4 + t * 0.4, d.leaf.dir, (LEAF_MS * (1 - t)) / 1000); } catch { /* ignore */ }
+      glideTo(1, () => settleLeaf(d.leaf), d.leaf.dir);
     } else {
-      glideTo(0, () => { setTurning(null); turningRef.current = null; rewindLeaf(); });
+      glideTo(0, () => { setTurning(null); turningRef.current = null; rewindLeaf(); }, d.leaf.dir);
     }
   }, [glideTo, settleLeaf, rewindLeaf]);
 
@@ -1167,11 +1294,24 @@ function Reader({ objId }: { objId: string }) {
     window.setTimeout(() => setCard((c) => (c && c.label === r.label ? null : c)), 2600);
   }, [set]);
 
+  /* The paper this book is printed on. `aged` is the switch, `age` is which
+     paper — memoised so a page's marks aren't regenerated on every render of
+     the reader (they're pure, but the object identity is what `AgedPaper`
+     memoises on). */
+  const ageCfg = useMemo<AgeCfg>(
+    () => (st.aged ? st.age : { preset: 'off', amount: st.age.amount }),
+    [st.aged, st.age],
+  );
+
   const pageProps = {
-    session, tool, hlColor, penColor, penSize, stickyColor,
+    session, tool, hlColor, penColor, penSize, stickyColor, age: ageCfg,
     highlights: st.highlights, drawings: st.drawings, stickies: st.stickies,
     addHighlight, delHighlight, addStroke, delStroke, addSticky, editSticky, delSticky,
   };
+
+  /* Where the light is allowed to land. Re-measured when the layout, the page,
+     the book's phase or the window changes — all four move the paper. */
+  const lightZone = useLightZone(st.ruler, [st.layout, st.page, phase, sizing.pageW, st.zen, stripShown]);
 
   const toolRow = tool === 'highlight'
     ? <SwatchRow colors={HL_COLORS} value={hlColor} onPick={setHlColor} />
@@ -1185,6 +1325,7 @@ function Reader({ objId }: { objId: string }) {
 
   return (
     <div className="pdfr-root" data-atmos={st.atmos} data-aged={st.aged ? '1' : '0'} data-tool={tool}
+      data-focus={st.ruler ? '1' : '0'}
       data-chrome={chrome ? '1' : '0'} data-zen={st.zen ? '1' : '0'} onMouseUp={onStageMouseUp}
       style={{
         ['--accent' as string]: room.accent, ['--glow' as string]: String(room.glow ?? 0.4), color: room.ink || '#f4ece0',
@@ -1208,7 +1349,12 @@ function Reader({ objId }: { objId: string }) {
       <div className="pdfr-stage" data-define={define ? '1' : '0'}
         style={{ position: 'absolute', inset: 0, top: st.zen ? 0 : 14, bottom: st.zen ? 0 : stripShown ? 190 : 82, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto', padding: st.zen ? '4px 8px' : '10px 22px', zIndex: 5 }}
         onClick={onStageClick}
-        onMouseMove={st.ruler ? (e) => {
+        /* Pointer, not mouse. A touchscreen never sends a mousemove for a
+           travelling finger, so on a phone or a tablet every one of these
+           lights sat frozen at the middle of the page — the one place you are
+           not reading. `pointermove` is the same event for a mouse and adds
+           the finger and the pen for nothing. */
+        onPointerMove={st.ruler ? (e) => {
           setFocusY(e.clientY / Math.max(1, window.innerHeight));
           setFocusX(e.clientX / Math.max(1, window.innerWidth));
         } : undefined}>
@@ -1217,41 +1363,45 @@ function Reader({ objId }: { objId: string }) {
         ) : !session ? (
           <div className="pdfr-loading"><div className="pdfr-spin" /><div>Opening your PDF…</div></div>
         ) : st.layout === 'typeset' ? (
-          <Typeset paras={proseReady ? prose!.paras : null} typo={st.typo} width={win.w} speaking={speech.on ? speech.idx : -1} />
+          <Typeset paras={proseReady ? prose!.paras : null} typo={st.typo} width={win.w} speaking={speech.on ? speech.idx : -1} age={ageCfg} />
         ) : st.layout === 'book' ? (
           <BookView {...pageProps} page={st.page} numPages={numPages} pageW={sizing.pageW} aspect={aspect}
             phase={phase} anim={anim} turning={turning} onTurn={turn} title={docTitle}
             bookRef={bookElRef} onCornerDown={beginDrag} onCornerMove={moveDrag} onCornerUp={endDrag}
             bookmarks={st.bookmarks} onScrub={go} onUnmark={toggleBookmark} />
         ) : (
-          <div style={{ position: 'relative' }}><Page {...pageProps} page={st.page} width={sizing.pageW} interactive bookmarked={bookmarked} onUnmark={toggleBookmark} /></div>
+          <div style={{ position: 'relative' }} data-lightzone><Page {...pageProps} page={st.page} width={sizing.pageW} interactive bookmarked={bookmarked} onUnmark={toggleBookmark} /></div>
         )}
       </div>
 
-      {/* Focus overlay — multiple creative reading-aid modes */}
-      {st.ruler && (
+      {/* Focus overlay — eleven reading lights, see FOCUS_MODES.
+          Two pieces: the ROOM goes dark, and the light lands on the PAPER. The
+          veil sits under the stage so it darkens the room and the desk without
+          touching the page; the overlay sits over the page and is positioned on
+          it, so nothing spills onto the furniture. */}
+      {st.ruler && lightZone && (
         <div
-          className={`pdfr-focus pdfr-focus-${st.focusMode}`}
+          className="pdfr-focus-room"
           aria-hidden
           style={{
-            ['--fy' as string]: `${(focusY * 100).toFixed(2)}%`,
-            ['--fx' as string]: `${(focusX * 100).toFixed(2)}%`,
-            ['--focus-dim' as string]: String(st.focusDarkness),
-            /* In book mode, confine the ruler to whichever half the cursor is on.
-               The spine sits roughly at 50% of the stage; cursor left of it →
-               clip the overlay to the left page, cursor right → right page. */
-            ['--ruler-left' as string]: isBook && st.focusMode === 'ruler' && focusX > 0.52 ? '50%' : '0',
-            ['--ruler-right' as string]: isBook && st.focusMode === 'ruler' && focusX < 0.48 ? '50%' : '0',
+            ['--zx' as string]: `${lightZone.left}px`,
+            ['--zy' as string]: `${lightZone.top}px`,
+            ['--zw' as string]: `${lightZone.width}px`,
+            ['--zh' as string]: `${lightZone.height}px`,
+            ['--focus-dim' as string]: String(st.focusMode === 'tint' ? Math.min(0.45, st.focusDarkness) : st.focusDarkness),
           }}
-        >
-          {st.focusMode === 'ruler' && (
-            <><div className="above" /><div className="band" /><div className="below" /></>
-          )}
-          {st.focusMode === 'spotlight' && <div className="spot" />}
-          {st.focusMode === 'torch' && <div className="cone" />}
-          {st.focusMode === 'keyhole' && <div className="slit" />}
-          {st.focusMode === 'matchstick' && <div className="glow" />}
-        </div>
+        />
+      )}
+      {st.ruler && (
+        <FocusOverlay
+          mode={st.focusMode} dim={st.focusDarkness} size={st.focusSize}
+          steady={st.focusSteady} tint={st.focusTint} x={focusX} y={focusY} zone={lightZone}
+          /* In book mode a ruler stays on the page you are reading. The spine
+             sits at ~50% of the stage, so a cursor past it clips the card to
+             that half instead of laying it across both pages at once. */
+          clipLeft={isBook && st.focusMode === 'ruler' && focusX > 0.52}
+          clipRight={isBook && st.focusMode === 'ruler' && focusX < 0.48}
+        />
       )}
 
       {lookup && <DefineCard {...lookup} onClose={() => setLookup(null)} />}
@@ -1286,9 +1436,19 @@ function Reader({ objId }: { objId: string }) {
         {/* Aged paper belongs on the toolbar, not buried in the rooms drawer:
             it's a property of the BOOK, and you reach for it while looking at
             the page. */}
-        <button className={`pdfr-btn ${st.aged ? 'active' : ''}`} title={st.aged ? 'Crisp paper' : 'Aged paper — foxed, yellowed, older'} onClick={once(() => set({ aged: !st.aged }))}><Ico d={I.aged} s={15} /></button>
-        <button className={`pdfr-btn ${typeOpen ? 'active' : ''}`} title="Typography" onClick={once(() => { setTypeOpen(!typeOpen); setRoomOpen(false); })}><Ico d={I.type} s={15} /></button>
-        <button className={`pdfr-btn ${roomOpen ? 'active' : ''}`} title="Reading room" onClick={once(() => { setRoomOpen(!roomOpen); setTypeOpen(false); })}><Ico d={I.room} s={15} /> {room.label}</button>
+        {/* Turning it ON opens the drawer it is configured in — there are five
+            papers behind this button now, and a toggle that silently picks one
+            of them is a feature nobody finds. Turning it off just turns it
+            off. */}
+        <button className={`pdfr-btn ${st.aged ? 'active' : ''}`}
+          title={st.aged ? `Old paper: ${agePresetOf(st.age.preset).label} — click for crisp` : 'Old paper — foxed, stained, five ages of it'}
+          onClick={once(() => {
+            const on = !st.aged;
+            set({ aged: on });
+            if (on) { setTypeJump(true); setTypeOpen(true); setRoomOpen(false); setFocusOpen(false); }
+          })}><Ico d={I.aged} s={15} /></button>
+        <button className={`pdfr-btn ${typeOpen ? 'active' : ''}`} title="Typography — the font, the size, the paper" onClick={once(() => { setTypeJump(false); setTypeOpen(!typeOpen); setRoomOpen(false); setFocusOpen(false); })}><Ico d={I.type} s={15} /></button>
+        <button className={`pdfr-btn ${roomOpen ? 'active' : ''}`} title="Reading room" onClick={once(() => { setRoomOpen(!roomOpen); setTypeOpen(false); setFocusOpen(false); })}><Ico d={I.room} s={15} /> {room.label}</button>
         {room.sound && (
           <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} title={st.sound ? 'Mute the room' : 'Let the room be heard'} onClick={once(() => set({ sound: !st.sound }))}>
             <Ico d={st.sound ? I.sound : I.mute} s={15} />
@@ -1298,9 +1458,14 @@ function Reader({ objId }: { objId: string }) {
         <button className={`pdfr-btn ${speech.on ? 'active' : ''}`} title={speech.on ? 'Stop reading aloud' : 'Read this page aloud'}
           onClick={once(() => setSpeech((sp) => ({ ...sp, on: !sp.on, paused: false, idx: sp.on ? 0 : sp.idx })))}><Ico d={I.speak} s={15} /></button>
         <button className={`pdfr-btn ${define ? 'active' : ''}`} title="Tap any word for its meaning" onClick={once(() => { setDefine(!define); setLookup(null); })}><Ico d={I.define} s={15} /></button>
-        <button className={`pdfr-btn ${st.ruler ? 'active' : ''}`} title="Reading focus" onClick={once(() => {
-          if (st.ruler) { set({ ruler: false }); setFocusOpen(false); }
-          else { set({ ruler: true }); setFocusOpen(true); setRoomOpen(false); setTypeOpen(false); }
+        <button className={`pdfr-btn ${st.ruler ? 'active' : ''}`} title="Reading focus — light to read by" onClick={once(() => {
+          /* Three states, one button, in the order you want them: off → on with
+             the picker open → on with the picker shut → off. Before, closing
+             the picker also blew the light out, so you could not have the light
+             without the panel sitting over the page you were reading. */
+          if (!st.ruler) { set({ ruler: true }); setFocusOpen(true); setRoomOpen(false); setTypeOpen(false); }
+          else if (focusOpen) setFocusOpen(false);
+          else set({ ruler: false });
         })}><Ico d={I.focusMenu} s={15} /></button>
         <div className="pdfr-sep" />
         <button className={`pdfr-btn ${bookmarked ? 'active' : ''}`} title="Bookmark this page (B)" onClick={once(() => toggleBookmark(st.page))}><Ico d={I.bookmark} s={15} /></button>
@@ -1317,17 +1482,25 @@ function Reader({ objId }: { objId: string }) {
 
       {typeOpen && (
         <TypePanel typo={st.typo} onChange={(t) => set({ typo: { ...st.typo, ...t } })} onClose={() => setTypeOpen(false)}
-          layout={st.layout} onTypeset={() => setLayout('typeset')} />
+          layout={st.layout} onTypeset={() => setLayout('typeset')}
+          aged={st.aged} age={st.age} jumpToPaper={typeJump}
+          onAgedChange={(v) => set({ aged: v })}
+          onAgeChange={(a) => set({ age: { ...st.age, ...a } })} />
       )}
 
       {focusOpen && st.ruler && (
         <FocusPanel
           mode={st.focusMode}
           darkness={st.focusDarkness}
+          size={st.focusSize}
+          steady={st.focusSteady}
+          tint={st.focusTint}
           onModeChange={(m) => set({ focusMode: m })}
           onDarknessChange={(d) => set({ focusDarkness: d })}
+          onSizeChange={(v) => set({ focusSize: v })}
+          onSteadyChange={(v) => set({ focusSteady: v })}
+          onTintChange={(t) => set({ focusTint: t })}
           onClose={() => setFocusOpen(false)}
-          bottom={stripShown ? 236 : 128}
         />
       )}
 
@@ -1377,8 +1550,10 @@ function Reader({ objId }: { objId: string }) {
               <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} onClick={once(() => set({ sound: !st.sound }))} title={room.sound ? '' : 'This room is a quiet one'}>
                 <Ico d={st.sound ? I.sound : I.mute} s={14} /> Ambient sound {st.sound ? 'on' : 'off'}
               </button>
-              <button className={`pdfr-btn ${st.aged ? 'active' : ''}`} onClick={once(() => set({ aged: !st.aged }))}>
-                <Ico d={I.aged} s={14} /> Aged paper
+              <button className={`pdfr-btn ${st.aged ? 'active' : ''}`}
+                title="Which paper, and how worn, lives in Typography"
+                onClick={once(() => set({ aged: !st.aged }))}>
+                <Ico d={I.aged} s={14} /> {st.aged ? agePresetOf(st.age.preset).label : 'Old'} paper
               </button>
             </div>
           </div>
@@ -1403,7 +1578,7 @@ function Reader({ objId }: { objId: string }) {
  * a line comfortable is how many characters are on it — 60–75 — and that has to
  * hold whatever font and size you pick.
  */
-function Typeset({ paras, typo, width, speaking }: { paras: string[][] | null; typo: Typo; width: number; speaking: number }) {
+function Typeset({ paras, typo, width, speaking, age }: { paras: string[][] | null; typo: Typo; width: number; speaking: number; age: AgeCfg }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { ref.current?.scrollTo({ top: 0 }); }, [paras]);
   useEffect(() => {
@@ -1431,12 +1606,15 @@ function Typeset({ paras, typo, width, speaking }: { paras: string[][] | null; t
   }
 
   return (
-    <div className="pdfr-typeset" ref={ref} style={{
+    <div className="pdfr-typeset" ref={ref} data-lightzone style={{
       fontFamily: 'var(--bookfont)', fontSize: typo.size, lineHeight: typo.leading,
       maxWidth: `min(${typo.measure}ch, ${Math.max(320, width - 120)}px)`,
       textAlign: typo.justify ? 'justify' : 'left',
       hyphens: typo.justify ? 'auto' : undefined,
     }}>
+      {/* The reflowed column is paper too — it takes the same marks the printed
+          page does, on a sheet of its own rather than page 1's. */}
+      <AgedPaper page={0} cfg={age} />
       {paras.map((sentences, pi) => (
         <p key={pi}>
           {sentences.map((s, si) => {
@@ -1455,44 +1633,371 @@ function Typeset({ paras, typo, width, speaking }: { paras: string[][] | null; t
 /* ------------------------------ focus panel ------------------------------ */
 /** Floating panel for the reading-focus toolkit: five modes + a darkness dial.
  *  Styled like the speak-bar (same glass, same border, same positioning). */
-function FocusPanel({ mode, darkness, onModeChange, onDarknessChange, onClose, bottom }: {
-  mode: FocusMode; darkness: number;
-  onModeChange: (m: FocusMode) => void; onDarknessChange: (d: number) => void;
-  onClose: () => void; bottom: number;
+/**
+ * The light itself.
+ *
+ * One component for the real overlay and for every swatch in the picker, which
+ * is the only way a preview can be trusted: the card you click renders exactly
+ * the layers that are about to land on your page, at a smaller `--r`. A
+ * hand-drawn approximation of a lighting effect is a promise the effect then
+ * has to keep.
+ *
+ * Everything geometric is expressed against `--r`, the light's reach in
+ * pixels, so a preview only has to say `--r: 34px` to become a thumbnail.
+ */
+function FocusOverlay({
+  mode, dim, size, steady, tint, x = 0.5, y = 0.52, clipLeft, clipRight, mini, zone,
+}: {
+  mode: FocusMode; dim: number; size: number; steady: boolean; tint: string;
+  x?: number; y?: number; clipLeft?: boolean; clipRight?: boolean; mini?: boolean;
+  /** The paper, in reader coordinates. Absent = fill the reader (previews). */
+  zone?: Zone | null;
 }) {
+  const film = FILM_TINTS.find((t) => t.id === tint) || FILM_TINTS[0];
+  const base = mini ? 34 : 190;
+  const R = base * size;
+
+  /* The pointer arrives as a fraction of the WINDOW, because that is what the
+     stage can honestly report. Inside a zone it has to become a fraction of the
+     PAGE, or the light sits at the wrong place on it by exactly the distance
+     between the two origins. Allowed a little past each edge — light falling
+     off the side of a page is a real thing, and clamping it to the paper makes
+     the pool stick to the border like a magnet. */
+  const lx = zone ? (x * (typeof window !== 'undefined' ? window.innerWidth : 1) - zone.left) / Math.max(1, zone.width) : x;
+  const ly = zone ? (y * (typeof window !== 'undefined' ? window.innerHeight : 1) - zone.top) / Math.max(1, zone.height) : y;
+  const fx = Math.max(-0.25, Math.min(1.25, lx));
+  const fy = Math.max(-0.25, Math.min(1.25, ly));
+  /* Every overlay on screen owns its mask ids — the picker renders eleven of
+     these at once, and duplicate ids would have them all wear the first one's
+     keyhole. */
+  const maskId = useId().replace(/[:]/g, '');
+
+  /* The keyhole is the one shape gradients cannot draw, so it is cut with a
+     real SVG mask — and an SVG mask needs numbers, not the percentages and
+     `calc()` the rest of this file runs on. Measuring the box is the honest
+     way to get them; everything else here stays declarative. */
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el || mode !== 'keyhole') return;
+    const read = () => setBox({ w: el.clientWidth, h: el.clientHeight });
+    read();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [mode]);
+
+  const kh = useMemo(() => {
+    const cx = fx * box.w;
+    const cy = fy * box.h;
+    const head = R * 0.46;
+    // A real escutcheon: the bore is round, the ward slot below it tapers out
+    // to take the bit of the key. Proportions from an ordinary mortice lock.
+    const stemTop = cy + head * 0.55;
+    const stemBot = cy + R * 1.05;
+    const halfTop = head * 0.30;
+    const halfBot = head * 0.86;
+    return {
+      cx, cy: cy - R * 0.22,
+      head,
+      pts: [
+        `${cx - halfTop},${stemTop - R * 0.22}`,
+        `${cx + halfTop},${stemTop - R * 0.22}`,
+        `${cx + halfBot},${stemBot}`,
+        `${cx - halfBot},${stemBot}`,
+      ].join(' '),
+    };
+  }, [fx, fy, box.w, box.h, R]);
+
   return (
-    <div className="pdfr-speakbar pdfr-focuspanel" style={{ bottom }} onClick={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
-      <div className="row" style={{ gap: 6 }}>
-        <span className="lbl" style={{ marginRight: 2 }}>Mode</span>
-        <div className="pdfr-seg">
-          {FOCUS_MODES.map((f) => (
-            <button key={f.id} className={`pdfr-btn ${mode === f.id ? 'active' : ''}`} title={f.label}
-              onClick={() => onModeChange(f.id)}>
-              <Ico d={f.icon} s={14} />
-            </button>
-          ))}
+    <div
+      ref={boxRef}
+      className={`pdfr-focus pdfr-focus-${mode}${steady ? ' steady' : ''}${mini ? ' mini' : ''}${zone ? ' onpage' : ''}`}
+      aria-hidden
+      style={{
+        ['--fy' as string]: `${(fy * 100).toFixed(2)}%`,
+        ['--fx' as string]: `${(fx * 100).toFixed(2)}%`,
+        ['--focus-dim' as string]: String(dim),
+        ['--r' as string]: `${(base * size).toFixed(1)}px`,
+        ['--film' as string]: film.rgb,
+        ['--ruler-left' as string]: clipLeft ? '50%' : '0',
+        ['--ruler-right' as string]: clipRight ? '50%' : '0',
+        /* `inset` FIRST. It is shorthand for all four offsets, so writing it
+           after left/top would reset them to auto in the same declaration
+           block and drop the overlay wherever its static position happens to
+           be — which looked like a light that covered two thirds of the book
+           and stopped. */
+        ...(zone ? { inset: 'auto', left: zone.left, top: zone.top, width: zone.width, height: zone.height } : null),
+      }}
+    >
+      {/* --- Guides: physical cards and films, no light involved --- */}
+      {mode === 'ruler' && <><div className="card above" /><div className="band" /><div className="card below" /></>}
+      {mode === 'typoscope' && (
+        <><div className="card above" /><div className="card below" /><div className="card left" /><div className="card right" /><div className="win" /></>
+      )}
+      {mode === 'tint' && <><div className="film" /><div className="sheen" /></>}
+
+      {/* --- Lamps: a shade that darkens, and light that genuinely adds --- */}
+      {(mode === 'spotlight' || mode === 'lamp' || mode === 'moon') && (
+        <><div className="shade" /><div className="lit" /></>
+      )}
+      {mode === 'torch' && <><div className="shade" /><div className="beam" /><div className="lit" /></>}
+
+      {/* A keyhole is a keyhole. */}
+      {mode === 'keyhole' && box.w > 0 && (
+        <svg className="cut" width="100%" height="100%">
+          <defs>
+            <mask id={`kh-${maskId}`} maskUnits="userSpaceOnUse">
+              <rect x="0" y="0" width={box.w} height={box.h} fill="#fff" />
+              {/* Blurred, because a door is not a stencil — the edge of what
+                  you can see through a keyhole is soft. */}
+              <g fill="#000" filter={`url(#khb-${maskId})`}>
+                <circle cx={kh.cx} cy={kh.cy} r={kh.head} />
+                <polygon points={kh.pts} />
+              </g>
+            </mask>
+            <filter id={`khb-${maskId}`} x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation={mini ? 1.6 : 6} />
+            </filter>
+          </defs>
+          <rect x="0" y="0" width={box.w} height={box.h} fill="#050403"
+            fillOpacity={dim} mask={`url(#kh-${maskId})`} />
+        </svg>
+      )}
+
+      {/* --- Flame: light that moves, because a flame does --- */}
+      {(mode === 'matchstick' || mode === 'candle') && (
+        <div className="wick">
+          <div className="shade" />
+          <div className="lit" />
+          <div className="flame"><i /><b /></div>
         </div>
-        <div className="pdfr-sep" />
-        <button className="pdfr-btn" title="Close" onClick={onClose}><Ico d={I.close} s={13} /></button>
+      )}
+
+      {/* --- Daylight --- */}
+      {mode === 'window' && <><div className="shade" /><div className="shaft" /><div className="sash" /><div className="motes" /></>}
+    </div>
+  );
+}
+
+/* ------------------------------- light zone ------------------------------ */
+/**
+ * Where the paper actually is, in the reader's own coordinates.
+ *
+ * THIS IS THE FIX FOR LIGHT FALLING ON THE ROOM. Every reading light used to be
+ * a full-screen overlay: the shade covered the whole window and the pool of
+ * light went wherever the pointer went, so a window shaft lit the bookshelves,
+ * a candle lit the desk, and the page — the one surface the light is FOR — was
+ * lit only when your cursor happened to be over it. It read as a filter over a
+ * screenshot, which is what it was.
+ *
+ * A lamp lights a page. So the overlay is now positioned on the page (or the
+ * open book, or the reflowed column — whatever is showing), the pointer is
+ * converted into that box's own coordinates, and everything outside it is
+ * simply dark. Nothing about the individual modes changed; they just got a
+ * stage the size of the paper.
+ *
+ * Measured rather than derived: the stage centres its content, the book shifts
+ * sideways as it opens, and the page resizes with the window. Watching the real
+ * element is the only version of this that cannot drift.
+ */
+interface Zone { left: number; top: number; width: number; height: number }
+
+function useLightZone(active: boolean, deps: unknown[]): Zone | null {
+  const [measured, setZone] = useState<Zone | null>(null);
+  // Read through the flag rather than clearing on the way out: a stale box is
+  // harmless while nothing is reading it, and clearing it inside the effect is
+  // a cascading render for a value about to be ignored anyway.
+  const zone = active ? measured : null;
+
+  useEffect(() => {
+    if (!active) return undefined;
+    let raf = 0;
+    let last = '';
+
+    const read = () => {
+      const root = document.querySelector('.pdfr-root');
+      const el = document.querySelector('.pdfr-stage [data-lightzone]');
+      if (!root || !el) return;
+      const r = el.getBoundingClientRect();
+      const b = root.getBoundingClientRect();
+      const next: Zone = { left: r.left - b.left, top: r.top - b.top, width: r.width, height: r.height };
+      // Only through React when it actually moved: this runs on a rAF loop while
+      // the book is opening, and a setState per frame for an unchanged box is
+      // the kind of thing that makes a page turn cost more than it should.
+      const key = `${next.left | 0}:${next.top | 0}:${next.width | 0}:${next.height | 0}`;
+      if (key !== last) { last = key; setZone(next); }
+    };
+
+    /* A rAF loop rather than a ResizeObserver alone, and deliberately: the book
+       SLIDES (--shift) and the boards SWING for the whole length of an open, and
+       neither of those resizes anything — an observer would report the final box
+       and the light would sit in the wrong place for the third of a second the
+       reader is actually watching. */
+    let idle = 0;
+    const tick = () => {
+      read();
+      idle += 1;
+      // Settle down once nothing has moved for a while; wake on any of the
+      // events below. A permanent 60fps measure loop for a still page is waste.
+      raf = idle < 90 ? requestAnimationFrame(tick) : 0;
+    };
+    const wake = () => { idle = 0; if (!raf) raf = requestAnimationFrame(tick); };
+
+    wake();
+    window.addEventListener('resize', wake);
+    const stage = document.querySelector('.pdfr-stage');
+    stage?.addEventListener('scroll', wake, { passive: true });
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener('resize', wake);
+      stage?.removeEventListener('scroll', wake);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, ...deps]);
+
+  return zone;
+}
+
+/* --------------------------- the focus drawer ---------------------------- */
+/**
+ * Picking a light by looking at it.
+ *
+ * The old panel was a row of five 28px icon buttons and a Dim slider. Nothing
+ * was named on screen, nothing was previewed, and the icons for "spotlight"
+ * and "matchlight" are — at that size — the same small blob. You chose by
+ * trying all five and remembering which position you liked.
+ *
+ * This is the Rooms drawer's shape, for the same reason Rooms uses it: when
+ * the thing being chosen is *visual*, the list has to be visual too. Every
+ * card runs the real overlay over a scrap of type, so you see the actual light
+ * — its colour, its falloff, its flicker — before it touches your page.
+ */
+function FocusPanel({
+  mode, darkness, size, steady, tint,
+  onModeChange, onDarknessChange, onSizeChange, onSteadyChange, onTintChange, onClose,
+}: {
+  mode: FocusMode; darkness: number; size: number; steady: boolean; tint: string;
+  onModeChange: (m: FocusMode) => void;
+  onDarknessChange: (d: number) => void;
+  onSizeChange: (s: number) => void;
+  onSteadyChange: (v: boolean) => void;
+  onTintChange: (t: string) => void;
+  onClose: () => void;
+}) {
+  const def = FOCUS_BY_ID.get(mode);
+  /* The film tints itself rather than dimming the page, so a "Dim" slider
+     under it would be a control with nothing to do. Each mode shows the
+     controls that actually reach it. */
+  const isFilm = mode === 'tint';
+  const isFlame = mode === 'matchstick' || mode === 'candle';
+
+  return (
+    <div className="pdfr-drawer focus" onClick={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
+      <div className="head">
+        <div>
+          <h3>Reading focus</h3>
+          <p>{FOCUS_MODES.length} ways to light a page. The room goes dark, and the light falls on the paper — wherever you point it.</p>
+        </div>
+        <div className="x" title="Close" onClick={onClose}><Ico d={I.close} s={15} /></div>
       </div>
-      <div className="row" style={{ gap: 6 }}>
-        <span className="lbl" style={{ marginRight: 2 }}>Dim</span>
-        <input className="pdfr-range" style={{ flex: 1 }} type="range" min={0.4} max={0.95} step={0.01}
-          value={darkness} onChange={(e) => onDarknessChange(parseFloat(e.target.value))} />
-        <span className="rate" style={{ width: 38 }}>{Math.round(darkness * 100)}%</span>
-      </div>
-      <div className="row" style={{ gap: 6, fontSize: 10.5, opacity: 0.55, fontWeight: 500 }}>
-        {FOCUS_MODES.find((f) => f.id === mode)?.label} — move the cursor across the page
+
+      <div className="body">
+        {FOCUS_GROUPS.map((g) => (
+          <div key={g}>
+            <h4>{g}</h4>
+            <div className="pdfr-grid">
+              {FOCUS_MODES.filter((f) => f.group === g).map((f) => (
+                <div
+                  key={f.id}
+                  className={`pdfr-focuscard ${mode === f.id ? 'active' : ''}`}
+                  title={f.blurb}
+                  onClick={() => onModeChange(f.id)}
+                >
+                  <div className="prev">
+                    {/* A scrap of type for the light to fall on. Bars, not
+                        lorem: at 150px wide real words are noise, and what
+                        this card is showing is the LIGHT. */}
+                    <div className="lines">
+                      {[92, 78, 96, 64, 88, 71, 94, 58].map((w, i) => (
+                        <span key={i} style={{ width: `${w}%` }} />
+                      ))}
+                    </div>
+                    <FocusOverlay mode={f.id} dim={darkness} size={1} steady={steady} tint={tint} mini />
+                  </div>
+                  <div className="cap"><Ico d={f.icon} s={12} />{f.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <h4>The light</h4>
+        <p className="pdfr-focusnote">{def?.blurb}</p>
+
+        {isFilm ? (
+          <div className="pdfr-swatches">
+            {FILM_TINTS.map((t) => (
+              <button
+                key={t.id}
+                className={`sw ${tint === t.id ? 'active' : ''}`}
+                title={t.label}
+                onClick={() => onTintChange(t.id)}
+                style={{ background: `rgb(${t.rgb})` }}
+              />
+            ))}
+          </div>
+        ) : (
+          <label className="pdfr-slide">
+            <span>Dim</span>
+            <input className="pdfr-range" type="range" min={0.4} max={0.95} step={0.01}
+              value={darkness} onChange={(e) => onDarknessChange(parseFloat(e.target.value))} />
+            <b>{Math.round(darkness * 100)}%</b>
+          </label>
+        )}
+
+        <label className="pdfr-slide">
+          <span>Reach</span>
+          <input className="pdfr-range" type="range" min={0.55} max={2} step={0.05}
+            value={size} onChange={(e) => onSizeChange(parseFloat(e.target.value))} />
+          <b>{Math.round(size * 100)}%</b>
+        </label>
+
+        {isFlame && (
+          <button className={`pdfr-toggle ${steady ? 'on' : ''}`} onClick={() => onSteadyChange(!steady)}>
+            <span className="knob" />
+            <span className="t">
+              Hold it steady
+              <i>Stops the flicker and the wander — kinder to read beside</i>
+            </span>
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
 /* ----------------------------- typography ------------------------------- */
-function TypePanel({ typo, onChange, onClose, layout, onTypeset }: {
+function TypePanel({ typo, onChange, onClose, layout, onTypeset, aged, age, onAgedChange, onAgeChange, jumpToPaper }: {
   typo: Typo; onChange: (t: Partial<Typo>) => void; onClose: () => void;
   layout: Layout; onTypeset: () => void;
+  aged: boolean; age: AgeCfg;
+  onAgedChange: (v: boolean) => void;
+  onAgeChange: (a: Partial<AgeCfg>) => void;
+  /** Opened from the paper button rather than the type one — start there. */
+  jumpToPaper?: boolean;
 }) {
+  /* A drawer that opens on the wrong section is a drawer you have to search.
+     Fourteen typefaces sit above the paper, so arriving from the paper button
+     put the thing you pressed for below the fold every time. */
+  const paperRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (!jumpToPaper) return;
+    const t = window.setTimeout(() => paperRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 340);
+    return () => window.clearTimeout(t);
+  }, [jumpToPaper]);
   return (
     <div className="pdfr-drawer type" onClick={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
       <div className="head">
@@ -1532,6 +2037,41 @@ function TypePanel({ typo, onChange, onClose, layout, onTypeset }: {
               style={{ background: p.bg, color: p.ink }}>Aa<i>{p.label}</i></button>
           ))}
         </div>
+
+        {/* ------------------------------ the paper's age ------------------ *
+            Five sheets, each previewed with its REAL marks — the same generator
+            the page uses, seeded differently per card so you are looking at
+            five different sheets rather than five copies of one. What a preset
+            actually changes is written under it, because "Weathered" and
+            "Antique" mean nothing until you have seen both. */}
+        <h4 ref={paperRef}>The paper&apos;s age</h4>
+        <button className={`pdfr-toggle ${aged ? 'on' : ''}`} style={{ marginTop: 0 }} onClick={() => onAgedChange(!aged)}>
+          <span className="knob" />
+          <span className="t">Old paper<i>{aged ? 'Every sheet foxed and marked differently' : 'The pages are printed today'}</i></span>
+        </button>
+
+        {aged && (
+          <>
+            <div className="pdfr-ages">
+              {AGE_PRESETS.filter((a) => a.id !== 'off').map((a, i) => (
+                <button key={a.id} className={`pdfr-agecard ${age.preset === a.id ? 'active' : ''}`}
+                  title={a.blurb} onClick={() => onAgeChange({ preset: a.id })}>
+                  <span className="sheet">
+                    <AgedPaper page={11 + i * 7} cfg={{ preset: a.id, amount: age.amount }} />
+                  </span>
+                  <b>{a.label}</b>
+                </button>
+              ))}
+            </div>
+            <p className="pdfr-focusnote" style={{ margin: '8px 0 2px' }}>{agePresetOf(age.preset).blurb}</p>
+            <label className="pdfr-slide">
+              <span>Wear</span>
+              <input className="pdfr-range" type="range" min={0.2} max={1} step={0.02}
+                value={age.amount} onChange={(e) => onAgeChange({ amount: parseFloat(e.target.value) })} />
+              <b>{Math.round(age.amount * 100)}%</b>
+            </label>
+          </>
+        )}
 
         <h4>Reading aids</h4>
         <label className="pdfr-check"><input type="checkbox" checked={typo.justify} onChange={(e) => onChange({ justify: e.target.checked })} /> Justify both edges</label>
@@ -1785,7 +2325,7 @@ function BookView(props: PageSharedProps & {
   const pageH = pageW * aspect;
 
   return (
-    <div className={`pdfr-book ${closed ? 'shut' : ''}`} ref={bookRef}
+    <div className={`pdfr-book ${closed ? 'shut' : ''}`} ref={bookRef} data-lightzone
       data-shut={closed ? phase : undefined}
       style={{ ['--shift' as string]: `${shift}px`, ['--pw' as string]: `${pageW}px` }}>
       {/* the case: boards and cloth. Fades out when the book is shut, because
@@ -1891,11 +2431,90 @@ function BookView(props: PageSharedProps & {
   );
 }
 
+/* ------------------------------- aged paper ------------------------------ */
+/**
+ * The marks on THIS sheet.
+ *
+ * Everything is generated from the page number (see lib/pdf/aging.ts), so page
+ * 7 keeps page 7's freckles for as long as the document exists and no two
+ * sheets in the book are alike. That is the whole difference between paper and
+ * a texture: a texture is the same on every page, and you notice within two
+ * turns.
+ *
+ * Drawn in a 0–100 viewBox with `preserveAspectRatio="none"`, so one set of
+ * numbers fits a portrait page, a landscape one and a thumbnail. `multiply` on
+ * the group is what puts the stains INTO the paper rather than on top of it —
+ * ink underneath still reads through a tea mark, which is exactly what happens
+ * when you spill on a book.
+ */
+const AgedPaper = React.memo(function AgedPaper({ page, cfg }: { page: number; cfg: AgeCfg }) {
+  const preset = agePresetOf(cfg.preset);
+  const marks = useMemo(() => ageMarks(page, cfg), [page, cfg]);
+  if (preset.id === 'off') return null;
+
+  const amt = Math.max(0.2, Math.min(1, cfg.amount));
+  const TONE: Record<string, string> = {
+    rust: '#8a4a1c',
+    tea: '#7d5520',
+    damp: '#6b5a34',
+  };
+
+  return (
+    <div className="pdfr-aged" style={{ ['--age' as string]: String(amt), ['--edge' as string]: String(preset.edge * amt) }}>
+      {/* the overall cast: yellowing, and the darker burn at the edges */}
+      <div className="tone" />
+      <div className="fibres" />
+
+      <svg className="marks" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+        {/* Foxing. Small, hard-edged, rust — the freckles come first because the
+            blots have to be able to sit over them. */}
+        {marks.fox.map((b, i) => (
+          <path key={`f${i}`} d={b.d} fill={TONE[b.tone]} opacity={b.opacity}
+            style={{ filter: `blur(${b.blur.toFixed(2)}px)` }} />
+        ))}
+
+        {/* Blots. Soft, wide, and with a darker RIM — the tide line a drying
+            liquid leaves is most of what makes a stain read as a stain. */}
+        {marks.blots.map((b, i) => (
+          <g key={`b${i}`} style={{ filter: `blur(${b.blur.toFixed(2)}px)` }}>
+            <path d={b.d} fill={TONE[b.tone]} opacity={b.opacity} />
+            <path d={b.d} fill="none" stroke={TONE[b.tone]} strokeWidth={0.9}
+              opacity={b.opacity * 1.5} />
+          </g>
+        ))}
+
+        {marks.ring && (
+          <circle cx={marks.ring.cx} cy={marks.ring.cy} r={marks.ring.r}
+            fill="none" stroke="#7a5423" strokeWidth={1.1} opacity={marks.ring.opacity}
+            style={{ filter: 'blur(0.7px)' }} />
+        )}
+
+        {/* A fold catches the light on one side of the crease and shades the
+            other, which is why each one is drawn twice, half a unit apart. */}
+        {marks.creases.map((c, i) => (
+          <g key={`c${i}`}>
+            <path d={c.d} fill="none" stroke="#4a3316" strokeWidth={0.55} opacity={c.opacity}
+              style={{ filter: 'blur(0.5px)' }} />
+            <path d={c.d} fill="none" stroke="#fff8e6" strokeWidth={0.5} opacity={c.opacity * 0.75}
+              transform="translate(0.6 0.6)" style={{ filter: 'blur(0.6px)' }} />
+          </g>
+        ))}
+
+        {marks.deckle && (
+          <path d={marks.deckle} fill="none" stroke="#6d4a1e" strokeWidth={1.6}
+            opacity={0.28 * amt} style={{ filter: 'blur(0.9px)' }} />
+        )}
+      </svg>
+    </div>
+  );
+});
+
 /* --------------------------------- page --------------------------------- */
 interface PageSharedProps {
   session: PdfSession | null;
   tool: Tool; hlColor: string; penColor: string; penSize: number; stickyColor: string;
   highlights: Highlight[]; drawings: Stroke[]; stickies: Sticky[];
+  age: AgeCfg;
   addHighlight: (page: number, h: Omit<Highlight, 'id' | 'page'>) => void;
   delHighlight: (id: string) => void;
   addStroke: (page: number, pts: number[][], color: string, size: number) => void;
@@ -1906,7 +2525,7 @@ interface PageSharedProps {
 }
 
 function Page(props: PageSharedProps & { page: number; width: number; interactive?: boolean; bookmarked?: boolean; onUnmark?: (n: number) => void; boxAspect?: number; quiet?: boolean }) {
-  const { session, page, width, tool, hlColor, penColor, penSize, stickyColor, highlights, drawings, stickies,
+  const { session, page, width, tool, hlColor, penColor, penSize, stickyColor, highlights, drawings, stickies, age,
     addHighlight, delHighlight, addStroke, delStroke, addSticky, editSticky, delSticky, interactive, bookmarked, onUnmark,
     boxAspect, quiet = true } = props;
 
@@ -2017,8 +2636,8 @@ function Page(props: PageSharedProps & { page: number; width: number; interactiv
 
   return (
     <div className={`pdfr-page${boxAspect ? ' fit' : ''}`} ref={box} style={{ width, aspectRatio: `1 / ${boxAspect ?? aspect}` }}>
-      <div className="pdfr-canvas" ref={holder} />
-      <div className="pdfr-aged" />
+      <div className="pdfr-canvas" ref={holder} style={{ filter: ageFilter(age) || undefined }} />
+      <AgedPaper page={page} cfg={age} />
       <div className="pdfr-grain" />
 
       {/* a corner turned down, the way you'd actually mark a page */}

@@ -17,7 +17,7 @@ import {
   PIN_SIZE,
 } from '@/lib/brainstorm';
 
-export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax' | 'brainstorm';
+export type InteractionMode = 'select' | 'draw' | 'text' | 'pan' | 'connector' | 'shape' | 'arrow' | 'frame' | 'relax' | 'brainstorm' | 'textpath';
 
 /**
  * The Pocket's home in storage.
@@ -1411,6 +1411,16 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
        at once means two option panels claiming the screen, and a Delete key
        with no obvious target. */
     set(id ? { selectedId: id, selectedConnectionId: null } : { selectedId: id });
+
+    /* …and it ends the edit that was running somewhere ELSE. A caret used to
+       stay live in the block you'd just left, which meant an empty block you
+       clicked away from was never "abandoned" — nothing ended its edit, so the
+       blank cleanup that runs when editing stops never ran, and it sat there
+       forever showing its placeholder. (It only ever disappeared because of an
+       eight-second timer, which took real blocks with it.) Order matters: the
+       creation paths all select first and open the caret second, so this
+       cannot close a caret that is about to be opened. */
+    if (currentEditingId && currentEditingId !== id) set({ editingId: null });
   },
 
   /* ---- Stacks ---------------------------------------------------------

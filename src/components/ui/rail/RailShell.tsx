@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Icon } from './RailKit';
 
 /**
@@ -12,6 +12,12 @@ import { Icon } from './RailKit';
  * the header, the scrolling, the entrance and the geometry are decided once
  * and are identical everywhere. Contexts only supply an identity and a list of
  * groups.
+ *
+ * It has two sizes. Full, and MINI: a single strip carrying just the controls
+ * a context nominates as its essentials (`mini`), for when the board matters
+ * more than the panel. Which one you're in is remembered — it's a working
+ * preference, not a per-selection decision, so it survives changing what's
+ * selected and reloading the app.
  *
  * Geometry lives in globals.css under `.props-rail` because it's a negotiation
  * with the minimap; see the note there.
@@ -26,9 +32,19 @@ export interface RailAction {
 }
 
 const spring = { type: 'spring' as const, stiffness: 400, damping: 34 };
+const MINI_KEY = 'mindspace:rail-mini';
+
+function readMini(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(MINI_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 export default function RailShell({
-  icon, title, subtitle, actions, onClose, closeTitle, children, railKey,
+  icon, title, subtitle, actions, onClose, closeTitle, children, railKey, mini, miniHint,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -39,6 +55,14 @@ export default function RailShell({
   children: React.ReactNode;
   /** Changes when the rail switches to a different subject — resets scroll. */
   railKey: string;
+  /**
+   * The handful of controls worth keeping when the panel is collapsed. A
+   * context with nothing to nominate simply doesn't offer the minimise button —
+   * a mini rail with nothing in it is a worse header.
+   */
+  mini?: React.ReactNode;
+  /** One short line under the mini strip. */
+  miniHint?: string;
 }) {
   /* The scroll shadows. A rail taller than the viewport has to SAY so — a hard
      cut reads as the end of the panel, a faded one reads as more. Done with a
@@ -46,6 +70,19 @@ export default function RailShell({
      to keep correct in both themes. */
   const scrollRef = useRef<HTMLDivElement>(null);
   const [shade, setShade] = useState({ top: false, bottom: false });
+  const [collapsed, setCollapsed] = useState<boolean>(() => readMini());
+
+  const canMini = !!mini;
+  const isMini = canMini && collapsed;
+
+  const setMini = (v: boolean) => {
+    setCollapsed(v);
+    try {
+      window.localStorage.setItem(MINI_KEY, v ? '1' : '0');
+    } catch {
+      /* private mode — the rail just won't remember the size */
+    }
+  };
 
   const measure = () => {
     const el = scrollRef.current;
@@ -74,7 +111,7 @@ export default function RailShell({
     // `measure` is deliberately out of the deps: it's re-created every render
     // and only reads live DOM, so re-attaching the observer for it would churn
     // for nothing. Re-attach when the rail's subject changes wholesale.
-  }, [railKey]);
+  }, [railKey, isMini]);
 
   /* A new subject is a new panel, so it opens at the top. Without this you
      select a card after scrolling a text block's options and land halfway down
@@ -109,29 +146,38 @@ export default function RailShell({
       }}
       onClick={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
-      className="props-rail clay-card pointer-events-auto flow-hideable flex flex-col overflow-hidden"
-      style={{ borderRadius: 20, fontFamily: "'Outfit', sans-serif" }}
+      className={`props-rail clay-card pointer-events-auto flow-hideable flex flex-col overflow-hidden${isMini ? ' is-mini' : ''}`}
+      style={{ borderRadius: isMini ? 16 : 20, fontFamily: "'Outfit', sans-serif" }}
     >
       {/* ---- Header: what this is, and the things you do to it ---- */}
       <div
         className="shrink-0 flex items-center gap-2.5"
-        style={{ padding: '11px 11px 10px 13px', borderBottom: '1px solid var(--border)' }}
+        style={{
+          padding: isMini ? '8px 8px 8px 10px' : '11px 11px 10px 13px',
+          borderBottom: isMini ? 'none' : '1px solid var(--border)',
+        }}
       >
         <span
           className="shrink-0 flex items-center justify-center"
-          style={{ width: 27, height: 27, borderRadius: 9, background: 'var(--accent-subtle)', color: 'var(--accent)' }}
+          style={{
+            width: isMini ? 23 : 27,
+            height: isMini ? 23 : 27,
+            borderRadius: isMini ? 8 : 9,
+            background: 'var(--accent-subtle)',
+            color: 'var(--accent)',
+          }}
         >
           {icon}
         </span>
 
         <div className="min-w-0 flex-1 flex flex-col gap-[2px]">
-          <span className="text-[12.5px] font-extrabold leading-none truncate text-[var(--text-primary)]">{title}</span>
-          {subtitle && (
+          <span className={`${isMini ? 'text-[11.5px]' : 'text-[12.5px]'} font-extrabold leading-none truncate text-[var(--text-primary)]`}>{title}</span>
+          {subtitle && !isMini && (
             <span className="text-[9.5px] font-semibold leading-none truncate text-[var(--text-tertiary)] tabular-nums">{subtitle}</span>
           )}
         </div>
 
-        {(actions || []).map((a) => (
+        {!isMini && (actions || []).map((a) => (
           <button
             key={a.id}
             onClick={a.onClick}
@@ -147,6 +193,20 @@ export default function RailShell({
           </button>
         ))}
 
+        {canMini && (
+          <button
+            onClick={() => setMini(!isMini)}
+            title={isMini ? 'Expand the panel' : 'Minimise to the essentials'}
+            aria-label={isMini ? 'Expand' : 'Minimise'}
+            aria-expanded={!isMini}
+            className={`${iconBtn} text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--well)]`}
+          >
+            {isMini
+              ? <Icon size={13}><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></Icon>
+              : <Icon size={13}><line x1="5" y1="12" x2="19" y2="12" /></Icon>}
+          </button>
+        )}
+
         {onClose && (
           <button
             onClick={onClose}
@@ -160,14 +220,38 @@ export default function RailShell({
       </div>
 
       {/* ---- The controls. One scroller; the groups do the rest. ---- */}
-      <div
-        ref={scrollRef}
-        onScroll={measure}
-        className="props-rail-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
-        style={{ padding: '2px 14px 14px', maskImage: mask, WebkitMaskImage: mask }}
-      >
-        <div className="flex flex-col">{children}</div>
-      </div>
+      <AnimatePresence initial={false} mode="wait">
+        {isMini ? (
+          <motion.div
+            key="mini"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="shrink-0 flex flex-col gap-1.5"
+            style={{ padding: '0 10px 10px' }}
+          >
+            {mini}
+            {miniHint && (
+              <span className="text-[9px] font-semibold text-[var(--text-muted)] truncate">{miniHint}</span>
+            )}
+          </motion.div>
+        ) : (
+          <motion.div
+            key="full"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12 }}
+            ref={scrollRef}
+            onScroll={measure}
+            className="props-rail-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+            style={{ padding: '2px 14px 14px', maskImage: mask, WebkitMaskImage: mask }}
+          >
+            <div className="flex flex-col">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.aside>
   );
 }

@@ -90,7 +90,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No NVIDIA API keys configured' }, { status: 500 });
     }
 
-    const userPrompt = (typeof prompt === 'string' && prompt.trim()) ? prompt.trim().slice(0, 400) : DEFAULT_PROMPT;
+    /* 400 chars was enough for "describe this image" and nothing else. The
+       image studio asks this same model to transcribe text verbatim and to
+       return object regions as strict JSON, and both need their output format
+       spelled out — a truncated instruction produced prose where the caller was
+       parsing JSON. 1600 is still far below any payload concern; the image
+       beside it is three orders of magnitude bigger. */
+    const userPrompt = (typeof prompt === 'string' && prompt.trim()) ? prompt.trim().slice(0, 1600) : DEFAULT_PROMPT;
 
     let lastError = '';
     for (let m = 0; m < VISION_MODELS.length; m++) {

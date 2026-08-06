@@ -3,11 +3,62 @@ import "./globals.css";
 import AuthProvider from "@/components/providers/AuthProvider";
 import DeferredFonts from "@/components/providers/DeferredFonts";
 
+const TITLE = "Canvabrains — Your Infinite Thinking Space";
+const DESCRIPTION =
+  "An infinite canvas for creative thinking. Draw, write, and organize your thoughts in a beautiful spatial mind space. No sign up required.";
+
+/**
+ * THE ORIGIN, and why this is not optional.
+ *
+ * Open Graph tags must carry ABSOLUTE urls — a crawler reading a preview has no
+ * page context to resolve `/opengraph-image` against. Without `metadataBase`
+ * Next cannot build those absolute urls, so it drops the image tags entirely
+ * and logs a warning at build time: the cards would exist as files and never be
+ * referenced by anything.
+ *
+ * `VERCEL_PROJECT_PRODUCTION_URL` is the production domain (stable across
+ * deploys), NOT `VERCEL_URL`, which is the per-deployment hostname — using that
+ * would pin every card to whichever preview build happened to generate it.
+ */
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : "http://localhost:3005");
+
 export const metadata: Metadata = {
-  title: "Canvabrains — Your Infinite Thinking Space",
-  description: "An infinite canvas for creative thinking. Draw, write, and organize your thoughts in a beautiful spatial mind space. No sign up required.",
+  metadataBase: new URL(SITE_URL),
+  title: TITLE,
+  description: DESCRIPTION,
+  applicationName: "canvabrains",
   keywords: ["infinite canvas", "thinking space", "creative tool", "drawing", "notes", "spatial thinking"],
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Canvabrains" },
+  /* The install manifest (app/manifest.ts). Declared here rather than as a raw
+     <link> so Next resolves it against metadataBase like everything else. */
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon-192.png", type: "image/png", sizes: "192x192" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
+  openGraph: {
+    type: "website",
+    siteName: "canvabrains",
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "/",
+    locale: "en_US",
+  },
+  twitter: {
+    // `summary_large_image` is the difference between a 1200×630 banner and a
+    // postage-stamp thumbnail next to the link — the card is designed at banner
+    // proportions, so anything else crops it into nonsense.
+    card: "summary_large_image",
+    title: TITLE,
+    description: DESCRIPTION,
+  },
 };
 
 /**

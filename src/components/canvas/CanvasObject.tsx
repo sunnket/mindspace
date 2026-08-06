@@ -13,11 +13,13 @@ import { reportMeasuredHeight, forgetMeasuredHeight } from '@/lib/canvasLayout';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
 import VoiceNoteBlock from './VoiceNoteBlock';
 import FileBlock from './FileBlock';
+import ImageStudio from './ImageStudio';
 import MapBlock from './MapBlock';
 import WeatherBlock from './WeatherBlock';
 import RichText from './RichText';
 import InkText from './InkText';
 import AnimatedText from './AnimatedText';
+import TextPathBlock from './TextPathBlock';
 import { useFlowStore } from '@/store/flowStore';
 import { INK_FONT, intervalToIntensity, foldRhythm } from '@/lib/typingInk';
 import QuoteBlock from './QuoteBlock';
@@ -36,6 +38,7 @@ import { semanticView } from '@/lib/semanticZoom';
 import { stackSlots, stackTargetAt, membersOf, isStackable } from '@/lib/stacks';
 import { createPortal } from 'react-dom';
 import { ImageShape, imageShapeStyle, nextImageShape, IMAGE_SHAPE_LABEL } from '@/lib/imageShapes';
+import { adjustToFilter, type ImageAdjust } from '@/lib/image/pixels';
 import { getFrameKind, frameColorOf, frameKindMeta, objectsInFrame, type FrameKind } from '@/lib/frames';
 import { PIN_COLORS, pinShade, DEFAULT_PIN_COLOR } from '@/lib/brainstorm';
 
@@ -1699,17 +1702,20 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         return;
       }
 
-      // Instagram-story "tap to cycle shapes": a tap on an already-selected
-      // image or camera-mirror advances it to the next mask (heart → star → …).
-      // The first click just selects (via handleMouseDown); a drag never counts
-      // as a tap (dragMovedRef). The store update broadcasts to collaborators,
-      // so a shape change is seen live by everyone.
+      /* Instagram-story "tap to cycle shapes" — now MIRRORS ONLY.
+         An image used to do this too, and it was the only way to reach the
+         masks at all: undiscoverable if you never tried it, and impossible to
+         avoid once you had, since every click on a selected picture changed it.
+         Images now have an explicit Shape button in the studio that shows all
+         ten masks at once, so a click on the picture is free to mean what a
+         click on a picture should mean — and a stray one no longer turns your
+         screenshot into a heart. A camera mirror has no studio, so it keeps the
+         tap. */
       if (obj.type === 'image' || obj.type === 'mirror') {
         if (dragMovedRef.current) return;
-        if (isSelected && (obj.content || obj.type === 'mirror')) {
-          const shapeKey = obj.type === 'mirror' ? 'mirrorShape' : 'imageShape';
-          const next = nextImageShape(obj.style?.[shapeKey] as ImageShape | undefined);
-          updateObject(obj.id, { style: { ...obj.style, [shapeKey]: next } });
+        if (obj.type === 'mirror' && isSelected) {
+          const next = nextImageShape(obj.style?.mirrorShape as ImageShape | undefined);
+          updateObject(obj.id, { style: { ...obj.style, mirrorShape: next } });
         }
         return;
       }
@@ -1798,14 +1804,20 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
      grow the stored height to match. Growth only — a block never shrinks under
      a user's chosen size. Not while editing (the editable element handles its
      own sizing, and the display node isn't mounted). */
-  const growsToFit = obj.type === 'text' || obj.type === 'heading' || obj.type === 'sticky';
+  /* Text written on a curve is measured by its CURVE, not by its words — the
+     block's box is the coordinate space the path is normalised against, so
+     letting it grow to fit would move the line under the letters on every
+     keystroke. Every auto-size path below stands down for it. */
+  const isPathText = obj.type === 'text' && !!obj.style?.textPath;
+
+  const growsToFit = !isPathText && (obj.type === 'text' || obj.type === 'heading' || obj.type === 'sticky');
 
   /* A free text block HUGS its text rather than being born at its full wrap
      width. It still wraps at exactly the same column it always did — wrapWidth
      is that column — the box simply doesn't claim all of it until the words
      reach it. Resizing the block by hand pins its width (isResized) and hands
      control back to the user. */
-  const autoWidth = obj.type === 'text' && !obj.style?.isResized;
+  const autoWidth = obj.type === 'text' && !isPathText && !obj.style?.isResized;
   const wrapWidth = (obj.style?.wrapWidth as number | undefined) ?? TEXT_WRAP_WIDTH;
 
   /** The block's box follows whatever the text element actually measures. */
@@ -1974,9 +1986,7 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
   // Track native input for all editable text blocks to keep latestContent in sync and handle slash commands
   useEffect(() => {
     if (!isEditing) return;
-    
-    let timeoutId: NodeJS.Timeout;
-    
+
     const handleNativeInput = () => {
       if (contentRef.current) {
         const target = contentRef.current as any;
@@ -2059,18 +2069,12 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         // squatting at its full wrap width from the very first keystroke.
         syncWidth(contentRef.current);
 
-        // Auto-remove empty text blocks after 8 seconds of inactivity
-        if (obj.type === 'text' || obj.type === 'heading') {
-          clearTimeout(timeoutId);
-          if (latestContent.current.trim() === '') {
-            timeoutId = setTimeout(() => {
-              if (latestContent.current.trim() === '' && !isDictationTarget(obj.id)) {
-                removeObject(obj.id);
-                if (editingId === obj.id) setEditingId(null);
-              }
-            }, 8000);
-          }
-        }
+        /* There used to be an 8-second timer here that deleted an empty block
+           out from under the caret. It was meant as tidying and read as data
+           loss: sit and think about a title, and the box you were about to type
+           in disappears while you're looking at it. A blank block is still
+           cleaned up — on blur, in the unmount path below — which is the moment
+           it's genuinely abandoned rather than merely quiet. */
       }
     };
 
@@ -2282,20 +2286,9 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
     if (ref) {
       ref.addEventListener('input', handleNativeInput);
       ref.addEventListener('keydown', handleNativeKeyDown);
-      
-      // Start the timeout initially if it's an empty text/heading block
-      if ((obj.type === 'text' || obj.type === 'heading') && latestContent.current.trim() === '') {
-        timeoutId = setTimeout(() => {
-          if (latestContent.current.trim() === '' && !isDictationTarget(obj.id)) {
-            removeObject(obj.id);
-            if (editingId === obj.id) setEditingId(null);
-          }
-        }, 8000);
-      }
     }
 
     return () => {
-      clearTimeout(timeoutId);
       window.removeEventListener('seed-agent-prompt', handleSeedAgent);
       window.removeEventListener('insert-mention', handleInsertMention);
       if (ref) {
@@ -2894,6 +2887,13 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
       }
 
       case 'text':
+        /* Written on a curve: a different renderer entirely (its own SVG, its
+           own caret, its own handles). It stays a `text` object so that drag,
+           resize, delete, undo, collab and export need to know nothing about
+           it — see lib/textPath.ts. */
+        if (isPathText) {
+          return <TextPathBlock obj={obj} isSelected={isSelected} isEditing={isEditing} />;
+        }
         return isEditing ? (
           <div
             key="edit"
@@ -5152,26 +5152,74 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         // a shape-following shadow, so overflow must stay visible for that shadow.
         const imageShape = (obj.style?.imageShape as ImageShape) || 'original';
         const shaped = imageShape !== 'original';
+
+        /* A CUT-OUT IMAGE IS NOT A CARD.
+           `.image-block` gives every picture a rounded frame and a rectangular
+           drop shadow, which is right for a photograph and completely wrong for
+           a subject whose background has just been removed: the transparent
+           area let the canvas through, but the card's shadow and corners still
+           drew a box around it, so the cut-out never actually looked cut out.
+           A checkerboard was drawn behind it too, which made "transparent" read
+           as a pattern rather than as the board.
+
+           So a cutout drops the card entirely. The only thing it keeps is a
+           soft shadow — and because `drop-shadow` works off the ALPHA rather
+           than the element's box, that shadow hugs the subject's real silhouette
+           and makes it sit ON the canvas instead of floating above a rectangle
+           of nothing. */
+        const isCutout = typeof obj.style?.imageOriginal === 'string';
+        const bare = shaped || isCutout;
+
+        /* The look, as a CSS filter. Adjustments are stored as five numbers and
+           resolved at paint time, so they cost nothing, change nothing, and can
+           be reverted with one click — the stored pixels are never touched.
+           Composed with (not replacing) the shape and cutout shadows, since
+           `filter` is a single property and the last one written would
+           otherwise silently drop the others. */
+        const look = adjustToFilter(obj.style?.imageAdjust as Partial<ImageAdjust> | undefined);
+        const shadow = shaped
+          ? 'drop-shadow(0 6px 14px rgba(0,0,0,0.28))'
+          : isCutout ? 'drop-shadow(0 4px 12px rgba(0,0,0,0.28))' : '';
+        const imageFilter = [look, shadow].filter(Boolean).join(' ') || undefined;
         return (
-          <div
-            className={shaped ? 'w-full h-full' : 'image-block'}
-            style={{ width: '100%', height: '100%', overflow: shaped ? 'visible' : undefined }}
-          >
-            {obj.content ? (
-              <img
-                src={obj.content}
-                alt="Canvas image"
-                draggable={false}
-                style={{
-                  ...(shaped ? { width: '100%', height: '100%', ...imageShapeStyle(imageShape) } : {}),
-                  transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
-                }}
-              />
-            ) : (
-              <div className="flex items-center justify-center w-full h-full bg-[var(--bg-tertiary)] text-[var(--text-muted)] text-sm">
-                Drop image here
-              </div>
-            )}
+          /* The wrapper exists so ImageStudio is a SIBLING of `.image-block`
+             rather than a child of it: that class sets `overflow: hidden`, which
+             would clip the studio's rail and every panel that opens above it. */
+          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+            <div
+              className={bare ? 'w-full h-full' : 'image-block'}
+              style={{ width: '100%', height: '100%', overflow: bare ? 'visible' : undefined, position: 'relative' }}
+            >
+              {obj.content ? (
+                <img
+                  src={obj.content}
+                  alt="Canvas image"
+                  draggable={false}
+                  style={{
+                    ...(shaped ? { width: '100%', height: '100%', ...imageShapeStyle(imageShape) } : {}),
+                    ...(isCutout && !shaped
+                      // `.image-block img` supplied these; without the class they
+                      // have to be stated. `contain` matches the unmasked case so
+                      // a cutout doesn't suddenly reframe itself.
+                      ? { width: '100%', height: '100%', objectFit: 'contain' as const }
+                      : {}),
+                    // Written last so it wins over the shape helper's own filter,
+                    // which it has already absorbed.
+                    ...(imageFilter ? { filter: imageFilter } : {}),
+                    position: 'relative',
+                    transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
+                  }}
+                />
+              ) : (
+                <div className="flex items-center justify-center w-full h-full bg-[var(--bg-tertiary)] text-[var(--text-muted)] text-sm">
+                  Drop image here
+                </div>
+              )}
+            </div>
+
+            {/* Mounted only while selected — that unmount is what resets the
+                tools, so a picture is never left holding an armed wand. */}
+            {obj.content && isSelected && <ImageStudio obj={obj} />}
           </div>
         );
       }
@@ -5730,8 +5778,11 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         />
       )}
 
-      {/* Tap-to-cycle hint — a quiet nudge under a selected image/mirror. */}
-      {(obj.type === 'image' || obj.type === 'mirror') && isSelected && !isDragging && !isResizing && (
+      {/* Tap-to-cycle hint — MIRRORS ONLY now. An image says what it can do
+          through the studio rail sitting on it, and a second floating label
+          underneath repeating a gesture that no longer exists would be worse
+          than nothing. */}
+      {obj.type === 'mirror' && isSelected && !isDragging && !isResizing && (
         <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 z-[101] pointer-events-none whitespace-nowrap px-2.5 py-1 rounded-full bg-black/55 backdrop-blur-sm text-[9px] font-bold uppercase tracking-widest text-white/90 shadow-md flex items-center gap-1.5">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M9 11.5a2.5 2.5 0 1 1 5 0V13" /><path d="M12 2v2M2 12h2m16 0h2M5 5l1.5 1.5M19 5l-1.5 1.5" />

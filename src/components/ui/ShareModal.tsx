@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore } from '@/store/canvasStore';
 import { createOrUpdateShare, getMyShare, revokeShare, shareUrl } from '@/lib/share';
 import { exportBoardPNG, exportBoardPDF } from '@/lib/exportBoard';
+import { toast } from '@/store/toastStore';
 
 /**
  * Share & export a board. Two independent things:
@@ -42,7 +43,18 @@ export default function ShareModal({ onClose }: { onClose: () => void }) {
 
   const copy = async () => {
     if (!url) return;
-    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { /* ignore */ }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* A blocked clipboard write used to leave the button in its resting
+         state, which is indistinguishable from never having been pressed —
+         so the user walks off believing they have a link they don't have.
+         The link itself is already on screen and selectable, so the notice
+         points at the recovery rather than just reporting the failure. */
+      toast.error("Couldn't copy the link", { detail: 'Select the link above and copy it manually.' });
+    }
   };
 
   const revoke = async () => {

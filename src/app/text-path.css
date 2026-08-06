@@ -1,0 +1,117 @@
+/* ============================================================
+   Text on a path — the motion half.
+
+   Every letter on a curve is its own <g>, nested inside the <g> that carries
+   its position and heading as a transform ATTRIBUTE. These rules only ever
+   touch the inner one: a CSS `transform` replaces the attribute rather than
+   composing with it, so animating the outer group would drop all the letters
+   on the origin. The inner group's coordinate space is already rotated with
+   the letter, which is why "up" here means away from the line even halfway
+   round a circle.
+
+   `transform-box: fill-box` gives each letter its own glyph box to rotate and
+   scale about — without it every letter pivots around the SVG's top-left and
+   a gentle sway becomes a catapult.
+   ============================================================ */
+
+.tp-glyph {
+  transform-box: fill-box;
+  transform-origin: 50% 60%;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  will-change: transform, opacity;
+}
+
+/* The one-shot reveals. They land and stay landed. */
+.tp-a-pop,
+.tp-a-fade,
+.tp-a-drop,
+.tp-a-spin {
+  animation-iteration-count: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tp-glyph {
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------------------- ambient -- */
+
+@keyframes tp-wave {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-0.34em); }
+}
+.tp-a-wave { animation-name: tp-wave; }
+
+@keyframes tp-bounce {
+  0%, 62%, 100% { transform: translateY(0); }
+  28%           { transform: translateY(-0.5em) scaleY(1.06); }
+  46%           { transform: translateY(0) scaleY(0.94); }
+}
+.tp-a-bounce { animation-name: tp-bounce; animation-timing-function: cubic-bezier(0.28, 0.9, 0.32, 1); }
+
+@keyframes tp-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.14); }
+}
+.tp-a-breathe { animation-name: tp-breathe; animation-timing-function: ease-in-out; }
+
+@keyframes tp-sway {
+  0%, 100% { transform: rotate(-7deg); }
+  50%      { transform: rotate(7deg); }
+}
+.tp-a-sway { animation-name: tp-sway; animation-timing-function: ease-in-out; }
+
+@keyframes tp-jitter {
+  0%   { transform: translate(0, 0) rotate(0deg); }
+  25%  { transform: translate(0.03em, -0.04em) rotate(1.6deg); }
+  50%  { transform: translate(-0.03em, 0.03em) rotate(-1.4deg); }
+  75%  { transform: translate(0.02em, 0.03em) rotate(0.9deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+.tp-a-jitter { animation-name: tp-jitter; animation-timing-function: steps(4, end); }
+
+@keyframes tp-flicker {
+  0%, 42%, 46%, 100% { opacity: 1; }
+  43%                { opacity: 0.22; }
+  44%                { opacity: 0.85; }
+  45%                { opacity: 0.3; }
+  70%                { opacity: 0.9; }
+}
+.tp-a-flicker { animation-name: tp-flicker; animation-timing-function: linear; }
+
+@keyframes tp-shimmer {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+.tp-a-shimmer { animation-name: tp-shimmer; animation-timing-function: ease-in-out; }
+
+/* -------------------------------------------------------------- reveal -- */
+
+@keyframes tp-pop {
+  0%   { transform: scale(0.2); opacity: 0; }
+  70%  { transform: scale(1.16); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.tp-a-pop { animation-name: tp-pop; animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+@keyframes tp-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.tp-a-fade { animation-name: tp-fade; }
+
+@keyframes tp-drop {
+  0%   { transform: translateY(-1.1em); opacity: 0; }
+  70%  { transform: translateY(0.08em); opacity: 1; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.tp-a-drop { animation-name: tp-drop; animation-timing-function: cubic-bezier(0.3, 1.3, 0.5, 1); }
+
+@keyframes tp-spin {
+  0%   { transform: rotate(-180deg) scale(0.4); opacity: 0; }
+  100% { transform: rotate(0deg) scale(1); opacity: 1; }
+}
+.tp-a-spin { animation-name: tp-spin; }

@@ -439,17 +439,26 @@ function paperNoise(ac: AudioContext, seconds: number, curve = 1, flutter = 0.55
 /**
  * A sheet peeling off the stack, arcing over and dropping onto the block.
  *
- * Four overlapping layers, because a real turn is four events: the peel (bright,
- * thin), the sweep (the body of the sheet moving air, opening then closing), the
- * flap as it lands, and the soft thud of the block taking its weight. `depth`
- * 0–1 leans heavier and slower; `dir` decides which way it travels.
+ * Five overlapping events, because that is what a real turn is: the FLICK of a
+ * thumbnail leaving the corner, the peel (bright, thin), the sweep (the body of
+ * the sheet moving air, opening then closing), the flap as it meets the block,
+ * and the soft thud of the block taking its weight.
+ *
+ * `seconds` is the length of the TURN THIS BELONGS TO, and it matters more than
+ * any of the timbre work below. The sound used to run a flat 500–660ms over a
+ * sheet that landed in 420, so every turn finished with a swish still playing
+ * over a book that had stopped — the one thing that unmistakably reads as
+ * "sound effect" rather than "paper". Now the sheet and the sound land
+ * together, whatever speed the turn is running at.
  */
-export function playPageTurn(depth = 0.5, dir: 'next' | 'prev' = 'next') {
+export function playPageTurn(depth = 0.5, dir: 'next' | 'prev' = 'next', seconds?: number) {
   const ac = audioCtx();
   if (!ac) return;
   const t = ac.currentTime;
   const out = voiceOut(ac, 0.22);
-  const dur = 0.5 + depth * 0.16;
+  /* Slightly SHORTER than the turn: the sheet's last few degrees are silent in
+     life too — it has already flopped onto the block by then. */
+  const dur = Math.max(0.16, Math.min(0.9, (seconds ?? 0.5 + depth * 0.16) * 0.92));
   const sign = dir === 'next' ? 1 : -1;
 
   /* The sheet crosses the book, so the sound crosses the listener. Without this
@@ -464,18 +473,32 @@ export function playPageTurn(depth = 0.5, dir: 'next' | 'prev' = 'next') {
     bus.connect(out);
   }
 
+  /* 0. the flick — the single hard transient of a thumbnail letting go of the
+     corner. Four milliseconds of it, and it is the whole reason a turn now
+     starts crisply instead of fading in. Without a transient the ear hears a
+     whoosh; with one it hears something being DONE. */
+  const flick = noise(ac, 0.05, 3.4);
+  const kf = ac.createBiquadFilter();
+  kf.type = 'highpass'; kf.frequency.value = rand(2600, 3400);
+  const kg = ac.createGain();
+  kg.gain.setValueAtTime(0.045 + depth * 0.03, t);
+  kg.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+  flick.connect(kf).connect(kg).connect(bus);
+  flick.start(t); flick.stop(t + 0.06);
+
   // 1. the peel — high and dry, the corner separating
-  const peel = paperNoise(ac, 0.2, 1.9, 0.7, 16);
+  const peelDur = Math.min(0.2, dur * 0.42);
+  const peel = paperNoise(ac, peelDur, 1.9, 0.7, 16);
   const pf = ac.createBiquadFilter();
   pf.type = 'bandpass'; pf.Q.value = 0.75;
   pf.frequency.setValueAtTime(rand(1700, 2300), t);
-  pf.frequency.exponentialRampToValueAtTime(rand(3800, 5200), t + 0.18);
+  pf.frequency.exponentialRampToValueAtTime(rand(3800, 5200), t + peelDur * 0.9);
   const pg = ac.createGain();
   pg.gain.setValueAtTime(0.0001, t);
-  pg.gain.exponentialRampToValueAtTime(0.042 + depth * 0.02, t + 0.035);
-  pg.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  pg.gain.exponentialRampToValueAtTime(0.042 + depth * 0.02, t + 0.028);
+  pg.gain.exponentialRampToValueAtTime(0.0001, t + peelDur);
   peel.connect(pf).connect(pg).connect(bus);
-  peel.start(t); peel.stop(t + 0.24);
+  peel.start(t); peel.stop(t + peelDur + 0.04);
 
   // 2. the sweep — the body of it, brightening as the sheet stands up and
   //    darkening as it falls away. This is the layer you actually recognise.
@@ -493,8 +516,10 @@ export function playPageTurn(depth = 0.5, dir: 'next' | 'prev' = 'next') {
   sweep.connect(sf).connect(sg).connect(bus);
   sweep.start(t + 0.02); sweep.stop(t + dur + 0.04);
 
-  // 3. the flap — the sheet meeting the ones already turned
-  const at = t + dur * 0.7;
+  /* 3. the flap — the sheet meeting the ones already turned. Placed near the
+     END of the turn rather than at 70% of a made-up length, so on a fast turn
+     it still lands with the page instead of arriving before it. */
+  const at = t + dur * 0.82;
   const flap = paperNoise(ac, 0.2, 2.4, 0.5, 14);
   const ff = ac.createBiquadFilter();
   ff.type = 'lowpass';
