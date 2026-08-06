@@ -93,6 +93,94 @@ const StopIcon = ({ size = 9 }: { size?: number }) => (
 );
 
 /**
+ * Parse one action, repairing the escaping mistake every model on this tier
+ * makes sooner or later.
+ *
+ * Several widgets take a JSON ARRAY inside a JSON STRING (a To-Do's items, a
+ * chart's data when the model puts it in `content`). Writing that correctly
+ * means emitting \" for each inner quote, and models routinely emit \\" — which
+ * terminates the string early and makes the whole action unparseable. The
+ * scanner silently dropped those, so the user saw a board that was missing
+ * exactly the checklist or chart they asked for, with no error anywhere. That
+ * is a real slice of the "it half did it / the widget I asked for is missing"
+ * complaint. Verified against live output: this recovers the action intact.
+ */
+function parseAction(slice: string): Action | null {
+  try { return JSON.parse(slice) as Action; } catch { /* try to repair */ }
+  try { return JSON.parse(slice.replace(/\\\\"/g, '\\"')) as Action; } catch { /* give up */ }
+  return null;
+}
+
+interface MemoryEntry { key?: string; value?: string; category?: string; forget?: string }
+
+/** The object types the canvas can actually render. */
+const REAL_TYPES = new Set([
+  'text', 'heading', 'sticky', 'shape', 'frame', 'image', 'card', 'workflow-node', 'browser', 'drawing',
+]);
+
+/* Every widget in the schema is a "card" wearing a style flag, and models
+   regularly shorten that to the widget's own name — observed live: a link card
+   emitted as {"type":"link", style:{isLinkPreview:true,…}}. The canvas has no
+   "link" type, so the block rendered as nothing: content the user asked for,
+   silently absent. Map the obvious aliases back onto a real type instead of
+   dropping them. */
+const TYPE_ALIASES: Record<string, string> = {
+  link: 'card', linkcard: 'card', 'link-card': 'card', url: 'card',
+  todo: 'card', checklist: 'card', task: 'card', tasks: 'card',
+  chart: 'card', graph: 'card', timeline: 'card', gantt: 'card',
+  map: 'card', weather: 'card', quote: 'card', code: 'card', mermaid: 'card',
+  diagram: 'card', timer: 'card', countdown: 'card', poll: 'card',
+  metric: 'card', progress: 'card', table: 'card', decision: 'card',
+  note: 'sticky', 'sticky-note': 'sticky', stickynote: 'sticky',
+  title: 'heading', header: 'heading', h1: 'heading', h2: 'heading',
+  paragraph: 'text', body: 'text', markdown: 'text',
+  picture: 'image', photo: 'image', img: 'image',
+  group: 'frame', container: 'frame', section: 'frame',
+};
+
+function normalizeType(raw: unknown, style: Record<string, unknown>): string | undefined {
+  const t = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  if (REAL_TYPES.has(t)) return t;
+  if (TYPE_ALIASES[t]) return TYPE_ALIASES[t];
+  // Unknown name, but it carries a card feature flag → it's a card.
+  if (Object.keys(style).some((k) => /^is[A-Z]/.test(k))) return 'card';
+  return t || undefined;
+}
+
+/**
+ * Pull the "memories" array out of a plan without parsing the whole document.
+ * Scans brace-by-brace from the "memories" key, exactly like the action scanner,
+ * so one bad escape elsewhere in the plan can't cost the user their memories.
+ */
+function extractMemories(text: string): MemoryEntry[] {
+  const key = text.indexOf('"memories"');
+  if (key === -1) return [];
+  const open = text.indexOf('[', key);
+  if (open === -1) return [];
+  const out: MemoryEntry[] = [];
+  let depth = 0, inStr = false, esc = false, objStart = -1;
+  for (let i = open + 1; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; continue; }
+    if (c === '{') { if (depth === 0) objStart = i; depth++; }
+    else if (c === '}') {
+      depth--;
+      if (depth === 0 && objStart >= 0) {
+        try { out.push(JSON.parse(text.slice(objStart, i + 1)) as MemoryEntry); } catch { /* skip */ }
+        objStart = -1;
+      }
+    } else if (c === ']' && depth === 0) break;
+  }
+  return out;
+}
+
+/**
  * Incrementally extracts complete action objects from a streaming JSON string.
  * The model emits { "actions": [ {..}, {..} ], "planDescription": ".." } and we
  * fire each action the instant its closing brace arrives — so blocks appear on
@@ -100,8 +188,11 @@ const StopIcon = ({ size = 9 }: { size?: number }) => (
  */
 function makeActionScanner(onAction: (a: Action) => void) {
   let buf = '';
-  let started = false; // found the actions [
+  let started = false; // found where the actions begin
   let done = false;    // hit the closing ] of actions
+  /* True when the model skipped the wrapper entirely and is streaming bare
+     top-level objects. In that mode there is no closing ']' to stop at. */
+  let bare = false;
   let i = 0;
   let depth = 0;
   let inStr = false;
@@ -130,9 +221,28 @@ function makeActionScanner(onAction: (a: Action) => void) {
           p = buf.indexOf('[', p + 1);         // a non-object array — keep scanning
         }
       }
-      if (br === -1) return;
-      i = br + 1;
-      started = true;
+
+      if (br !== -1) {
+        i = br + 1;
+        started = true;
+      } else {
+        /* NO WRAPPER AND NO ARRAY — just {…}\n{…}\n{…}. Observed live from
+           llama-3.1-8b on a link-card build: a perfectly good plan, every
+           action valid, and the client executed NOTHING because it was hunting
+           for a bracket that never came. That is one of the ways a run ended
+           with the board untouched and no explanation. Lock onto the first
+           brace that actually begins an action object and stream from there. */
+        const brace = buf.indexOf('{');
+        if (brace === -1) return;
+        if (!/^\s*\{\s*"(?:type|tempId)"\s*:/.test(buf.slice(brace, brace + 40))) {
+          // Not an action object (or not enough of it yet) — wait for more.
+          if (buf.length - brace > 40) { /* it's something else; keep scanning later chunks */ }
+          return;
+        }
+        i = brace;
+        started = true;
+        bare = true;
+      }
     }
 
     for (; i < buf.length; i++) {
@@ -148,11 +258,11 @@ function makeActionScanner(onAction: (a: Action) => void) {
       else if (c === '}') {
         depth--;
         if (depth === 0 && objStart >= 0) {
-          const slice = buf.slice(objStart, i + 1);
-          try { onAction(JSON.parse(slice) as Action); } catch { /* skip malformed */ }
+          const parsed = parseAction(buf.slice(objStart, i + 1));
+          if (parsed) onAction(parsed);
           objStart = -1;
         }
-      } else if (c === ']' && depth === 0) {
+      } else if (c === ']' && depth === 0 && !bare) {
         done = true;
         return;
       }
@@ -160,6 +270,50 @@ function makeActionScanner(onAction: (a: Action) => void) {
   };
 }
 
+
+/* ── THE ARROW GATE ─────────────────────────────────────────────────────────
+   Connectors were the agent's most compulsive habit: it wired arrows between
+   blocks on almost every board — reports, notes, dashboards, plain answers —
+   where they mean nothing and just make the canvas look scribbled on.
+
+   Prose alone could never fix this. The old prompt already carried a whole
+   "CONNECTION DISCIPLINE — connectors are the agent's most OVERUSED tool"
+   paragraph and the model drew them anyway, because CREATE_CONNECTION sits
+   right there in the action list and joining things up LOOKS like effort. A
+   deterministic gate is the only thing that actually holds.
+
+   So: connectors are DROPPED unless this run is genuinely about a flow. That
+   means workflow mode, or the user's own words asking for one. Same reasoning
+   as the pen — an unasked-for mark the user has to hunt down and delete is
+   worse than no mark at all. */
+/* Deliberately NOT matching bare "flow", "process", "graph", "tree" or
+   "sequence": "the process of photosynthesis", "a bar graph of revenue" and
+   "explain the sequence" are ordinary content asks, and letting them through
+   re-creates the exact arrow spam this gate exists to stop. Each of those words
+   only counts when it is unmistakably about a diagram. */
+const WANTS_CONNECTORS_RE =
+  /\b(flow ?chart|flow diagram|workflow|work ?flow|process (?:map|diagram|flow)|pipeline|mind ?map|mindmap|diagram|sequence diagram|org ?chart|decision tree|tree diagram|dependenc(?:y|ies)|funnel|user journey|state machine|connect(?:s|ed|ing|ions?)?|link(?:ed|s)? (?:up|together)|arrows?|hierarchy|steps? in order)\b/i;
+
+/* ── THE FRAME GATE ─────────────────────────────────────────────────────────
+   The old prompt literally ORDERED this: "COMPREHENSIVE FRAMING: When providing
+   a full answer, research summary, or web crawl result, WRAP YOUR ENTIRE ANSWER
+   in a frame." So every answer came back boxed, whether or not a box helped.
+   Frames are now opt-in the same way connectors are: the user asks for one, or
+   it's a workflow (where a phase box per phase IS the diagram). */
+/* "board", "section" and "area" are deliberately absent: "build me a board
+   about X" and "a report with sections on Y" are how people describe ordinary
+   content, not a request for boxes drawn around it. Framing is only allowed
+   when the user asked for grouping in so many words — or is reorganising, where
+   labelled groups are the whole point. */
+const WANTS_FRAMES_RE =
+  /\b(frame|frames|framed|box(?:es)? around|group(?:s|ed|ing)?|organi[sz]e|reorgani[sz]e|tidy|clean ?up|categor(?:y|ies|ise|ize|ised|ized)|panel|container|zone)\b/i;
+
+/* Spread consecutive runs across the key pool.
+   Every caller that fires an inline /agent passes apiKeyIndex: 0 (or nothing),
+   so the hedge's lead slot always landed on key 1 — two builds started close
+   together queued behind each other on one key while four sat idle. The racer
+   rotates keys BY SLOT, not by run, so it could never fix this itself. */
+let runCounter = 0;
 
 /* The "guaranteed local build" that used to live here is DEAD, deliberately.
    When every model failed it echoed the user's own prompt back onto the canvas
@@ -221,6 +375,9 @@ export default function AgentOverlay() {
     const { camera } = store;
     runningRef.current = true;
     activeSourceIdRef.current = sourceId ?? null;
+    // Start each run on a different key so back-to-back builds don't all queue
+    // behind each other on key 1 (see runCounter above).
+    const keyStart = (keyIdx || 0) + runCounter++;
 
     const startX = customX ?? (-camera.x + window.innerWidth / 2) / camera.zoom;
     const startY = customY ?? (-camera.y + window.innerHeight / 2) / camera.zoom;
@@ -368,6 +525,17 @@ export default function AgentOverlay() {
 
     const isHttpUrl = (s: unknown): s is string => typeof s === 'string' && /^https?:\/\//i.test(s);
 
+    /* Decide ONCE, from the user's actual words, whether this run is allowed to
+       draw arrows or boxes. Both default to NO — see the gate definitions above
+       for why prompting alone never held. `briefArg` and `refContext` are the
+       chat/frame handoff, so a build kicked off from a conversation about a
+       workflow still gets its connectors. */
+    const intentText = `${promptText} ${briefArg || ''} ${(refContext || '').slice(0, 400)}`;
+    const allowConnectors = modeArg === 'workflow' || WANTS_CONNECTORS_RE.test(intentText);
+    const allowFrames = modeArg === 'workflow' || WANTS_FRAMES_RE.test(intentText);
+    let blockedConnectors = 0;
+    let blockedFrames = 0;
+
     /* Fetch a real photo for an image block and drop it in once it resolves, so
        the agent can actually SHOW things from the web.
 
@@ -490,6 +658,19 @@ export default function AgentOverlay() {
                "browser" the model still asks for is rewritten into a link card
                here. Its URL is the one thing worth keeping. */
             let od: Partial<CanvasObjectData> = action.objData;
+            // Map widget shorthands ("link", "todo", "chart"…) onto the real
+            // type before anything else looks at it.
+            const normalized = normalizeType(od.type, (od.style || {}) as Record<string, unknown>);
+            if (normalized && normalized !== od.type) {
+              od = { ...od, type: normalized as CanvasObjectData['type'] };
+            }
+
+            /* An unasked-for frame is just a box drawn around the answer — drop
+               it and let the columns speak. Checked AFTER normalization so a
+               frame arriving as "group" or "container" is caught too. Its
+               children are unaffected and get placed normally. */
+            if (od.type === 'frame' && !allowFrames) { blockedFrames++; break; }
+
             if (od.type === 'browser') {
               const target = extractUrl(String(od.content || ''));
               if (!target) break; // a browser with no URL has nothing worth keeping
@@ -614,6 +795,7 @@ export default function AgentOverlay() {
             break;
           }
           case 'CREATE_CONNECTION': {
+            if (!allowConnectors) { blockedConnectors++; break; }
             const fromId = resolveId(action.fromId);
             const toId = resolveId(action.toId);
             const objs = live().objects;
@@ -709,6 +891,11 @@ export default function AgentOverlay() {
     const finishSuccess = () => {
       settleLayout();
       cursorHide();
+      if (blockedConnectors || blockedFrames) {
+        console.debug(
+          `[Agent] gate: dropped ${blockedConnectors} unrequested connector(s), ${blockedFrames} unrequested frame(s)`
+        );
+      }
       addLog('[Success] Done.');
       setAgentState({ agentStatus: 'success', agentRunning: false });
       runningRef.current = false;
@@ -719,21 +906,16 @@ export default function AgentOverlay() {
       }, 2200);
     };
 
-    /* Honest failure: red pill with a real message, build chip → error, and — as
-       the user asked — a single CLEAR status note on the canvas at the agent's
-       spot (NOT the prompt-echo, which parroted their words back as content).
-       This one is unmistakably a system message and it deletes nothing. */
+    /* Honest failure: the real reason in the status pill, and the build chip
+       resolved to error.
+       NOTHING IS PUT ON THE CANVAS. This used to drop a red sticky note at the
+       agent's spot, which meant a failed run left litter the user had to find
+       and delete by hand — a failure that damages the board is worse than one
+       that simply reports itself. The pill says what happened; the canvas stays
+       exactly as the user left it. */
     const failRun = (msg: string) => {
       cursorHide();
       addLog(`[Failure] ${msg}`);
-      try {
-        live().addObject({
-          type: 'sticky', x: Math.round(startX), y: Math.round(startY),
-          width: 320, height: 150,
-          content: `⚠️ ${msg}`,
-          style: { color: '#FEE2E2', textColor: '#7F1D1D' },
-        });
-      } catch { /* even the note is best-effort */ }
       setAgentState({ agentStatus: 'failed', agentRunning: false });
       runningRef.current = false;
       emitBuildState('error');
@@ -759,12 +941,18 @@ export default function AgentOverlay() {
       /* Two tiers of deadline. PRIMARY sources (vision, the URLs the user
          pasted, memory, verified YouTube results a video ask depends on) get the
          full window — they ARE the material. GARNISH (search/wiki/news/quotes/…)
-         is nice-to-have seasoning, and its broad trigger regexes fire on tons of
-         prompts, so a slow garnish upstream was routinely holding the whole
-         build at "Gathering context…" for the full 8s. Garnish now gets cut
-         loose at 4.5s; a run with no primary sources starts that much sooner. */
-      const CONTEXT_DEADLINE_MS = 8000;
-      const GARNISH_DEADLINE_MS = 4500;
+         is nice-to-have seasoning.
+
+         Both were cut hard. This whole phase runs BEFORE the model is even
+         called, so its deadline is pure dead time added to every single run —
+         and the garnish triggers are so broad ("about", "today", "update",
+         "best", "how to", "recent") that a plain build fires two or three
+         lookups it never needed and then waited on them. 8s/4.5s of that, on
+         top of a build, is a large part of why the canvas agent felt slow next
+         to chat, which does none of this at all. A source that can't answer in
+         2.5s wasn't going to change the board much anyway. */
+      const CONTEXT_DEADLINE_MS = 5000;
+      const GARNISH_DEADLINE_MS = 2500;
       const ctxController = new AbortController();
       const garnishController = new AbortController();
       const onMainAbort = () => { ctxController.abort(); garnishController.abort(); };
@@ -921,7 +1109,10 @@ export default function AgentOverlay() {
         })());
       }
 
-      if (/\b(news|latest|breaking|headlines|update|recent|today|happening|current events|trending)\b/i.test(pLower)) {
+      /* "update" and "today" used to be in here, so "update this note" or "add
+         today's tasks" fired a news lookup and then waited on it. A news fetch
+         now needs an actual news word. */
+      if (/\b(news|breaking|headlines|current events|trending|latest on|recent developments|what'?s happening)\b/i.test(pLower)) {
         pre.push((async () => {
           try {
             const match = promptText.match(/(?:news about|latest on|headlines for|update on|trending) ([a-zA-Z0-9\s]+)/i);
@@ -1054,15 +1245,28 @@ export default function AgentOverlay() {
          fresh round usually lands on warmer workers. Returns true when this
          round produced actions (or the user stopped — nothing left to do). */
       let fullResponse = '';
+      /* Why the round failed, so the user is told the TRUTH instead of a
+         blanket "models are busy". The route classifies its own failures
+         (oversized / rate-limit / gone / timeout) and some of them — an
+         over-long prompt above all — can never be fixed by trying again. */
+      let failKind = '';
+      let failMessage = '';
       const streamPlanRound = async (keyOffset: number): Promise<boolean> => {
         const res = await fetch('/api/agent/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...requestBody, apiKeyIndex: keyIdx + keyOffset }),
+          body: JSON.stringify({ ...requestBody, apiKeyIndex: keyStart + keyOffset }),
           signal: controller.signal,
         });
         if (!runningRef.current) return true; // stopped — don't retry
-        if (!res.ok || !res.body) return false;
+        if (!res.ok || !res.body) {
+          try {
+            const j = await res.json();
+            failKind = String(j?.kind || '');
+            failMessage = String(j?.error || '');
+          } catch { /* not JSON — fall back to the generic message */ }
+          return false;
+        }
 
         // Stream the plan; execute each action the instant it completes.
         const scan = makeActionScanner((action) => { if (runningRef.current) runAction(action); });
@@ -1093,13 +1297,22 @@ export default function AgentOverlay() {
       };
 
       let planOk = await streamPlanRound(0);
-      if (!planOk && runningRef.current) {
-        addLog('[Agent] Models busy — retrying on a different key/model…');
+      /* Retry ONLY what a retry can actually fix. The old code re-sent a byte
+         -identical body on a different key even when the first round failed
+         because the prompt was too big for the context window — which 400s the
+         same way every time, on every key, and just doubled the wait before
+         showing a message that blamed "busy models" for a size problem. */
+      const retryable = !failKind || failKind === 'timeout' || failKind === 'rate-limit' || failKind === 'upstream';
+      if (!planOk && runningRef.current && retryable) {
+        addLog('[Agent] First attempt came back empty — re-racing on different keys…');
         planOk = await streamPlanRound(2); // rotate two keys forward, not just one
       }
       if (!runningRef.current) return;
       if (!planOk) {
-        failRun('AI models are busy or rate-limited right now — nothing was built. Give it a few seconds and try again.');
+        failRun(
+          failMessage ||
+          'No model returned a usable plan — nothing was built, and your board is untouched. Try again in a moment.'
+        );
         return;
       }
 
@@ -1121,13 +1334,16 @@ export default function AgentOverlay() {
 
       // After streaming is done, process memory instructions
       try {
-        /* The prompt says "no markdown fences" and the model wraps the whole
-           thing in ```json anyway — often enough that JSON.parse threw on every
-           such run and everything below was silently skipped. The streaming
-           scanner never cared, because it hunts for the actions array rather than
-           parsing the document, which is why the board still built and this
-           failure stayed invisible. Take the fence off. */
-        const payload = JSON.parse(stripCodeFence(fullResponse));
+        /* Extract the memories array on its own rather than parsing the whole
+           document. Measured across every model on the tier, a whole-document
+           JSON.parse of a real plan FAILS almost every time — a stray escape
+           anywhere in thousands of characters of content is enough, and one
+           always turns up. So this branch silently never ran and the agent has
+           not saved a memory in a long time. The streaming scanner never cared
+           (it hunts the actions array brace by brace), which is why the board
+           still built and this stayed invisible. Now memories are pulled out
+           with the same tolerant, per-object scan the actions get. */
+        const payload = { memories: extractMemories(stripCodeFence(fullResponse)) };
 
         if (payload.memories && Array.isArray(payload.memories)) {
           for (const mem of payload.memories) {
