@@ -108,11 +108,20 @@ async function openModelStream(
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let sseBuffer = '';
+  /* `data: [DONE]` is the completion telling us it is finished. Until this flag
+     existed, seeing it just returned whatever text was in that chunk and the
+     NEXT pump went back to upstream.read() to discover the end — which meant
+     the stream only closed when the SOCKET closed. Consuming this stream
+     server-side (the outline pass does) then hung indefinitely, and every
+     streaming build paid the same wait at the end before its stream terminated.
+     [DONE] IS the end; treat it as such. */
+  let finished = false;
 
   const pump = async (): Promise<string | null> => {
+    if (finished) return null;
     while (true) {
       const { done, value } = await upstream.read();
-      if (done) return null;
+      if (done) { finished = true; return null; }
       sseBuffer += decoder.decode(value, { stream: true });
       const lines = sseBuffer.split('\n');
       sseBuffer = lines.pop() || '';
@@ -121,7 +130,11 @@ async function openModelStream(
         const trimmed = line.trim();
         if (!trimmed.startsWith('data:')) continue;
         const payload = trimmed.slice(5).trim();
-        if (payload === '[DONE]') return out || '';
+        if (payload === '[DONE]') {
+          finished = true;
+          void upstream.cancel().catch(() => { /* already closing */ });
+          return out || null;
+        }
         try {
           const json = JSON.parse(payload);
           const piece = json.choices?.[0]?.delta?.content;
@@ -232,6 +245,81 @@ export function openHedgedStream(
       if (slot.delayMs <= 0) launch(i);
       else timers[i] = setTimeout(() => launch(i), slot.delayMs);
     });
+  });
+}
+
+/**
+ * One NON-STREAMING completion. Returns the assistant text, or throws.
+ *
+ * Streaming + first-token hedging is the right shape for anything the user
+ * WATCHES arrive. It is the wrong shape for a small structured result nobody
+ * sees — there, the first token tells you nothing about whether the answer will
+ * be USABLE, and the fastest model is often the one that ignores the format.
+ * See raceForResult below.
+ */
+export async function nimComplete(
+  apiKey: string,
+  model: string,
+  messages: ChatMsg[],
+  opts: { maxTokens?: number; temperature?: number; timeoutMs?: number } = {},
+): Promise<string> {
+  const clamped = clampMessages(messages, HARD_INPUT_TOKENS - Math.ceil((opts.maxTokens ?? 2000) * 1.1));
+  const res = await fetch(NVIDIA_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: clamped.messages,
+      temperature: opts.temperature ?? 0.4,
+      max_tokens: opts.maxTokens ?? 2000,
+      stream: false,
+    }),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 45_000),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new HedgeError(`${model} status ${res.status}: ${body.slice(0, 200)}`, classify(res.status, body), res.status);
+  }
+  const json = await res.json();
+  const text = json?.choices?.[0]?.message?.content;
+  if (typeof text !== 'string' || !text.trim()) {
+    throw new HedgeError(`${model} returned no content`, 'upstream');
+  }
+  return text;
+}
+
+/**
+ * Run several attempts at once and resolve with the FIRST one whose result is
+ * actually usable, as judged by `accept`.
+ *
+ * This is the pattern for a small structured answer. A first-token race picks
+ * whichever model started talking soonest, which for the outline pass meant
+ * repeatedly committing to a model that then replied in markdown instead of
+ * JSON — measured 2 failures in 4 runs, and each one cost the whole parallel
+ * build. Racing on the PARSED RESULT costs a couple of extra small requests and
+ * turns that into a near-certain success.
+ */
+export async function raceForResult<T>(
+  attempts: (() => Promise<string>)[],
+  accept: (text: string) => T | null,
+): Promise<T | null> {
+  return new Promise<T | null>((resolve) => {
+    let pending = attempts.length;
+    let settled = false;
+    if (pending === 0) { resolve(null); return; }
+    for (const attempt of attempts) {
+      attempt()
+        .then((text) => {
+          if (settled) return;
+          const value = accept(text);
+          if (value !== null && value !== undefined) { settled = true; resolve(value); return; }
+          if (--pending === 0) resolve(null);
+        })
+        .catch(() => {
+          if (settled) return;
+          if (--pending === 0) resolve(null);
+        });
+    }
   });
 }
 

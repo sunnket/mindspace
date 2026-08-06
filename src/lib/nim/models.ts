@@ -131,6 +131,35 @@ export const BUILD_PLANS: Record<Profile, HedgeSlot[]> = {
 };
 
 /**
+ * SECTION plan — one column of a board, written in PARALLEL with its siblings.
+ *
+ * Measured 2026-08-06 by firing SEVEN section-sized requests at once (exactly
+ * what a 7-column board does) against each candidate:
+ *
+ *   model                  solo    7-at-once (wall / median / total content)
+ *   openai/gpt-oss-20b     47.6s    40.2s / 28.8s / 23,800 chars  ← no throttling
+ *   mistralai/mistral-nemotron 23.8s 120.0s / 30.7s / 16,710 chars + 2 FAILURES
+ *   nemotron-super-49b     28.5s    47.8s / 16.1s /  4,028 chars  ← barely writes
+ *
+ * gpt-oss-20b is the only one that holds up: seven concurrent requests cost it
+ * almost nothing and it produced the most content by far. mistral-nemotron gets
+ * WORSE under fan-out (two outright failures, 3x the wall time), and
+ * nemotron-49b ignores the length instruction — 153 characters solo — so a
+ * board led by it comes out empty-looking.
+ *
+ * Hence: all three early lanes are gpt-oss, spread over ~10s so a cold key gets
+ * overtaken, and mistral sits far back as a genuine last resort rather than the
+ * default catcher. An earlier version had it at 9s, and on a congested tier
+ * EVERY section fell through to it — 7/7 columns written by the slow model.
+ */
+export const SECTION_PLAN: HedgeSlot[] = [
+  { model: MODELS.builder, delayMs: 0 },
+  { model: MODELS.builder, delayMs: 4500 },
+  { model: MODELS.builder, delayMs: 10_000 },
+  { model: MODELS.mid, delayMs: 20_000 },
+];
+
+/**
  * CONVERSATION plan (chat + frame agent) — plain markdown, no JSON contract, so
  * first token really is what the user feels. nemotron stays the lead here: it's
  * fluent and answers directly, and a chat reply is short enough that its low

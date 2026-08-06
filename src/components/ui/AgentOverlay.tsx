@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, resolveParentId } from '@/store/canvasStore';
 import { CanvasObjectData } from '@/lib/db';
-import { Occupancy, rectOf, isBackdrop, settle, fitFrame } from '@/lib/canvasLayout';
+import { Occupancy, rectOf, isBackdrop, settle, fitFrame, contentHeight } from '@/lib/canvasLayout';
 import { formatSkillsetForAgent } from '@/lib/skillset';
 import { extractUrl, newLinkCard, linkPreviewStyle, normalizeUrl, LINK_CARD_SIZE } from '@/lib/linkPreview';
 
@@ -308,6 +308,25 @@ const WANTS_CONNECTORS_RE =
 const WANTS_FRAMES_RE =
   /\b(frame|frames|framed|box(?:es)? around|group(?:s|ed|ing)?|organi[sz]e|reorgani[sz]e|tidy|clean ?up|categor(?:y|ies|ise|ize|ised|ized)|panel|container|zone)\b/i;
 
+/* ── WHEN TO BUILD IN PARALLEL ──────────────────────────────────────────────
+   One model writing one plan is throughput-bound at ~200 chars/second, so when
+   a board genuinely needs depth the model writes LESS rather than taking
+   longer. Measured before this existed: 22,344 characters of the user's own
+   report handed in with "make this more detailed" came back as 12 blocks
+   holding 1,984 characters — an 11x COMPRESSION of the thing they asked to
+   expand, in 58 seconds. No prompt fixes that; the writing has to happen
+   concurrently.
+
+   So a big ask is split into sections by /api/agent/outline and every section
+   is written at the same time on a different key. Reserved for asks that
+   actually want depth — a short edit gains nothing and would only pay for the
+   extra outline round trip. */
+const WANTS_DEPTH_RE =
+  /\b(detailed?|in depth|in-depth|comprehensive|thorough(?:ly)?|end.to.end|deep.dive|research|full report|complete guide|ultimate guide|everything about|tell me everything|elaborate|expand|more detail|breakdown|break it down|write.?up|study guide|curriculum|syllabus|dossier|whitepaper|exhaustive|long|extensive)\b/i;
+
+/** Enough source material that summarising it would throw away the user's work. */
+const BIG_SOURCE_CHARS = 3500;
+
 /* Spread consecutive runs across the key pool.
    Every caller that fires an inline /agent passes apiKeyIndex: 0 (or nothing),
    so the hedge's lead slot always landed on key 1 — two builds started close
@@ -507,6 +526,14 @@ export default function AgentOverlay() {
       return { x: free.x, y: free.y };
     };
 
+    /* While a section writer is streaming, every block it creates is FORCED
+       into that section's column. The prompt tells it "x = <columnX> EXACTLY"
+       and it mostly complies — but measured live, 3 of 7 writers drifted (one
+       column emitting blocks at both x=520 and x=730), which reads as a ragged,
+       broken layout. Column alignment is geometry, not judgement, so the client
+       decides it. Same reasoning as the arrow gate and the height clamp. */
+    let forcedColumnX: number | null = null;
+
     let panned = false;
     const gentlePan = (o: { x: number; y: number; width: number; height: number }) => {
       // Bring the work into view WITHOUT changing zoom (no zoom in/out).
@@ -670,6 +697,25 @@ export default function AgentOverlay() {
                frame arriving as "group" or "container" is caught too. Its
                children are unaffected and get placed normally. */
             if (od.type === 'frame' && !allowFrames) { blockedFrames++; break; }
+
+            /* SIZE THE BLOCK TO ITS CONTENT, not to whatever number the model
+               guessed. Models habitually declare height 400-800 for two lines
+               of text; the layout engine honours that (it never shrinks a
+               block), so the board came out with vast empty gaps between
+               paragraphs. Auto-grow types measure themselves the moment they
+               render anyway, so an honest starting height costs nothing and a
+               dishonest one costs a hole in the board. */
+            if (od.type === 'text' || od.type === 'heading' || od.type === 'sticky' || od.type === 'workflow-node') {
+              /* Floors keep the shrink from going ugly: a sticky note holding
+                 six words should still look like a note, not a label. */
+              const floor = od.type === 'sticky' ? 140 : od.type === 'heading' ? 56 : 60;
+              const honest = Math.max(floor, contentHeight(od));
+              const declared = Number(od.height) || 0;
+              if (declared > honest) od = { ...od, height: honest };
+            }
+
+            // Section writers own exactly one column — see forcedColumnX.
+            if (forcedColumnX !== null) od = { ...od, x: forcedColumnX };
 
             if (od.type === 'browser') {
               const target = extractUrl(String(od.content || ''));
@@ -975,6 +1021,52 @@ export default function AgentOverlay() {
       let countryContext: string | undefined;
       let triviaContext: string | undefined;
 
+      /* ── OUTLINE, STARTED EARLY ────────────────────────────────────────────
+         The planning pass gates every section writer, so its latency is felt
+         directly. But it only needs the prompt and the material the user
+         already handed over — none of which comes from the context lookups
+         below. So fire it NOW, alongside them, and by the time the context
+         batch settles the outline is usually already in hand. On the common
+         path this makes planning cost nothing in wall-clock time at all. */
+      const depthWanted =
+        modeArg !== 'workflow' &&
+        (WANTS_DEPTH_RE.test(promptText) ||
+          (refContext || '').length > BIG_SOURCE_CHARS ||
+          filesContext.length > BIG_SOURCE_CHARS);
+
+      const outlineCtl = new AbortController();
+      const onOutlineAbort = () => outlineCtl.abort();
+      controller.signal.addEventListener('abort', onOutlineAbort);
+      const outlineTimer = depthWanted ? setTimeout(() => outlineCtl.abort(), 16_000) : undefined;
+      const skillsetForRun = formatSkillsetForAgent(store.skillset) || undefined;
+      const outlinePromise: Promise<{ boardTitle: string; sections: { title: string; brief: string; widgets: string[] }[] } | null> =
+        depthWanted
+          ? (async () => {
+            try {
+              const r = await fetch('/api/agent/outline', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  prompt: promptText,
+                  context: refContext,
+                  filesContext: filesContext || undefined,
+                  skillsetContext: skillsetForRun,
+                  apiKeyIndex: keyStart,
+                }),
+                signal: outlineCtl.signal,
+              });
+              if (!r.ok) return null;
+              const j = await r.json();
+              if (j?.success && Array.isArray(j.sections) && j.sections.length >= 3) {
+                return { boardTitle: String(j.boardTitle || ''), sections: j.sections };
+              }
+              return null;
+            } catch {
+              return null;
+            }
+          })()
+          : Promise.resolve(null);
+
       const pLower = promptText.toLowerCase();
       const wantsYouTube = /\b(youtube|video|song|music|listen to|watch|play|track|album|artist|singer|band|clip|trailer|mv|music video|remix|cover|live performance)\b/i.test(pLower);
       const pre: Promise<void>[] = [];
@@ -1236,6 +1328,154 @@ export default function AgentOverlay() {
           connections: visibleConnections.map((c) => ({ id: c.id, fromId: c.fromId, toId: c.toId })),
         },
       };
+
+      /* ── PARALLEL SECTION BUILD ────────────────────────────────────────────
+         For an ask that genuinely wants depth, split the board and write every
+         column AT THE SAME TIME on a different key. See WANTS_DEPTH_RE above
+         for the measurement that forced this.
+
+         Strictly bounded, because the two-phase "Director" that was removed
+         from this codebase in 2026-07 failed exactly here: it made the user
+         WAIT on a planning round trip before anything appeared. Two things stop
+         that repeating: the outline is fired EARLY, in parallel with the
+         context lookups, so on the common path it is already in hand by the
+         time we get here and costs nothing; and it carries a hard deadline
+         after which ANY problem — slow, malformed, too few sections — falls
+         silently through to the ordinary single-pass build below. The user can
+         only ever end up with the old behaviour or better, never with a stall. */
+      const buildInParallel = async (): Promise<boolean> => {
+        // Started back before the context lookups — usually already resolved.
+        const outline = await outlinePromise;
+        if (outlineTimer !== undefined) clearTimeout(outlineTimer);
+        controller.signal.removeEventListener('abort', onOutlineAbort);
+
+        if (!runningRef.current) return true;
+        if (!outline || outline.sections.length < 3) return false; // single pass
+        const { sections, boardTitle } = outline;
+
+        /* Reserve the whole band up front so the columns land together in free
+           space, then give each writer an absolute column. Because the writers
+           get real world coordinates, the per-run placeOffset must be neutral —
+           otherwise every section would be shifted twice. */
+        const COL_STEP = 520;
+        const bandW = COL_STEP * sections.length;
+        const anchor = occupancy.resolveDown({ x: Math.round(startX), y: Math.round(startY), w: bandW, h: 320 });
+        placeOffset = { dx: 0, dy: 0 };
+
+        let headY = anchor.y;
+        if (boardTitle) {
+          const titleObj = live().addObject({
+            type: 'heading', x: anchor.x, y: anchor.y,
+            width: Math.min(900, bandW - 60), height: 64,
+            content: boardTitle, style: {},
+          });
+          occupancy.set(titleObj);
+          touched.add(titleObj.id);
+          executed++;
+          headY = anchor.y + 110;
+          cursorTo(anchor.x + 40, anchor.y + 28, 'Titling the board');
+          gentlePan({ x: anchor.x, y: anchor.y, width: 400, height: 64 });
+        }
+
+        addLog(`[Agent] Writing ${sections.length} sections at once…`);
+
+        const writeSection = async (sec: { title: string; brief: string; widgets: string[] }, i: number, keyBump: number): Promise<number> => {
+          const colX = anchor.x + i * COL_STEP;
+          try {
+            const res = await fetch('/api/agent/run', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...requestBody,
+                mode: 'section',
+                sectionTitle: sec.title,
+                sectionBrief: sec.brief,
+                sectionWidgets: sec.widgets,
+                columnX: colX,
+                columnY: headY,
+                // Each writer starts on its OWN key so the columns are written
+                // in genuine parallel instead of queueing on one worker.
+                apiKeyIndex: keyStart + i + keyBump,
+                canvas: { isDark: store.canvasBackground.dark, objects: [], connections: [] },
+              }),
+              signal: controller.signal,
+            });
+            if (!res.ok || !res.body) return 0;
+            let n = 0;
+            const scan = makeActionScanner((action) => {
+              if (!runningRef.current) return;
+              /* Bind every block this writer produces to its own column. Set
+                 immediately before each action runs (not around the whole
+                 await) because sibling writers interleave at every await
+                 point — a value held across one would be the wrong column's. */
+              forcedColumnX = colX;
+              try { runAction(action); } finally { forcedColumnX = null; }
+              n++;
+            });
+            const reader = res.body.getReader();
+            const dec = new TextDecoder();
+            /* STRAGGLER BOUND. The board is only finished when its slowest
+               column is, so one unlucky writer holds up everything. Measured
+               live on a congested tier: a single section took 339 SECONDS while
+               its siblings finished in 38-50s, turning a 50s board into a
+               405s one. Past this deadline the writer is cut loose — whatever
+               it already streamed is on the canvas and keeps its place. */
+            const cutoff = Date.now() + 75_000;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (!runningRef.current) { reader.cancel(); break; }
+              scan(dec.decode(value, { stream: true }));
+              if (Date.now() > cutoff) {
+                console.debug(`[Agent] section "${sec.title}" hit the 75s bound with ${n} block(s) — moving on`);
+                reader.cancel();
+                break;
+              }
+            }
+            return n;
+          } catch {
+            return 0;
+          }
+        };
+
+        /* A section that comes back with nothing is a piece of the user's
+           request silently missing from the board — the exact failure this
+           design exists to prevent (observed live: one writer of seven returned
+           an unusable stream and its column was simply absent). So each writer
+           retries ITSELF once, on a different key.
+
+           Retrying inside the writer rather than after Promise.all matters:
+           a retry pass bolted on afterwards runs only once every sibling has
+           finished, adding its full duration to the wall clock. Measured that
+           way it cost ~48s on top of a 55s board. Here it overlaps with the
+           siblings still writing, so a failure costs almost nothing. */
+        const results = await Promise.all(sections.map(async (sec, i) => {
+          const n = await writeSection(sec, i, 0);
+          if (n > 0 || !runningRef.current) return n;
+          addLog(`[Agent] Rewriting "${sec.title}"…`);
+          return writeSection(sec, i, 2);
+        }));
+
+        const built = results.reduce((a, b) => a + b, 0);
+        const stillEmpty = results.filter((n) => n === 0).length;
+        if (stillEmpty) console.debug(`[Agent] ${stillEmpty}/${sections.length} section(s) never landed`);
+        // Any section landing is a usable board; none landing means fall back.
+        return built > 0;
+      };
+
+      if (depthWanted) {
+        const ok = await buildInParallel();
+        if (!runningRef.current) return;
+        if (ok) {
+          if (linkChecks.length) {
+            await Promise.race([Promise.all(linkChecks), new Promise<void>((r) => setTimeout(r, 6000))]);
+          }
+          if (!runningRef.current) return;
+          finishSuccess();
+          return;
+        }
+        addLog('[Agent] Building it in one pass instead…');
+      }
 
       /* --- call the model & stream the plan, with ONE automatic retry --------
          A hedged race can still lose an unlucky round to tier congestion (every

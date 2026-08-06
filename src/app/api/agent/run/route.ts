@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ChatMsg, HedgeError, nimApiKeys, openHedgedStream } from '@/lib/nim/hedge';
 import {
-  BUILD_PLANS, maxTokensFor, pickProfile, Profile, RESEARCH_RE, temperatureFor,
+  BUILD_PLANS, HedgeSlot, maxTokensFor, pickProfile, Profile, RESEARCH_RE, SECTION_PLAN, temperatureFor,
 } from '@/lib/nim/models';
 import {
   BudgetSection, estimateTokens, FAST_INPUT_CHARS, fitToBudget, HARD_INPUT_CHARS,
@@ -194,6 +194,53 @@ Connections:
 
 ` + SYSTEM_PROMPT.slice(SYSTEM_PROMPT.indexOf('### ACTIONS'));
 
+/* Section writers share the action schema, the reference material and the
+   output contract with the main builder — only the mission differs. Sliced from
+   the same source so the client parser can never drift from one of them. */
+const SECTION_PROMPT_FULL = () =>
+  SECTION_SYSTEM_PROMPT + SYSTEM_PROMPT.slice(SYSTEM_PROMPT.indexOf('### ACTIONS'));
+
+/**
+ * SECTION MODE — one writer, one column, written at the same time as its
+ * siblings. See /api/agent/outline for why this exists; the short version is
+ * that one model writing one plan is throughput-bound at ~200 chars/second, so
+ * asked for a "detailed" board it writes a skeleton instead (measured: 22,344
+ * characters of source material in, 1,984 characters of board out). Splitting
+ * the board and writing the columns concurrently buys real depth without
+ * spending real time.
+ *
+ * The whole contract here is DEPTH IN ONE COLUMN: this writer owns a narrow
+ * subject and a fixed x, cannot see its siblings, and must not wander into
+ * their territory or re-title the board.
+ */
+const SECTION_SYSTEM_PROMPT = `You are ONE writer on a team building a single canvas board. Several writers are working RIGHT NOW, at the same time, each on a different section. You write YOUR section only, and you write it WELL.
+
+Today is {today}.
+
+{skillsetSection}### YOUR SECTION
+TITLE: {sectionTitle}
+WHAT TO COVER: {sectionBrief}
+{sectionWidgets}
+### THE RULES OF WORKING IN A TEAM
+- Write ONLY this section. Other writers are covering the rest of the board — anything outside your brief is THEIR job, and duplicating it wrecks the board.
+- Do NOT create a title for the whole board, an introduction to the whole board, a conclusion, or a "next steps" wrap-up. Those belong to whoever owns them. Start with your own section heading and go.
+- Do NOT create frames. Do NOT create connections unless your section IS a process/flow diagram.
+
+### GO DEEP — THIS IS THE ENTIRE POINT
+You have one narrow subject and room to do it justice, so do it justice. This section should carry **1,200-2,500 characters of real writing** across its blocks. Specific facts, real numbers with units, named examples, concrete mechanisms, actual trade-offs. If the user supplied REFERENCE MATERIAL, mine YOUR part of it hard — quote its real figures, keep its specifics, expand on what it only gestured at. Never write a one-line summary of something that deserves a paragraph, and never pad with generic filler to reach a length. A thin section is the failure mode here; a rich one is the job.
+
+### YOUR COLUMN — stay inside it
+Every block you create uses x = {columnX} EXACTLY. Nothing else. You own a single vertical column and nobody else will write in it.
+Start at y = {columnY}. Then each next block's y = the previous block's y + the previous block's height + 40. Declare a height that HONESTLY fits what you wrote (~26px per rendered line of text, 46 for a heading, plus 30 padding, where a line is about (width - 24) / 8.6 characters) — an inflated height leaves a visible hole in the board.
+Use width 460 for text and headings unless a widget's schema says otherwise.
+
+### SHAPE OF A GOOD SECTION
+1. A "heading" block: your section title.
+2. Then 3-6 blocks of substance — text blocks of 350-700 characters each (one idea per block, structured with markdown), plus whichever widgets genuinely fit your content.
+Never pour the whole section into one giant text block, and never stop at a single thin paragraph.
+
+`;
+
 interface SnapshotObject {
   id: string; type: string; x: number; y: number;
   width: number; height: number; content: string; style?: Record<string, unknown>;
@@ -303,6 +350,8 @@ export async function POST(req: NextRequest) {
       webContext, memoriesContext, searchContext, wikiContext, weatherContext, dictContext,
       newsContext, youtubeContext, quotesContext, countryContext, triviaContext, skillsetContext,
       mode, modelProfile,
+      // Section mode — one column of a board being written in parallel.
+      sectionTitle, sectionBrief, sectionWidgets, columnX, columnY,
     } = body;
 
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -319,6 +368,7 @@ export async function POST(req: NextRequest) {
     const y = Math.round(Number(agentY) || 0);
 
     const isWorkflow = mode === 'workflow';
+    const isSection = mode === 'section' && typeof sectionTitle === 'string' && sectionTitle.trim();
     const requested = typeof modelProfile === 'string' ? modelProfile.toLowerCase() : '';
     const profile: Profile =
       requested === 'heavy' || requested === 'balanced' || requested === 'quick'
@@ -326,7 +376,11 @@ export async function POST(req: NextRequest) {
         : pickProfile(prompt, mode);
 
     const isResearch = RESEARCH_RE.test(prompt);
-    const maxTokens = maxTokensFor(profile, { workflow: isWorkflow, research: isResearch });
+    /* A section is one column, not a board — it needs room for real depth
+       (1200-2500 chars of writing plus JSON scaffolding) but nothing like a
+       whole board's budget, and a tighter ceiling keeps every parallel writer
+       finishing at about the same time. */
+    const maxTokens = isSection ? 4500 : maxTokensFor(profile, { workflow: isWorkflow, research: isResearch });
 
     /* ── THE BUDGET ────────────────────────────────────────────────────────
        A run carrying a real document (a dropped PDF, crawled pages, reference
@@ -353,11 +407,16 @@ export async function POST(req: NextRequest) {
        prose — which is the part it doesn't need anyway. */
     const objects: SnapshotObject[] = Array.isArray(canvas?.objects) ? canvas.objects : [];
     const roomy = sectionBudget > 40_000;
-    const { rich, far } = compactSnapshot(objects, x, y, {
-      richCount: roomy ? 40 : 22,
-      richChars: roomy ? 1400 : 700,
-      totalCount: 220,
-    });
+    /* A section writer builds into a column the client has already reserved for
+       it, so it never needs to read the board — and skipping the snapshot is
+       pure speed on the one path where several requests are in flight at once. */
+    const { rich, far } = isSection
+      ? { rich: [] as unknown[], far: [] as unknown[] }
+      : compactSnapshot(objects, x, y, {
+        richCount: roomy ? 40 : 22,
+        richChars: roomy ? 1400 : 700,
+        totalCount: 220,
+      });
     const richJson = rich.length ? JSON.stringify(rich) : '(none nearby)';
     const farJson = far.length
       ? `\nOther blocks further away (footprints only — build clear of these, reference them by id if needed):\n${JSON.stringify(far)}`
@@ -455,7 +514,15 @@ export async function POST(req: NextRequest) {
       ? `${str(skillsetContext).slice(0, 3500)}\n\n`
       : '';
 
-    const basePrompt = isWorkflow ? WORKFLOW_SYSTEM_PROMPT : SYSTEM_PROMPT;
+    const colX = Math.round(Number(columnX) || x);
+    const colY = Math.round(Number(columnY) || y);
+    const widgetLine = Array.isArray(sectionWidgets) && sectionWidgets.length
+      ? `BLOCK TYPES TO USE: ${sectionWidgets.filter((w: unknown) => typeof w === 'string').join(', ')} — the user or the plan asked for these here, so use them rather than substituting something else.\n`
+      : '';
+
+    const basePrompt = isSection
+      ? SECTION_PROMPT_FULL()
+      : isWorkflow ? WORKFLOW_SYSTEM_PROMPT : SYSTEM_PROMPT;
     /* FUNCTION-form replacements ONLY. With a plain string value, String.replace
        interprets $-patterns INSIDE the value: "$'" splices the entire rest of
        the template into the prompt (ballooning it until the request dies), "$&"
@@ -472,24 +539,39 @@ export async function POST(req: NextRequest) {
       .replace('{memorySection}', () => memorySection)
       .replace('{canvasObjects}', () => canvasObjects)
       .replace('{canvasConnections}', () => (snapConns.length ? JSON.stringify(snapConns) : '(none)'))
-      .replace('{userAsk}', () => prompt.trim().slice(0, 6000));
+      .replace('{userAsk}', () => prompt.trim().slice(0, 6000))
+      .replace('{sectionTitle}', () => String(sectionTitle || '').slice(0, 200))
+      .replace('{sectionBrief}', () => String(sectionBrief || '').slice(0, 1600))
+      .replace('{sectionWidgets}', () => widgetLine)
+      .replace(/{columnX}/g, () => String(colX))
+      .replace(/{columnY}/g, () => String(colY));
+
+    /* The user turn for a section writer restates its own assignment. The
+       original request is still in the system prompt as THE ASK (so the writer
+       keeps the user's tone and constraints in view), but what it must act on
+       now is its section. */
+    const userTurn = isSection
+      ? `Write the section "${String(sectionTitle).slice(0, 200)}" now, in the column at x=${colX} starting at y=${colY}. Cover: ${String(sectionBrief || '').slice(0, 1200)}`
+      : prompt.trim().slice(0, 6000);
 
     const messages: ChatMsg[] = [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: prompt.trim().slice(0, 6000) },
+      { role: 'user', content: userTurn },
     ];
 
+    const plan = isSection ? SECTION_PLAN : BUILD_PLANS[profile];
     const inputTokens = messages.reduce((n, m) => n + estimateTokens(m.content), 0);
     console.debug(
-      `[Agent] profile=${profile} model-plan=${BUILD_PLANS[profile].map((s) => s.model).join(',')} ` +
+      `[Agent] ${isSection ? `section="${sectionTitle}" col=${colX}` : `profile=${profile}`} ` +
+      `model-plan=${plan.map((s: HedgeSlot) => s.model).join(',')} ` +
       `input≈${inputTokens}tok maxOut=${maxTokens} snapshot=${rich.length}+${far.length} ` +
       `dropped=[${fitted.dropped.join(',')}] trimmed=[${fitted.trimmed.join(',')}]`
     );
 
     try {
       const { stream, model } = await openHedgedStream(
-        apiKeys, startKey, messages, BUILD_PLANS[profile],
-        { maxTokens, temperature: temperatureFor(profile, isWorkflow) },
+        apiKeys, startKey, messages, plan,
+        { maxTokens, temperature: isSection ? 0.5 : temperatureFor(profile, isWorkflow) },
       );
       return new NextResponse(stream, {
         headers: {
