@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ChatMsg, HedgeSlot, nimApiKeys, openHedgedStream } from '@/lib/nim/hedge';
+import { ChatMsg, nimApiKeys, openHedgedStream } from '@/lib/nim/hedge';
+import { CHAT_PLAN } from '@/lib/nim/models';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -15,15 +16,12 @@ export const maxDuration = 300;
  * unnecessary and inexcusable.
  */
 
-/* Region questions are reasoning-heavy (read a file, cross-reference a chart,
-   plan a schedule), so this leads with the frontier model and hedges the fast
-   ones behind it — the opposite balance to chat, which optimises for TTFT. */
-const PLAN: HedgeSlot[] = [
-  { model: 'nvidia/llama-3.3-nemotron-super-49b-v1', delayMs: 0 },
-  { model: 'mistralai/mistral-large-3-675b-instruct-2512', delayMs: 3500 },
-  { model: 'meta/llama-3.1-8b-instruct', delayMs: 9000 },
-  { model: 'nvidia/llama-3.3-nemotron-super-49b-v1', delayMs: 18_000 },
-];
+/* Same conversation plan as chat: this also answers in markdown, so first token
+   is what the user feels. Its old second slot was mistral-large-3-675b, which
+   has returned HTTP 410 Gone on every key since 2026-07-23 — so the frame
+   agent's designated "frontier depth" lane had in fact been failing instantly
+   on every question for weeks. */
+const PLAN = CHAT_PLAN;
 
 const SYSTEM_PROMPT = `You are the Mindspace Frame Agent. The user has drawn a frame around a region of their infinite canvas and asked you about what's inside it. You are an expert analyst, editor, planner, researcher and engineer.
 

@@ -54,12 +54,23 @@ function isAutoGrow(type?: string): boolean {
  * costs a little whitespace; under-reserving costs overlapping text, so this
  * errs high on purpose.
  */
-export function estimateHeight(obj: Partial<CanvasObjectData>): number {
-  const base = Number(obj.height) || 100;
-  if (!isAutoGrow(obj.type)) return base;
+/**
+ * Height a block's CONTENT actually needs, ignoring whatever height it was
+ * declared with.
+ *
+ * This is the honest number. `estimateHeight` below deliberately floors at the
+ * stored height (never shrink someone's block), which is right for the user's
+ * own work but wrong for a block the AGENT just invented: models routinely
+ * declare height 400-800 for two lines of text, and because the layout engine
+ * then reserves all 800px, the board comes out with enormous dead gaps between
+ * blocks — the "why is it so spaced out and empty" complaint. The agent uses
+ * this to size its own blocks truthfully before they are created.
+ */
+export function contentHeight(obj: Partial<CanvasObjectData>): number {
+  if (!isAutoGrow(obj.type)) return Number(obj.height) || 100;
 
   const content = String(obj.content ?? '');
-  if (!content) return base;
+  if (!content) return Number(obj.height) || 100;
 
   const w = Number(obj.width) || 200;
   const isHeading = obj.type === 'heading';
@@ -77,7 +88,15 @@ export function estimateHeight(obj: Partial<CanvasObjectData>): number {
       return n + Math.max(1, Math.ceil(line.length / perLine)) * weight;
     }, 0);
 
-  return Math.max(base, Math.ceil(lines * lineH + pad));
+  return Math.ceil(lines * lineH + pad);
+}
+
+export function estimateHeight(obj: Partial<CanvasObjectData>): number {
+  const base = Number(obj.height) || 100;
+  if (!isAutoGrow(obj.type)) return base;
+  const content = String(obj.content ?? '');
+  if (!content) return base;
+  return Math.max(base, contentHeight(obj));
 }
 
 /**
