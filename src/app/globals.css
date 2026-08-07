@@ -1764,6 +1764,42 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
   outline: none;
 }
 
+/* ============================================
+   Hit area.
+
+   Canvas widgets are dense on purpose — a to-do checkbox draws at 20px
+   because a 44px one would tower over the line of text beside it. But a
+   20px checkbox is a 20px TARGET, and it is the single most-clicked
+   control in the app: on a trackpad it takes aim, and on a touchscreen it
+   is a coin toss between ticking the task, grabbing the drag handle two
+   pixels to its left, and putting the caret in the text.
+
+   The fix is the one every platform recommends — extend the target past
+   the paint, don't grow the paint. This pseudo-element is invisible and
+   inherits the button's pointer-events, so the control keeps its size and
+   gains the reach.
+
+   The inset is deliberately modest. These sit in rows next to each other,
+   and a target that swallows its neighbour's is not an improvement.
+   ============================================ */
+.hit-reach {
+  position: relative;
+}
+.hit-reach::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border-radius: inherit;
+}
+
+/* Touch has no hover to aim with and a finger is far blunter than a
+   cursor, so it gets the full reach the guidelines ask for. */
+@media (pointer: coarse) {
+  .hit-reach::after {
+    inset: -12px;
+  }
+}
+
 /* On the dark paper the warm accent alone is too low-contrast against a dark
    card, so the ring gets a light halo to separate it from whatever is behind. */
 :root[data-canvas-theme="dark"] :where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {

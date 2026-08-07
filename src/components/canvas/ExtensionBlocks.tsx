@@ -1369,7 +1369,10 @@ export function ProgressBlock({ obj }: { obj: CanvasObjectData }) {
             onClick={(e) => { stop(e); patch({ progressTarget: 10, progressCurrent: Math.round((value / 100) * 10) }); }}
             onMouseDown={stop} onPointerDown={stop}
             title="Count real units instead of a percentage"
-            className="text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+            /* `--text-muted` is the faintest ink in the palette — around
+               1.8:1 on the light paper. Fine for a decorative hairline,
+               not for a control with a label on it. */
+            className="text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors cursor-pointer"
           >
             + Track real numbers
           </button>

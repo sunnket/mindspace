@@ -282,7 +282,7 @@ function TodoRow({
         onClick={(e) => { e.stopPropagation(); onToggle(); }}
         onMouseDown={(e) => e.stopPropagation()}
         aria-label={item.done ? 'Mark as not done' : 'Mark as done'}
-        className={`mt-0.5 w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center transition-all cursor-pointer ${
+        className={`hit-reach mt-0.5 w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center transition-all cursor-pointer ${
           item.done
             ? 'bg-[var(--accent)] border-[var(--accent)] text-white shadow-[0_0_10px_rgba(var(--accent-rgb),0.4)]'
             : 'border-[var(--text-muted)] hover:border-[var(--accent)]'
@@ -329,10 +329,11 @@ function TodoRow({
           className={`outline-none text-sm leading-relaxed transition-all break-words ${
             /* Done is not gone. `--text-muted` at 60% opacity put finished
                tasks somewhere around 1.9:1 on this card — legible as a
-               smudge, not as words, so you couldn't read back what you had
-               already done. Tertiary at full opacity still reads as
-               settled but stays above the 4.5:1 floor. */
-            item.done ? 'text-[var(--text-tertiary)]' : 'text-[var(--text-primary)]'
+               smudge, not as words, so you could see that something had
+               been done but not read back what. Secondary clears 4.5:1 on
+               both papers; the strike is what says "finished", so the ink
+               doesn't have to fade to make the point. */
+            item.done ? 'text-[var(--text-secondary)]' : 'text-[var(--text-primary)]'
           }`}
           style={{
             fontFamily: "'Inter', sans-serif",
@@ -357,7 +358,7 @@ function TodoRow({
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
         onMouseDown={(e) => e.stopPropagation()}
         aria-label="Remove task"
-        className="opacity-0 group-hover:opacity-40 hover:!opacity-100 transition-opacity text-[var(--text-muted)] hover:text-red-500 cursor-pointer"
+        className="hit-reach opacity-0 group-hover:opacity-40 hover:!opacity-100 transition-opacity text-[var(--text-muted)] hover:text-red-500 cursor-pointer"
         style={{ padding: 4 }}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
