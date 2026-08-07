@@ -225,10 +225,31 @@ export async function deleteObject(id: string): Promise<void> {
   }
 }
 
+/**
+ * The top-level board is called 'root' by everything that NAMES a canvas —
+ * its CanvasState id, the URL, the gallery — but nothing that STORES an
+ * object on it: `addObject` deliberately leaves `parentId` undefined there,
+ * so a root object carries no parent at all.
+ *
+ * Which means asking these three for `'root'` took the truthy branch and
+ * went looking in the by-parent index for the literal string, where no root
+ * object has ever been filed. It always came back empty. The gallery asks
+ * exactly that question — `getAllObjects(ws.id)` — so the main board has
+ * been reporting "0 cards · 0 sketches · 0 threads" and drawing a blank
+ * "Empty board" preview no matter how much was on it.
+ *
+ * Folding the sentinel back to undefined here fixes it for every caller at
+ * once, rather than making each one remember which name it is holding.
+ */
+function asParentKey(parentId?: string): string | undefined {
+  return parentId === 'root' ? undefined : parentId;
+}
+
 export async function getAllObjects(parentId?: string): Promise<CanvasObjectData[]> {
   const db = await getDB();
-  if (parentId) {
-    return db.getAllFromIndex('objects', 'by-parent', parentId);
+  const key = asParentKey(parentId);
+  if (key) {
+    return db.getAllFromIndex('objects', 'by-parent', key);
   }
   const all = await db.getAll('objects');
   return all.filter(o => !o.parentId);
@@ -265,8 +286,9 @@ export async function deleteStroke(id: string): Promise<void> {
 
 export async function getAllStrokes(parentId?: string): Promise<DrawingStroke[]> {
   const db = await getDB();
-  if (parentId) {
-    return db.getAllFromIndex('strokes', 'by-parent', parentId);
+  const key = asParentKey(parentId);
+  if (key) {
+    return db.getAllFromIndex('strokes', 'by-parent', key);
   }
   const all = await db.getAll('strokes');
   return all.filter(s => !s.parentId);
@@ -292,8 +314,9 @@ export async function deleteConnection(id: string): Promise<void> {
 
 export async function getAllConnections(parentId?: string): Promise<ConnectionData[]> {
   const db = await getDB();
-  if (parentId) {
-    return db.getAllFromIndex('connections', 'by-parent', parentId);
+  const key = asParentKey(parentId);
+  if (key) {
+    return db.getAllFromIndex('connections', 'by-parent', key);
   }
   const all = await db.getAll('connections');
   return all.filter(c => !c.parentId);
