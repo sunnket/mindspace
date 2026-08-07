@@ -85,10 +85,25 @@
   --preview-scrim: rgba(245, 239, 231, 0.94);
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* THE RESET, AND WHY IT IS WRAPPED.
+
+   This used to sit unlayered. Tailwind v4 puts every utility in
+   `@layer utilities`, and in the cascade an UNLAYERED rule beats every
+   layered one regardless of specificity — so `* { padding: 0 }` was
+   silently winning against `.p-4`, `.px-3`, `.mt-6` and the other 460-odd
+   spacing utilities written across the app. None of them did anything.
+   That is what made menus feel cramped, text sit flush against the corner
+   of its own card, and controls land hard on the viewport edge.
+
+   Inside `@layer base` the reset still clears the browser's defaults (base
+   comes before utilities) but no longer outranks a class someone wrote on
+   purpose. Anything that genuinely needs zero spacing states it itself. */
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
 }
 
 html, body {
