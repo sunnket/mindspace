@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useCanvasStore, isAutoCleanable } from '@/store/canvasStore';
 import { useVoiceStore } from '@/store/voiceStore';
 import { CanvasObjectData } from '@/lib/db';
-import { getSnapPoints, randomStickyColor, dragState, endActiveDrag } from '@/lib/utils';
+import { getSnapPoints, randomStickyColor, dragState, endActiveDrag, stickyTilt, STICKY_DEFAULT_COLOR } from '@/lib/utils';
 import { ensureReadableInk, readableInk, paperColor } from '@/lib/canvasTheme';
 import { reportMeasuredHeight, forgetMeasuredHeight } from '@/lib/canvasLayout';
 import { isUrl, newLinkCard } from '@/lib/linkPreview';
@@ -1902,10 +1902,10 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
   const semanticInk = useMemo(() => {
     if (!semantic) return '';
     if (obj.type === 'sticky') {
-      const bg = (obj.style?.color as string) || '#FEF3C7';
+      const bg = (obj.style?.color as string) || STICKY_DEFAULT_COLOR;
       return /^#/.test(bg)
         ? ensureReadableInk(obj.style?.textColor as string | undefined, bg)
-        : readableInk('#FEF3C7');
+        : readableInk(STICKY_DEFAULT_COLOR);
     }
     if (obj.type === 'card') {
       return (obj.style?.textColor as string | undefined) || 'var(--text-primary)';
@@ -3097,13 +3097,13 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
         );
 
       case 'sticky': {
-        // Sticky backgrounds are light pastels; its ink must contrast with the
+        // Sticky backgrounds are light paper; its ink must contrast with the
         // STICKY, not the canvas theme (otherwise light text on a light note is
         // invisible when the canvas is dark).
-        const stickyBg = (obj.style?.color as string) || '#FEF3C7';
+        const stickyBg = (obj.style?.color as string) || STICKY_DEFAULT_COLOR;
         const stickyInk = /^#/.test(stickyBg)
           ? ensureReadableInk(obj.style?.textColor as string | undefined, stickyBg)
-          : readableInk('#FEF3C7');
+          : readableInk(STICKY_DEFAULT_COLOR);
         return (
           <div
             className="sticky-note"
@@ -3112,8 +3112,13 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
               width: '100%',
               height: '100%',
               color: stickyInk,
+              // Nobody sticks a note on square. Derived from the id so a note
+              // leans the same way for as long as it exists — a random tilt
+              // would reshuffle the whole board on every render.
+              ['--sticky-tilt' as string]: `${stickyTilt(obj.id)}deg`,
             }}
           >
+            <span className="sticky-curl" aria-hidden="true" />
             {isEditing ? (
               <div
                 key="edit"

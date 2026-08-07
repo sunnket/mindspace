@@ -159,7 +159,15 @@ export function throttle<T extends (...args: unknown[]) => void>(
 }
 
 /**
- * Generate a random pastel color
+ * The colour a note is born in when nobody picked one. Kept as a literal
+ * rather than the CSS variable because the ink-contrast maths has to read
+ * it — `readableInk` needs a hex to measure luminance against, and a
+ * `var(...)` string tells it nothing.
+ */
+export const STICKY_DEFAULT_COLOR = '#FDF07A';
+
+/**
+ * Pick a sheet off the pad.
  */
 export function randomStickyColor(): string {
   const colors = [
@@ -168,8 +176,25 @@ export function randomStickyColor(): string {
     'var(--sticky-blue)',
     'var(--sticky-green)',
     'var(--sticky-purple)',
+    'var(--sticky-orange)',
   ];
   return colors[Math.floor(Math.random() * colors.length)];
+}
+
+/**
+ * How far a given note leans, in degrees.
+ *
+ * A board where every note is perfectly square to the grid reads as a
+ * spreadsheet. A hand-placed one never is. The angle is hashed out of the
+ * note's own id so it is stable for the life of the note — picking it at
+ * random on render would have the whole board twitch on every repaint, and
+ * storing it would put a purely visual number into the saved document.
+ */
+export function stickyTilt(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  // ±1.4°, quantised to a tenth so the value stays short in the style attr
+  return Math.round(((Math.abs(h) % 281) / 100 - 1.4) * 10) / 10;
 }
 
 /**

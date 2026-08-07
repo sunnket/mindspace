@@ -72,11 +72,16 @@
   --well-inset-deep: inset 0 2px 5px rgba(90, 62, 40, 0.12);
   --track: rgba(90, 62, 40, 0.08);
 
-  --sticky-yellow: #FFF8DC;
-  --sticky-pink: #FFE4E6;
-  --sticky-blue: #E0F2FE;
-  --sticky-green: #DCFCE7;
-  --sticky-purple: #F3E8FF;
+  /* Actual sticky-note stock. These were pastels — cornsilk, rose water,
+     powder blue — which is why a "yellow" note read as cream card rather
+     than paper. Real pads are dyed, and the colour is most of what makes
+     one recognisable across a room. Still light enough to take dark ink. */
+  --sticky-yellow: #FDF07A;
+  --sticky-pink: #FFB0C4;
+  --sticky-blue: #A8DDF5;
+  --sticky-green: #BFE88F;
+  --sticky-purple: #D6BDF2;
+  --sticky-orange: #FFC48A;
 
   /* The wash a gallery preview lays over its blueprint so the readable text on
      top never has to compete with whatever block happens to be behind it. It is
@@ -488,30 +493,109 @@ html, body {
    Only `transform` and `opacity` animate. The cast shadow is a pseudo-element
    whose opacity rides along, rather than an animated box-shadow, which would
    repaint the note on every frame. */
+/* THE MATERIAL.
+
+   What used to be here was a 12px-rounded rectangle filled with a pale
+   pastel and wearing `--shadow-md`, the same shadow as every card in the
+   app. It read as a card that happened to be yellow.
+
+   Paper is not a card, and the difference is four things:
+
+   1. Corners.   A Post-it is guillotined, not rounded. 2px, and the
+                 bottom-right is squarer still because it is peeling.
+   2. Shadow.    A sheet of paper is 0.1mm thick. It gets a TIGHT contact
+                 shadow right under the edge, not a card's soft 12px cloud
+                 — that cloud is what made these float like glass panels.
+   3. Grain.     Real stock is fibrous and unevenly lit. `::before` lays
+                 down turbulence plus the light falling across a sheet that
+                 curls away from the wall below the glue line.
+   4. Tilt.      Nobody sticks a note on square. Each one leans by a degree
+                 or so, derived from its id so it never changes.
+
+   The colour still arrives as an inline `background` from the object's
+   style, which is why none of the texture lives on this element: the
+   shorthand would blow `background-image` away every time. It all sits on
+   the overlay instead. */
 .sticky-note {
   position: relative;
   font-family: 'Inter', sans-serif;
-  padding: 16px 20px;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
+  padding: 18px 20px 22px;
+  /* Cut, not moulded. The bottom-right is the corner that lifts. */
+  border-radius: 2px 2px 1px 2px;
   min-width: 180px;
   min-height: 120px;
   transform-origin: 50% 0%;
-  transform: perspective(760px) rotateX(1.1deg);
+  transform: perspective(760px) rotateX(1.1deg) rotate(var(--sticky-tilt, 0deg));
+  box-shadow:
+    /* the edge sitting on the surface */
+    0 1px 1px rgba(45, 42, 38, 0.20),
+    /* the lifted bottom throwing a short, soft shadow */
+    0 7px 16px -9px rgba(45, 42, 38, 0.42);
   transition: box-shadow 0.2s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* The paper curving away from the wall as it leaves the adhesive. */
+/* Paper stock and the light on it.
+
+   Three stacked layers, all multiplying into whatever colour the note was
+   given: the fibre, the seam where the adhesive band ends, and the shading
+   of a sheet that is flat at the top and hanging free at the bottom. */
 .sticky-note::before {
   content: '';
   position: absolute;
-  inset: auto 0 0 0;
-  height: 26%;
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0));
-  opacity: 0.85;
-  transition: opacity 0.2s ease;
+  inset: 0;
+  border-radius: inherit;
   pointer-events: none;
+  background-image:
+    /* Where the adhesive stops. This started as a hairline seam and it was
+       wrong twice over: a real note shows no line on its printed face, and
+       at 26% down the rule landed straight through the first line of text.
+       What you actually see is a change in sheen — the glued band is held
+       flat and dull, the paper below it starts to catch the light. So it is
+       a soft ramp, high enough to stay clear of the writing. */
+    linear-gradient(to bottom,
+      rgba(45, 42, 38, 0.055) 0%,
+      rgba(45, 42, 38, 0.045) 13%,
+      rgba(255, 255, 255, 0.16) 19%,
+      rgba(255, 255, 255, 0.28) 40%,
+      rgba(255, 255, 255, 0.10) 72%,
+      rgba(45, 42, 38, 0.09) 100%),
+    /* fibre */
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23p)' opacity='0.34'/%3E%3C/svg%3E");
+  background-size: 100% 100%, 140px 140px;
+  mix-blend-mode: multiply;
+  opacity: 0.9;
+  transition: opacity 0.2s ease;
+}
+
+/* The corner that has stopped sticking.
+
+   A triangle occupying the bottom-right, clipped along the fold. What you
+   are looking at is the BACK of the paper: unprinted, so it reads lighter
+   and flatter than the face, and it throws a short shadow back onto the
+   note along the crease. The first pass at this was a plain square with a
+   diagonal gradient, which just looked like a smudge — a fold needs a hard
+   edge on the crease side to be legible as a fold.
+
+   Clipping the note itself would have been the literal way to do it, and
+   would also have clipped the cast shadow and the selection ring. */
+.sticky-note .sticky-curl {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 30px;
+  height: 30px;
+  pointer-events: none;
+  /* the flap: bottom-right half of the box, folded along the crease */
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  background: linear-gradient(
+    315deg,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(255, 255, 255, 0.42) 38%,
+    rgba(45, 42, 38, 0.10) 78%,
+    rgba(45, 42, 38, 0.26) 100%);
+  /* the shadow the raised flap drops back onto the sheet */
+  filter: drop-shadow(-2px -2px 2px rgba(45, 42, 38, 0.28));
+  transition: width 0.22s ease, height 0.22s ease;
 }
 
 /* What the lifted bottom edge casts onto the canvas underneath it. */
@@ -532,7 +616,13 @@ html, body {
 /* `:not(.dragging)` matters: without it, every note the cursor crosses while
    you haul one across the board flutters in its wake. */
 .canvas-object:not(.dragging):hover .sticky-note {
-  box-shadow: var(--shadow-lg);
+  /* The paper lifts a little further off the surface — the contact shadow
+     softens and travels, which is what "off the wall" looks like. It is
+     still paper, so it never grows into the card shadow this used to
+     borrow (`--shadow-lg`), which read as a floating glass panel. */
+  box-shadow:
+    0 2px 2px rgba(45, 42, 38, 0.16),
+    0 14px 26px -12px rgba(45, 42, 38, 0.50);
   will-change: transform;
   animation: sticky-flutter 0.62s cubic-bezier(0.33, 1, 0.68, 1) both;
 }
@@ -541,30 +631,58 @@ html, body {
   opacity: 0.95;
 }
 
-.canvas-object:not(.dragging):hover .sticky-note::before {
-  opacity: 1;
+/* The corner peels back further when the note is disturbed. */
+.canvas-object:not(.dragging):hover .sticky-note .sticky-curl {
+  width: 34px;
+  height: 34px;
 }
 
 /* Swings that shrink — the note lifts, overshoots past its rest angle, and
-   settles. Ending ON the rest angle (not at 0) is what stops the snap-back. */
+   settles. Ending ON the rest angle (not at 0) is what stops the snap-back.
+
+   Every frame carries the note's own `--sticky-tilt` through. Leaving it
+   out (as these did) snapped each note square to the board the instant the
+   cursor touched it, then dropped it back on the lean when it left. */
 @keyframes sticky-flutter {
-  0% { transform: perspective(760px) rotateX(1.1deg); }
-  26% { transform: perspective(760px) rotateX(8.4deg); }
-  50% { transform: perspective(760px) rotateX(-1.6deg); }
-  72% { transform: perspective(760px) rotateX(3.4deg); }
-  88% { transform: perspective(760px) rotateX(0.4deg); }
-  100% { transform: perspective(760px) rotateX(1.1deg); }
+  0% { transform: perspective(760px) rotateX(1.1deg) rotate(var(--sticky-tilt, 0deg)); }
+  26% { transform: perspective(760px) rotateX(8.4deg) rotate(var(--sticky-tilt, 0deg)); }
+  50% { transform: perspective(760px) rotateX(-1.6deg) rotate(var(--sticky-tilt, 0deg)); }
+  72% { transform: perspective(760px) rotateX(3.4deg) rotate(var(--sticky-tilt, 0deg)); }
+  88% { transform: perspective(760px) rotateX(0.4deg) rotate(var(--sticky-tilt, 0deg)); }
+  100% { transform: perspective(760px) rotateX(1.1deg) rotate(var(--sticky-tilt, 0deg)); }
 }
 
-/* Typing into a note should not have it bobbing under the caret. */
+/* Typing into a note should not have it bobbing under the caret — and a
+   note being written on is a note pressed flat under a hand, so it loses
+   its lean too. */
 .canvas-object .sticky-note:has(.text-block-editable) {
   animation: none !important;
   transform: perspective(760px) rotateX(0deg);
 }
 
+/* On a dark board a dark shadow is invisible, so the note's edge dissolves
+   into the canvas and the paper stops reading as a physical object. The
+   contact shadow deepens (it has further to fall before it disappears) and
+   the top edge picks up a hairline of the light the sheet is catching. */
+[data-canvas-theme="dark"] .sticky-note {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 1px 2px rgba(0, 0, 0, 0.55),
+    0 8px 20px -8px rgba(0, 0, 0, 0.70);
+}
+
+[data-canvas-theme="dark"] .canvas-object:not(.dragging):hover .sticky-note {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 2px 4px rgba(0, 0, 0, 0.55),
+    0 16px 32px -12px rgba(0, 0, 0, 0.78);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .canvas-object:not(.dragging):hover .sticky-note { animation: none; }
   .sticky-note { transition: box-shadow 0.2s ease; }
+  /* The curl still grows on hover; it is a 22ms width change, not motion
+     that travels, so it stays. The flutter is what goes. */
 }
 
 /* Floating card */
