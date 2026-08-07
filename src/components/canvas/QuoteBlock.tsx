@@ -2,6 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { CanvasObjectData } from '@/lib/db';
+import { useCanvasStore } from '@/store/canvasStore';
 import AnimatedText from './AnimatedText';
 import { resolveAnim } from '@/lib/textAnim';
 
@@ -24,6 +25,9 @@ export default function QuoteBlock({ obj, isEditing, onBlur, innerRef }: {
   const anim = obj.style?.textAnim;
   const animated = !isEditing && !!resolveAnim(anim)?.preset;
 
+  const updateObject = useCanvasStore((s) => s.updateObject);
+  const author = (obj.style?.quoteAuthor as string | undefined) || '';
+
   const textStyle: React.CSSProperties = {
     fontFamily: (obj.style?.fontFamily as string) || "'Lora', serif",
     fontSize: obj.style?.fontSize ? `${obj.style.fontSize}px` : '24px',
@@ -31,10 +35,15 @@ export default function QuoteBlock({ obj, isEditing, onBlur, innerRef }: {
   };
 
   return (
-    // Tailwind padding utilities are dead in this app (unlayered global reset) — inline padding
     <div className="w-full h-full flex flex-col items-center justify-center text-center" style={{ padding: 28 }}>
       <div className="relative max-w-full">
-        <span className="absolute -top-8 -left-6 text-6xl text-[var(--accent)] opacity-20 font-serif leading-none select-none">“</span>
+        {/* The marks were `--accent` at 20% — a mid brown at a fifth
+            strength, which on the dark board came out as two faint
+            thumbprints and on paper as almost nothing. They are ornament,
+            so they should stay quiet, but ornament you cannot see is just
+            an alignment bug. They also sat at -top-8 against -bottom-10,
+            which is why the closing mark looked like it had come loose. */}
+        <span className="absolute -top-8 -left-6 text-6xl text-[var(--text-tertiary)] opacity-55 font-serif leading-none select-none" aria-hidden="true">“</span>
         {animated ? (
           <div
             className="text-2xl font-light italic leading-relaxed text-[var(--text-primary)] min-w-[20px] whitespace-pre-wrap break-words"
@@ -55,7 +64,31 @@ export default function QuoteBlock({ obj, isEditing, onBlur, innerRef }: {
             data-placeholder="Your wisdom here..."
           />
         )}
-        <span className="absolute -bottom-10 -right-6 text-6xl text-[var(--accent)] opacity-20 font-serif leading-none select-none">”</span>
+        <span className="absolute -bottom-8 -right-6 text-6xl text-[var(--text-tertiary)] opacity-55 font-serif leading-none select-none" aria-hidden="true">”</span>
+      </div>
+
+      {/* Who said it.
+
+          The insert menu has always described this block as "Set a line
+          apart, with attribution" and there was nowhere to put a name —
+          the block rendered the sentence and stopped. An em-dash and a
+          small-caps line is the convention, and it stays out of the way
+          until someone clicks it. */}
+      <div
+        contentEditable
+        suppressContentEditableWarning
+        onMouseDown={(e) => e.stopPropagation()}
+        onBlur={(e) => {
+          const next = e.currentTarget.innerText.replace(/^\s*—\s*/, '').trim();
+          if (next !== author) updateObject(obj.id, { style: { ...obj.style, quoteAuthor: next } });
+        }}
+        data-placeholder="Attribute this"
+        aria-label="Attribution"
+        className="quote-attribution outline-none text-[13px] font-medium tracking-wide text-[var(--text-tertiary)] cursor-text"
+        style={{ marginTop: 18 }}
+        suppressHydrationWarning
+      >
+        {author ? `— ${author}` : ''}
       </div>
     </div>
   );

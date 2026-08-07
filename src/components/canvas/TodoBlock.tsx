@@ -301,6 +301,15 @@ function TodoRow({
       </button>
 
       <div className="relative flex-1 min-w-0">
+        {/* The strike is drawn over THIS wrapper, not over the row.
+
+            It used to hang off the row itself, which is `flex-1` — so the
+            pencil line was as wide as the card no matter how short the
+            task was, and a two-word item got a stroke that carried on for
+            another 200px into empty space. An inline-block shrinks to the
+            words, which is what a person crossing something out would
+            actually cover. */}
+        <div className="relative inline-block align-top max-w-full">
         <div
           ref={textRef}
           data-todo-id={item.id}
@@ -318,7 +327,12 @@ function TodoRow({
             }
           }}
           className={`outline-none text-sm leading-relaxed transition-all break-words ${
-            item.done ? 'text-[var(--text-muted)] opacity-60' : 'text-[var(--text-primary)]'
+            /* Done is not gone. `--text-muted` at 60% opacity put finished
+               tasks somewhere around 1.9:1 on this card — legible as a
+               smudge, not as words, so you couldn't read back what you had
+               already done. Tertiary at full opacity still reads as
+               settled but stays above the 4.5:1 floor. */
+            item.done ? 'text-[var(--text-tertiary)]' : 'text-[var(--text-primary)]'
           }`}
           style={{
             fontFamily: "'Inter', sans-serif",
@@ -326,16 +340,17 @@ function TodoRow({
         >
           {item.text}
         </div>
-        {!item.text && <div className="absolute top-0 left-0 text-[var(--text-muted)] text-sm italic pointer-events-none opacity-40">What needs to be done?</div>}
 
         {/* Pencil Strike Overlay */}
         <AnimatePresence>
           {item.done && (
-            <div className="absolute top-1/2 left-0 w-full pointer-events-none overflow-visible">
+            <div className="absolute top-1/2 left-0 w-full pointer-events-none">
               <PencilStrike />
             </div>
           )}
         </AnimatePresence>
+        </div>
+        {!item.text && <div className="absolute top-0 left-0 text-[var(--text-muted)] text-sm italic pointer-events-none opacity-40">What needs to be done?</div>}
       </div>
 
       <button
@@ -360,7 +375,11 @@ function PencilStrike() {
 
   return (
     <svg
-      className="absolute top-[-2px] left-[-2%] w-[104%] h-[6px] overflow-visible"
+      /* `overflow-visible` plus a second path running to x=150 in a
+         0–120 viewBox meant the stroke escaped the box entirely and kept
+         going. A pen does overshoot the last letter — by a few pixels,
+         not by a quarter of the line. */
+      className="absolute top-[-2px] left-[-3px] w-[calc(100%+6px)] h-[6px]"
       preserveAspectRatio="none"
       viewBox="0 0 120 4"
     >
@@ -377,7 +396,7 @@ function PencilStrike() {
       />
       {/* Second rough stroke */}
       <motion.path
-        d="M 0 1 C 25 3, 50 -1, 75 2 C 100 0, 125 3, 150 1"
+        d="M 0 1 C 20 3, 40 -1, 60 2 C 80 0, 100 3, 120 1"
         fill="none"
         stroke="#C97B4B"
         strokeWidth="1.2"

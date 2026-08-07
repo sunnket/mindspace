@@ -1356,12 +1356,22 @@ export function ProgressBlock({ obj }: { obj: CanvasObjectData }) {
             </button>
           </>
         ) : (
+          /* This is an offer, not a reading.
+
+             It was set in the same extra-bold face the block uses for its
+             actual numbers, so "+ track real numbers (7 / 12 chapters…)"
+             sat under the goal name looking like the goal's data — people
+             read it as a real count of chapters. Regular weight, a hair
+             larger than the 9.5px it was (which is under any legible
+             floor), and the example dropped: the label alone says what
+             the button does. */
           <button
             onClick={(e) => { stop(e); patch({ progressTarget: 10, progressCurrent: Math.round((value / 100) * 10) }); }}
             onMouseDown={stop} onPointerDown={stop}
-            className="text-[9.5px] font-bold text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+            title="Count real units instead of a percentage"
+            className="text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors cursor-pointer"
           >
-            + track real numbers (7 / 12 chapters…)
+            + Track real numbers
           </button>
         )}
       </div>
@@ -1415,8 +1425,13 @@ export function ProgressBlock({ obj }: { obj: CanvasObjectData }) {
             {[25, 50, 75].map((m) => (
               <span
                 key={m}
-                className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 pointer-events-none"
-                style={{ left: `${m}%`, background: value >= m ? 'rgba(255,255,255,0.55)' : 'var(--border-strong)' }}
+                /* A quarter-mark you cannot see is not a mark. These were
+                   a 1px hairline at 55% white over a saturated fill and
+                   `--border-strong` over a dark well — both dissolved.
+                   2px, and opaque enough to survive either side of the
+                   fill edge. */
+                className="absolute top-1/2 -translate-y-1/2 h-2.5 rounded-full pointer-events-none"
+                style={{ width: 2, left: `${m}%`, background: value >= m ? 'rgba(255,255,255,0.8)' : 'rgba(150,150,150,0.55)' }}
               />
             ))}
             {/* handle */}
@@ -1446,9 +1461,16 @@ export function ProgressBlock({ obj }: { obj: CanvasObjectData }) {
             </button>
           ))}
         </div>
-        <span className="text-lg font-extrabold tabular-nums" style={{ color: barColor }}>
-          {done ? '🎉 ' : ''}{hasTarget && view === 'bar' ? `${current}/${target}` : `${value}%`}
-        </span>
+        {/* The header badge already carries the percentage. Printing it
+            again down here in 18px meant a plain percent goal showed "62%"
+            twice, six centimetres apart, with nothing else to distinguish
+            them — so neither read as the answer. This slot now only speaks
+            when it has something the badge doesn't: the real count. */}
+        {hasTarget && view === 'bar' && (
+          <span className="text-lg font-extrabold tabular-nums" style={{ color: barColor }}>
+            {current}/{target}{unit ? ` ${unit}` : ''}
+          </span>
+        )}
       </div>
     </BlockShell>
   );

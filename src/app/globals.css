@@ -451,12 +451,24 @@ html, body {
    element's own colour changed, the text you could actually SEE did not.
    Inheriting the block's colour at low opacity means the empty block shows you
    the style it will have. */
-.text-block-editable:empty::before {
+.text-block-editable:empty::before,
+.quote-attribution:empty::before {
   content: attr(data-placeholder);
   color: currentColor;
   opacity: 0.4;
   font-style: normal;
   pointer-events: none;
+}
+
+/* An unattributed quote should not advertise the empty slot to the room —
+   it only offers itself once you are already inside the block. */
+.quote-attribution:empty::before {
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.canvas-object:hover .quote-attribution:empty::before,
+.quote-attribution:focus:empty::before {
+  opacity: 0.42;
 }
 
 .text-block-editable h1,
