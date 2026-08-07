@@ -31,6 +31,26 @@ export default function RelaxIcon({ id, size = 18 }: { id: RelaxEffectId; size?:
         </svg>
       );
 
+    // A bloom on a stalk with one leaf — the growing plant, not the loose head.
+    case 'blooming':
+      return (
+        <svg {...common}>
+          <path d="M12 21v-8.2" />
+          <path d="M12 12.8c-3.3 0-5-1.8-5-4s1.7-4 5-4 5 1.8 5 4-1.7 4-5 4Z" />
+          <path d="M12 17.6c-1.9-1.5-3.6-1.8-5.1-1.3" />
+        </svg>
+      );
+
+    // Three petals falling, each at a different angle.
+    case 'petalfall':
+      return (
+        <svg {...common}>
+          <path d="M6.4 3.4c3 1 4.4 3 4.2 5.7-2.4.4-4.2-1.3-4.2-5.7Z" />
+          <path d="M16.9 9.5c1.6 2.8 1.2 5.1-.8 6.7-1.9-1.6-2-4 .8-6.7Z" />
+          <path d="M8.5 15.3c2.6-.4 4.3.8 4.7 3.3-2.3 1.1-4-.2-4.7-3.3Z" />
+        </svg>
+      );
+
     case 'rain':
       return (
         <svg {...common}>

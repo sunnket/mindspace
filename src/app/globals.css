@@ -394,6 +394,67 @@ html, body {
   cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24'><g fill='none' stroke='%23000' stroke-opacity='0.35' stroke-width='4.5' stroke-linecap='round'><path d='M4.6 3.6c-1 4.2-1 9.6 1.2 15.4M10 3c-.8 4.8-.4 10 1.6 16M15.6 3.6c-.6 4.6.2 9.8 2 14.8M20.4 5c-.4 3.8 0 7.6 1 11'/></g><g fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round'><path d='M4.6 3.6c-1 4.2-1 9.6 1.2 15.4M10 3c-.8 4.8-.4 10 1.6 16M15.6 3.6c-.6 4.6.2 9.8 2 14.8M20.4 5c-.4 3.8 0 7.6 1 11'/></g></svg>") 15 15, pointer;
 }
 
+.canvas-container.mode-relax.relax-blooming {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24'><g fill='none' stroke='%23000' stroke-opacity='0.35' stroke-width='4.5' stroke-linecap='round'><path d='M12 21v-8'/><path d='M12 13c-3.4 0-5-1.8-5-4s1.6-4 5-4 5 1.8 5 4-1.6 4-5 4Z'/><path d='M12 17.4c-2-1.4-3.6-1.6-5-1.2'/></g><g fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round'><path d='M12 21v-8'/><path d='M12 13c-3.4 0-5-1.8-5-4s1.6-4 5-4 5 1.8 5 4-1.6 4-5 4Z'/><path d='M12 17.4c-2-1.4-3.6-1.6-5-1.2'/></g></svg>") 15 15, pointer;
+}
+
+.canvas-container.mode-relax.relax-petalfall {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24'><g fill='none' stroke='%23000' stroke-opacity='0.35' stroke-width='4.5' stroke-linecap='round'><path d='M6.5 3.5c3 1 4.4 3 4.2 5.6-2.4.5-4.2-1.2-4.2-5.6Z'/><path d='M16.8 9.6c1.6 2.7 1.2 5-.8 6.6-1.9-1.5-2-3.9.8-6.6Z'/><path d='M8.6 15.4c2.6-.4 4.2.8 4.6 3.2-2.2 1.1-4-.2-4.6-3.2Z'/></g><g fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round'><path d='M6.5 3.5c3 1 4.4 3 4.2 5.6-2.4.5-4.2-1.2-4.2-5.6Z'/><path d='M16.8 9.6c1.6 2.7 1.2 5-.8 6.6-1.9-1.5-2-3.9.8-6.6Z'/><path d='M8.6 15.4c2.6-.4 4.2.8 4.6 3.2-2.2 1.1-4-.2-4.6-3.2Z'/></g></svg>") 15 15, pointer;
+}
+
+/* Stress Reliefer — the Blooming Garden unfurl.
+   These run on the plant's CHILDREN (stem, leaves, head) rather than in the RAF
+   loop, so a bed of thirty plants opening at once costs the main thread nothing;
+   relaxEffects.ts only ever writes the wrapper's sway. Each element's resting
+   style IS its finished state, which is what makes the reduced-motion rule at
+   the bottom work: kill the animation and the flower is simply already open. */
+@keyframes bloom-stem-grow {
+  from { transform: rotate(var(--stem-lean, 0deg)) scaleY(0); }
+  to   { transform: rotate(var(--stem-lean, 0deg)) scaleY(1); }
+}
+
+@keyframes bloom-leaf-open {
+  0%   { transform: rotate(var(--leaf-tilt)) scale(0); opacity: 0; }
+  70%  { transform: rotate(var(--leaf-tilt)) scale(1.12); opacity: 1; }
+  100% { transform: rotate(var(--leaf-tilt)) scale(1); opacity: 1; }
+}
+
+/* A bud that swells, tips over as it takes the weight, then settles open —
+   coming to rest at the lean its own stalk is carrying, not at vertical. */
+@keyframes bloom-head-open {
+  0%   { transform: scale(0.05) rotate(calc(var(--head-tilt, 0deg) - 38deg)); opacity: 0; }
+  30%  { transform: scale(0.42) rotate(calc(var(--head-tilt, 0deg) - 16deg)); opacity: 1; }
+  68%  { transform: scale(1.12) rotate(calc(var(--head-tilt, 0deg) + 6deg)); }
+  85%  { transform: scale(0.97) rotate(calc(var(--head-tilt, 0deg) - 2deg)); }
+  100% { transform: scale(1) rotate(var(--head-tilt, 0deg)); opacity: 1; }
+}
+
+.bloom-stem {
+  transform: rotate(var(--stem-lean, 0deg));
+  animation-name: bloom-stem-grow;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: both;
+}
+
+.bloom-leaf {
+  transform: rotate(var(--leaf-tilt));
+  animation: bloom-leaf-open 620ms cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+
+.bloom-head {
+  transform: rotate(var(--head-tilt, 0deg));
+  animation: bloom-head-open 900ms cubic-bezier(0.2, 1.1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The tool is opt-in — you pick an effect and press the canvas — so the
+     flowers still arrive. What goes is the growth: no swelling, no tipping,
+     no overshoot. The plant is simply there, already open. */
+  .bloom-stem,
+  .bloom-leaf,
+  .bloom-head { animation: none; }
+}
+
 /* Canvas transform layer */
 .canvas-world {
   position: absolute;

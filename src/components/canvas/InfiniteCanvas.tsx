@@ -2271,7 +2271,7 @@ export default function InfiniteCanvas() {
                   <MenuRow
                     onClick={() => { close(); setBgMenuOpen(false); setFlowMenuOpen(false); setRelaxMenuOpen((v) => !v); }}
                     label="Stress Reliefer"
-                    hint="Fifteen ways to let a thought go"
+                    hint="Seventeen ways to let a thought go"
                     active={relaxMenuOpen}
                     dot={!!relaxEffect}
                     data-relax-button

@@ -21,6 +21,7 @@
  *     under the cursor when the canvas moves.
  */
 
+import { BLOOM_FLOWERS, BLOOM_LEAVES } from './bloomAssets';
 import {
   HIRAJOSHI,
   PENTATONIC,
@@ -42,6 +43,8 @@ import {
 
 export type RelaxEffectId =
   | 'flowers'
+  | 'blooming'
+  | 'petalfall'
   | 'rain'
   | 'fireworks'
   | 'galaxy'
@@ -260,6 +263,311 @@ const flowers: RelaxEffect = {
       `translate3d(${p.x + sway - p.size / 2}px, ${p.y - p.size / 2}px, 0) ` +
       `rotate(${p.rot}deg) scale(${scale})`;
     p.el.style.opacity = String(t > 0.65 ? 1 - (t - 0.65) / 0.35 : 1);
+  },
+};
+
+/* ----------------------------------------------------- blooming / petalfall */
+
+/* Both of the botanical effects below draw from lib/bloomAssets.ts — 146 PNGs
+   of real flowers and leaves. The two of them split the artwork along the one
+   axis that matters for motion: a bloom is drawn FACING YOU and may only ever
+   be turned in the plane, while a leaf is a flat blade and can be tumbled in
+   3D. Rotating a face-on bloom about X or Y doesn't read as petals turning, it
+   reads as the flower being squashed — the same trap documented on the older
+   flower burst above. */
+
+/* Warm a slice of the artwork when either effect is first armed, so the opening
+   pop isn't 40 simultaneous first-time requests. Callers deliberately hand over
+   a SLICE and not the whole library: warming all 146 would put that many
+   requests in flight for artwork most bursts never reach. The flag is shared
+   between the two effects because the browser cache is too. */
+let bloomAssetsPreloaded = false;
+function preloadBloomAssets(urls: readonly string[]) {
+  if (bloomAssetsPreloaded || typeof Image === 'undefined') return;
+  bloomAssetsPreloaded = true;
+  for (const src of urls) {
+    const img = new Image();
+    img.src = src;
+  }
+}
+
+/* ----------------------------------------------------------------- blooming */
+
+const BLOOM_STEM_GREENS = [
+  ['#3f7a35', '#6bab53'],
+  ['#356b3d', '#5f9d63'],
+  ['#4a7c3f', '#78b264'],
+  ['#2f6b46', '#57a271'],
+];
+
+/**
+ * One particle is one whole plant: a wrapper holding a stem, two leaves and a
+ * flower head. The unfurl — stem extending, leaves opening, bud blowing open —
+ * is CSS keyframes on those children (see `.bloom-*` in globals.css), so it
+ * runs on the compositor and `step` is left doing what it is allowed to do:
+ * one transform and one opacity, on one node, for the whole plant.
+ */
+const blooming: RelaxEffect = {
+  id: 'blooming',
+  label: 'Blooming Garden',
+  blurb: 'Press the canvas and a flowerbed grows out of it — stems climb, leaves unfurl, and the buds blow open in their own time.',
+  space: 'world',
+  flash: 'rgba(150, 205, 145, 0.42)',
+  burstMs: 9_000,
+  openingPop: 7,
+  spawnEveryMs: 300,
+  spawnPerTick: 1,
+  // A plant is four DOM nodes, not one, so the ceiling is far lower than the
+  // flower burst's — this is a garden filling in, not confetti.
+  maxParticles: 80,
+  onStart() {
+    preloadBloomAssets(BLOOM_FLOWERS.slice(0, 24).concat(BLOOM_LEAVES.slice(0, 12)));
+  },
+  onBurst(x, y, api) {
+    playKoto(pick(PENTATONIC), 0.2);
+    api.spawn(x, y, 14, 1); // pollen shaken loose
+  },
+  create(x, y, now, api, kind, _tint, index) {
+    /* ---- pollen ---- */
+    if (kind === 1) {
+      const size = rand(2.5, 5);
+      const el = document.createElement('div');
+      baseStyle(el, size, 'border-radius:50%;background:#f6d873;box-shadow:0 0 5px rgba(246,216,115,0.8);');
+      const p = particle(el, x + rand(-60, 60), y + rand(-20, 14), size, rand(2600, 4600), now);
+      p.kind = 1;
+      p.vx = rand(-0.35, 0.35);
+      p.vy = rand(-0.55, -0.16);
+      p.a = rand(8, 26); // drift amplitude
+      p.c = rand(0.5, 1.4);
+      p.d = rand(0, Math.PI * 2);
+      p.b = rand(0.45, 0.9); // peak opacity
+      return p;
+    }
+
+    /* ---- a plant ---- */
+    const head = rand(30, 58);
+    const stemLen = rand(48, 124);
+
+    /* Nothing in a flowerbed grows plumb. Each stalk gets a few degrees of lean,
+       and every part that rides it — the head at the tip, both leaves partway up
+       — is placed along that leaned line here, at create time. Get this wrong
+       and the flower floats off the end of its own stem. */
+    const lean = rand(-8, 8);
+    const rad = (lean * Math.PI) / 180;
+    const sinL = Math.sin(rad);
+    const cosL = Math.cos(rad);
+
+    const w = head + Math.abs(sinL) * stemLen * 2;
+    // The head's anchor sits 78% of the way down its own box (roughly where the
+    // petals meet the stalk), so the wrapper is exactly tall enough to put that
+    // anchor on the tip of the stem with no dead space above or below.
+    const h = cosL * stemLen + head * 0.78;
+    const midX = w / 2;
+
+    const el = document.createElement('div');
+    baseStyle(el, w, `height:${h}px;transform-origin:50% 100%;`);
+
+    const [dark, light] = pick(BLOOM_STEM_GREENS);
+    const stemW = rand(2.1, 3.6);
+    const stem = document.createElement('div');
+    stem.className = 'bloom-stem';
+    stem.style.cssText =
+      `position:absolute;left:${midX - stemW / 2}px;bottom:0;width:${stemW}px;height:${stemLen}px;` +
+      `background:linear-gradient(to top, ${dark}, ${light});` +
+      // A rectangle reads as a fence post. The taper is what makes it a stalk.
+      'clip-path:polygon(12% 100%, 88% 100%, 66% 0%, 34% 0%);' +
+      `transform-origin:50% 100%;--stem-lean:${lean.toFixed(2)}deg;` +
+      `animation-duration:${(700 + stemLen * 2.2).toFixed(0)}ms;`;
+    el.appendChild(stem);
+
+    // Leaves ride the stalk at two different heights, one to each side.
+    for (let i = 0; i < 2; i++) {
+      const lf = document.createElement('img');
+      lf.src = pick(BLOOM_LEAVES);
+      lf.alt = '';
+      lf.draggable = false;
+      lf.className = 'bloom-leaf';
+      const ls = head * rand(0.3, 0.46);
+      const side = i === 0 ? -1 : 1;
+      const up = stemLen * (i === 0 ? rand(0.22, 0.4) : rand(0.46, 0.68));
+      lf.style.cssText =
+        `position:absolute;left:${midX + sinL * up + side * ls * 0.52 - ls / 2}px;` +
+        `bottom:${cosL * up}px;width:${ls}px;height:${ls}px;max-width:none;max-height:none;` +
+        `transform-origin:${side < 0 ? '100%' : '0%'} 50%;` +
+        `--leaf-tilt:${(lean + side * rand(18, 42)).toFixed(1)}deg;` +
+        `animation-delay:${(160 + i * 150).toFixed(0)}ms;`;
+      el.appendChild(lf);
+    }
+
+    const bloom = document.createElement('img');
+    bloom.src = pick(BLOOM_FLOWERS);
+    bloom.alt = '';
+    bloom.draggable = false;
+    bloom.className = 'bloom-head';
+    bloom.style.cssText =
+      `position:absolute;left:${midX + sinL * stemLen - head / 2}px;top:0;` +
+      `width:${head}px;height:${head}px;` +
+      'max-width:none;max-height:none;transform-origin:50% 78%;' +
+      // The head carries the stalk's lean plus a little of its own, so it sits
+      // on the tip rather than staring straight up out of a bent stem.
+      `--head-tilt:${(lean * 0.7 + rand(-7, 7)).toFixed(1)}deg;` +
+      `animation-delay:${(220 + stemLen * 1.6).toFixed(0)}ms;`;
+    el.appendChild(bloom);
+
+    /* Fan successive plants around the press instead of scattering them, so a
+       held burst fills a bed rather than piling everything on one spot. */
+    const spread = 118;
+    const a = (index ?? 0) * 2.399963; // golden angle
+    const p = particle(
+      el,
+      x + Math.cos(a) * spread * Math.sqrt(((index ?? 0) % 9) / 9) + rand(-14, 14),
+      y + rand(-16, 22),
+      w,
+      rand(8500, 13500),
+      now
+    );
+    p.kind = 0;
+    p.a = h;
+    p.b = rand(1.1, 3.4); // breeze, in degrees
+    p.c = rand(0.16, 0.42);
+    p.d = rand(0, Math.PI * 2);
+    return p;
+  },
+  step(p, t, now) {
+    if (p.kind === 1) {
+      p.vy *= 0.995;
+      p.x += p.vx;
+      p.y += p.vy;
+      const drift = Math.sin(now / 1000 * p.c + p.d) * p.a;
+      p.el.style.transform = `translate3d(${p.x + drift - p.size / 2}px, ${p.y - p.size / 2}px, 0)`;
+      p.el.style.opacity = String(p.b * Math.min(1, t * 6) * (t > 0.55 ? (1 - t) / 0.45 : 1));
+      return;
+    }
+
+    // Two breaths at unrelated rates, so a bed of them never sways in unison.
+    const sway =
+      Math.sin(now / 1000 * p.c + p.d) * p.b +
+      Math.sin(now / 1000 * p.c * 2.7 + p.d) * p.b * 0.28;
+
+    p.el.style.transform =
+      `translate3d(${p.x - p.size / 2}px, ${p.y - p.a}px, 0) rotate(${sway.toFixed(2)}deg)`;
+    p.el.style.opacity = String(t > 0.82 ? (1 - t) / 0.18 : 1);
+  },
+};
+
+/* ---------------------------------------------------------------- petalfall */
+
+/** Blossoms drift face-on; leaves tumble. */
+const PETAL_BLOSSOM = 0;
+const PETAL_LEAF = 1;
+
+/* The opening pop should arrive as a sky that is ALREADY full, not as an empty
+   screen you wait three seconds for. For a moment after the effect starts,
+   `create` seeds anywhere on the viewport; after that everything enters from
+   above the top edge, the way weather actually does. */
+let petalSeedUntil = 0;
+
+const petalfall: RelaxEffect = {
+  id: 'petalfall',
+  label: 'Petal Drift',
+  blurb: 'Blossom and leaf come down across the whole canvas, on a wind that gusts and settles. Lasts a minute.',
+  space: 'screen',
+  flash: '',
+  burstMs: 60_000,
+  openingPop: 70,
+  spawnEveryMs: 150,
+  spawnPerTick: 2,
+  maxParticles: 240,
+  onStart() {
+    petalSeedUntil = performance.now() + 400;
+    startAmbience('wind');
+    preloadBloomAssets(BLOOM_FLOWERS.slice(0, 24).concat(BLOOM_LEAVES.slice(0, 12)));
+  },
+  onStop() {
+    stopAmbience('wind');
+  },
+  create(_x, _y, now, api, kind) {
+    const { w, h } = api.viewport;
+    const isLeaf = kind !== undefined ? kind === PETAL_LEAF : Math.random() < 0.42;
+
+    /* Depth drives size, speed, opacity and how hard the wind pushes it, all
+       from one number. Without that correlation the fall is a flat sheet of
+       identical petals; with it, the near ones sweep past and the far ones
+       hang back. */
+    const near = Math.random() ** 1.4; // biased far — most of the fall is distance
+    const size = (isLeaf ? rand(16, 44) : rand(20, 54)) * (0.6 + near * 0.8);
+
+    const el = document.createElement('img');
+    el.src = pick(isLeaf ? BLOOM_LEAVES : BLOOM_FLOWERS);
+    el.alt = '';
+    el.draggable = false;
+    baseStyle(el, size);
+
+    const seeding = now < petalSeedUntil;
+    const p = particle(
+      el,
+      rand(-60, w + 60),
+      seeding ? rand(-h * 0.2, h) : rand(-h * 0.35, -size),
+      size,
+      rand(14_000, 24_000),
+      now
+    );
+    p.kind = isLeaf ? PETAL_LEAF : PETAL_BLOSSOM;
+    p.maxScale = near;
+    p.vy = 0.42 + near * 1.5;
+    p.vx = rand(-0.2, 0.45);
+    p.rot = rand(0, 360);
+    p.a = rand(16, 62); // sway amplitude
+    p.c = rand(0.12, 0.44); // sway frequency
+    p.d = rand(0, Math.PI * 2);
+    p.b = 0.5 + near * 0.5; // opacity
+    // In-plane drift only — slow enough that nothing looks like it is spinning.
+    // A leaf's actual tumble is the rock applied in `step`.
+    p.spin = isLeaf ? rand(-0.3, 0.3) : rand(-0.25, 0.25);
+    return p;
+  },
+  step(p, t, now, api) {
+    const { w, h } = api.viewport;
+
+    // One wind for the whole fall, read straight off the clock so every petal
+    // agrees about it without anything having to store it.
+    const wind = Math.sin(now / 3800) * 1.5 + Math.sin(now / 1450 + 1.7) * 0.55;
+
+    p.x += p.vx + wind * (0.35 + p.maxScale);
+    p.y += p.vy;
+    p.rot += p.spin;
+
+    // Recycle rather than churn: a minute of weather would otherwise create and
+    // destroy thousands of nodes.
+    if (p.y > h + 60) {
+      p.y = rand(-140, -p.size);
+      p.x = rand(-60, w + 60);
+    }
+    if (p.x > w + 90) p.x = -80;
+    else if (p.x < -90) p.x = w + 80;
+
+    const drift = Math.sin(now / 1000 * p.c + p.d) * p.a;
+    const x = p.x + drift - p.size / 2;
+    const y = p.y - p.size / 2;
+
+    if (p.kind === PETAL_LEAF) {
+      /* The tumble — allowed here and not on a bloom, because a leaf is a flat
+         blade and turning one through edge-on is exactly what it does on the
+         way down. It ROCKS rather than spins: swept past ±90° a leaf goes
+         genuinely invisible for a few frames and reads as a stray green scratch
+         on the page, so the sweep stops short of the edge and always leaves
+         some face showing. The perspective is what keeps the turn from reading
+         as a flat horizontal squash. */
+      const turn = Math.sin(now / 1000 * p.c * 3.4 + p.d) * (58 + p.a * 0.3);
+      p.el.style.transform =
+        `translate3d(${x}px, ${y}px, 0) perspective(340px) ` +
+        `rotateY(${turn.toFixed(1)}deg) rotateX(${(turn * 0.28).toFixed(1)}deg) ` +
+        `rotate(${p.rot.toFixed(1)}deg)`;
+    } else {
+      p.el.style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${p.rot.toFixed(1)}deg)`;
+    }
+
+    p.el.style.opacity = String(p.b * Math.min(1, t * 10) * (t > 0.93 ? (1 - t) / 0.07 : 1));
   },
 };
 
@@ -1862,12 +2170,12 @@ const aurora: RelaxEffect = {
 /* -------------------------------------------------------------------------- */
 
 export const RELAX_EFFECTS: Record<RelaxEffectId, RelaxEffect> = {
-  flowers, rain, fireworks, galaxy, bubblewrap, chimes, ripples,
-  ocean, handpan, snow, fireflies, lanterns, gate, breathing, aurora,
+  flowers, blooming, petalfall, rain, fireworks, galaxy, bubblewrap, chimes,
+  ripples, ocean, handpan, snow, fireflies, lanterns, gate, breathing, aurora,
 };
 
 export const RELAX_EFFECT_LIST: RelaxEffect[] = [
   gate, ocean, aurora, breathing, handpan, chimes,
-  flowers, fireworks, lanterns, fireflies, galaxy, ripples,
-  bubblewrap, rain, snow,
+  blooming, flowers, petalfall, fireworks, lanterns, fireflies, galaxy,
+  ripples, bubblewrap, rain, snow,
 ];
