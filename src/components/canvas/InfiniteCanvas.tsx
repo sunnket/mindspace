@@ -75,7 +75,7 @@ import { useCollabStore } from '@/store/collabStore';
    between the canvas arriving and the canvas arriving eventually.
    ------------------------------------------------------------------ */
 const PdfReaderLayer = dynamic(() => import('./PdfReaderLayer'), { ssr: false });
-const ConstellationView = dynamic(() => import('./ConstellationView'), { ssr: false });
+const UniverseView = dynamic(() => import('./UniverseView'), { ssr: false });
 const RelaxEffectsLayer = dynamic(() => import('./RelaxEffectsLayer'), { ssr: false });
 
 /* The same argument, one level down: these are overlays, modals and side
@@ -2469,7 +2469,7 @@ export default function InfiniteCanvas() {
       {/* Constellation View: a dark, user-composed star map of the board.
           Opened from the minimap; portals itself to <body>; renders only when
           `constellationOpen`. */}
-      <ConstellationView />
+      <UniverseView />
 
       {/* Immersive PDF Reader: cinematic reading room for a dropped PDF.
           Opened from a PDF file block; portals to <body>; renders only when a
