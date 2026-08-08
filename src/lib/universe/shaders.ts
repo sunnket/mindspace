@@ -151,8 +151,11 @@ void main() {
   float lights = pop * land * (1.0 - ice) * smoothstep(0.42, 0.2, h);
   col += vec3(1.0, 0.78, 0.42) * lights * night * uCityLights;
 
-  // A trace of ambient so the dark limb is not pure black against the stars.
-  col += albedo * 0.018;
+  /* Starlight. Space is not a darkroom — a world with its day side turned away
+     is still lit by the rest of the galaxy, faintly and coldly. Without this a
+     night-facing planet renders as a perfectly black disc, which reads as a
+     hole punched in the sky rather than as a world. */
+  col += albedo * 0.03 + vec3(0.012, 0.017, 0.032) * (0.4 + 0.6 * night);
 
   gl_FragColor = vec4(col, 1.0);
 }
@@ -275,25 +278,6 @@ void main() {
   col *= 0.34 + 0.78 * limb;
 
   gl_FragColor = vec4(col * 0.92, 1.0);
-}
-`;
-
-/** Additive corona shell around the star. */
-export const CORONA_FRAG = /* glsl */ `
-uniform vec3 uColor;
-uniform float uTime;
-varying vec3 vNormalW;
-varying vec3 vPosW;
-varying vec3 vPosL;
-
-${NOISE}
-
-void main() {
-  vec3 N = normalize(vNormalW);
-  vec3 V = normalize(cameraPosition - vPosW);
-  float rim = pow(1.0 - max(dot(N, V), 0.0), 2.6);
-  float lick = fbm(normalize(vPosL) * 5.0 + vec3(uTime * 0.08), 4) * 0.5 + 0.5;
-  gl_FragColor = vec4(uColor * rim * (0.55 + lick * 0.9) * 0.62, 1.0);
 }
 `;
 
@@ -551,5 +535,160 @@ void main() {
   col += g * uGrain * clamp(mids, 0.0, 1.0);
 
   gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+/* ==================================================================== galaxy */
+
+/**
+ * A spiral galaxy, built entirely on the GPU.
+ *
+ * Every star is stored in POLAR coordinates and turned into a position in the
+ * vertex shader, which is what makes the whole thing affordable: three hundred
+ * thousand stars rotate differentially — the core sweeping round far faster
+ * than the rim, exactly as a real galaxy does — without the CPU touching a
+ * single vertex. Winding the arms on the CPU would mean rewriting a 3.6MB
+ * buffer every frame.
+ *
+ * The arms are logarithmic spirals (theta grows with log r), because that is
+ * the shape real arms take, and the scatter around each arm is scaled by radius
+ * so the arms are tight in the middle and fray at the edge.
+ */
+export const GALAXY_VERT = /* glsl */ `
+attribute float aRadius;
+attribute float aTheta;
+attribute float aZ;
+attribute float aSize;
+attribute vec3 aColor;
+attribute float aSeed;
+
+uniform float uTime;
+uniform float uPixelRatio;
+uniform float uSpin;
+
+varying vec3 vColor;
+varying float vAlpha;
+varying float vCore;
+
+void main() {
+  /* Differential rotation. Orbital speed goes as r^-0.5, so the inner disk
+     laps the outer one and the arms wind up over time. A rigid rotation — one
+     angular speed for the whole disk — is the classic tell of a fake galaxy:
+     it reads as a spinning image rather than as matter in orbit. */
+  float w = uSpin / sqrt(max(aRadius, 0.06));
+  float th = aTheta + uTime * w;
+
+  vec3 p = vec3(cos(th) * aRadius, aZ, sin(th) * aRadius);
+
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  gl_Position = projectionMatrix * mv;
+
+  /* Size attenuates with distance, but is floored: a star that shrinks below a
+     pixel does not fade gracefully, it flickers as it crosses the sample grid,
+     and three hundred thousand of them flickering is a snowstorm. */
+  float d = max(-mv.z, 0.001);
+  gl_PointSize = max(1.0, aSize * uPixelRatio * (620.0 / d));
+
+  vColor = aColor;
+  vCore = smoothstep(0.34, 0.03, aRadius);
+  vAlpha = 0.42 + 0.58 * smoothstep(0.0, 0.25, aSize);
+}
+`;
+
+export const GALAXY_FRAG = /* glsl */ `
+varying vec3 vColor;
+varying float vAlpha;
+varying float vCore;
+
+void main() {
+  vec2 d = gl_PointCoord - 0.5;
+  float r2 = dot(d, d);
+  if (r2 > 0.25) discard;
+  float f = 1.0 - r2 * 4.0;
+  // Tight bright centre, wide faint skirt — the skirts of a few hundred
+  // thousand stars are what fuse into a luminous disk rather than a dot screen.
+  /* Deliberately dim per star.
+     Additive blending SUMS, and in the arms thousands of these overlap — at any
+     useful per-star brightness every channel clips to 1 and the galaxy turns
+     into a white smear, taking the blue arms and pink HII knots with it. Colour
+     in a dense additive field survives only if each contributor is faint enough
+     that the sum lands below clipping. */
+  float core = pow(f, 5.0);
+  float halo = pow(f, 1.4);
+  gl_FragColor = vec4(vColor * (core * 0.46 + halo * 0.11), (core * 0.62 + halo * 0.14) * vAlpha);
+}
+`;
+
+/** The galactic bulge — old, dense, yellow-white, and far brighter than the disk. */
+export const BULGE_FRAG = /* glsl */ `
+uniform vec3 uInner;
+uniform vec3 uOuter;
+uniform float uTime;
+varying vec2 vUv;
+
+${NOISE}
+
+void main() {
+  vec2 p = vUv - 0.5;
+  float r = length(p) * 2.0;
+  if (r > 1.0) discard;
+
+  float core = pow(1.0 - r, 3.4);
+  float glow = pow(1.0 - r, 1.15);
+
+  // A little structure so the bulge is not a perfect airbrushed ball.
+  float grain = fbm(vec3(p * 7.0, 3.0), 3) * 0.5 + 0.5;
+
+  vec3 col = mix(uOuter, uInner, core) * (core * 1.15 + glow * 0.26) * (0.82 + grain * 0.36);
+  gl_FragColor = vec4(col, clamp(core * 1.5 + glow * 0.34, 0.0, 1.0));
+}
+`;
+
+/* ------------------------------------------------------------- star flare */
+
+/**
+ * The radial flare around a star.
+ *
+ * This is the streaked bloom a real lens throws when it is pointed at something
+ * far brighter than the rest of the frame, and it is most of why a rendered sun
+ * reads as a SUN rather than as a bright ball. Doing it as a camera-facing
+ * billboard rather than a post pass keeps it occluded correctly — a planet
+ * passing in front of the star cuts the flare, which a screen-space effect
+ * cannot do.
+ */
+export const FLARE_FRAG = /* glsl */ `
+uniform vec3 uColor;
+uniform float uTime;
+uniform float uSeed;
+varying vec2 vUv;
+
+${NOISE}
+
+void main() {
+  vec2 p = vUv - 0.5;
+  float r = length(p) * 2.0;
+  if (r > 1.0) discard;
+
+  float ang = atan(p.y, p.x);
+
+  /* Many fine rays of uneven length, not a clean starburst. The unevenness is
+     the point: a perfectly regular flare looks like a lens-flare asset. */
+  float rays = 0.0;
+  rays += pow(abs(sin(ang * 34.0 + uSeed)), 48.0) * 0.42;
+  rays += pow(abs(sin(ang * 17.0 - uSeed * 1.7)), 30.0) * 0.5;
+  rays += pow(abs(sin(ang * 61.0 + uSeed * 3.1)), 72.0) * 0.26;
+  rays *= 0.75 + 0.25 * (fbm(vec3(cos(ang) * 3.0, sin(ang) * 3.0, uTime * 0.05), 3) * 0.5 + 0.5);
+
+  /* Rays fall off hard. The first pass had them reaching the frame edge at full
+     strength, which is not a flare — it is a sunburst graphic, and it buried
+     the star and every planet behind it. */
+  /* Three terms: a hot inner corona that stands in for the shell this replaces,
+     a broad halo, and the rays. All share the same radial falloff, so there is
+     nowhere for an edge to appear. */
+  float corona = pow(1.0 - r, 7.0) * 2.4;
+  float halo = pow(1.0 - r, 2.4) * 0.5;
+  float spikes = rays * pow(1.0 - r, 2.6) * 0.9;
+
+  gl_FragColor = vec4(uColor * (corona + halo + spikes), 1.0);
 }
 `;

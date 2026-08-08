@@ -15,9 +15,157 @@
 
 import * as THREE from 'three';
 import {
-  ATMO_FRAG, CORONA_FRAG, DISK_FRAG, GAS_FRAG, NEBULA_FRAG,
-  PLANET_FRAG, PLANET_VERT, SKYDOME_FRAG, STARS_FRAG, STARS_VERT, SUN_FRAG,
+  ATMO_FRAG, BULGE_FRAG, DISK_FRAG, FLARE_FRAG, GALAXY_FRAG,
+  GALAXY_VERT, GAS_FRAG, NEBULA_FRAG, PLANET_FRAG, PLANET_VERT, SKYDOME_FRAG,
+  STARS_FRAG, STARS_VERT, SUN_FRAG,
 } from './shaders';
+
+const BILLBOARD_VERT =
+  'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }';
+
+/* ------------------------------------------------------------------ galaxy */
+
+export interface GalaxyParts {
+  group: THREE.Group;
+  points: THREE.Points;
+  bulge: THREE.Mesh;
+  radius: number;
+}
+
+/**
+ * A spiral galaxy: a few hundred thousand stars in logarithmic arms, a bright
+ * old bulge, and enough blue supergiants and pink HII regions along the arms to
+ * give it the colour a real one has.
+ *
+ * Star formation happens IN the arms, which is the whole reason arms are
+ * visible: the hot blue stars that light them up burn out before they can drift
+ * out of the arm that made them. So blue and pink go on the arm ridges, and the
+ * space between arms gets the dim old red population.
+ */
+export function buildGalaxy(
+  rng: () => number,
+  opts: { radius: number; arms: number; count: number; tight: number },
+): GalaxyParts {
+  const { radius, arms, count, tight } = opts;
+  const aR = new Float32Array(count);
+  const aT = new Float32Array(count);
+  const aZ = new Float32Array(count);
+  const aS = new Float32Array(count);
+  const aC = new Float32Array(count * 3);
+  const aSeed = new Float32Array(count);
+
+  // Box-Muller: real scatter is gaussian, and uniform scatter gives arms hard
+  // parallel edges instead of a soft ridge that fades either side.
+  const gauss = () => {
+    const u = Math.max(1e-6, rng());
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(6.283185 * rng());
+  };
+
+  for (let i = 0; i < count; i++) {
+    /* Most stars are in the bulge and inner disk. Sampling radius uniformly
+       gives a flat, evenly-lit pancake with no centre to it. */
+    const t = Math.pow(rng(), 1.9);
+    const r = radius * (0.02 + t * 0.98);
+    const inBulge = t < 0.09 && rng() < 0.75;
+
+    let theta: number;
+    let z: number;
+    let col: [number, number, number];
+    let size: number;
+
+    if (inBulge) {
+      theta = rng() * 6.283185;
+      // The bulge is a squashed sphere, not part of the disk.
+      z = gauss() * radius * 0.05;
+      const warm = 0.82 + rng() * 0.18;
+      col = [1.0 * warm, 0.87 * warm, 0.63 * warm];
+      size = 0.10 + Math.pow(rng(), 3) * 0.3;
+    } else {
+      const arm = Math.floor(rng() * arms);
+      const base = (arm / arms) * 6.283185 + tight * Math.log(Math.max(r / (radius * 0.06), 1.0001));
+      // Arms are tight at the hub and fray outward.
+      const spread = 0.34 * (0.22 + t * 1.5);
+      theta = base + gauss() * spread;
+      // A thin disk that flares slightly at the rim.
+      z = gauss() * radius * 0.012 * (0.5 + t);
+
+      /* Colour is dominated by the arms, not by the old population. In a real
+         spiral the disk between the arms is far dimmer than the arm ridges, so
+         letting the neutral population win by count — as the first pass did —
+         washes the whole disk to the same cream and the arms stop reading as
+         arms. Blue and pink are what an arm IS. */
+      const onRidge = Math.exp(-Math.abs(gauss()) * 0.8);
+      const pick = rng();
+      if (pick < 0.16 * onRidge) {
+        // HII regions — hydrogen lit up by the young stars inside the arm.
+        col = [1.0, 0.26 + rng() * 0.14, 0.52 + rng() * 0.22];
+        size = 0.30 + rng() * 0.52;
+      } else if (pick < 0.78 * onRidge + 0.16) {
+        col = [0.30 + rng() * 0.16, 0.55 + rng() * 0.18, 1.0];
+        size = 0.14 + Math.pow(rng(), 2.2) * 0.34;
+      } else {
+        const w = 0.42 + rng() * 0.3;
+        col = [w, w * 0.92, w * 0.86];
+        size = 0.07 + Math.pow(rng(), 3.4) * 0.18;
+      }
+    }
+
+    aR[i] = r;
+    aT[i] = theta;
+    aZ[i] = z;
+    aS[i] = size;
+    aC[i * 3] = col[0];
+    aC[i * 3 + 1] = col[1];
+    aC[i * 3 + 2] = col[2];
+    aSeed[i] = rng();
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+  geo.setAttribute('aRadius', new THREE.BufferAttribute(aR, 1));
+  geo.setAttribute('aTheta', new THREE.BufferAttribute(aT, 1));
+  geo.setAttribute('aZ', new THREE.BufferAttribute(aZ, 1));
+  geo.setAttribute('aSize', new THREE.BufferAttribute(aS, 1));
+  geo.setAttribute('aColor', new THREE.BufferAttribute(aC, 3));
+  geo.setAttribute('aSeed', new THREE.BufferAttribute(aSeed, 1));
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), radius * 1.2);
+
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
+      uSpin: { value: 0.02 },
+    },
+    vertexShader: GALAXY_VERT,
+    fragmentShader: GALAXY_FRAG,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+
+  const bulgeGeo = new THREE.PlaneGeometry(radius * 0.55, radius * 0.55);
+  const bulgeMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uInner: { value: new THREE.Color(0xfff6e2) },
+      uOuter: { value: new THREE.Color(0xffb96b) },
+      uTime: { value: 0 },
+    },
+    vertexShader: BILLBOARD_VERT,
+    fragmentShader: BULGE_FRAG,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const bulge = new THREE.Mesh(bulgeGeo, bulgeMat);
+
+  const group = new THREE.Group();
+  group.add(points);
+  group.add(bulge);
+  return { group, points, bulge, radius };
+}
 
 /* ------------------------------------------------------------------- rng */
 
@@ -68,6 +216,7 @@ export interface Universe {
   bodies: Body[];
   sun: THREE.Object3D;
   blackHole: THREE.Object3D;
+  galaxies: GalaxyParts[];
   update: (t: number, dt: number, camera: THREE.Camera) => void;
   dispose: () => void;
 }
@@ -238,6 +387,34 @@ export function buildUniverse(spec: UniverseSpec): Universe {
     nebulae.push(mesh);
   }
 
+  /* ---- galaxies in the deep field ----
+     Other galaxies, at real remove: far enough out that they sit against the
+     star field rather than in front of it, tilted to every angle, and slowly
+     winding. One of them is close enough and open enough to fly to and see the
+     arms resolve into stars. */
+  const galaxies: GalaxyParts[] = [];
+  {
+    const specs = [
+      { d: SKY_R * 0.30, radius: 3400, arms: 2, count: 700000, tight: 2.6, tilt: 0.42 },
+      { d: SKY_R * 0.55, radius: 1900, arms: 4, count: 160000, tight: 3.4, tilt: 1.15 },
+      { d: SKY_R * 0.62, radius: 1500, arms: 2, count: 110000, tight: 2.1, tilt: 0.24 },
+    ];
+    for (const sp of specs) {
+      const g = buildGalaxy(rng, { radius: sp.radius, arms: sp.arms, count: sp.count, tight: sp.tight });
+      const u = rng() * 2 - 1;
+      const th = rng() * Math.PI * 2;
+      const sxz = Math.sqrt(1 - u * u);
+      g.group.position.set(Math.cos(th) * sxz * sp.d, u * sp.d * 0.55, Math.sin(th) * sxz * sp.d);
+      g.group.rotation.set(sp.tilt, rng() * 6.283, (rng() - 0.5) * 0.6);
+      root.add(g.group);
+      galaxies.push(g);
+      track(g.points.geometry);
+      track(g.points.material as THREE.Material);
+      track(g.bulge.geometry);
+      track(g.bulge.material as THREE.Material);
+    }
+  }
+
   /* ---- the star ---- */
   const SUN_R = 21;
   const sunGeo = track(new THREE.SphereGeometry(SUN_R, 64, 48));
@@ -254,18 +431,32 @@ export function buildUniverse(spec: UniverseSpec): Universe {
   const sun = new THREE.Mesh(sunGeo, sunMat);
   root.add(sun);
 
-  const coronaGeo = track(new THREE.SphereGeometry(SUN_R * 1.32, 48, 32));
-  const coronaMat = track(new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color(0xffa63d) }, uTime: { value: 0 } },
-    vertexShader: PLANET_VERT,
-    fragmentShader: CORONA_FRAG,
+  /* No corona SHELL. A back-faced sphere with a Fresnel rim is the obvious way
+     to halo a star and it cannot work: the rim term peaks at the sphere's
+     silhouette, so the glow ends in a hard circular cut and the star wears a
+     flat orange donut. The billboard below is the corona AND the rays, with one
+     continuous radial falloff and no edge to cut. */
+
+  /* The lens flare. This is what separates "bright ball" from "star" — a real
+     lens pointed at something this much brighter than the rest of the frame
+     throws rays. Kept as a billboard on the sun rather than a post effect so a
+     planet crossing in front of it correctly cuts the rays. */
+  const flareGeo = track(new THREE.PlaneGeometry(SUN_R * 9.5, SUN_R * 9.5));
+  const flareMat = track(new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(0xffd9a0) },
+      uTime: { value: 0 },
+      uSeed: { value: rng() * 6.283 },
+    },
+    vertexShader: BILLBOARD_VERT,
+    fragmentShader: FLARE_FRAG,
     transparent: true,
     depthWrite: false,
-    side: THREE.BackSide,
     blending: THREE.AdditiveBlending,
   }));
-  const corona = new THREE.Mesh(coronaGeo, coronaMat);
-  sun.add(corona);
+  const flare = new THREE.Mesh(flareGeo, flareMat);
+  flare.renderOrder = 5;
+  root.add(flare);
 
   const sunLight = new THREE.PointLight(0xfff0d8, 3.2, 0, 0);
   root.add(sunLight);
@@ -592,10 +783,22 @@ export function buildUniverse(spec: UniverseSpec): Universe {
 
     (domeMat.uniforms.uTime as { value: number }).value = T;
     (sunMat.uniforms.uTime as { value: number }).value = T;
-    (coronaMat.uniforms.uTime as { value: number }).value = T;
     (diskMat.uniforms.uTime as { value: number }).value = T;
     ((stars.material as THREE.ShaderMaterial).uniforms.uTime as { value: number }).value = T;
     ((stars.material as THREE.ShaderMaterial).uniforms.uTwinkle as { value: number }).value = spec.reducedMotion ? 0 : 1;
+
+    (flareMat.uniforms.uTime as { value: number }).value = T;
+    flare.quaternion.copy(camera.quaternion);
+
+    for (const g of galaxies) {
+      ((g.points.material as THREE.ShaderMaterial).uniforms.uTime as { value: number }).value = T;
+      ((g.bulge.material as THREE.ShaderMaterial).uniforms.uTime as { value: number }).value = T;
+      /* The bulge billboard faces the camera, but it lives inside the galaxy's
+         own tilted frame — so the camera's rotation has to be brought into that
+         frame or the bulge slides off the hub as you orbit. */
+      g.bulge.quaternion.copy(camera.quaternion);
+      g.bulge.quaternion.premultiply(g.group.getWorldQuaternion(new THREE.Quaternion()).invert());
+    }
 
     for (const n of nebulae) {
       (((n.material as THREE.ShaderMaterial).uniforms.uTime) as { value: number }).value = T;
@@ -673,5 +876,5 @@ export function buildUniverse(spec: UniverseSpec): Universe {
     });
   };
 
-  return { root, bodies, sun, blackHole: bhGroup, update, dispose };
+  return { root, bodies, sun, blackHole: bhGroup, galaxies, update, dispose };
 }

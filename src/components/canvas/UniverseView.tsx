@@ -40,24 +40,12 @@ interface HudBody {
   blockId?: string;
 }
 
-/** How far out you are, in words. Cheap orientation for a camera with a 4000x
- *  dolly range, where a number would mean nothing. */
-function altitudeName(d: number): string {
-  if (d < 14) return 'Close orbit';
-  if (d < 70) return 'High orbit';
-  if (d < 420) return 'Inner system';
-  if (d < 2200) return 'Outer system';
-  if (d < 9000) return 'Interstellar';
-  return 'Deep space';
-}
-
 function Universe3D() {
   const setConstellationOpen = useCanvasStore((s) => s.setConstellationOpen);
   const objects = useCanvasStore((s) => s.objects);
   const canvasStack = useCanvasStore((s) => s.canvasStack);
   const urlCanvasId = useCanvasStore((s) => s.urlCanvasId);
   const animateCamera = useCanvasStore((s) => s.animateCamera);
-  const workspaceTitle = useCanvasStore((s) => s.workspaceTitle);
 
   const parentId = resolveParentId(canvasStack, urlCanvasId);
   const levelObjects = useMemo(
@@ -74,12 +62,25 @@ function Universe3D() {
 
   const [ready, setReady] = useState(false);
   const [hover, setHover] = useState<HudBody | null>(null);
-  const [altitude, setAltitude] = useState('Inner system');
   const [failed, setFailed] = useState<string | null>(null);
   // Mirrored into state purely so the cursor can change: React 19 forbids
   // reading a ref during render, and the drag itself must stay on the ref
   // because it is written from pointermove at pointer rate.
   const [dragging, setDragging] = useState(false);
+  const [chromeOn, setChromeOn] = useState(true);
+  const chromeTimer = useRef<number | null>(null);
+
+  /* Show the controls on any pointer movement, then retire them again. The
+     delay is long enough that reaching for a button never races the fade. */
+  const wakeChrome = useCallback(() => {
+    setChromeOn(true);
+    if (chromeTimer.current) window.clearTimeout(chromeTimer.current);
+    chromeTimer.current = window.setTimeout(() => setChromeOn(false), 2800);
+  }, []);
+  useEffect(() => {
+    chromeTimer.current = window.setTimeout(() => setChromeOn(false), 2800);
+    return () => { if (chromeTimer.current) window.clearTimeout(chromeTimer.current); };
+  }, []);
 
   /* The board decides the universe: how many worlds there are, and the seed
      everything else is generated from. Same board, same universe, every time. */
@@ -238,7 +239,6 @@ function Universe3D() {
               setHover(null);
             }
           }
-          setAltitude(altitudeName((rig as Rig & { distance: number }).distance));
         }
 
         rig.composer.render();
@@ -270,6 +270,7 @@ function Universe3D() {
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     pointerRef.current = { x: e.clientX, y: e.clientY };
+    wakeChrome();
     const d = dragRef.current;
     if (!d.down) return;
     const dx = e.clientX - d.x;
@@ -278,7 +279,7 @@ function Universe3D() {
     d.x = e.clientX;
     d.y = e.clientY;
     rigRef.current?.orbitBy(dx, dy);
-  }, []);
+  }, [wakeChrome]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     const d = dragRef.current;
@@ -317,6 +318,19 @@ function Universe3D() {
     const THREE = threeRef.current;
     if (!rig || !THREE) return;
     rig.flyTo(new THREE.Vector3(0, 0, 0), 900, 2.8);
+  }, []);
+
+  const toGalaxy = useCallback(() => {
+    const rig = rigRef.current;
+    const uni = uniRef.current;
+    const THREE = threeRef.current;
+    if (!rig || !uni || !THREE || !uni.galaxies.length) return;
+    const g = uni.galaxies[0];
+    const at = new THREE.Vector3();
+    g.group.getWorldPosition(at);
+    // Far enough back to hold the whole disk, and a long push so the arms
+    // resolve out of the haze on the way in rather than arriving already there.
+    rig.flyTo(at, g.radius * 2.4, 7.5);
   }, []);
 
   const toBlackHole = useCallback(() => {
@@ -407,38 +421,64 @@ function Universe3D() {
         </div>
       )}
 
-      <div aria-hidden style={{ position: 'absolute', top: 0, left: 0, width: 640, height: 240, pointerEvents: 'none', background: 'radial-gradient(120% 130% at 6% 16%, rgba(1,3,9,0.82) 0%, rgba(1,3,9,0.42) 44%, rgba(1,3,9,0) 76%)' }} />
-
-      <div style={{ position: 'absolute', top: 34, left: 40, pointerEvents: 'none' }}>
-        <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: '0.34em', textTransform: 'uppercase', color: 'rgba(142,188,255,0.85)', marginBottom: 6 }}>
-          Universe
-        </div>
-        <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 30, fontWeight: 300, color: '#F2F6FF', textShadow: '0 0 34px rgba(142,188,255,0.28)' }}>
-          {workspaceTitle || 'Untitled'}
-        </div>
-        <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: 12, color: 'rgba(228,236,255,0.42)', marginTop: 6 }}>
-          {altitude}
-        </div>
-      </div>
-
-      <div style={{ position: 'absolute', top: 34, right: 40, display: 'flex', gap: 8 }} onPointerDown={(e) => e.stopPropagation()}>
-        <button onClick={pullBack} style={pill} title="Pull back to see the whole system">System</button>
-        <button onClick={toBlackHole} style={pill} title="Travel to the black hole">Gargantua</button>
-        <button onClick={() => setConstellationOpen(false)} style={{ ...pill, paddingLeft: 14, paddingRight: 14 }} title="Return to the board (Esc)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" />
-          </svg>
-          Land
-        </button>
-      </div>
-
-      <div aria-hidden style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 110, pointerEvents: 'none', background: 'linear-gradient(to top, rgba(1,3,9,0.78) 0%, rgba(1,3,9,0.28) 46%, rgba(1,3,9,0) 100%)' }} />
-
-      <div style={{ position: 'absolute', bottom: 26, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none', fontFamily: "'Outfit', sans-serif", fontSize: 12, color: 'rgba(228,236,255,0.55)', whiteSpace: 'nowrap' }}>
-        Drag to look · scroll to travel · tap a world to fly to it · Esc to leave
+      {/* The only chrome left, and it hides itself.
+          This used to be a title block, an altitude readout and three filled
+          pills across the top, with dark scrims behind them to stay legible.
+          On a full-frame image that is a poster with a caption pasted over it:
+          the one thing you are meant to be looking at was the one thing
+          competing for attention. Everything now fades out a moment after you
+          stop moving the mouse, and comes back the instant you move it. */}
+      <div
+        style={{
+          position: 'absolute', top: 24, right: 26, display: 'flex', gap: 6,
+          opacity: chromeOn ? 1 : 0,
+          transform: chromeOn ? 'translateY(0)' : 'translateY(-6px)',
+          transition: 'opacity 520ms ease, transform 520ms ease',
+          pointerEvents: chromeOn ? 'auto' : 'none',
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <GlassButton onClick={pullBack} label="Whole system" d="M12 3v18M3 12h18" spin />
+        <GlassButton onClick={toGalaxy} label="Nearest galaxy" d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M20 12a8 8 0 0 1-8 8M4 12a8 8 0 0 1 8-8" />
+        <GlassButton onClick={toBlackHole} label="Gargantua" d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0-8 0M12 2a10 10 0 0 1 0 20" />
+        <GlassButton onClick={() => setConstellationOpen(false)} label="Leave (Esc)" d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M16 17l5-5-5-5M21 12H9" />
       </div>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * The only button style in here.
+ *
+ * Icon-only, no fill, no border until you approach it — over a photographic
+ * frame a filled pill reads as a sticker. It earns a surface on hover, which is
+ * the moment it stops being decoration and becomes a target.
+ */
+function GlassButton({ onClick, label, d, spin }: { onClick: () => void; label: string; d: string; spin?: boolean }) {
+  const [hot, setHot] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      onPointerEnter={() => setHot(true)}
+      onPointerLeave={() => setHot(false)}
+      style={{
+        width: 38, height: 38, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        borderRadius: 999, cursor: 'pointer',
+        border: `1px solid rgba(190,214,255,${hot ? 0.34 : 0.12})`,
+        background: hot ? 'rgba(12,18,32,0.66)' : 'rgba(8,12,22,0.28)',
+        color: hot ? '#EAF1FF' : 'rgba(214,228,255,0.72)',
+        backdropFilter: 'blur(10px)',
+        transition: 'background 220ms ease, color 220ms ease, border-color 220ms ease, transform 220ms ease',
+        transform: hot ? 'scale(1.06)' : 'scale(1)',
+      }}
+    >
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={spin ? { opacity: 0.95 } : undefined}>
+        <path d={d} />
+      </svg>
+    </button>
   );
 }
 
