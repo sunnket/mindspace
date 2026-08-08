@@ -42,7 +42,13 @@ export interface Rig {
   update: (dt: number) => void;
   orbitBy: (dx: number, dy: number) => void;
   dollyBy: (notches: number) => void;
-  flyTo: (target: THREE.Vector3, distance: number, seconds?: number) => void;
+  flyTo: (
+    target: THREE.Vector3,
+    distance: number,
+    seconds?: number,
+    /** where to view it FROM, as a world-space direction out of the target */
+    from?: THREE.Vector3,
+  ) => void;
   dispose: () => void;
 }
 
@@ -92,7 +98,10 @@ export function createRig({ canvas, reducedMotion }: RigOptions): Rig {
   let startDist = 360;
 
   const MIN_D = 3.2;
-  const MAX_D = 26000;
+  /* Room to stand off an external galaxy. These now sit where galaxies actually
+     sit — hundreds of thousands of units out, well outside our own disk — and a
+     standoff clamped to 26,000 could not frame one. */
+  const MAX_D = 90000;
 
   const orbitBy = (dx: number, dy: number) => {
     goalYaw -= dx * 0.0042;
@@ -105,13 +114,29 @@ export function createRig({ canvas, reducedMotion }: RigOptions): Rig {
     goalDist = clamp(goalDist * Math.pow(1.16, notches), MIN_D, MAX_D);
   };
 
-  const flyTo = (target: THREE.Vector3, distance: number, seconds = 2.4) => {
+  const flyTo = (target: THREE.Vector3, distance: number, seconds = 2.4, from?: THREE.Vector3) => {
     goalFocus.copy(target);
     goalDist = clamp(distance, MIN_D, MAX_D);
     startFocus.copy(focus);
     startDist = dist;
     flightStart = performance.now();
     flightSec = reducedMotion ? 0.001 : Math.max(0.001, seconds);
+
+    /* An optional heading, so a flight can arrive at an angle that was CHOSEN.
+       Without it the camera keeps whatever bearing the last drag left it on,
+       which for a flat object is a coin toss between a disk and a line — fly to
+       a galaxy and you get an edge-on sliver about as often as you get the
+       spiral, and the shot the button promises is the spiral. */
+    if (from) {
+      const d = from.clone().normalize();
+      goalPitch = clamp(Math.asin(clamp(d.y, -1, 1)), -1.35, 1.35);
+      let y = Math.atan2(d.x, d.z);
+      // Take the short way round. Left alone, yaw will happily unwind 350
+      // degrees to reach a bearing ten degrees away.
+      while (y - goalYaw > Math.PI) y -= Math.PI * 2;
+      while (y - goalYaw < -Math.PI) y += Math.PI * 2;
+      goalYaw = y;
+    }
   };
 
   const eye = new THREE.Vector3();
@@ -136,7 +161,12 @@ export function createRig({ canvas, reducedMotion }: RigOptions): Rig {
       dist += (goalDist - dist) * k;
     }
 
-    const k2 = 1 - Math.pow(0.0009, dt);
+    /* Bearing eases far more slowly during a flight. On the ordinary constant a
+       drag settles in half a second, which is right for a drag and wrong for a
+       seven-second push — the camera would whip round to its new heading in the
+       first moment and then crawl in on a fixed bearing, which reads as two
+       separate moves rather than one. */
+    const k2 = 1 - Math.pow(flightStart >= 0 ? 0.3 : 0.0009, dt);
     yaw += (goalYaw - yaw) * k2;
     pitch += (goalPitch - pitch) * k2;
     roll += (goalRoll - roll) * k2;
@@ -161,11 +191,17 @@ export function createRig({ canvas, reducedMotion }: RigOptions): Rig {
     camera.up.copy(up);
     camera.lookAt(focus);
 
-    /* Near/far follow the dolly. A fixed near plane either clips the surface of
-       a moon you are hovering over or throws away all precision when you pull
-       back to see the whole system. */
+    /* Near follows the dolly. A fixed near plane either clips the surface of a
+       moon you are hovering over or throws away all precision when you pull
+       back to see the whole system.
+       Far does NOT follow it, and that is the fix for galaxies that used to
+       vanish: the deep field is at a fixed distance whatever the camera is
+       looking at, so tying the far plane to the dolly meant the moment you
+       pulled in close to a planet the entire universe outside the solar system
+       was clipped away. The log depth buffer is what makes a far plane this
+       absurd affordable — without it, this range z-fights itself into stripes. */
     camera.near = clamp(dist * 0.006, 0.02, 60);
-    camera.far = Math.max(90000, dist * 60);
+    camera.far = Math.max(900000, dist * 80);
     camera.updateProjectionMatrix();
   };
 
@@ -201,8 +237,12 @@ export function createRig({ canvas, reducedMotion }: RigOptions): Rig {
      field crosses it, and UnrealBloomPass blurs each one through mips small
      enough that a single texel upsamples into a hard rounded SQUARE — the sky
      fills with blocky boxes. Only genuinely hot things should bloom: the star,
-     the accretion disk, a lit limb. */
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.46, 1.05, 0.85);
+     the accretion disk, a lit limb.
+     Raised again now that the photosphere is handed over deliberately
+     overexposed. The threshold is in LINEAR light — the composer renders to a
+     float target and tone mapping only happens in OutputPass at the end — so
+     it has to sit above 1.0 to mean "brighter than white" rather than "bright". */
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.38, 0.42, 0.98);
   composer.addPass(bloom);
 
 
@@ -216,8 +256,10 @@ export function createRig({ canvas, reducedMotion }: RigOptions): Rig {
          even a couple of pixels turns the whole field into red and green
          confetti — the aberration has to stay under the size of the smallest
          thing on screen or it stops reading as a lens and starts reading as a
-         broken renderer. */
-      uAberration: { value: 0.0022 },
+         broken renderer. Halved again once the sky went from forty thousand
+         stars to half a million: at that density the fringing stopped being a
+         per-star artefact and became a magenta cast over the Milky Way. */
+      uAberration: { value: 0.0011 },
     },
     vertexShader: PASS_VERT,
     fragmentShader: FILM_FRAG,

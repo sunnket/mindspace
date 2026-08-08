@@ -205,11 +205,16 @@ function Universe3D() {
         rig.update(camDt);
         (rig.filmPass.uniforms.uTime as { value: number }).value = t;
 
+        /* The shadow is sized just OVER the black sphere standing in for the
+           horizon, so the sphere's polygonal silhouette is hidden inside it.
+           It used to be passed at nearly twice that, which put the lensing
+           shadow way outside the geometry and left the warp folding sky into a
+           gap that had nothing in it. */
         rigMod.updateLensing(
           rig.lensPass,
           rig.camera,
           uni.bodies.find((b) => b.kind === 'blackhole')!.world,
-          26 * 1.9,
+          26 * 1.12,
         );
 
         // Hover picking, four times a second — a raycast every frame against
@@ -328,20 +333,51 @@ function Universe3D() {
     const g = uni.galaxies[0];
     const at = new THREE.Vector3();
     g.group.getWorldPosition(at);
+
+    /* Arrive ABOVE its plane, not in it.
+       A galaxy is a disk, so the bearing you approach on decides whether you
+       are shown a spiral or a sliver — and left to whatever the last drag
+       happened to leave, it is a coin toss. This takes the disk's own normal
+       and steps forty degrees off it, which is the angle that shows the arms
+       winding and still gives the disk some thickness. */
+    const n = new THREE.Vector3(0, 1, 0)
+      .applyQuaternion(g.group.getWorldQuaternion(new THREE.Quaternion()))
+      .normalize();
+    const ref = Math.abs(n.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+    const tangent = new THREE.Vector3().crossVectors(n, ref).normalize();
+    const from = n.multiplyScalar(Math.cos(0.7)).addScaledVector(tangent, Math.sin(0.7));
+
     // Far enough back to hold the whole disk, and a long push so the arms
     // resolve out of the haze on the way in rather than arriving already there.
-    rig.flyTo(at, g.radius * 2.4, 7.5);
+    rig.flyTo(at, g.radius * 2.4, 7.5, from);
   }, []);
 
   const toBlackHole = useCallback(() => {
     const rig = rigRef.current;
     const uni = uniRef.current;
-    if (!rig || !uni) return;
+    const THREE = threeRef.current;
+    if (!rig || !uni || !THREE) return;
     const bh = uni.bodies.find((b) => b.kind === 'blackhole');
+    if (!bh) return;
+
+    /* Come in almost along the plane of the disk, about twelve degrees above
+       it. That specific angle is the whole shot: side-on, the gravity lifts the
+       far half of the disk up over the shadow and folds the near half under it,
+       so you see the underside and the top side of the same ring at once. Look
+       at it from above and none of that happens — it is a flat orange annulus
+       with a dot in the middle, which is what the previous arrival gave you
+       whenever the last drag happened to leave the camera up there. */
+    const n = new THREE.Vector3(0, 1, 0)
+      .applyQuaternion(bh.pivot.getWorldQuaternion(new THREE.Quaternion()))
+      .normalize();
+    const ref = Math.abs(n.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+    const tangent = new THREE.Vector3().crossVectors(n, ref).normalize();
+    const from = n.multiplyScalar(Math.sin(0.21)).addScaledVector(tangent, Math.cos(0.21));
+
     // The disk reaches out to about six times the hole's radius, so framing it
     // needs an order of magnitude more standoff than a planet does. At 210 the
     // camera arrives inside the disk and the frame is a wall of white.
-    if (bh) rig.flyTo(bh.world.clone(), bh.radius * 26, 5.2);
+    rig.flyTo(bh.world.clone(), bh.radius * 26, 5.2, from);
   }, []);
 
   /** Fly down to the block a world stands for, and land on the canvas. */
