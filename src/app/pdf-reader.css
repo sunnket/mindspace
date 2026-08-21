@@ -5,7 +5,7 @@
 
    No top chrome — the page owns the frame. One floating dock at the bottom holds
    every control. Root switches:
-     data-atmos — the room (drawn by pdf-rooms.css / pdfRooms.tsx)   [85 rooms]
+     data-atmos — the room (drawn by pdf-rooms.css / pdfRooms.tsx)  [155 rooms]
      data-aged  — yellows the actual page content (a real filter, not a tint)
      data-tool  — the active annotation tool (drives the page cursor)
    All motion is transform / opacity / filter only.
@@ -434,7 +434,7 @@
 }
 
 /* ------------------------------ rooms drawer ----------------------------- */
-/* Rooms get a real drawer rather than a popover: 85 places, each previewed
+/* Rooms get a real drawer rather than a popover: 155 places, each previewed
    with the actual scene, need room to breathe and a scroll of their own — and
    at that length, a search field rather than a tab bar you read top to bottom. */
 .pdfr-drawer { position:absolute; top:0; right:0; bottom:0; z-index:34; width:372px; max-width:92vw;

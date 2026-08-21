@@ -52,13 +52,48 @@ export type Atmos =
   | 'maproom' | 'lab' | 'office' | 'kitchen' | 'arcade'
   | 'parlour' | 'chambers' | 'newsroom' | 'captain' | 'bunker' | 'safehouse'
   | 'temple' | 'gallery' | 'musicroom' | 'dorm' | 'bedtime' | 'workshop'
-  | 'porch' | 'tatami' | 'anatomy' | 'archive' | 'sunroom';
+  | 'porch' | 'tatami' | 'anatomy' | 'archive' | 'sunroom'
+  /* Love — twenty rooms about the same thing */
+  | 'rosegarden' | 'petalstorm' | 'firstdate' | 'loveletter' | 'slowdance'
+  | 'balcony' | 'aisle' | 'terrace' | 'honeymoon' | 'valentine'
+  | 'blossomwalk' | 'lockbridge' | 'twocups' | 'florist' | 'goldenhour'
+  | 'firesidetwo' | 'starcrossed' | 'ferriswheel' | 'skylanterns' | 'perfumery'
+  /* the third wing */
+  | 'courtroom' | 'asylum' | 'speakeasy' | 'zendo' | 'bazaar' | 'pyramid'
+  | 'expedition' | 'submarine' | 'cockpit' | 'cardroom' | 'wings' | 'projection'
+  | 'radio' | 'diner' | 'lasttrain' | 'nightshift' | 'apothecary' | 'clocktower'
+  | 'lighthouse' | 'bookshop' | 'press' | 'dojo'
+  | 'garret' | 'snug' | 'bothy'
+  | 'volcano' | 'savanna' | 'bayou' | 'cavern' | 'fjord' | 'saltflat'
+  | 'monsoon' | 'hotspring'
+  | 'moonbase' | 'comet' | 'binary' | 'spacewalk' | 'wormhole' | 'asteroid'
+  | 'riverboat' | 'cablecar' | 'highway' | 'caravanserai' | 'sleeper' | 'harbour'
+  | 'driftwood' | 'mossgarden' | 'fireflyfield' | 'conservatory' | 'glacier';
 
 type PKind =
   | 'none' | 'dust' | 'ember' | 'rain' | 'snow' | 'leaf' | 'petal' | 'bokeh'
-  | 'star' | 'gold' | 'pollen' | 'firefly' | 'bubble' | 'ash';
+  | 'star' | 'gold' | 'pollen' | 'firefly' | 'bubble' | 'ash'
+  /* the love wing */
+  | 'rose' | 'heart' | 'confetti' | 'lantern' | 'spark' | 'blossom';
 
-export type RoomGroup = 'Genre' | 'Study' | 'Nature' | 'Cosmos' | 'Journey' | 'Mood';
+export type RoomGroup = 'Love' | 'Genre' | 'Study' | 'Nature' | 'Cosmos' | 'Journey' | 'Mood';
+
+/**
+ * Where the camera is, and what it is doing.
+ *
+ * A held frame is the one thing that says "wallpaper" no matter how well the
+ * scene is built — real footage always breathes. Every room drifts, slowly
+ * enough that you cannot catch it at it, and the move is chosen for the place:
+ * a push for somewhere you are being drawn into, a rise for somewhere tall, a
+ * sway for anything afloat.
+ *
+ * The scene rides the camera; the vignette and the grain do not. Lens dirt
+ * that moved with the picture would read as a decal on the glass.
+ */
+type CamMove = 'still' | 'breathe' | 'push' | 'pull' | 'panL' | 'panR' | 'rise' | 'fall' | 'sway' | 'roll';
+
+/** A colour grade, the way a colourist would name it. */
+type Grade = 'none' | 'warm' | 'cool' | 'teal' | 'rose' | 'bleach' | 'noir' | 'gold' | 'moss' | 'violet' | 'ember';
 
 export interface Room {
   key: Atmos;
@@ -86,6 +121,12 @@ export interface Room {
   /** Ambient bed, played only while the room is open and sound is on. */
   sound?: 'rain' | 'ocean' | 'wind' | 'drone';
   fx: { kind: PKind; n?: number; color?: string };
+  /**
+   * The camera and the grade. Omitted means a slow breath and no grade, which
+   * is the right answer for most interiors — a room you are sitting still in
+   * should not pan.
+   */
+  cam?: { move?: CamMove; grade?: Grade; flare?: boolean };
   scene: () => React.ReactNode;
 }
 
@@ -1565,9 +1606,941 @@ const S_fog = () => (
   </>
 );
 
+const S_conservatory = () => (
+  <>
+    {sky}
+    <div className="rs-glassroof" />
+    <div className="rs-glasswall" />
+    <div className="rs-frostpane" />
+    <div className="rs-palmhouse left" />
+    <div className="rs-palmhouse right" />
+    <div className="rs-shaft soft" />
+    <Surface h={15} cls="stonefloor">
+      <i className="rs-pot" style={{ left: '9%' }} />
+      <i className="rs-pot" style={{ left: '88%', transform: 'scale(0.82)' }} />
+    </Surface>
+  </>
+);
+
+const S_glacier = () => (
+  <>
+    {sky}
+    <Sil d="M0 40 L0 24 L14 10 L28 20 L42 8 L56 18 L70 6 L84 18 L100 12 L100 40 Z" fill="#5a7288" style={{ bottom: '40%', height: '32%', filter: 'blur(3px)', opacity: 0.6 }} />
+    <div className="rs-icewall left" />
+    <div className="rs-icewall right" />
+    <div className="rs-icecrevasse" />
+    <div className="rs-mist band low" />
+    <Surface h={13} cls="snowfloor" />
+  </>
+);
+
+/* ========================= genre, the third wing ==========================
+   Written after screenshotting the second wing, so the rules are the ones that
+   pass a look: nothing that matters sits in the middle third, foliage is many
+   small dark blurred masses rather than a few pale ovals, nothing organic gets
+   a repeating tile, an arc is a border and not a mask, and every object has a
+   light ON it or it is not in the picture at all.
+   ========================================================================== */
+
+const S_courtroom = () => (
+  <>
+    {sky}
+    <div className="rs-panel" />
+    <div className="rs-wainscot" />
+    <div className="rs-benchhigh" />
+    <div className="rs-witnessbox" />
+    <Lamp x="18%" y={12} size={1.1} cone={0.85} warm="252,240,214" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(40% 40% at 20% 26%, rgba(255,226,180,0.16), transparent 64%)' })} />
+    <Surface h={16} cls="oak">
+      <i className="rs-papers" style={{ left: '80%' }} />
+    </Surface>
+  </>
+);
+
+const S_asylum = () => (
+  <>
+    {sky}
+    <div className="rs-tilesplash cold" />
+    <div className="rs-barwin" />
+    <div className="rs-cot" />
+    <div className="rs-striplight" />
+    <div className="rs-scratches" />
+    <Surface h={13} cls="lino" />
+  </>
+);
+
+const S_speakeasy = () => (
+  <>
+    {sky}
+    <div className="rs-panel warm" />
+    <div className="rs-backbar" />
+    <div className="rs-boothseat" />
+    <Lamp x="50%" y={0} size={0.8} drop={96} warm="255,186,104" />
+    <div className="rs-smoke" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(46% 34% at 50% 22%, rgba(255,190,120,0.18), transparent 64%)' })} />
+    <Surface h={17} cls="oak">
+      <i className="rs-wineglass" style={{ left: '14%' }} />
+    </Surface>
+  </>
+);
+
+const S_zendo = () => (
+  <>
+    {sky}
+    <div className="rs-shoji" />
+    <div className="rs-bambooshadow" />
+    <div className="rs-gong" />
+    <div className="rs-zabuton" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(56% 50% at 24% 20%, rgba(255,248,226,0.24), transparent 64%)' })} />
+    <Surface h={16} cls="tatami" />
+  </>
+);
+
+const S_bazaar = () => (
+  <>
+    {sky}
+    <div className="rs-stonewall" />
+    <div className="rs-arch" />
+    <div className="rs-rugs" />
+    <div className="rs-brasslamp" style={{ left: '9%', top: '10%' }} />
+    <div className="rs-brasslamp" style={{ right: '11%', top: '16%', transform: 'scale(0.82)' }} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(50% 44% at 50% 22%, rgba(255,190,110,0.2), transparent 64%)' })} />
+    <Surface h={15} cls="terracotta" />
+  </>
+);
+
+const S_pyramid = () => (
+  <>
+    {sky}
+    <div className="rs-sandstone" />
+    <div className="rs-hieroglyphs" />
+    <div className="rs-sarcophagus" />
+    <Candle x="10%" bottom="16%" h={52} s={1.05} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(40% 38% at 12% 60%, rgba(255,180,90,0.16), transparent 66%)' })} />
+    <Surface h={15} cls="sandfloor" />
+  </>
+);
+
+const S_expedition = () => (
+  <>
+    {sky}
+    <div className="rs-jungle far" />
+    <div className="rs-godrays green" />
+    <div className="rs-jungle" />
+    <div className="rs-crates" />
+    <div className="rs-campfire" />
+    <div className="rs-firelight low" />
+    <Surface h={13} cls="moss" />
+  </>
+);
+
+const S_submarine = () => (
+  <>
+    {sky}
+    <div className="rs-subhull" />
+    <div className="rs-gaugebank" />
+    <div className="rs-periscope" />
+    <div className="rs-redlight" />
+    <Surface h={12} cls="deck" />
+  </>
+);
+
+const S_cockpit = () => (
+  <>
+    {sky}
+    <div className="rs-canopyglass"><div className="rs-highsky" /><div className="rs-clouddeck" /></div>
+    <div className="rs-instruments" />
+    <div className="rs-yoke" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(60% 26% at 50% 94%, rgba(120,220,180,0.16), transparent 66%)' })} />
+  </>
+);
+
+const S_cardroom = () => (
+  <>
+    {sky}
+    <div className="rs-panel" />
+    <Lamp x="50%" y={0} size={1.35} cone={1.3} drop={54} warm="255,226,180" />
+    <div className="rs-baize" />
+    <div className="rs-chips" />
+    <div className="rs-smoke" />
+    <Surface h={11} cls="dark" />
+  </>
+);
+
+const S_wings = () => (
+  <>
+    {sky}
+    <div className="rs-heavycurtain left" />
+    <div className="rs-heavycurtain right" />
+    <div className="rs-ropes" />
+    <div className="rs-stagelight" />
+    <div className="rs-dustfloor" />
+    <Surface h={12} cls="planks" />
+  </>
+);
+
+const S_projection = () => (
+  <>
+    {sky}
+    <div className="rs-plaster cold" />
+    <div className="rs-projector" />
+    <div className="rs-projbeam" />
+    <div className="rs-reels" />
+    <Surface h={14} cls="dark" />
+  </>
+);
+
+const S_radio = () => (
+  <>
+    {sky}
+    <div className="rs-acousticfoam" />
+    <div className="rs-onair" />
+    <div className="rs-micarm" />
+    <Lamp x="76%" y={18} size={1} cone={0.8} warm="255,196,140" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(38% 38% at 78% 32%, rgba(255,190,130,0.18), transparent 64%)' })} />
+    <Surface h={16} cls="dark" />
+  </>
+);
+
+const S_diner = () => (
+  <>
+    {sky}
+    <div className="rs-tilesplash" />
+    <Win side="right" top={10} w={28} h={44} bars="none" wood="#2a2c30"
+      view={<><div className="rs-street night" /><div className="rs-neonsign" style={v({ left: '14%', top: '28%', transform: 'scale(0.5)', '--c': '255,60,120' })}><i /></div><CityLights /></>} />
+    <div className="rs-dinerbooth" />
+    <div className="rs-counterlight" />
+    <Surface h={16} cls="dinercounter">
+      <i className="rs-mug steam" style={{ left: '18%' }} />
+    </Surface>
+  </>
+);
+
+const S_lasttrain = () => (
+  <>
+    {sky}
+    <div className="rs-carriage" />
+    <Win side="right" top={12} w={30} h={40} bars="none" wood="#1c1e22"
+      view={<><div className="rs-tunnel" /><div className="rs-poles" /></>} />
+    <div className="rs-handrail" />
+    <div className="rs-striplight cold" />
+    <Surface h={14} cls="carriagefloor" />
+  </>
+);
+
+const S_nightshift = () => (
+  <>
+    {sky}
+    <div className="rs-plaster cold" />
+    <div className="rs-wardcurtain" />
+    <div className="rs-vitals" />
+    <div className="rs-striplight soft" />
+    <Surface h={14} cls="lino" />
+  </>
+);
+
+const S_apothecary = () => (
+  <>
+    {sky}
+    <div className="rs-panel warm" />
+    <div className="rs-apothshelf left" />
+    <div className="rs-apothshelf right" />
+    <div className="rs-herbs" />
+    <div className="rs-mortar" />
+    <Candle x="14%" bottom="20%" h={44} s={0.95} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(42% 40% at 16% 52%, rgba(255,196,120,0.18), transparent 64%)' })} />
+    <Surface h={18} cls="oak" />
+  </>
+);
+
+const S_clocktower = () => (
+  <>
+    {sky}
+    <div className="rs-stonewall" />
+    <div className="rs-clockface" />
+    <div className="rs-gears" style={{ left: '6%', top: '52%' }} />
+    <div className="rs-gears" style={{ right: '7%', top: '58%', transform: 'scale(0.78)' }} />
+    <div className="rs-pendulum" />
+    <Surface h={13} cls="planks" />
+  </>
+);
+
+const S_lighthouse = () => (
+  <>
+    {sky}
+    <Sea top={62} tint={['#0a1a26', '#0e2432', '#132e40']} />
+    <div className="rs-lampglass" />
+    <div className="rs-beamsweep" />
+    <div className="rs-railcurve" />
+    <Surface h={11} cls="deck" />
+  </>
+);
+
+const S_bookshop = () => (
+  <>
+    {sky}
+    <div className="rs-panel" />
+    <Shelf side="left" />
+    <Shelf side="right" />
+    <div className="rs-bookpiles" />
+    <Lamp x="22%" y={10} size={1.05} cone={0.85} drop={40} warm="255,206,146" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(44% 40% at 24% 26%, rgba(255,200,140,0.18), transparent 64%)' })} />
+    <Surface h={16} cls="planks" />
+  </>
+);
+
+const S_press = () => (
+  <>
+    {sky}
+    <div className="rs-plaster warm" />
+    <div className="rs-pressframe" />
+    <div className="rs-typecase" />
+    <div className="rs-inkrollers" />
+    <Lamp x="80%" y={14} size={1.05} cone={0.85} warm="255,210,160" />
+    <Surface h={17} cls="workbench" />
+  </>
+);
+
+const S_dojo = () => (
+  <>
+    {sky}
+    <div className="rs-shoji" />
+    <div className="rs-weapons" />
+    <div className="rs-scrollbanner" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(56% 48% at 22% 18%, rgba(255,246,224,0.22), transparent 64%)' })} />
+    <Surface h={17} cls="matfloor" />
+  </>
+);
+
+/* -- Study, extended ------------------------------------------------------ */
+
+const S_garret = () => (
+  <>
+    {sky}
+    <div className="rs-slope l" />
+    <div className="rs-slope r" />
+    <Win side="right" top={10} w={22} h={28} bars="cross" wood="#2a2119" view={<div className="rs-daylight" />} />
+    <div className="rs-easel" />
+    <div className="rs-canvasstack" />
+    <Candle x="12%" bottom="18%" h={46} s={0.95} />
+    <Surface h={15} cls="planks" />
+  </>
+);
+
+const S_snug = () => (
+  <>
+    {sky}
+    <div className="rs-panel warm" />
+    <div className="rs-backbar small" />
+    <div className="rs-hearthglow" />
+    <div className="rs-boothseat low" />
+    <Lamp x="24%" y={8} size={0.85} drop={58} warm="255,182,104" />
+    <Surface h={18} cls="oak">
+      <i className="rs-mug" style={{ left: '78%' }} />
+    </Surface>
+  </>
+);
+
+const S_bothy = () => (
+  <>
+    {sky}
+    <div className="rs-drystone" />
+    <Win side="right" top={14} w={20} h={26} glass="frost" bars="cross" wood="#33261a"
+      view={<><div className="rs-snowfield" /><Sil d={FIR_FAR} fill="#1a2632" style={{ bottom: '24%', height: '50%' }} /></>} />
+    <div className="rs-stove" />
+    <div className="rs-firelight low" />
+    <Surface h={15} cls="planks" />
+  </>
+);
+
+/* -- Nature, extended ----------------------------------------------------- */
+
+const S_volcano = () => (
+  <>
+    {sky}
+    <Sil d="M0 40 L0 30 L22 12 L34 22 L48 8 L62 20 L78 10 L100 28 L100 40 Z" fill="#2a1a1e" style={{ bottom: '30%', height: '34%', filter: 'blur(3px)', opacity: 0.75 }} />
+    <div className="rs-lavaglow" />
+    <Sil d="M0 40 L0 32 L18 18 L32 26 L46 14 L60 24 L76 16 L100 30 L100 40 Z" fill="#140c0e" style={{ bottom: '18%', height: '38%' }} />
+    <div className="rs-lavaflow" />
+    <Surface h={13} cls="ashfloor" />
+  </>
+);
+
+const S_savanna = () => (
+  <>
+    {sky}
+    <div className="rs-sun low" style={{ left: '52%', top: '46%' }} />
+    <Sil d="M0 40 L0 32 Q22 27 46 31 T84 30 T100 33 L100 40 Z" fill="#6a4a24" style={{ bottom: '22%', height: '24%', filter: 'blur(2.4px)', opacity: 0.75 }} />
+    <div className="rs-acacia left" />
+    <div className="rs-acacia right" />
+    <div className="rs-grass dry" />
+  </>
+);
+
+const S_bayou = () => (
+  <>
+    {sky}
+    <Sil d={FIR_FAR} fill="#243026" style={{ bottom: '36%', height: '22%', filter: 'blur(5px)', opacity: 0.5 }} />
+    <div className="rs-mossdrape left" />
+    <div className="rs-mossdrape right" />
+    <Trunk side="left" at="6%" w={64} tilt={-2} />
+    <Trunk side="right" at="4%" w={78} tilt={2} />
+    <div className="rs-blackwater" />
+    <div className="rs-mist band low" />
+  </>
+);
+
+const S_cavern = () => (
+  <>
+    {sky}
+    <div className="rs-cavewall" />
+    <div className="rs-stalactites" />
+    <div className="rs-crystals" />
+    <div className="rs-poolglow" />
+    <Surface h={12} cls="cavefloor" />
+  </>
+);
+
+const S_fjord = () => (
+  <>
+    {sky}
+    <Sil d="M0 40 L0 22 L12 6 L24 18 L36 4 L50 16 L62 6 L76 18 L88 8 L100 20 L100 40 Z" fill="#3e4e62" style={{ bottom: '42%', height: '34%', filter: 'blur(3px)', opacity: 0.65 }} />
+    <div className="rs-cliffwall left" />
+    <div className="rs-cliffwall right" />
+    <Sea top={62} tint={['#0e2430', '#12303e', '#17384a']} />
+    <div className="rs-mist band" />
+  </>
+);
+
+const S_saltflat = () => (
+  <>
+    {sky}
+    <div className="rs-sun low" style={{ left: '50%', top: '48%' }} />
+    <Sil d="M0 40 L0 33 Q26 30 52 33 T100 32 L100 40 Z" fill="#4a4258" style={{ bottom: '40%', height: '16%', filter: 'blur(3px)', opacity: 0.6 }} />
+    <div className="rs-mirrorflat" />
+    <div className="rs-saltcracks" />
+  </>
+);
+
+const S_monsoon = () => (
+  <>
+    {sky}
+    <div className="rs-clouds" />
+    <Sil d={SKY_FAR} fill="#12202a" style={{ bottom: '20%', height: '30%', filter: 'blur(3px)', opacity: 0.7 }} />
+    <div className="rs-verandah" />
+    <div className="rs-downpour" />
+    <div className="rs-puddle" />
+    <Surface h={14} cls="wetstone" />
+  </>
+);
+
+const S_hotspring = () => (
+  <>
+    {sky}
+    <Sil d={FIR_NEAR} fill="#101a22" style={{ bottom: '34%', height: '24%' }} />
+    <div className="rs-snowfield cold" />
+    <div className="rs-springpool" />
+    <div className="rs-springsteam" />
+    <div className="rs-rockrim" />
+  </>
+);
+
+/* -- Cosmos, extended ----------------------------------------------------- */
+
+const S_moonbase = () => (
+  <>
+    {sky}
+    <Stars set={STARS_C} />
+    <div className="rs-earthsmall" />
+    <div className="rs-regolith" />
+    <div className="rs-habdome" />
+    <div className="rs-portframe" />
+  </>
+);
+
+const S_comet = () => (
+  <>
+    {sky}
+    <Stars set={STARS_C} />
+    <div className="rs-cometbody" />
+    <div className="rs-comettail" />
+    <div className="rs-dustlane" />
+  </>
+);
+
+const S_binary = () => (
+  <>
+    {sky}
+    <Stars set={STARS_B} cls="faint" />
+    <div className="rs-twinsun" />
+    <Sil d="M0 40 L0 32 C22 26 42 34 64 30 C80 27 92 24 100 29 L100 40 Z" fill="#2e1a24" style={{ bottom: '14%', height: '30%' }} />
+    <div className="rs-dunesheen" />
+    <Surface h={13} cls="sand" />
+  </>
+);
+
+const S_spacewalk = () => (
+  <>
+    {sky}
+    <Stars set={STARS_C} />
+    <div className="rs-earthlimb" />
+    <div className="rs-visor" />
+    <div className="rs-tether" />
+  </>
+);
+
+const S_wormhole = () => (
+  <>
+    {sky}
+    <Stars set={STARS_C} />
+    <div className="rs-lensring" />
+    <div className="rs-lenscore" />
+    <div className="rs-dustlane" />
+  </>
+);
+
+const S_asteroid = () => (
+  <>
+    {sky}
+    <Stars set={STARS_C} />
+    <div className="rs-rock" style={{ left: '4%', top: '18%' }} />
+    <div className="rs-rock sm" style={{ left: '19%', top: '58%' }} />
+    <div className="rs-rock" style={{ right: '5%', top: '30%', transform: 'scale(1.2)' }} />
+    <div className="rs-rock sm" style={{ right: '20%', top: '12%' }} />
+    <div className="rs-farsun" />
+  </>
+);
+
+/* -- Journey, extended ---------------------------------------------------- */
+
+const S_riverboat = () => (
+  <>
+    {sky}
+    <Sil d={FIR_FAR} fill="#1e2a20" style={{ bottom: '38%', height: '20%', filter: 'blur(4px)', opacity: 0.6 }} />
+    <Sea top={54} tint={['#20301e', '#273a24', '#2f452b']} />
+    <div className="rs-paddlewheel" />
+    <div className="rs-deckrail" />
+    <div className="rs-lantern" style={{ left: '10%', top: '16%' }} />
+    <Surface h={14} cls="deckplanks" />
+  </>
+);
+
+const S_cablecar = () => (
+  <>
+    {sky}
+    <Sil d="M0 40 L0 26 L14 8 L26 20 L38 6 L52 18 L64 8 L78 20 L90 10 L100 22 L100 40 Z" fill="#48607a" style={{ bottom: '36%', height: '38%', filter: 'blur(3px)', opacity: 0.7 }} />
+    <div className="rs-snowfield cold" />
+    <div className="rs-cablewire" />
+    <div className="rs-cabinframe" />
+  </>
+);
+
+const S_highway = () => (
+  <>
+    {sky}
+    <div className="rs-sun low" style={{ left: '48%', top: '46%' }} />
+    <Sil d="M0 40 L0 31 C20 25 38 33 58 29 C76 26 88 22 100 28 L100 40 Z" fill="#3e2418" style={{ bottom: '22%', height: '26%', filter: 'blur(2px)', opacity: 0.8 }} />
+    <div className="rs-roadstrip" />
+    <div className="rs-telegraph" />
+    <Surface h={13} cls="asphalt" />
+  </>
+);
+
+const S_caravanserai = () => (
+  <>
+    {sky}
+    <Stars set={STARS_A} />
+    <Sil d="M0 40 L0 32 C22 26 40 33 60 29 C78 26 90 23 100 29 L100 40 Z" fill="#241a14" style={{ bottom: '16%', height: '28%' }} />
+    <div className="rs-tentcamp" />
+    <div className="rs-campfire" />
+    <div className="rs-firelight low" />
+    <Surface h={12} cls="sand" />
+  </>
+);
+
+const S_sleeper = () => (
+  <>
+    {sky}
+    <div className="rs-cabinwall" />
+    <Win side="right" top={16} w={28} h={30} bars="none" wood="#1b1512"
+      view={<><div className="rs-passing" /><Stars set={STARS_B} /><Sil d={FIR_FAR} fill="#0c141d" style={{ bottom: 0, height: '52%' }} /></>} />
+    <div className="rs-berth" />
+    <div className="rs-readlight" />
+    <Surface h={13} cls="traintable" />
+  </>
+);
+
+const S_harbour = () => (
+  <>
+    {sky}
+    <Sil d={SKY_FAR} fill="#141e2a" style={{ bottom: '32%', height: '22%', filter: 'blur(2.4px)', opacity: 0.8 }} />
+    <CityLights />
+    <Sea top={56} tint={['#0c1c28', '#102434', '#152d42']} />
+    <div className="rs-masts" />
+    <div className="rs-bollard" />
+    <Surface h={13} cls="wetstone" />
+  </>
+);
+
+/* -- Mood, extended ------------------------------------------------------- */
+
+const S_driftwood = () => (
+  <>
+    {sky}
+    <Stars set={STARS_A} />
+    <Sea top={60} tint={['#0a1622', '#0e1d2c', '#122438']} />
+    <div className="rs-beachfire" />
+    <div className="rs-firelight low" />
+    <div className="rs-driftlogs" />
+    <Surface h={13} cls="sand" />
+  </>
+);
+
+const S_mossgarden = () => (
+  <>
+    {sky}
+    <div className="rs-woods" />
+    <div className="rs-godrays green" />
+    <div className="rs-mossmounds" />
+    <Trunk side="left" at="2%" w={82} tilt={-1} />
+    <Trunk side="right" at="1%" w={94} tilt={1} />
+    <div className="rs-fern left" />
+    <div className="rs-fern right" />
+    <Surface h={14} cls="moss" />
+  </>
+);
+
+const S_fireflyfield = () => (
+  <>
+    {sky}
+    <Stars set={STARS_A} />
+    <Sil d={FIR_NEAR} fill="#08110c" style={{ bottom: '20%', height: '24%' }} />
+    <div className="rs-longgrass" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(60% 40% at 50% 74%, rgba(180,230,120,0.1), transparent 66%)' })} />
+    <Surface h={11} cls="meadowdark" />
+  </>
+);
+
+/* ================================== love ==================================
+   Twenty rooms about the same thing, which is the difficulty: love scenes go
+   saccharine the instant they are literal. The rules for this wing:
+
+     • Warmth comes from the LIGHT, not from pink paint. Almost every room here
+       is lit by one small warm source in a dark room.
+     • Two of everything, and nobody in it. Two cups, two glasses, two chairs —
+       the second object does the work a couple would, without a cartoon couple.
+     • The petals move. A still petal is a sticker; a petal that stalls, tips
+       and slides is the reason this wing exists.
+   ========================================================================== */
+
+/**
+ * A rose.
+ *
+ * The whole flower — head, stem and leaf — is one Icons8 alpha, and the colour
+ * is a single gradient running along the icon's own diagonal: pink where the
+ * bloom is, green by the time it reaches the stem. Drawing my own stem under a
+ * cropped head is what turned the first attempt into a lollipop.
+ */
+function Rose({ at, bottom, size = 1, tone = '', tilt = 0, side = 'left' }:
+  { at: string; bottom: string; size?: number; tone?: string; tilt?: number; side?: 'left' | 'right' }) {
+  return <div className={`rs-rose ${tone}`} style={v({ [side]: at, bottom, '--s': size, '--tilt': `${tilt}deg` })} />;
+}
+
+const S_rosegarden = () => (
+  <>
+    {sky}
+    <div className="rs-stonewall" />
+    <div className="rs-rosewall left" />
+    <div className="rs-rosewall right" />
+    <div className="rs-archway" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(52% 46% at 50% 22%, rgba(255,196,196,0.2), transparent 66%)' })} />
+    <Rose at="4%" bottom="18%" size={1.15} tilt={-7} />
+    <Rose at="14%" bottom="16%" size={0.85} tilt={5} tone="pale" />
+    <Rose at="5%" bottom="17%" size={1} tilt={6} side="right" />
+    <Surface h={15} cls="mossflag" />
+  </>
+);
+
+const S_petalstorm = () => (
+  <>
+    {sky}
+    <Sil d={FIR_FAR} fill="#4a2a3c" style={{ bottom: '30%', height: '22%', filter: 'blur(5px)', opacity: 0.55 }} />
+    <div className="rs-avenue far" />
+    <div className="rs-avenue" />
+    <div className="rs-petaldrift" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(60% 46% at 50% 12%, rgba(255,190,206,0.24), transparent 66%)' })} />
+    <Surface h={12} cls="petalpath" />
+  </>
+);
+
+const S_firstdate = () => (
+  <>
+    {sky}
+    <div className="rs-plaster warm" />
+    <Win side="right" top={12} w={26} h={44} bars="cross" wood="#241a12"
+      view={<><div className="rs-street night" /><CityLights /></>} />
+    <div className="rs-bistro" />
+    <Candle x="15%" bottom="20%" h={40} s={1} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(38% 36% at 16% 56%, rgba(255,182,120,0.22), transparent 66%)' })} />
+    <Surface h={17} cls="bistrotop" />
+  </>
+);
+
+const S_loveletter = () => (
+  <>
+    {sky}
+    <div className="rs-panel warm" />
+    <Lamp x="20%" y={14} size={1.2} cone={1} warm="255,200,132" />
+    <div className="rs-letters" />
+    <div className="rs-waxseal" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(38% 40% at 22% 30%, rgba(255,196,132,0.2), transparent 64%)' })} />
+    <Surface h={19} cls="oak">
+      <i className="rs-papers" style={{ left: '70%' }} />
+    </Surface>
+  </>
+);
+
+const S_slowdance = () => (
+  <>
+    {sky}
+    <div className="rs-plaster warm" />
+    <div className="rs-festoon" />
+    <div className="rs-turntable" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(48% 44% at 50% 30%, rgba(255,186,132,0.18), transparent 66%)' })} />
+    <Surface h={15} cls="parquet" />
+  </>
+);
+
+const S_balcony = () => (
+  <>
+    {sky}
+    <Sil d={SKY_FAR} fill="#4a3a52" style={{ bottom: '26%', height: '30%', filter: 'blur(2px)', opacity: 0.8 }} />
+    <Sil d={SKY_NEAR} fill="#2a1e2e" style={{ bottom: '18%', height: '34%' }} />
+    <CityLights />
+    <div className="rs-ironwork" />
+    <div className="rs-geranium" style={{ left: '5%' }} />
+    <div className="rs-geranium" style={{ right: '6%', transform: 'scale(0.86)' }} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(56% 40% at 50% 16%, rgba(255,176,150,0.2), transparent 66%)' })} />
+    <Surface h={13} cls="stonefloor" />
+  </>
+);
+
+const S_aisle = () => (
+  <>
+    {sky}
+    <div className="rs-stonewall" />
+    <div className="rs-archway big" />
+    <div className="rs-pews" />
+    <div className="rs-runner" />
+    <Candle x="9%" bottom="17%" h={62} s={1.05} />
+    <Candle x="16%" bottom="16%" h={44} s={0.85} />
+    <Candle x="9%" bottom="17%" h={58} s={1} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(46% 44% at 50% 26%, rgba(255,206,180,0.2), transparent 66%)' })} />
+  </>
+);
+
+const S_terrace = () => (
+  <>
+    {sky}
+    <Stars set={STARS_B} />
+    <div className="rs-moon"><i className="crater a" /><i className="crater b" /></div>
+    <div className="rs-moonpath" />
+    <Sea top={62} tint={['#0a1a2c', '#0e2438', '#132f48']} />
+    <div className="rs-jasmine" />
+    <div className="rs-twochairs" />
+    <Surface h={12} cls="stonefloor" />
+  </>
+);
+
+const S_honeymoon = () => (
+  <>
+    {sky}
+    <div className="rs-plaster warm" />
+    <div className="rs-bedcanopy" />
+    <div className="rs-bedlinen" />
+    <Candle x="7%" bottom="30%" h={38} s={0.9} />
+    <Candle x="92%" bottom="30%" h={34} s={0.85} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(46% 42% at 50% 56%, rgba(255,186,168,0.2), transparent 66%)' })} />
+  </>
+);
+
+const S_valentine = () => (
+  <>
+    {sky}
+    <div className="rs-drape left" />
+    <div className="rs-drape right" />
+    <div className="rs-chocbox" />
+    <Candle x="13%" bottom="16%" h={58} s={1.05} />
+    <Candle x="20%" bottom="15%" h={36} s={0.8} />
+    <Candle x="87%" bottom="16%" h={50} s={0.95} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(46% 40% at 50% 46%, rgba(255,140,170,0.16), transparent 64%)' })} />
+    <Surface h={16} cls="velvet" />
+  </>
+);
+
+const S_blossomwalk = () => (
+  <>
+    {sky}
+    <div className="rs-blossom top" />
+    <div className="rs-avenue far" />
+    <div className="rs-branch" />
+    <div className="rs-lantern" style={{ left: '8%' }} />
+    <div className="rs-lantern" style={{ right: '10%', transform: 'scale(0.82)' }} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(52% 42% at 50% 8%, rgba(255,204,222,0.24), transparent 64%)' })} />
+    <Surface h={12} cls="petalpath" />
+  </>
+);
+
+const S_lockbridge = () => (
+  <>
+    {sky}
+    <Sil d={SKY_FAR} fill="#1e2a3e" style={{ bottom: '30%', height: '26%', filter: 'blur(2.4px)', opacity: 0.8 }} />
+    <CityLights />
+    <Sea top={58} tint={['#0d1f30', '#12293c', '#17344a']} />
+    <div className="rs-riverlights" />
+    <div className="rs-padlocks" />
+    <Surface h={11} cls="wet" />
+  </>
+);
+
+const S_twocups = () => (
+  <>
+    {sky}
+    <div className="rs-plaster cold" />
+    <Win side="right" top={9} w={34} h={54} glass="rain" bars="grid" wood="#2b2118"
+      view={<><div className="rs-street" /><Sil d={SKY_FAR} fill="#1a222e" style={{ bottom: 0, height: '44%' }} /></>} />
+    <Lamp x="16%" y={16} size={1.05} cone={0.8} warm="255,200,140" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(42% 40% at 20% 32%, rgba(255,196,140,0.16), transparent 64%)' })} />
+    <Surface h={17} cls="oak">
+      <i className="rs-mug steam" style={{ left: '24%' }} />
+      <i className="rs-mug steam" style={{ left: '76%', transform: 'scale(0.94)' }} />
+    </Surface>
+  </>
+);
+
+const S_florist = () => (
+  <>
+    {sky}
+    <div className="rs-plaster warm" />
+    <div className="rs-buckets" />
+    <div className="rs-ribbons" />
+    <Rose at="3%" bottom="20%" size={1.1} tilt={-9} />
+    <Rose at="11%" bottom="19%" size={0.9} tilt={4} tone="pale" />
+    <Rose at="4%" bottom="20%" size={1} tilt={8} side="right" tone="dark" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(50% 46% at 50% 22%, rgba(255,224,180,0.22), transparent 64%)' })} />
+    <Surface h={18} cls="butcher" />
+  </>
+);
+
+const S_goldenhour = () => (
+  <>
+    {sky}
+    <div className="rs-sun big" style={{ left: '50%', top: '54%' }} />
+    <Sil d="M0 40 L0 30 Q18 23 36 29 T72 28 T100 32 L100 40 Z" fill="#6a4030" style={{ bottom: '16%', height: '26%', filter: 'blur(2px)', opacity: 0.8 }} />
+    <div className="rs-grass" />
+    <div className="rs-couple" />
+    <div className="rs-glitter warm" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(38% 34% at 22% 62%, rgba(255,196,120,0.18), transparent 66%)' })} />
+  </>
+);
+
+const S_firesidetwo = () => (
+  <>
+    {sky}
+    <div className="rs-brick" />
+    <div className="rs-hearth">
+      <i className="mantel" />
+      <i className="mouth" />
+      <div className="fire">
+        <i style={{ left: '32%', animationDelay: '-0.3s' }} />
+        <i style={{ left: '46%', animationDelay: '-0.7s', transform: 'scale(1.2)' }} />
+        <i style={{ left: '60%', animationDelay: '-1.1s' }} />
+      </div>
+      <i className="logs" />
+    </div>
+    <div className="rs-firelight" />
+    <div className="rs-blanket" />
+    <Surface h={15} cls="dark">
+      <i className="rs-wineglass" style={{ left: '13%' }} />
+      <i className="rs-wineglass" style={{ left: '84%', transform: 'scale(0.94)' }} />
+    </Surface>
+  </>
+);
+
+const S_starcrossed = () => (
+  <>
+    {sky}
+    <Stars set={STARS_C} />
+    <div className="rs-milkyway" />
+    <Sil d={SKY_FAR} fill="#161232" style={{ bottom: '22%', height: '26%', filter: 'blur(3px)', opacity: 0.7 }} />
+    <div className="rs-ironwork tall" />
+    <div className="rs-jasmine" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(52% 42% at 50% 14%, rgba(184,164,255,0.18), transparent 66%)' })} />
+    <Surface h={12} cls="stonefloor" />
+  </>
+);
+
+const S_ferriswheel = () => (
+  <>
+    {sky}
+    <Sil d={SKY_FAR} fill="#241a3a" style={{ bottom: '24%', height: '24%', filter: 'blur(3px)', opacity: 0.7 }} />
+    <div className="rs-wheel" />
+    <div className="rs-stalls" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(56% 44% at 50% 30%, rgba(255,150,190,0.18), transparent 66%)' })} />
+    <Surface h={12} cls="wet" />
+  </>
+);
+
+const S_skylanterns = () => (
+  <>
+    {sky}
+    <Stars set={STARS_B} cls="faint" />
+    <Sil d={FIR_NEAR} fill="#0d1420" style={{ bottom: '30%', height: '20%' }} />
+    <Sea top={64} tint={['#101c2a', '#152436', '#1b2f44']} />
+    <div className="rs-lanternglow" />
+    <div className="rs-reeds" />
+  </>
+);
+
+const S_perfumery = () => (
+  <>
+    {sky}
+    <div className="rs-panel warm" />
+    <div className="rs-shelfglass" />
+    <div className="rs-bottles" />
+    <Lamp x="80%" y={14} size={1.1} cone={0.9} warm="255,206,150" />
+    <Rose at="5%" bottom="19%" size={0.95} tilt={-6} tone="dark" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(40% 42% at 80% 28%, rgba(255,196,150,0.18), transparent 64%)' })} />
+    <Surface h={18} cls="marble" />
+  </>
+);
+
 /* ================================ registry ================================ */
 
 export const ROOMS: Room[] = [
+  /* -- Love: warmth comes from the light, never from pink paint. Two of
+     everything and nobody in it, and the petals are always moving. -- */
+  { key: 'rosegarden', label: 'Rose Garden', group: 'Love', reads: 'Romance', blurb: 'A wall of climbing roses, and the air full of them', tags: ['romance', 'roses', 'garden', 'petals', 'summer', 'love'], accent: '255,160,186', glow: 0.44, sound: 'wind', cam: { move: 'push', grade: 'rose' }, fx: { kind: 'rose', n: 22 }, scene: S_rosegarden },
+  { key: 'petalstorm', label: 'Petal Storm', group: 'Love', reads: 'Romance', blurb: 'An avenue at dusk, going under in blossom', tags: ['petals', 'blossom', 'storm', 'romance', 'spring', 'love'], accent: '255,176,198', ink: '#fbe9f0', glow: 0.4, sound: 'wind', cam: { move: 'sway', grade: 'rose' }, fx: { kind: 'rose', n: 46 }, scene: S_petalstorm },
+  { key: 'firstdate', label: 'First Date', group: 'Love', reads: 'Romance', blurb: 'One candle, two glasses, and the city getting on with it', tags: ['date', 'restaurant', 'bistro', 'candle', 'romance', 'dinner'], accent: '255,186,124', glow: 0.5, cam: { move: 'breathe', grade: 'warm' }, fx: { kind: 'bokeh', n: 8 }, scene: S_firstdate },
+  { key: 'loveletter', label: 'Love Letters', group: 'Love', reads: 'Letters', blurb: 'Kept in ribbon, read more than once', tags: ['letters', 'epistolary', 'longing', 'romance', 'wax', 'writing'], accent: '255,198,140', glow: 0.48, cam: { move: 'push', grade: 'gold' }, fx: { kind: 'dust', n: 24 }, scene: S_loveletter },
+  { key: 'slowdance', label: 'Slow Dance', group: 'Love', reads: 'Romance', blurb: 'A record turning, and nobody in a hurry', tags: ['dance', 'record', 'music', 'romance', 'evening', 'lights'], accent: '255,182,140', glow: 0.46, cam: { move: 'sway', grade: 'warm' }, fx: { kind: 'bokeh', n: 9 }, scene: S_slowdance },
+  { key: 'balcony', label: 'Paris Balcony', group: 'Love', reads: 'Romance', blurb: 'Iron, geraniums, and the rooftops going violet', tags: ['paris', 'balcony', 'france', 'romance', 'city', 'dusk'], accent: '255,172,158', glow: 0.42, cam: { move: 'rise', grade: 'rose' }, fx: { kind: 'rose', n: 14 }, scene: S_balcony },
+  { key: 'aisle', label: 'The Aisle', group: 'Love', reads: 'Weddings', blurb: 'Petals down the middle and a hundred candles', tags: ['wedding', 'marriage', 'vows', 'aisle', 'chapel', 'romance'], accent: '255,206,186', glow: 0.5, cam: { move: 'push', grade: 'rose' }, fx: { kind: 'rose', n: 18 }, scene: S_aisle },
+  { key: 'terrace', label: 'Moonlit Terrace', group: 'Love', reads: 'Romance', blurb: 'Two chairs, jasmine, and a path across the water', tags: ['moon', 'terrace', 'sea', 'jasmine', 'night', 'romance'], accent: '196,206,240', ink: '#eaeff8', sound: 'ocean', glow: 0.38, cam: { move: 'panL', grade: 'cool' }, fx: { kind: 'firefly', n: 10 }, scene: S_terrace },
+  { key: 'honeymoon', label: 'Honeymoon Suite', group: 'Love', reads: 'Romance', blurb: 'White linen, and somebody has been at the roses', tags: ['honeymoon', 'hotel', 'bed', 'petals', 'romance', 'wedding'], accent: '255,178,168', glow: 0.46, cam: { move: 'breathe', grade: 'rose' }, fx: { kind: 'rose', n: 16 }, scene: S_honeymoon },
+  { key: 'valentine', label: 'Valentine', group: 'Love', reads: 'Romance', blurb: 'Heavy red, and the hearts will not stay down', tags: ['valentine', 'hearts', 'chocolate', 'romance', 'february', 'love'], accent: '255,132,166', ink: '#fbe6ee', glow: 0.48, cam: { move: 'breathe', grade: 'rose' }, fx: { kind: 'heart', n: 16 }, scene: S_valentine },
+  { key: 'blossomwalk', label: 'Blossom Walk', group: 'Love', reads: 'Romance', blurb: 'Cherry the whole length of it, and lanterns lit early', tags: ['cherry', 'blossom', 'sakura', 'spring', 'walk', 'romance'], accent: '255,190,212', ink: '#fbeaf1', glow: 0.44, cam: { move: 'push', grade: 'rose' }, fx: { kind: 'blossom', n: 34 }, scene: S_blossomwalk },
+  { key: 'lockbridge', label: 'Lock Bridge', group: 'Love', reads: 'Romance', blurb: 'Everyone else\u2019s promises, rusting on the rail', tags: ['bridge', 'padlock', 'river', 'city', 'romance', 'paris'], accent: '186,206,226', ink: '#eaf1f8', glow: 0.34, cam: { move: 'panR', grade: 'teal' }, fx: { kind: 'bokeh', n: 8 }, scene: S_lockbridge },
+  { key: 'twocups', label: 'Two Cups', group: 'Love', reads: 'Quiet love', blurb: 'Rain on the glass, and neither cup finished', tags: ['tea', 'coffee', 'rain', 'quiet', 'domestic', 'romance', 'cosy'], accent: '255,190,138', sound: 'rain', glow: 0.42, cam: { move: 'breathe', grade: 'cool' }, fx: { kind: 'none' }, scene: S_twocups },
+  { key: 'florist', label: 'The Florist', group: 'Love', reads: 'Romance', blurb: 'Buckets, ribbon, and stems cut on the slant', tags: ['flowers', 'florist', 'roses', 'shop', 'bouquet', 'romance'], accent: '255,206,180', glow: 0.44, cam: { move: 'breathe', grade: 'warm' }, fx: { kind: 'rose', n: 14 }, scene: S_florist },
+  { key: 'goldenhour', label: 'Golden Embrace', group: 'Love', reads: 'Romance', blurb: 'Twenty minutes, and two people not moving', tags: ['sunset', 'golden hour', 'field', 'couple', 'romance', 'summer'], accent: '255,178,110', glow: 0.58, sound: 'wind', cam: { move: 'pull', grade: 'gold', flare: true }, fx: { kind: 'gold', n: 26 }, scene: S_goldenhour },
+  { key: 'firesidetwo', label: 'Fireside for Two', group: 'Love', reads: 'Quiet love', blurb: 'One blanket, two glasses, nothing else on', tags: ['fire', 'winter', 'cosy', 'wine', 'blanket', 'romance', 'hygge'], accent: '255,152,80', glow: 0.6, cam: { move: 'breathe', grade: 'ember' }, fx: { kind: 'spark', n: 22 }, scene: S_firesidetwo },
+  { key: 'starcrossed', label: 'Starcrossed', group: 'Love', reads: 'Tragic love', blurb: 'A balcony, the whole galaxy, and bad timing', tags: ['romeo', 'juliet', 'tragedy', 'balcony', 'stars', 'romance', 'shakespeare'], accent: '190,170,255', ink: '#efeafc', glow: 0.4, cam: { move: 'rise', grade: 'violet' }, fx: { kind: 'firefly', n: 12 }, scene: S_starcrossed },
+  { key: 'ferriswheel', label: 'Ferris Wheel', group: 'Love', reads: 'Romance', blurb: 'The fair at night, from the top, stopped', tags: ['fair', 'fairground', 'carnival', 'ferris', 'night', 'romance', 'lights'], accent: '255,150,190', ink: '#fbe9f2', glow: 0.46, cam: { move: 'roll', grade: 'violet' }, fx: { kind: 'confetti', n: 22 }, scene: S_ferriswheel },
+  { key: 'skylanterns', label: 'Sky Lanterns', group: 'Love', reads: 'Romance', blurb: 'A thousand of them going up off the water', tags: ['lantern', 'festival', 'wish', 'night', 'water', 'romance'], accent: '255,190,120', glow: 0.5, sound: 'wind', cam: { move: 'rise', grade: 'gold' }, fx: { kind: 'lantern', n: 20 }, scene: S_skylanterns },
+  { key: 'perfumery', label: 'The Perfumery', group: 'Love', reads: 'Sensual', blurb: 'Glass, rose oil, and a room that remembers people', tags: ['perfume', 'scent', 'rose', 'sensual', 'romance', 'boudoir'], accent: '255,186,150', glow: 0.44, cam: { move: 'push', grade: 'rose' }, fx: { kind: 'dust', n: 22 }, scene: S_perfumery },
+
   /* -- Genre: pick the room that matches the book. `reads` is printed on the
      card, so the grid answers "what do I read in here" without a hover. -- */
   { key: 'crypt', label: 'The Crypt', group: 'Genre', reads: 'Horror', blurb: 'One candle, and a great deal of dark', tags: ['horror', 'ghost', 'scary', 'gothic', 'supernatural', 'king'], accent: '255,152,74', glow: 0.5, fx: { kind: 'dust', n: 28 }, scene: S_crypt },
@@ -1605,6 +2578,30 @@ export const ROOMS: Room[] = [
   { key: 'fort', label: 'Blanket Fort', group: 'Genre', reads: 'Middle grade', blurb: 'Sheets, fairy lights, no bedtime', tags: ['children', 'kids', 'middle grade', 'adventure', 'family'], accent: '255,206,150', glow: 0.5, fx: { kind: 'bokeh', n: 8 }, scene: S_fort },
   { key: 'bedtime', label: 'Bedtime', group: 'Genre', reads: 'Picture books', blurb: 'The ceiling is the sky and the light is a small one', tags: ['children', 'picture book', 'bedtime', 'kids', 'toddler', 'read aloud', 'nursery'], accent: '255,196,146', glow: 0.4, fx: { kind: 'star', n: 0 }, scene: S_bedtime },
 
+  /* -- Genre, the third wing -- */
+  { key: 'courtroom', label: 'The Courtroom', group: 'Genre', reads: 'Legal drama', blurb: 'Oak, one high bench, and everybody waiting', tags: ['legal', 'court', 'trial', 'justice', 'drama', 'law'], accent: '255,222,180', glow: 0.42, cam: { move: 'push', grade: 'gold' }, fx: { kind: 'dust', n: 24 }, scene: S_courtroom },
+  { key: 'asylum', label: 'The Ward', group: 'Genre', reads: 'Psychological', blurb: 'Tile, a barred window, and a light with a fault', tags: ['psychological', 'horror', 'asylum', 'thriller', 'madness', 'gothic'], accent: '204,216,220', ink: '#eaf0f2', glow: 0.24, cam: { move: 'still', grade: 'bleach' }, fx: { kind: 'dust', n: 18 }, scene: S_asylum },
+  { key: 'speakeasy', label: 'The Speakeasy', group: 'Genre', reads: 'Jazz age', blurb: 'Back bar, low ceiling, and nobody using real names', tags: ['jazz age', 'gatsby', 'prohibition', 'noir', 'cocktail', 'twenties'], accent: '255,186,110', glow: 0.48, cam: { move: 'breathe', grade: 'warm' }, fx: { kind: 'dust', n: 22 }, scene: S_speakeasy },
+  { key: 'zendo', label: 'The Zendo', group: 'Genre', reads: 'Eastern thought', blurb: 'Paper, matting, and a great deal of nothing', tags: ['zen', 'meditation', 'buddhism', 'philosophy', 'mindfulness', 'japan'], accent: '240,230,200', glow: 0.3, cam: { move: 'still', grade: 'none' }, fx: { kind: 'dust', n: 14 }, scene: S_zendo },
+  { key: 'bazaar', label: 'The Bazaar', group: 'Genre', reads: 'Silk road', blurb: 'Brass, rugs, and lamplight through a hundred holes', tags: ['silk road', 'arabian', 'nights', 'market', 'travel', 'persia'], accent: '255,190,110', glow: 0.48, cam: { move: 'panR', grade: 'gold' }, fx: { kind: 'dust', n: 26 }, scene: S_bazaar },
+  { key: 'pyramid', label: 'Tomb of Kings', group: 'Genre', reads: 'Egyptology', blurb: 'Painted walls, and air nobody has breathed', tags: ['egypt', 'archaeology', 'tomb', 'ancient', 'history', 'mummy'], accent: '255,186,100', glow: 0.4, cam: { move: 'push', grade: 'gold' }, fx: { kind: 'dust', n: 30 }, scene: S_pyramid },
+  { key: 'expedition', label: 'Expedition Camp', group: 'Genre', reads: 'Exploration', blurb: 'Crates, green light, and something moving further in', tags: ['jungle', 'exploration', 'adventure', 'amazon', 'expedition', 'survival'], accent: '160,214,140', ink: '#eaf4e6', glow: 0.36, sound: 'wind', cam: { move: 'breathe', grade: 'moss' }, fx: { kind: 'firefly', n: 14 }, scene: S_expedition },
+  { key: 'submarine', label: 'The Boat', group: 'Genre', reads: 'War at sea', blurb: 'Red light, gauges, and everyone speaking quietly', tags: ['submarine', 'war', 'naval', 'thriller', 'cold war', 'depth'], accent: '255,120,110', ink: '#f8e6e4', glow: 0.3, cam: { move: 'still', grade: 'ember' }, fx: { kind: 'none' }, scene: S_submarine },
+  { key: 'cockpit', label: 'The Cockpit', group: 'Genre', reads: 'Aviation', blurb: 'Instruments below, weather above, nothing else', tags: ['aviation', 'flight', 'pilot', 'plane', 'sky', 'adventure'], accent: '130,224,190', ink: '#e6f6f0', glow: 0.34, cam: { move: 'sway', grade: 'cool' }, fx: { kind: 'none' }, scene: S_cockpit },
+  { key: 'cardroom', label: 'The Card Room', group: 'Genre', reads: 'Heist', blurb: 'One lamp, green baize, and everybody bluffing', tags: ['heist', 'poker', 'gambling', 'crime', 'casino', 'caper'], accent: '150,236,180', glow: 0.44, cam: { move: 'push', grade: 'moss' }, fx: { kind: 'dust', n: 20 }, scene: S_cardroom },
+  { key: 'wings', label: 'The Wings', group: 'Genre', reads: 'Plays', blurb: 'Ropes, dust, and the stage light leaking through', tags: ['theatre', 'play', 'drama', 'shakespeare', 'stage', 'backstage'], accent: '255,214,160', glow: 0.4, cam: { move: 'still', grade: 'warm' }, fx: { kind: 'dust', n: 34 }, scene: S_wings },
+  { key: 'projection', label: 'The Projection Box', group: 'Genre', reads: 'Film', blurb: 'A beam full of dust, and reels waiting their turn', tags: ['film', 'cinema', 'movies', 'projection', 'screenplay', 'criticism'], accent: '236,226,196', glow: 0.38, cam: { move: 'still', grade: 'noir' }, fx: { kind: 'dust', n: 40 }, scene: S_projection },
+  { key: 'radio', label: 'Radio Station', group: 'Genre', reads: 'Late night', blurb: 'On air, after midnight, to whoever is left', tags: ['radio', 'late night', 'broadcast', 'mystery', 'noir', 'music'], accent: '255,120,110', glow: 0.4, cam: { move: 'breathe', grade: 'ember' }, fx: { kind: 'dust', n: 16 }, scene: S_radio },
+  { key: 'diner', label: 'Night Diner', group: 'Genre', reads: 'Americana', blurb: 'Formica, neon on the glass, and coffee number four', tags: ['americana', 'diner', 'short stories', 'noir', 'road', 'hopper'], accent: '255,180,150', glow: 0.42, cam: { move: 'breathe', grade: 'teal' }, fx: { kind: 'none' }, scene: S_diner },
+  { key: 'lasttrain', label: 'Last Train', group: 'Genre', reads: 'Urban fiction', blurb: 'Strip light, black glass, and four other people', tags: ['urban', 'city', 'commute', 'train', 'night', 'literary'], accent: '196,214,230', ink: '#eaf0f6', glow: 0.3, cam: { move: 'sway', grade: 'cool' }, fx: { kind: 'none' }, scene: S_lasttrain },
+  { key: 'nightshift', label: 'Night Shift', group: 'Genre', reads: 'Medical drama', blurb: 'A curtain, a monitor, and somebody sleeping', tags: ['medical', 'hospital', 'nurse', 'doctor', 'drama', 'night'], accent: '150,220,210', ink: '#e8f5f3', glow: 0.28, cam: { move: 'still', grade: 'bleach' }, fx: { kind: 'none' }, scene: S_nightshift },
+  { key: 'apothecary', label: 'The Apothecary', group: 'Genre', reads: 'Cosy fantasy', blurb: 'Jars, string, and everything hanging up to dry', tags: ['witch', 'herbal', 'cosy fantasy', 'potion', 'magic', 'remedy'], accent: '255,196,120', glow: 0.46, cam: { move: 'push', grade: 'warm' }, fx: { kind: 'dust', n: 26 }, scene: S_apothecary },
+  { key: 'clocktower', label: 'The Clock Tower', group: 'Genre', reads: 'Steampunk', blurb: 'Inside the face, with the whole thing turning', tags: ['steampunk', 'time', 'clock', 'gears', 'victorian', 'machine'], accent: '255,206,140', glow: 0.42, cam: { move: 'rise', grade: 'gold' }, fx: { kind: 'dust', n: 28 }, scene: S_clocktower },
+  { key: 'lighthouse', label: 'The Lighthouse', group: 'Genre', reads: 'Solitude', blurb: 'A lens, a sweep, and nobody for forty miles', tags: ['solitude', 'sea', 'isolation', 'keeper', 'island', 'literary'], accent: '255,236,190', ink: '#f4f2e8', glow: 0.44, sound: 'ocean', cam: { move: 'panL', grade: 'cool' }, fx: { kind: 'none' }, scene: S_lighthouse },
+  { key: 'bookshop', label: 'Second-hand Books', group: 'Genre', reads: 'For readers', blurb: 'Piled past the point of order, and better for it', tags: ['bookshop', 'books', 'bibliophile', 'secondhand', 'browsing', 'cosy'], accent: '255,204,146', glow: 0.46, cam: { move: 'push', grade: 'warm' }, fx: { kind: 'dust', n: 34 }, scene: S_bookshop },
+  { key: 'press', label: 'The Press', group: 'Genre', reads: 'Publishing', blurb: 'Type in the case, ink on everything', tags: ['publishing', 'printing', 'typography', 'letterpress', 'books', 'craft'], accent: '255,206,160', glow: 0.42, cam: { move: 'breathe', grade: 'warm' }, fx: { kind: 'dust', n: 24 }, scene: S_press },
+  { key: 'dojo', label: 'The Dojo', group: 'Genre', reads: 'Martial arts', blurb: 'Swept floor, one scroll, and the door left open', tags: ['martial arts', 'karate', 'budo', 'discipline', 'japan', 'training'], accent: '246,236,210', glow: 0.34, cam: { move: 'still', grade: 'none' }, fx: { kind: 'dust', n: 20 }, scene: S_dojo },
+
   /* -- Study -- */
   { key: 'clean', label: 'Studio', group: 'Study', blurb: 'White walls, north light, nothing else', accent: '206,214,224', glow: 0.2, fx: { kind: 'dust', n: 22 }, scene: S_clean },
   { key: 'focus', label: 'Blackout', group: 'Study', blurb: 'One lamp, and the page', accent: '245,205,140', glow: 0.32, fx: { kind: 'dust', n: 14 }, scene: S_focus },
@@ -1619,6 +2616,10 @@ export const ROOMS: Room[] = [
   { key: 'noir', label: 'Noir', group: 'Study', blurb: 'Blind slats across the wall, rain outside', accent: '206,214,226', glow: 0.3, fx: { kind: 'dust', n: 18 }, scene: S_noir },
   { key: 'greenhouse', label: 'Greenhouse', group: 'Study', blurb: 'Glass overhead, everything growing', accent: '186,224,150', ink: '#eef6e6', glow: 0.35, fx: { kind: 'pollen', n: 26 }, scene: S_greenhouse },
   { key: 'bath', label: 'The Long Bath', group: 'Study', blurb: 'Steam, tile, and a paperback going soft', tags: ['bath', 'soak', 'relax', 'unwind', 'candles', 'evening'], accent: '255,184,124', glow: 0.44, fx: { kind: 'dust', n: 16 }, scene: S_bath },
+  { key: 'garret', label: 'The Garret', group: 'Study', blurb: 'A skylight, an easel, and nothing in the cupboard', tags: ['bohemian', 'artist', 'paris', 'attic', 'poverty', 'writing'], accent: '246,220,170', glow: 0.38, cam: { move: 'rise', grade: 'warm' }, fx: { kind: 'dust', n: 32 }, scene: S_garret },
+  { key: 'snug', label: 'The Snug', group: 'Study', blurb: 'The small room at the back, with the good chairs', tags: ['pub', 'inn', 'fireside', 'cosy', 'beer', 'winter'], accent: '255,178,104', glow: 0.52, cam: { move: 'breathe', grade: 'ember' }, fx: { kind: 'ember', n: 12 }, scene: S_snug },
+  { key: 'bothy', label: 'The Bothy', group: 'Study', blurb: 'A stove, a stone wall, and weather refused entry', tags: ['scotland', 'hut', 'mountain', 'shelter', 'stove', 'solitude'], accent: '255,184,110', glow: 0.5, sound: 'wind', cam: { move: 'breathe', grade: 'warm' }, fx: { kind: 'ember', n: 16 }, scene: S_bothy },
+  { key: 'conservatory', label: 'Winter Garden', group: 'Study', blurb: 'Glass overhead, frost on it, palms underneath', tags: ['conservatory','glasshouse','winter','palms','victorian','botanical'], accent: '206,226,214', ink: '#eef6f2', glow: 0.32, cam: { move: 'rise', grade: 'cool' }, fx: { kind: 'dust', n: 26 }, scene: S_conservatory },
 
   /* -- Nature -- */
   { key: 'rain', label: 'Rain Window', group: 'Nature', blurb: 'Beads on the pane, city gone soft', accent: '158,200,236', ink: '#e8eff7', sound: 'rain', glow: 0.28, fx: { kind: 'none' }, scene: S_rain },
@@ -1636,6 +2637,15 @@ export const ROOMS: Room[] = [
   { key: 'reef', label: 'Underwater', group: 'Nature', blurb: 'Caustics overhead, everything slow', accent: '110,206,224', ink: '#e4f4f7', sound: 'ocean', glow: 0.36, fx: { kind: 'bubble', n: 26 }, scene: S_reef },
   { key: 'waterfall', label: 'The Falls', group: 'Nature', blurb: 'Green light, wet rock, and a noise you stop hearing', accent: '158,224,196', ink: '#e8f7f0', sound: 'ocean', glow: 0.34, fx: { kind: 'pollen', n: 20 }, scene: S_waterfall },
   { key: 'canyon', label: 'Slot Canyon', group: 'Nature', blurb: 'Sandstone, and one shaft of noon getting in', accent: '255,168,96', glow: 0.46, fx: { kind: 'gold', n: 26 }, scene: S_canyon },
+  { key: 'volcano', label: 'Volcano Rim', group: 'Nature', blurb: 'The glow is coming from underneath', tags: ['volcano', 'lava', 'iceland', 'fire', 'geology', 'earth'], accent: '255,130,70', ink: '#fbe8e2', glow: 0.5, cam: { move: 'push', grade: 'ember' }, fx: { kind: 'ember', n: 30 }, scene: S_volcano },
+  { key: 'savanna', label: 'Savanna', group: 'Nature', blurb: 'Flat-topped trees and a very long evening', tags: ['africa', 'safari', 'savanna', 'acacia', 'plains', 'wildlife'], accent: '255,186,110', glow: 0.46, sound: 'wind', cam: { move: 'panR', grade: 'gold' }, fx: { kind: 'gold', n: 22 }, scene: S_savanna },
+  { key: 'bayou', label: 'The Bayou', group: 'Nature', blurb: 'Still black water and moss hanging into it', tags: ['swamp', 'louisiana', 'south', 'gothic', 'river', 'mist'], accent: '150,196,160', ink: '#e8f2ea', glow: 0.28, cam: { move: 'still', grade: 'moss' }, fx: { kind: 'firefly', n: 16 }, scene: S_bayou },
+  { key: 'cavern', label: 'Crystal Cavern', group: 'Nature', blurb: 'Cold blue coming up out of the floor', tags: ['cave', 'crystal', 'underground', 'geology', 'fantasy', 'deep'], accent: '140,206,240', ink: '#e6f2fb', glow: 0.36, cam: { move: 'breathe', grade: 'cool' }, fx: { kind: 'dust', n: 22 }, scene: S_cavern },
+  { key: 'fjord', label: 'The Fjord', group: 'Nature', blurb: 'Rock straight up, both sides, and no sound', tags: ['norway', 'fjord', 'cliff', 'nordic', 'sea', 'solitude'], accent: '176,204,226', ink: '#ecf2f8', glow: 0.28, sound: 'ocean', cam: { move: 'rise', grade: 'cool' }, fx: { kind: 'none' }, scene: S_fjord },
+  { key: 'saltflat', label: 'Salt Flat', group: 'Nature', blurb: 'An inch of water and two of everything', tags: ['salt flat', 'bolivia', 'mirror', 'desert', 'reflection', 'vast'], accent: '246,214,206', glow: 0.42, cam: { move: 'pull', grade: 'rose' }, fx: { kind: 'none' }, scene: S_saltflat },
+  { key: 'monsoon', label: 'Monsoon', group: 'Nature', blurb: 'From a verandah, which is the only way to take it', tags: ['monsoon', 'rain', 'india', 'tropics', 'storm', 'verandah'], accent: '170,206,214', ink: '#e8f2f4', glow: 0.3, sound: 'rain', cam: { move: 'still', grade: 'teal' }, fx: { kind: 'rain', n: 110 }, scene: S_monsoon },
+  { key: 'hotspring', label: 'Hot Spring', group: 'Nature', blurb: 'Snow on the rocks and steam off the water', tags: ['onsen', 'japan', 'hot spring', 'snow', 'steam', 'relax'], accent: '214,232,240', ink: '#eef4f8', glow: 0.36, cam: { move: 'breathe', grade: 'cool' }, fx: { kind: 'snow', n: 30 }, scene: S_hotspring },
+  { key: 'glacier', label: 'The Glacier', group: 'Nature', blurb: 'Blue all the way down, and moving too slowly to see', tags: ['glacier','ice','arctic','crevasse','blue','cold'], accent: '150,214,246', ink: '#e8f4fc', glow: 0.34, sound: 'wind', cam: { move: 'push', grade: 'cool' }, fx: { kind: 'snow', n: 24 }, scene: S_glacier },
 
   /* -- Cosmos -- */
   { key: 'night', label: 'Starfield', group: 'Cosmos', blurb: 'The Milky Way over a treeline', accent: '178,186,255', ink: '#eaebfc', glow: 0.34, fx: { kind: 'firefly', n: 18 }, scene: S_night },
@@ -1646,6 +2656,12 @@ export const ROOMS: Room[] = [
   { key: 'orbit', label: 'Low Orbit', group: 'Cosmos', blurb: 'Earthrise through the port', accent: '150,196,255', ink: '#e9f0fc', sound: 'drone', glow: 0.44, fx: { kind: 'none' }, scene: S_orbit },
   { key: 'ringed', label: 'Ring System', group: 'Cosmos', blurb: 'A gas giant on its side, and its ice edge-on', accent: '246,214,164', ink: '#f6efe2', sound: 'drone', glow: 0.42, fx: { kind: 'none' }, scene: S_ringed },
   { key: 'eclipse', label: 'Totality', group: 'Cosmos', blurb: 'Two minutes of the wrong kind of night', accent: '255,236,196', ink: '#f6f0e4', glow: 0.38, fx: { kind: 'star', n: 0 }, scene: S_eclipse },
+  { key: 'moonbase', label: 'Moon Base', group: 'Cosmos', blurb: 'Grey dust, hard shadows, and home in the sky', tags: ['moon', 'lunar', 'base', 'apollo', 'space', 'regolith'], accent: '186,206,236', ink: '#eaf0f8', glow: 0.34, sound: 'drone', cam: { move: 'still', grade: 'noir' }, fx: { kind: 'none' }, scene: S_moonbase },
+  { key: 'comet', label: 'The Comet', group: 'Cosmos', blurb: 'Ice coming apart in the light', tags: ['comet', 'ice', 'tail', 'space', 'astronomy', 'halley'], accent: '170,224,255', ink: '#e8f4fc', glow: 0.4, sound: 'drone', cam: { move: 'panL', grade: 'cool' }, fx: { kind: 'star', n: 0 }, scene: S_comet },
+  { key: 'binary', label: 'Binary Sunset', group: 'Cosmos', blurb: 'Two suns, and shadows that cannot agree', tags: ['binary', 'twin suns', 'tatooine', 'scifi', 'desert', 'alien'], accent: '255,178,120', glow: 0.5, cam: { move: 'pull', grade: 'gold' }, fx: { kind: 'gold', n: 18 }, scene: S_binary },
+  { key: 'spacewalk', label: 'Spacewalk', group: 'Cosmos', blurb: 'Out on the tether, with the whole planet turning', tags: ['eva', 'spacewalk', 'astronaut', 'orbit', 'space', 'iss'], accent: '150,196,255', ink: '#e9f0fc', glow: 0.44, sound: 'drone', cam: { move: 'sway', grade: 'cool' }, fx: { kind: 'none' }, scene: S_spacewalk },
+  { key: 'wormhole', label: 'The Lens', group: 'Cosmos', blurb: 'Light bent all the way round something', tags: ['black hole', 'wormhole', 'lensing', 'gravity', 'scifi', 'physics'], accent: '196,176,255', ink: '#f0eafc', glow: 0.42, sound: 'drone', cam: { move: 'push', grade: 'violet' }, fx: { kind: 'none' }, scene: S_wormhole },
+  { key: 'asteroid', label: 'Asteroid Belt', group: 'Cosmos', blurb: 'Rock, and a sun too far away to help', tags: ['asteroid', 'belt', 'mining', 'space', 'scifi', 'rock'], accent: '206,196,176', ink: '#f0ece4', glow: 0.3, sound: 'drone', cam: { move: 'panR', grade: 'noir' }, fx: { kind: 'none' }, scene: S_asteroid },
 
   /* -- Journey -- */
   { key: 'train', label: 'Night Train', group: 'Journey', blurb: 'Poles going past, a reading lamp on', accent: '246,190,124', glow: 0.42, fx: { kind: 'dust', n: 14 }, scene: S_train },
@@ -1654,6 +2670,12 @@ export const ROOMS: Room[] = [
   { key: 'balloon', label: 'Basket', group: 'Journey', blurb: 'Above the cloud deck, and only the burner for company', accent: '255,200,140', glow: 0.44, fx: { kind: 'none' }, scene: S_balloon },
   { key: 'motel', label: 'Roadside Motel', group: 'Journey', blurb: 'A sign you can read through the curtain', accent: '255,164,140', glow: 0.4, fx: { kind: 'dust', n: 16 }, scene: S_motel },
   { key: 'tent', label: 'Campsite', group: 'Journey', blurb: 'Fire at the door, stars past it', accent: '255,170,96', sound: 'wind', glow: 0.5, fx: { kind: 'ember', n: 26 }, scene: S_tent },
+  { key: 'riverboat', label: 'Riverboat', group: 'Journey', blurb: 'The wheel turning, and the bank going by', tags: ['mississippi', 'riverboat', 'twain', 'river', 'paddle', 'south'], accent: '255,198,130', glow: 0.42, cam: { move: 'panR', grade: 'warm' }, fx: { kind: 'firefly', n: 12 }, scene: S_riverboat },
+  { key: 'cablecar', label: 'Cable Car', group: 'Journey', blurb: 'Hanging on a wire above a great deal of snow', tags: ['cable car', 'alps', 'ski', 'mountain', 'cable', 'winter'], accent: '196,220,240', ink: '#eef4fa', glow: 0.32, sound: 'wind', cam: { move: 'sway', grade: 'cool' }, fx: { kind: 'snow', n: 34 }, scene: S_cablecar },
+  { key: 'highway', label: 'Desert Highway', group: 'Journey', blurb: 'Straight, empty, and going somewhere eventually', tags: ['road trip', 'highway', 'desert', 'americana', 'route 66', 'freedom'], accent: '255,180,110', glow: 0.46, cam: { move: 'push', grade: 'gold' }, fx: { kind: 'gold', n: 18 }, scene: S_highway },
+  { key: 'caravanserai', label: 'Caravanserai', group: 'Journey', blurb: 'Tents, a fire, and the desert doing nothing', tags: ['caravan', 'desert', 'silk road', 'camp', 'stars', 'travel'], accent: '255,176,100', glow: 0.5, sound: 'wind', cam: { move: 'breathe', grade: 'warm' }, fx: { kind: 'ember', n: 24 }, scene: S_caravanserai },
+  { key: 'sleeper', label: 'Sleeper Berth', group: 'Journey', blurb: 'A bunk, a small light, and the country in the dark', tags: ['sleeper', 'train', 'night', 'berth', 'travel', 'europe'], accent: '246,196,140', glow: 0.42, cam: { move: 'sway', grade: 'warm' }, fx: { kind: 'dust', n: 12 }, scene: S_sleeper },
+  { key: 'harbour', label: 'Harbour Wall', group: 'Journey', blurb: 'Masts clinking, and the town shut for the night', tags: ['harbour', 'port', 'boats', 'sea', 'town', 'night'], accent: '196,214,232', ink: '#ecf2f8', glow: 0.34, sound: 'ocean', cam: { move: 'breathe', grade: 'teal' }, fx: { kind: 'bokeh', n: 8 }, scene: S_harbour },
 
   /* -- Mood -- */
   { key: 'sunset', label: 'Golden Hour', group: 'Mood', blurb: 'Twenty minutes of good light', accent: '255,168,110', glow: 0.55, fx: { kind: 'gold', n: 24 }, scene: S_sunset },
@@ -1665,9 +2687,12 @@ export const ROOMS: Room[] = [
   { key: 'rooftop', label: 'Rooftop', group: 'Mood', blurb: 'Festoon bulbs, and the whole town below them', accent: '255,198,148', glow: 0.42, fx: { kind: 'bokeh', n: 9 }, scene: S_rooftop },
   { key: 'hammock', label: 'Hammock', group: 'Mood', blurb: 'Palms, a slow sea, and no reason to sit up', accent: '255,204,140', sound: 'ocean', glow: 0.46, fx: { kind: 'gold', n: 16 }, scene: S_hammock },
   { key: 'fog', label: 'Sea Fog', group: 'Mood', blurb: 'Everything past the second tree, gone', accent: '198,210,216', ink: '#eef2f4', sound: 'wind', glow: 0.24, fx: { kind: 'dust', n: 18 }, scene: S_fog },
+  { key: 'driftwood', label: 'Driftwood Fire', group: 'Mood', blurb: 'A fire on a beach, and the tide a long way out', tags: ['beach', 'fire', 'night', 'sea', 'driftwood', 'summer'], accent: '255,164,90', glow: 0.54, sound: 'ocean', cam: { move: 'breathe', grade: 'ember' }, fx: { kind: 'spark', n: 26 }, scene: S_driftwood },
+  { key: 'mossgarden', label: 'Moss Garden', group: 'Mood', blurb: 'Everything soft, everything green, everything slow', tags: ['moss', 'garden', 'kyoto', 'green', 'quiet', 'forest'], accent: '160,214,150', ink: '#eaf4e8', glow: 0.32, cam: { move: 'push', grade: 'moss' }, fx: { kind: 'pollen', n: 24 }, scene: S_mossgarden },
+  { key: 'fireflyfield', label: 'Firefly Field', group: 'Mood', blurb: 'Long grass, and the whole field blinking', tags: ['firefly', 'summer', 'field', 'night', 'grass', 'magic'], accent: '190,236,140', ink: '#eef7e6', glow: 0.3, cam: { move: 'still', grade: 'moss' }, fx: { kind: 'firefly', n: 40 }, scene: S_fireflyfield },
 ];
 
-export const ROOM_GROUPS: RoomGroup[] = ['Genre', 'Study', 'Nature', 'Cosmos', 'Journey', 'Mood'];
+export const ROOM_GROUPS: RoomGroup[] = ['Love', 'Genre', 'Study', 'Nature', 'Cosmos', 'Journey', 'Mood'];
 const BY_KEY = new Map(ROOMS.map((r) => [r.key, r]));
 export const getRoom = (k: Atmos | undefined): Room => BY_KEY.get(k as Atmos) ?? BY_KEY.get('library')!;
 export const isRoom = (k: unknown): k is Atmos => typeof k === 'string' && BY_KEY.has(k as Atmos);
@@ -1677,6 +2702,7 @@ export const isRoom = (k: unknown): k is Atmos => typeof k === 'string' && BY_KE
 const P_DEFAULTS: Record<PKind, number> = {
   none: 0, dust: 26, ember: 26, rain: 70, snow: 46, leaf: 20, petal: 22,
   bokeh: 12, star: 60, gold: 22, pollen: 28, firefly: 16, bubble: 24, ash: 24,
+  rose: 20, heart: 14, confetti: 30, lantern: 12, spark: 26, blossom: 26,
 };
 
 function Particles({ kind, n, color }: { kind: PKind; n?: number; color?: string }) {
@@ -1701,6 +2727,20 @@ function Particles({ kind, n, color }: { kind: PKind; n?: number; color?: string
         }
         case 'bubble':
           return { left: `${n2(between(r, 2, 98))}%`, animationDuration: `${n2(between(r, 7, 16))}s`, animationDelay: `${n2(-between(r, 0, 14))}s`, transform: `scale(${n2(between(r, 0.4, 1.4))})` };
+        /* A petal does not fall like snow: it stalls, tips, and slides sideways.
+           The wide duration spread is what stops twenty of them beating time. */
+        case 'rose':
+        case 'blossom':
+          return { left: `${n2(between(r, -6, 100))}%`, animationDuration: `${n2(between(r, 9, 19))}s`, animationDelay: `${n2(-between(r, 0, 18))}s`, transform: `scale(${n2(between(r, 0.5, 1.25))})`, opacity: n2(between(r, 0.65, 1)) };
+        /* Hearts and lanterns go UP, and the slow ones are the far ones. */
+        case 'heart':
+          return { left: `${n2(between(r, 4, 96))}%`, animationDuration: `${n2(between(r, 9, 17))}s`, animationDelay: `${n2(-between(r, 0, 16))}s`, transform: `scale(${n2(between(r, 0.4, 1))})` };
+        case 'lantern':
+          return { left: `${n2(between(r, 3, 97))}%`, animationDuration: `${n2(between(r, 22, 42))}s`, animationDelay: `${n2(-between(r, 0, 38))}s`, transform: `scale(${n2(between(r, 0.35, 1.05))})` };
+        case 'confetti':
+          return { left: `${n2(between(r, -4, 100))}%`, animationDuration: `${n2(between(r, 6, 13))}s`, animationDelay: `${n2(-between(r, 0, 12))}s`, transform: `scale(${n2(between(r, 0.5, 1.2))})`, background: pick(r, ['#f5c6d6', '#e8a0b8', '#f7e7c8', '#d98aa4', '#fff1f4']) };
+        case 'spark':
+          return { left: `${n2(between(r, 8, 92))}%`, top: `${n2(between(r, 30, 92))}%`, animationDuration: `${n2(between(r, 3.4, 8))}s`, animationDelay: `${n2(-between(r, 0, 7))}s`, transform: `scale(${n2(between(r, 0.4, 1.2))})` };
         case 'firefly':
           return { left: `${n2(between(r, 4, 96))}%`, top: `${n2(between(r, 40, 92))}%`, animationDuration: `${n2(between(r, 5, 11))}s`, animationDelay: `${n2(-between(r, 0, 10))}s` };
         case 'star':
@@ -1727,10 +2767,18 @@ function Particles({ kind, n, color }: { kind: PKind; n?: number; color?: string
  */
 export function RoomScene({ atmos, still = false }: { atmos: Atmos; still?: boolean }) {
   const room = getRoom(atmos);
+  const move = room.cam?.move ?? 'breathe';
+  const grade = room.cam?.grade ?? 'none';
   return (
-    <div className={`rs${still ? ' rs-still' : ''}`} data-room={room.key} aria-hidden>
-      {room.scene()}
-      {!still && <Particles kind={room.fx.kind} n={room.fx.n} color={room.fx.color} />}
+    <div className={`rs${still ? ' rs-still' : ''}`} data-room={room.key} data-grade={grade} aria-hidden>
+      {/* Everything in the world rides the camera. */}
+      <div className="rs-cam" data-move={still ? 'still' : move}>
+        {room.scene()}
+        {!still && <Particles kind={room.fx.kind} n={room.fx.n} color={room.fx.color} />}
+      </div>
+      {/* Everything from here down happens in the lens, so it holds still. */}
+      {grade !== 'none' && <div className="rs-grade" />}
+      {room.cam?.flare && !still && <div className="rs-flare" />}
       <div className="rs-vig" />
       {!still && <div className="rs-grain" />}
     </div>

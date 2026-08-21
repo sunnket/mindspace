@@ -20,6 +20,74 @@
 
 .rs { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .rs > * { position: absolute; }
+
+/* ============================== the camera ================================
+   The scene sits inside .rs-cam and drifts as one body; the vignette, grade
+   and grain are siblings, so they stay put. A lens artifact that moved with
+   the picture would read as a decal stuck on the glass.
+
+   Every move starts from scale(1.06) — three percent of overscan on each side
+   — so a translate can never pull an edge into frame. Only transform animates,
+   and .rs-cam is promoted once so the drift is a composite rather than a
+   repaint of forty stacked layers.
+   ========================================================================= */
+.rs-cam { position:absolute; inset:0; transform: scale(1.06); will-change: transform;
+  backface-visibility: hidden; }
+.rs-cam > * { position: absolute; }
+.rs-cam[data-move="still"] { transform: none; will-change: auto; }
+
+/* Durations are in the 30–60s range on purpose: fast enough that the frame is
+   never dead, slow enough that you cannot catch it moving. */
+.rs-cam[data-move="breathe"] { animation: rsCamBreathe 46s ease-in-out infinite alternate; }
+.rs-cam[data-move="push"]    { animation: rsCamPush    54s ease-in-out infinite alternate; }
+.rs-cam[data-move="pull"]    { animation: rsCamPush    54s ease-in-out infinite alternate-reverse; }
+.rs-cam[data-move="panL"]    { animation: rsCamPanL    58s ease-in-out infinite alternate; }
+.rs-cam[data-move="panR"]    { animation: rsCamPanL    58s ease-in-out infinite alternate-reverse; }
+.rs-cam[data-move="rise"]    { animation: rsCamRise    50s ease-in-out infinite alternate; }
+.rs-cam[data-move="fall"]    { animation: rsCamRise    50s ease-in-out infinite alternate-reverse; }
+.rs-cam[data-move="sway"]    { animation: rsCamSway    34s ease-in-out infinite alternate; }
+.rs-cam[data-move="roll"]    { animation: rsCamRoll    62s ease-in-out infinite alternate; }
+
+@keyframes rsCamBreathe { from{transform:scale(1.055)}        to{transform:scale(1.085)} }
+@keyframes rsCamPush    { from{transform:scale(1.04)}         to{transform:scale(1.13)} }
+@keyframes rsCamPanL    { from{transform:scale(1.08) translateX(-1.6%)} to{transform:scale(1.08) translateX(1.6%)} }
+@keyframes rsCamRise    { from{transform:scale(1.08) translateY(1.5%)}  to{transform:scale(1.08) translateY(-1.5%)} }
+@keyframes rsCamSway    { from{transform:scale(1.09) rotate(-0.45deg) translateX(-0.7%)}
+                          to  {transform:scale(1.09) rotate(0.45deg)  translateX(0.7%)} }
+@keyframes rsCamRoll    { from{transform:scale(1.1) rotate(-0.8deg)}    to{transform:scale(1.1) rotate(0.8deg)} }
+
+/* Parallax. The far layers counter-drift a fraction of the camera move, which
+   is what separates a dolly from a flat picture being zoomed.
+   Only layers with no transform of their own belong in this list — .rs-milkyway
+   carries a rotate(-18deg) and .rs-shoot a rotate(20deg), and animating
+   `transform` here would snap both of them straight. */
+.rs-cam .rs-sky, .rs-cam .rs-stars {
+  animation: rsParallaxFar 46s ease-in-out infinite alternate; }
+@keyframes rsParallaxFar { from{transform:scale(1.02)} to{transform:scale(0.985)} }
+
+/* ------------------------------------------------------------- the grade -- */
+/* A look, not a tint: shadows pushed one way and highlights the other, which
+   is what a grade actually is. Soft-light keeps the midtones where they were. */
+.rs-grade { inset:0; mix-blend-mode: soft-light; opacity:.85; }
+[data-grade="warm"]   .rs-grade { background: linear-gradient(150deg, rgba(255,176,92,0.5), transparent 58%, rgba(40,20,60,0.45)); }
+[data-grade="cool"]   .rs-grade { background: linear-gradient(150deg, rgba(140,190,255,0.45), transparent 58%, rgba(10,20,40,0.5)); }
+[data-grade="teal"]   .rs-grade { background: linear-gradient(120deg, rgba(0,110,140,0.55), transparent 52%, rgba(255,146,60,0.45)); }
+[data-grade="rose"]   .rs-grade { background: linear-gradient(140deg, rgba(255,150,180,0.5), transparent 56%, rgba(60,20,50,0.5)); }
+[data-grade="bleach"] .rs-grade { background: linear-gradient(180deg, rgba(226,232,236,0.4), transparent 60%, rgba(20,24,28,0.5)); opacity:.7; }
+[data-grade="noir"]   .rs-grade { background: linear-gradient(160deg, rgba(190,206,226,0.4), transparent 54%, rgba(4,6,10,0.62)); }
+[data-grade="gold"]   .rs-grade { background: linear-gradient(150deg, rgba(255,206,120,0.55), transparent 60%, rgba(50,26,10,0.5)); }
+[data-grade="moss"]   .rs-grade { background: linear-gradient(150deg, rgba(150,214,140,0.42), transparent 56%, rgba(12,26,16,0.5)); }
+[data-grade="violet"] .rs-grade { background: linear-gradient(150deg, rgba(180,150,255,0.48), transparent 56%, rgba(20,10,40,0.5)); }
+[data-grade="ember"]  .rs-grade { background: linear-gradient(160deg, rgba(255,130,60,0.5), transparent 54%, rgba(30,8,4,0.55)); }
+
+/* ------------------------------------------------------------- the flare -- */
+/* Anamorphic streak. Only for rooms with one hard point source — on a soft
+   scene it is a lens effect with nothing to flare off, which reads as a smear. */
+.rs-flare { left:-10%; right:-10%; top:26%; height:5%; mix-blend-mode: screen; opacity:.3;
+  filter: blur(7px);
+  background: linear-gradient(90deg, transparent, rgba(150,200,255,0.5) 32%, rgba(210,235,255,0.85) 50%, rgba(150,200,255,0.5) 68%, transparent);
+  animation: rsFlare 19s ease-in-out infinite alternate; }
+@keyframes rsFlare { from{opacity:.16; transform:translateY(-8%) scaleX(.9)} to{opacity:.4; transform:translateY(6%) scaleX(1.06)} }
 .rs-sky, .rs-key { inset: 0; }
 .rs-key { mix-blend-mode: screen; }
 .rs-sil { position: absolute; left: 0; width: 100%; display: block; }
@@ -110,6 +178,83 @@
 [data-room="rooftop"]     .rs-sky { background: linear-gradient(180deg,#1c2244,#3a2f56 34%,#7c4a5e 58%,#b4705a 72%,#241a2a); }
 [data-room="hammock"]     .rs-sky { background: linear-gradient(180deg,#f6cf94,#eda06a 30%,#c76a72 56%,#5e4a72); }
 [data-room="fog"]         .rs-sky { background: linear-gradient(180deg,#8e9aa0,#6e7a82 42%,#48525a 74%,#2a3238); }
+
+/* -- the love wing -------------------------------------------------------- */
+[data-room="rosegarden"]  .rs-sky { background: linear-gradient(180deg,#f0c7bd,#c08a92 40%,#6a4a5e 74%,#2e2030); }
+[data-room="petalstorm"]  .rs-sky { background: linear-gradient(180deg,#f6cdd6,#c98ea6 34%,#7a5070 64%,#2c1c2e); }
+[data-room="firstdate"]   .rs-sky { background: linear-gradient(170deg,#33251c,#1e150f 60%,#0e0906); }
+[data-room="loveletter"]  .rs-sky { background: linear-gradient(170deg,#332618,#1d150d 60%,#0e0a06); }
+[data-room="slowdance"]   .rs-sky { background: linear-gradient(170deg,#2e2118,#1a1310 60%,#0c0808); }
+[data-room="balcony"]     .rs-sky { background: linear-gradient(180deg,#2c2450,#6a4468 34%,#c4736a 58%,#f0a878 70%,#3a2436); }
+[data-room="aisle"]       .rs-sky { background: linear-gradient(180deg,#3a2e2a,#241c1a 58%,#120d0c); }
+[data-room="terrace"]     .rs-sky { background: radial-gradient(120% 100% at 70% 8%,#26304a,#131a2c 48%,#060810); }
+[data-room="honeymoon"]   .rs-sky { background: linear-gradient(170deg,#3a2a26,#221816 60%,#110b0a); }
+[data-room="valentine"]   .rs-sky { background: linear-gradient(170deg,#40161f,#260c14 56%,#110507); }
+[data-room="blossomwalk"] .rs-sky { background: linear-gradient(180deg,#f7d2dd,#c98da4 42%,#5a3646 76%,#211320); }
+[data-room="lockbridge"]  .rs-sky { background: linear-gradient(180deg,#243349,#162232 46%,#0a1018); }
+[data-room="twocups"]     .rs-sky { background: linear-gradient(170deg,#24262c,#16181d 60%,#0a0b0e); }
+[data-room="florist"]     .rs-sky { background: linear-gradient(170deg,#3a2e22,#221a14 60%,#100c09); }
+[data-room="goldenhour"]  .rs-sky { background: linear-gradient(180deg,#5a3a52,#c26a4e 30%,#f5a45e 50%,#ffd08a 64%,#7a4a34 86%,#2a1810); }
+[data-room="firesidetwo"] .rs-sky { background: radial-gradient(120% 100% at 22% 96%,#33180a,#180b05 52%,#080302); }
+[data-room="starcrossed"] .rs-sky { background: radial-gradient(130% 100% at 50% 0%,#1e1c48,#0e0d26 46%,#040410); }
+[data-room="ferriswheel"] .rs-sky { background: radial-gradient(120% 100% at 50% 30%,#2e1a44,#170e26 50%,#070410); }
+[data-room="skylanterns"] .rs-sky { background: radial-gradient(120% 100% at 50% 74%,#2e2038,#160f1e 46%,#060409); }
+[data-room="perfumery"]   .rs-sky { background: linear-gradient(170deg,#37271f,#201712 60%,#0f0b08); }
+/* -- the third wing ------------------------------------------------------- */
+[data-room="courtroom"]    .rs-sky { background: linear-gradient(170deg,#33291c,#1d1710 60%,#0e0b07); }
+[data-room="asylum"]       .rs-sky { background: linear-gradient(180deg,#2a3034,#181d20 60%,#0b0e10); }
+[data-room="speakeasy"]    .rs-sky { background: linear-gradient(170deg,#2e2116,#1a120c 60%,#0c0806); }
+[data-room="zendo"]        .rs-sky { background: linear-gradient(180deg,#d8cfb4,#a89a78 46%,#5e5540); }
+[data-room="bazaar"]       .rs-sky { background: linear-gradient(170deg,#3a2a18,#221810 60%,#100b07); }
+[data-room="pyramid"]      .rs-sky { background: linear-gradient(170deg,#40301c,#241a10 60%,#100b06); }
+[data-room="expedition"]   .rs-sky { background: linear-gradient(180deg,#5e8a4e,#2e5230 36%,#122010 76%,#080f08); }
+[data-room="submarine"]    .rs-sky { background: linear-gradient(180deg,#2a2426,#181416 60%,#0a0809); }
+[data-room="cockpit"]      .rs-sky { background: linear-gradient(180deg,#0e1a2e,#16283f 44%,#0a1018); }
+[data-room="cardroom"]     .rs-sky { background: radial-gradient(110% 90% at 50% 20%,#2a2418,#161208 54%,#070504); }
+[data-room="wings"]        .rs-sky { background: linear-gradient(180deg,#2a1a1e,#170e11 58%,#090507); }
+[data-room="projection"]   .rs-sky { background: linear-gradient(180deg,#232529,#141518 60%,#08090a); }
+[data-room="radio"]        .rs-sky { background: linear-gradient(180deg,#26222a,#16131a 60%,#0a080d); }
+[data-room="diner"]        .rs-sky { background: linear-gradient(180deg,#2a2e30,#191c1e 60%,#0d0f10); }
+[data-room="lasttrain"]    .rs-sky { background: linear-gradient(180deg,#282c31,#171a1e 60%,#0a0c0e); }
+[data-room="nightshift"]   .rs-sky { background: linear-gradient(180deg,#2a3634,#18211f 60%,#0c1211); }
+[data-room="apothecary"]   .rs-sky { background: linear-gradient(170deg,#332616,#1e150c 60%,#0e0a06); }
+[data-room="clocktower"]   .rs-sky { background: linear-gradient(180deg,#2e2a22,#1a1712 60%,#0c0a08); }
+[data-room="lighthouse"]   .rs-sky { background: linear-gradient(180deg,#1a2a3a,#101c28 48%,#070d14); }
+[data-room="bookshop"]     .rs-sky { background: linear-gradient(170deg,#2f2214,#1a120a 60%,#0c0805); }
+[data-room="press"]        .rs-sky { background: linear-gradient(170deg,#31261c,#1d1610 60%,#0e0a07); }
+[data-room="dojo"]         .rs-sky { background: linear-gradient(180deg,#cfc4a6,#9e9070 48%,#57503c); }
+[data-room="garret"]       .rs-sky { background: linear-gradient(180deg,#332c22,#1e1914 60%,#0f0d0a); }
+[data-room="snug"]         .rs-sky { background: radial-gradient(120% 100% at 24% 92%,#33200e,#1a1006 54%,#090502); }
+[data-room="bothy"]        .rs-sky { background: linear-gradient(170deg,#2c241c,#191410 60%,#0c0908); }
+[data-room="conservatory"] .rs-sky { background: linear-gradient(180deg,#c6d8d2,#8ea4a0 44%,#3e4c4a); }
+
+[data-room="volcano"]      .rs-sky { background: linear-gradient(180deg,#2a1420,#4a1c18 34%,#8e2c10 58%,#2a1008 84%,#0e0604); }
+[data-room="savanna"]      .rs-sky { background: linear-gradient(180deg,#5a4a6a,#c0713e 32%,#f0a45e 52%,#e8c07a 64%,#6a4a2a 86%,#241608); }
+[data-room="bayou"]        .rs-sky { background: linear-gradient(180deg,#4a5a48,#2c3a2c 44%,#141c14 78%,#080d08); }
+[data-room="cavern"]       .rs-sky { background: radial-gradient(120% 100% at 50% 90%,#1e3a52,#0e1c2c 48%,#050a10); }
+[data-room="fjord"]        .rs-sky { background: linear-gradient(180deg,#8aa6c0,#b4c8d8 38%,#7e94a6 62%,#33424e); }
+[data-room="saltflat"]     .rs-sky { background: linear-gradient(180deg,#5a4a6e,#b07a80 32%,#f0b48e 52%,#e8cfae 66%,#8e7a80); }
+[data-room="monsoon"]      .rs-sky { background: linear-gradient(180deg,#3a4448,#26302f 46%,#131a19); }
+[data-room="hotspring"]    .rs-sky { background: linear-gradient(180deg,#3e5a74,#26404f 44%,#132430 76%,#0a141c); }
+[data-room="glacier"]      .rs-sky { background: linear-gradient(180deg,#a8c8dc,#7ea8c4 40%,#4a7490 72%,#2a4458); }
+
+[data-room="moonbase"]     .rs-sky { background: #02030a; }
+[data-room="comet"]        .rs-sky { background: radial-gradient(130% 100% at 30% 30%,#0e1a34,#060c1c 48%,#02040c); }
+[data-room="binary"]       .rs-sky { background: linear-gradient(180deg,#3a2a4a,#8e4a44 34%,#e0894e 56%,#f0b878 66%,#4a2a28 88%,#160c0e); }
+[data-room="spacewalk"]    .rs-sky { background: #01020a; }
+[data-room="wormhole"]     .rs-sky { background: radial-gradient(130% 110% at 50% 36%,#140f2e,#08061a 46%,#02020a); }
+[data-room="asteroid"]     .rs-sky { background: radial-gradient(130% 110% at 44% 14%,#0d1020,#060810 48%,#020308); }
+
+[data-room="riverboat"]    .rs-sky { background: linear-gradient(180deg,#8e7a4a,#5e5436 34%,#2e3222 66%,#141810); }
+[data-room="cablecar"]     .rs-sky { background: linear-gradient(180deg,#7ea6c8,#b0cade 40%,#dae6ee 62%,#6a8098); }
+[data-room="highway"]      .rs-sky { background: linear-gradient(180deg,#4a3a5e,#a85a44 36%,#e89a54 58%,#f0c084 68%,#5a3a26 88%,#1e120a); }
+[data-room="caravanserai"] .rs-sky { background: radial-gradient(120% 100% at 50% 4%,#141a34,#0a0e1e 48%,#04060c); }
+[data-room="sleeper"]      .rs-sky { background: linear-gradient(170deg,#221a14,#14100c 58%,#080606); }
+[data-room="harbour"]      .rs-sky { background: linear-gradient(180deg,#1e2c3e,#152232 46%,#0a1018); }
+
+[data-room="driftwood"]    .rs-sky { background: radial-gradient(120% 100% at 24% 92%,#2a1c14,#12100e 50%,#050608); }
+[data-room="mossgarden"]   .rs-sky { background: linear-gradient(180deg,#7ea862,#3e6a40 34%,#16301a 76%,#0a180e); }
+[data-room="fireflyfield"] .rs-sky { background: radial-gradient(130% 100% at 50% 0%,#161f38,#0c1220 46%,#03050c); }
 
 /* =========================== interior surfaces ============================ */
 
@@ -548,7 +693,7 @@
 .rs-branch.maple::after { background: radial-gradient(closest-side, #c4593a 0 60%, transparent 100%) 20% 44%/26px 20px no-repeat,
               radial-gradient(closest-side, #a8452c 0 60%, transparent 100%) 36% 64%/22px 18px no-repeat,
               radial-gradient(closest-side, #d06a44 0 60%, transparent 100%) 52% 34%/24px 18px no-repeat; }
-.rs-lantern { top:16%; width:34px; height:46px; border-radius:6px;
+.rs-lantern { top:16%; width:34px; height:46px; border-radius: 38% 38% 42% 42% / 24% 24% 30% 30%;
   background: linear-gradient(180deg, rgba(255,214,160,0.95), rgba(240,150,90,0.85));
   box-shadow: 0 0 40px 10px rgba(255,170,110,0.4), inset 0 0 12px rgba(255,120,60,0.5);
   animation: rsFlicker 4.4s ease-in-out infinite; }
@@ -1147,6 +1292,93 @@
 
 .rs-fx-star i { width:2px; height:2px; border-radius:50%; background:#fff; box-shadow:0 0 6px rgba(200,214,255,0.9);
   animation: rsTwinkle ease-in-out infinite alternate; }
+
+/* ============================= the love wing ==============================
+   A falling petal is the whole trick, so it gets the work.
+
+   Three things separate a petal from confetti:
+     • it is CUPPED, so it catches light on one edge and is dark on the other
+     • it does not fall at a constant rate — it stalls, tips, and slides
+     • it turns about two axes at once, so it presents its face and then its
+       edge, and momentarily almost disappears
+   rsPetalFall does all three, and the per-particle duration spread stops
+   twenty of them beating time together.
+   ========================================================================= */
+.rs-fx-rose i, .rs-fx-blossom i { top:-8%; width:19px; height:15px;
+  border-radius: 74% 26% 70% 30% / 30% 74% 26% 70%;
+  filter: drop-shadow(0 3px 4px rgba(90,10,40,0.28));
+  animation: rsPetalFall linear infinite; }
+.rs-fx-rose i {
+  background: radial-gradient(circle at 26% 24%, #fff2f6 0 8%, #f7b6cb 42%, #d2536f 82%, #8e2a45 100%); }
+.rs-fx-blossom i { width:16px; height:13px;
+  background: radial-gradient(circle at 28% 26%, #fffafc 0 10%, #fbdce6 46%, #f0aec4 88%); }
+@keyframes rsPetalFall {
+  0%   { transform: translate3d(0,-10vh,0) rotate3d(1,.6,.2, 0deg);     opacity:0 }
+  8%   { opacity:1 }
+  28%  { transform: translate3d(30px,22vh,0) rotate3d(1,.6,.2, 260deg) }
+  46%  { transform: translate3d(-6px,40vh,0) rotate3d(1,.6,.2, 430deg) }   /* the stall */
+  72%  { transform: translate3d(54px,72vh,0) rotate3d(1,.6,.2, 700deg) }
+  92%  { opacity:1 }
+  100% { transform: translate3d(18px,112vh,0) rotate3d(1,.6,.2, 980deg); opacity:0 }
+}
+
+/* A real rose, borrowed as a SHAPE only. The Icons8 art is a flat sticker and
+   would read as clip art dropped on a photograph, so only its alpha is used —
+   the colour and the lighting are painted in here, by this room. */
+.rs-rosehead { width:15%; aspect-ratio: 1 / 1.15;
+  -webkit-mask-image: url("/blooms/flowers/rose--color.png"); mask-image: url("/blooms/flowers/rose--color.png");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  background: radial-gradient(58% 46% at 38% 28%, #ff96b0, #c0304f 56%, #5e1226 100%);
+  filter: drop-shadow(0 10px 18px rgba(0,0,0,0.6)); }
+.rs-rosehead.pale { background: radial-gradient(58% 46% at 38% 28%, #ffe4ec, #f0a8c0 58%, #9c5570 100%); }
+.rs-rosehead.dark { background: radial-gradient(58% 46% at 38% 28%, #b2536c, #6a1730 58%, #2c0812 100%); }
+
+/* Three stacked mask layers union into a lump at 13px. One SVG path is a
+   heart at any size, and it composes with the rise animation's transform
+   instead of fighting it. */
+.rs-fx-heart i { bottom:-6%; width:14px; height:13px; opacity:.9;
+  background: radial-gradient(circle at 30% 26%, #ffd9e4, #ef7b9c 52%, #ad2f52 100%);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 22'%3E%3Cpath d='M12 21C12 21 1.5 14.4 1.5 7.9 1.5 4.1 4.5 1.5 7.7 1.5c2 0 3.6 1 4.3 2.4C12.7 2.5 14.3 1.5 16.3 1.5c3.2 0 6.2 2.6 6.2 6.4C22.5 14.4 12 21 12 21z' fill='%23000'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 22'%3E%3Cpath d='M12 21C12 21 1.5 14.4 1.5 7.9 1.5 4.1 4.5 1.5 7.7 1.5c2 0 3.6 1 4.3 2.4C12.7 2.5 14.3 1.5 16.3 1.5c3.2 0 6.2 2.6 6.2 6.4C22.5 14.4 12 21 12 21z' fill='%23000'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  filter: drop-shadow(0 2px 4px rgba(120,20,50,0.5));
+  animation: rsHeartRise linear infinite; }
+@keyframes rsHeartRise {
+  0%   { transform: translate3d(0,0,0) scale(.6); opacity:0 }
+  14%  { opacity:.9 }
+  50%  { transform: translate3d(22px,-46vh,0) scale(1) }
+  100% { transform: translate3d(-14px,-104vh,0) scale(.8); opacity:0 }
+}
+
+/* Sky lanterns: they climb, they never come back, and the far ones are slow.
+   The flicker is inside the paper, so it changes brightness, not position. */
+.rs-fx-lantern i { bottom:-8%; width:15px; height:19px; border-radius:38% 38% 46% 46% / 30% 30% 60% 60%;
+  background: linear-gradient(180deg, rgba(255,226,170,0.95), rgba(255,150,74,0.9));
+  box-shadow: 0 0 22px 6px rgba(255,176,102,0.55), inset 0 -4px 7px rgba(200,80,20,0.45);
+  animation: rsLanternRise linear infinite; }
+@keyframes rsLanternRise {
+  0%   { transform: translate3d(0,0,0); opacity:0 }
+  10%  { opacity:.95 }
+  50%  { transform: translate3d(26px,-52vh,0) }
+  100% { transform: translate3d(-18px,-116vh,0); opacity:0 }
+}
+
+.rs-fx-confetti i { top:-6%; width:8px; height:12px; border-radius:2px; opacity:.85;
+  animation: rsFall linear infinite; }
+
+/* A spark is short, bright and gone — the tell is that it dies before it has
+   travelled far, unlike an ember, which drifts. */
+.rs-fx-spark i { width:3px; height:3px; border-radius:50%; background:#fff3d2;
+  box-shadow: 0 0 8px 2px rgba(255,196,120,0.9);
+  animation: rsSpark ease-out infinite; }
+@keyframes rsSpark {
+  0%   { transform: translate3d(0,0,0) scale(.3); opacity:0 }
+  12%  { opacity:1; transform: translate3d(2px,-6px,0) scale(1) }
+  100% { transform: translate3d(-16px,-58px,0) scale(.2); opacity:0 }
+}
 
 /* ========================= the second wing ================================
    Rooms added in the 2026-08 pass. Same house rules as everything above: the
@@ -1900,6 +2132,1106 @@
   border-radius: 46% 46% 0 0 / 90% 90% 0 0;
   background: repeating-linear-gradient(90deg, #e6dcc4 0 6px, rgba(120,100,72,0.5) 6px 9px);
   box-shadow: 0 -16px 40px -18px rgba(0,0,0,.7), inset 0 4px 0 rgba(255,255,255,0.3); }
+
+/* ================================== love ==================================
+   Warmth here is LIGHT, not pink paint: nearly every room is one small warm
+   source in a dark room. Two of everything, and nobody in it.
+   ========================================================================= */
+
+/* A rose on a stem. The head is the Icons8 alpha; the petals are lit by the
+   room it is standing in, which is the only reason it does not read as a
+   sticker on a photograph. */
+/* The Icons8 rose, used for its ALPHA only. The art is a flat sticker and
+   would read as clip art dropped on a photograph; the silhouette is a real
+   rose. The gradient runs along the icon's own diagonal — the bloom sits top
+   right, the stem falls to the bottom left — so one linear-gradient colours
+   the flower pink and the stem green without any masking gymnastics. */
+.rs-rose { bottom:0; width:15%; height:40%;
+  transform: rotate(var(--tilt,0deg)) scale(var(--s,1)); transform-origin: bottom center;
+  -webkit-mask-image: url("/blooms/flowers/rose--color.png"); mask-image: url("/blooms/flowers/rose--color.png");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: bottom center; mask-position: bottom center;
+  background: linear-gradient(212deg, #ffb0c4 0 20%, #e0567a 34%, #a52c4c 46%, #6a1a30 54%, #3e5a26 64%, #1a2c11 100%);
+  filter: drop-shadow(0 10px 16px rgba(0,0,0,0.6)); }
+.rs-rose.pale { background: linear-gradient(212deg, #fff0f4 0 20%, #f4b8cc 34%, #cf8aa2 46%, #8e5c6e 54%, #46603a 64%, #1e3016 100%); }
+.rs-rose.dark { background: linear-gradient(212deg, #c4667e 0 20%, #8e2442 34%, #5c1228 46%, #360a18 54%, #2a4018 64%, #131f0c 100%); }
+
+/* Climbing roses: a dark mass of leaf with blooms scattered THROUGH it, not
+   sitting on top of it — the blooms have to be partly occluded or the wall
+   reads as a sheet of wrapping paper. */
+.rs-rosewall { top:-4%; bottom:12%; width:30%; }
+.rs-rosewall.left  { left:-2%; }
+.rs-rosewall.right { right:-2%; transform: scaleX(-1); }
+.rs-rosewall::before { content:''; position:absolute; inset:0; filter: blur(3.4px);
+  background:
+    radial-gradient(closest-side ellipse, #16240f 0 64%, transparent 100%) 12%  8%/62px 46px no-repeat,
+    radial-gradient(closest-side ellipse, #101c0a 0 64%, transparent 100%) 38% 14%/70px 50px no-repeat,
+    radial-gradient(closest-side ellipse, #1a2b12 0 64%, transparent 100%) 66% 22%/64px 48px no-repeat,
+    radial-gradient(closest-side ellipse, #0e1808 0 64%, transparent 100%) 18% 32%/74px 52px no-repeat,
+    radial-gradient(closest-side ellipse, #16240f 0 64%, transparent 100%) 50% 40%/66px 50px no-repeat,
+    radial-gradient(closest-side ellipse, #101c0a 0 64%, transparent 100%) 82% 46%/60px 46px no-repeat,
+    radial-gradient(closest-side ellipse, #1a2b12 0 64%, transparent 100%) 26% 56%/72px 52px no-repeat,
+    radial-gradient(closest-side ellipse, #0e1808 0 64%, transparent 100%) 60% 66%/68px 50px no-repeat,
+    radial-gradient(closest-side ellipse, #16240f 0 64%, transparent 100%) 88% 74%/58px 44px no-repeat,
+    radial-gradient(closest-side ellipse, #101c0a 0 64%, transparent 100%) 34% 84%/70px 50px no-repeat,
+    radial-gradient(closest-side ellipse, #1a2b12 0 64%, transparent 100%)  6% 94%/62px 46px no-repeat,
+    radial-gradient(closest-side ellipse, #0e1808 0 64%, transparent 100%) 70% 96%/66px 48px no-repeat,
+    linear-gradient(90deg, rgba(14,22,10,0.75), rgba(14,22,10,0.15) 70%, transparent); }
+.rs-rosewall::after { content:''; position:absolute; inset:0; filter: blur(0.8px);
+  background:
+    radial-gradient(closest-side circle, #e0819c 0 46%, #93304c 74%, transparent 100%) 24% 18%/17px 17px no-repeat,
+    radial-gradient(closest-side circle, #cf7690 0 46%, #8a2c46 74%, transparent 100%) 41% 31%/13px 13px no-repeat,
+    radial-gradient(closest-side circle, #f0a8bc 0 46%, #a44462 74%, transparent 100%) 58% 40%/15px 15px no-repeat,
+    radial-gradient(closest-side circle, #b9556e 0 46%, #6f1e34 74%, transparent 100%) 30% 57%/19px 19px no-repeat,
+    radial-gradient(closest-side circle, #d2637f 0 46%, #7e2038 74%, transparent 100%) 49% 71%/12px 12px no-repeat,
+    radial-gradient(closest-side circle, #e894ac 0 46%, #96364f 74%, transparent 100%) 68% 82%/16px 16px no-repeat,
+    radial-gradient(closest-side circle, #c85874 0 46%, #6a1a30 74%, transparent 100%) 15% 79%/14px 14px no-repeat,
+    radial-gradient(closest-side circle, #dd8ba2 0 46%, #8e2c48 74%, transparent 100%) 76% 22%/11px 11px no-repeat;
+  opacity:.94; }
+
+/* The arch. Two uprights of flower and a span across the top; the span is what
+   makes it an arch rather than two bushes. */
+/* An arch is a BAND following an arc.
+   A ring mask over a wide box gives a flat banner, because the top of a very
+   wide ellipse is nearly straight. A BORDER on a half-ellipse radius draws the
+   arc directly — no mask, no geometry to get wrong — and the blooms are then
+   placed along that same curve. */
+.rs-archway { left:8%; right:8%; top:1%; height:50%;
+  border:22px solid #1e3014; border-bottom:0;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  filter: drop-shadow(0 10px 18px rgba(0,0,0,0.75)); }
+.rs-archway::before { content:''; position:absolute; inset:-22px; border-radius:inherit; filter: blur(1px);
+  background:
+    radial-gradient(closest-side ellipse, #24381a 0 72%, transparent 100%)  2% 88%/58px 44px no-repeat,
+    radial-gradient(closest-side ellipse, #1a2a12 0 72%, transparent 100%) 14% 50%/64px 48px no-repeat,
+    radial-gradient(closest-side ellipse, #24381a 0 72%, transparent 100%) 28% 20%/60px 46px no-repeat,
+    radial-gradient(closest-side ellipse, #1a2a12 0 72%, transparent 100%) 46%  4%/66px 44px no-repeat,
+    radial-gradient(closest-side ellipse, #24381a 0 72%, transparent 100%) 64%  8%/62px 46px no-repeat,
+    radial-gradient(closest-side ellipse, #1a2a12 0 72%, transparent 100%) 80% 30%/60px 46px no-repeat,
+    radial-gradient(closest-side ellipse, #24381a 0 72%, transparent 100%) 96% 74%/56px 44px no-repeat; }
+.rs-archway::after { content:''; position:absolute; inset:-22px;
+  background:
+    radial-gradient(closest-side circle, #eda0b6 0 44%, #a83c5c 74%, transparent 100%)  4% 84%/22px 22px no-repeat,
+    radial-gradient(closest-side circle, #d4708c 0 42%, #8a2444 72%, transparent 100%) 13% 52%/18px 18px no-repeat,
+    radial-gradient(closest-side circle, #f0a8bc 0 44%, #a44462 74%, transparent 100%) 26% 22%/21px 21px no-repeat,
+    radial-gradient(closest-side circle, #c85874 0 42%, #6a1a30 72%, transparent 100%) 41%  7%/16px 16px no-repeat,
+    radial-gradient(closest-side circle, #e894ac 0 44%, #96364f 74%, transparent 100%) 57%  6%/20px 20px no-repeat,
+    radial-gradient(closest-side circle, #d2637f 0 42%, #7e2038 72%, transparent 100%) 72% 20%/17px 17px no-repeat,
+    radial-gradient(closest-side circle, #eda0b6 0 44%, #a83c5c 74%, transparent 100%) 85% 48%/21px 21px no-repeat,
+    radial-gradient(closest-side circle, #b9556e 0 42%, #6f1e34 72%, transparent 100%) 95% 82%/18px 18px no-repeat;
+  filter: drop-shadow(0 2px 3px rgba(30,4,14,0.6)); }
+.rs-archway.big { left:4%; right:4%; height:60%; border-width:28px; }
+
+.rs-surface.mossflag { background:
+  repeating-linear-gradient(90deg, rgba(0,0,0,0.34) 0 3px, transparent 3px 74px),
+  linear-gradient(180deg,#4a4a3a,#22221a); }
+.rs-surface.mossflag::after { opacity:.4;
+  background: radial-gradient(closest-side ellipse, rgba(60,90,50,0.5) 0 70%, transparent 100%) 20% 60%/70px 22px no-repeat,
+              radial-gradient(closest-side ellipse, rgba(60,90,50,0.4) 0 70%, transparent 100%) 74% 40%/90px 26px no-repeat; }
+
+/* An avenue of trunks. Near ones dark and sharp, far ones pale and blurred —
+   that difference alone reads as distance down a path. */
+.rs-avenue { left:0; right:0; bottom:10%; height:56%;
+  background:
+    linear-gradient(180deg,#2a1a20,#14090e)  3% 100%/5% 100% no-repeat,
+    linear-gradient(180deg,#2a1a20,#14090e) 16% 100%/4% 88%  no-repeat,
+    linear-gradient(180deg,#2a1a20,#14090e) 84% 100%/5% 96%  no-repeat,
+    linear-gradient(180deg,#2a1a20,#14090e) 96% 100%/6% 100% no-repeat; }
+/* Trunks with nothing on top are monoliths. The canopy is what makes them
+   trees, and it has to overlap them rather than sit above. */
+.rs-avenue::after { content:''; position:absolute; left:-6%; right:-6%; top:-26%; height:56%; filter: blur(2.4px);
+  background:
+    radial-gradient(closest-side ellipse, #4a2a3c 0 74%, transparent 100%)  4% 60%/230px 130px no-repeat,
+    radial-gradient(closest-side ellipse, #402434 0 74%, transparent 100%) 24% 34%/190px 110px no-repeat,
+    radial-gradient(closest-side ellipse, #4a2a3c 0 74%, transparent 100%) 78% 52%/240px 140px no-repeat,
+    radial-gradient(closest-side ellipse, #3a2030 0 74%, transparent 100%) 96% 30%/200px 120px no-repeat; }
+.rs-avenue.far { bottom:20%; height:34%; filter: blur(3px); opacity:.55;
+  background:
+    linear-gradient(180deg,#5a3a48,#32202a) 26% 100%/2.4% 88% no-repeat,
+    linear-gradient(180deg,#5a3a48,#32202a) 34% 100%/2%   76% no-repeat,
+    linear-gradient(180deg,#5a3a48,#32202a) 66% 100%/2%   80% no-repeat,
+    linear-gradient(180deg,#5a3a48,#32202a) 74% 100%/2.4% 92% no-repeat; }
+
+/* Blown petals already on the ground and in the near air, blurred because they
+   are closer to the lens than anything else in frame. */
+.rs-petaldrift { left:-6%; right:-6%; bottom:0; height:30%; filter: blur(5px); opacity:.5;
+  background:
+    radial-gradient(closest-side ellipse, rgba(255,190,208,0.9) 0 70%, transparent 100%) 14% 70%/40px 16px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(250,170,196,0.8) 0 70%, transparent 100%) 62% 44%/54px 18px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(255,206,220,0.7) 0 70%, transparent 100%) 86% 76%/46px 15px no-repeat;
+  animation: rsDriftX 24s ease-in-out infinite alternate; }
+
+/* Two glasses and a small round table. Two of anything does the work a couple
+   would, without putting a cartoon couple in the frame. */
+.rs-bistro { left:2%; width:30%; bottom:14%; height:26%; }
+.rs-bistro::before { content:''; position:absolute; left:0; right:0; bottom:0; height:16%; border-radius:50%;
+  background: linear-gradient(180deg,#6a5a48,#2c231a);
+  box-shadow: 0 16px 30px -14px rgba(0,0,0,.9), inset 0 3px 0 rgba(255,222,178,0.4); }
+.rs-bistro::after { content:''; position:absolute; left:0; right:0; bottom:12%; height:88%;
+  background:
+    radial-gradient(closest-side ellipse at 50% 100%, rgba(255,232,200,0.5) 0 52%, rgba(190,150,110,0.25) 72%, transparent 100%)  6% 100%/22% 74% no-repeat,
+    radial-gradient(closest-side ellipse at 50% 100%, rgba(255,232,200,0.5) 0 52%, rgba(190,150,110,0.25) 72%, transparent 100%) 94% 100%/20% 66% no-repeat; }
+.rs-surface.bistrotop { background: linear-gradient(180deg,#2e2620,#151110); }
+.rs-surface.bistrotop::after { opacity:.26;
+  background: repeating-linear-gradient(90deg, rgba(255,230,190,0.08) 0 1px, transparent 1px 22px); }
+
+/* A bundle of letters, tied. The ribbon is the only saturated thing on the
+   desk, which is how the eye finds it. */
+.rs-letters { left:56%; bottom:20%; width:22%; height:13%;
+  filter: drop-shadow(0 10px 16px rgba(0,0,0,.8)); }
+.rs-letters::before, .rs-letters::after { content:''; position:absolute; border-radius:2px;
+  background:
+    linear-gradient(90deg, transparent 38%, rgba(206,92,124,0.92) 38% 47%, transparent 47%),
+    linear-gradient(180deg,#f2e8d2,#c9bb9c); }
+.rs-letters::before { left:0; right:0; bottom:0; height:48%; transform: rotate(-2deg); }
+.rs-letters::after  { left:7%; right:4%; bottom:44%; height:44%; transform: rotate(3deg); }
+.rs-waxseal { left:63%; bottom:25%; width:3.4%; aspect-ratio:1; border-radius:50%; z-index:1;
+  background: radial-gradient(circle at 36% 32%, #d4506a, #8e1e36 68%, #550d20 100%);
+  box-shadow: 0 5px 10px -3px rgba(0,0,0,.8), inset 0 -3px 5px rgba(0,0,0,.4); }
+
+/* A record, turning. The arm is what says record player rather than plate. */
+.rs-turntable { left:6%; bottom:16%; width:22%; height:22%; }
+.rs-turntable::before { content:''; position:absolute; inset:0; border-radius:4px;
+  background: linear-gradient(180deg,#4a3c30,#241c16);
+  box-shadow: 0 18px 30px -16px rgba(0,0,0,.9), inset 0 2px 0 rgba(255,214,170,0.16); }
+.rs-turntable::after { content:''; position:absolute; left:8%; top:-46%; width:62%; aspect-ratio:1;
+  border-radius:50%;
+  background: repeating-radial-gradient(circle, rgba(255,255,255,0.05) 0 1px, transparent 1px 4px),
+              radial-gradient(circle, #d8a45c 0 13%, #17151a 16%, #0c0b0e 100%);
+  box-shadow: 0 12px 24px -10px rgba(0,0,0,.9);
+  animation: rsTurn 4.2s linear infinite; }
+
+/* Wrought iron: uprights, a top rail, and a bulge in the middle third. */
+.rs-ironwork { left:-4%; right:-4%; bottom:8%; height:34%; }
+.rs-ironwork.tall { height:46%; }
+.rs-ironwork::before { content:''; position:absolute; left:0; right:0; top:0; height:9%; border-radius:99px;
+  background: linear-gradient(180deg,#3a3540,#14121a);
+  box-shadow: 0 8px 18px -8px rgba(0,0,0,.9); }
+.rs-ironwork::after { content:''; position:absolute; left:0; right:0; top:6%; bottom:0;
+  background:
+    repeating-linear-gradient(90deg, #17151d 0 4px, transparent 4px 30px),
+    radial-gradient(closest-side circle, transparent 0 60%, #17151d 62% 72%, transparent 74%) 0 40%/30px 30px repeat-x; }
+.rs-geranium { bottom:34%; width:13%; height:18%; }
+.rs-geranium::before { content:''; position:absolute; left:12%; right:12%; bottom:0; height:46%;
+  border-radius:3px 3px 8px 8px; background: linear-gradient(180deg,#8a4a30,#4a2416); }
+.rs-geranium::after { content:''; position:absolute; left:-6%; right:-6%; bottom:38%; height:70%; filter: blur(0.8px);
+  background:
+    radial-gradient(closest-side ellipse, #2c4a22 0 76%, transparent 100%) 50% 90%/60px 30px no-repeat,
+    radial-gradient(closest-side circle,  #d2506a 0 54%, #8e2038 80%, transparent 100%) 30% 34%/17px 17px no-repeat,
+    radial-gradient(closest-side circle,  #e8788e 0 54%, #a03050 80%, transparent 100%) 66% 22%/15px 15px no-repeat,
+    radial-gradient(closest-side circle,  #c8405e 0 54%, #7e1a30 80%, transparent 100%) 48% 46%/14px 14px no-repeat; }
+
+/* The runner: a strip of cloth down the middle, strewn. It is the one thing in
+   this wing allowed to sit centre frame, because a runner leads the eye TO the
+   page rather than competing with it. */
+.rs-runner { left:24%; right:24%; bottom:0; height:34%;
+  clip-path: polygon(34% 0, 66% 0, 100% 100%, 0 100%);
+  background: linear-gradient(180deg, rgba(255,238,222,0.32), rgba(240,214,196,0.9)); }
+.rs-runner::after { content:''; position:absolute; inset:0;
+  background:
+    radial-gradient(closest-side ellipse, rgba(226,130,158,0.9) 0 70%, transparent 100%) 22% 42%/14px 7px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(240,168,190,0.8) 0 70%, transparent 100%) 62% 26%/12px 6px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(210,100,130,0.9) 0 70%, transparent 100%) 44% 68%/17px 8px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(246,190,206,0.8) 0 70%, transparent 100%) 78% 80%/15px 7px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(226,130,158,0.7) 0 70%, transparent 100%) 12% 86%/13px 6px no-repeat; }
+
+/* Jasmine over a rail. Pale flowers read at night where red would go black —
+   and there have to be enough of them that the leaf mass is not the subject. */
+.rs-jasmine { left:-4%; right:-4%; top:-4%; height:30%; filter: blur(1.4px);
+  background:
+    radial-gradient(closest-side ellipse, #16240f 0 66%, transparent 100%)  8% 40%/78px 40px no-repeat,
+    radial-gradient(closest-side ellipse, #101c0a 0 66%, transparent 100%) 24% 24%/86px 44px no-repeat,
+    radial-gradient(closest-side ellipse, #1a2b12 0 66%, transparent 100%) 42% 44%/74px 38px no-repeat,
+    radial-gradient(closest-side ellipse, #101c0a 0 66%, transparent 100%) 62% 22%/90px 46px no-repeat,
+    radial-gradient(closest-side ellipse, #16240f 0 66%, transparent 100%) 82% 40%/80px 42px no-repeat,
+    radial-gradient(closest-side ellipse, #101c0a 0 66%, transparent 100%) 96% 20%/70px 38px no-repeat,
+    radial-gradient(closest-side circle, rgba(250,246,230,0.95) 0 46%, transparent 100%) 11% 60%/10px 10px no-repeat,
+    radial-gradient(closest-side circle, rgba(246,242,222,0.9) 0 46%, transparent 100%) 21% 40%/8px 8px no-repeat,
+    radial-gradient(closest-side circle, rgba(250,246,230,0.95) 0 46%, transparent 100%) 33% 56%/9px 9px no-repeat,
+    radial-gradient(closest-side circle, rgba(240,236,216,0.85) 0 46%, transparent 100%) 46% 34%/8px 8px no-repeat,
+    radial-gradient(closest-side circle, rgba(250,246,230,0.95) 0 46%, transparent 100%) 58% 62%/10px 10px no-repeat,
+    radial-gradient(closest-side circle, rgba(246,242,222,0.9) 0 46%, transparent 100%) 70% 38%/9px 9px no-repeat,
+    radial-gradient(closest-side circle, rgba(250,246,230,0.9) 0 46%, transparent 100%) 84% 58%/8px 8px no-repeat,
+    radial-gradient(closest-side circle, rgba(240,236,216,0.85) 0 46%, transparent 100%) 93% 34%/9px 9px no-repeat; }
+
+.rs-twochairs { left:0; right:0; bottom:11%; height:26%; }
+.rs-twochairs::before, .rs-twochairs::after { content:''; position:absolute; bottom:0; width:19%; height:100%;
+  border-radius:38% 38% 6% 6% / 30% 30% 6% 6%;
+  background: linear-gradient(170deg, rgba(46,40,36,0.92), rgba(14,11,10,0.96));
+  box-shadow: 0 16px 28px -14px rgba(0,0,0,.9), inset 0 2px 0 rgba(214,224,255,0.14); }
+.rs-twochairs::before { left:8%;  transform: rotate(3deg); }
+.rs-twochairs::after  { right:8%; transform: rotate(-3deg); }
+
+/* A four-poster seen from the foot: two posts, a rail across, and a fall of
+   voile either side. The bed itself is the bright band at the bottom. */
+.rs-bedcanopy { left:2%; right:2%; top:-2%; height:64%; }
+.rs-bedcanopy::before { content:''; position:absolute; left:0; right:0; top:0; height:8%;
+  background: linear-gradient(180deg,#4a3a30,#241a14); box-shadow: 0 10px 22px -10px rgba(0,0,0,.9); }
+.rs-bedcanopy::after { content:''; position:absolute; left:0; right:0; top:6%; bottom:0; filter: blur(2.2px);
+  background:
+    linear-gradient(100deg, rgba(255,246,238,0.42), rgba(255,246,238,0.08) 60%, transparent)  1% 0/19% 100% no-repeat,
+    linear-gradient(80deg,  rgba(255,246,238,0.38), rgba(255,246,238,0.06) 60%, transparent) 80% 0/19% 100% no-repeat,
+    linear-gradient(180deg,#4a3428,#1e1410) 5% 0/5% 100% no-repeat,
+    linear-gradient(180deg,#4a3428,#1e1410) 90% 0/5% 100% no-repeat; }
+.rs-bedlinen { left:-8%; right:-8%; bottom:-2%; height:32%;
+  border-radius: 40% 40% 0 0 / 60% 60% 0 0;
+  background: linear-gradient(180deg,#f4efe6,#c9c0b2 62%,#8e857a);
+  box-shadow: 0 -18px 44px -18px rgba(0,0,0,.8), inset 0 4px 0 rgba(255,255,255,0.6); }
+.rs-bedlinen::after { content:''; position:absolute; inset:0;
+  background:
+    radial-gradient(closest-side ellipse, rgba(214,90,120,0.85) 0 70%, transparent 100%) 18% 30%/18px 9px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(236,140,166,0.8) 0 70%, transparent 100%) 40% 18%/15px 7px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(200,70,102,0.9) 0 70%, transparent 100%) 64% 34%/20px 10px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(240,166,188,0.8) 0 70%, transparent 100%) 82% 22%/16px 8px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(214,90,120,0.7) 0 70%, transparent 100%) 30% 52%/14px 7px no-repeat; }
+
+.rs-chocbox { left:6%; bottom:17%; width:20%; height:11%; border-radius:3px;
+  background: linear-gradient(170deg,#8e1e36,#4a0c1c);
+  box-shadow: 0 14px 26px -12px rgba(0,0,0,.9), inset 0 2px 0 rgba(255,190,200,0.24); }
+.rs-chocbox::after { content:''; position:absolute; left:14%; right:14%; top:-26%; height:34%;
+  background: linear-gradient(90deg, transparent 40%, rgba(240,200,150,0.9) 40% 60%, transparent 60%);
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0; }
+
+.rs-riverlights { left:0; right:0; top:56%; height:16%; filter: blur(6px); opacity:.6; mix-blend-mode: screen;
+  background:
+    radial-gradient(closest-side ellipse, rgba(255,200,130,0.9) 0 70%, transparent 100%) 14% 50%/40px 60px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(180,220,255,0.8) 0 70%, transparent 100%) 38% 50%/34px 70px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(255,180,150,0.8) 0 70%, transparent 100%) 72% 50%/44px 66px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(200,230,255,0.7) 0 70%, transparent 100%) 90% 50%/30px 58px no-repeat;
+  animation: rsRipple 9s ease-in-out infinite alternate; }
+
+/* Padlocks: small, dull, and MANY. One padlock is an object; a rail of them is
+   the picture. */
+.rs-padlocks { left:-2%; right:-2%; bottom:11%; height:30%; }
+.rs-padlocks::before { content:''; position:absolute; left:0; right:0; top:0; height:11%; border-radius:99px;
+  background: linear-gradient(180deg,#6e6a62,#2a2824);
+  box-shadow: 0 10px 20px -10px rgba(0,0,0,.9); }
+/* One even repeat at one size is a zip. Three passes at different pitches,
+   sizes and values read as a rail somebody has been adding to for years. */
+.rs-padlocks::after { content:''; position:absolute; left:0; right:0; top:7%; height:52%;
+  background:
+    radial-gradient(closest-side circle, transparent 0 54%, rgba(120,112,98,0.9) 56% 72%, transparent 74%) 0 0/19px 15px repeat-x,
+    linear-gradient(180deg, rgba(134,122,102,0.95) 0 62%, rgba(70,64,52,0.95) 100%) 3px 30%/9px 11px repeat-x,
+    radial-gradient(closest-side circle, transparent 0 54%, rgba(96,92,84,0.85) 56% 72%, transparent 74%) 7px 12%/27px 13px repeat-x,
+    linear-gradient(180deg, rgba(104,96,80,0.9) 0 62%, rgba(52,48,40,0.95) 100%) 11px 44%/8px 9px repeat-x,
+    linear-gradient(180deg, rgba(150,136,110,0.85) 0 62%, rgba(80,72,58,0.9) 100%) 23px 22%/7px 13px repeat-x;
+  filter: drop-shadow(0 4px 5px rgba(0,0,0,.8)); opacity:.85; }
+
+.rs-buckets { left:0; right:0; bottom:16%; height:22%; }
+.rs-buckets::before { content:''; position:absolute; left:2%; bottom:0; width:17%; height:74%;
+  border-radius:4px 4px 12px 12px; background: linear-gradient(180deg,#5a6a62,#2a352f);
+  box-shadow: 0 14px 24px -12px rgba(0,0,0,.85); }
+.rs-buckets::after { content:''; position:absolute; right:3%; bottom:0; width:15%; height:64%;
+  border-radius:4px 4px 12px 12px; background: linear-gradient(180deg,#6a5a4a,#332a22);
+  box-shadow: 0 14px 24px -12px rgba(0,0,0,.85); }
+.rs-ribbons { right:6%; top:14%; width:18%; height:20%; }
+.rs-ribbons::before, .rs-ribbons::after { content:''; position:absolute; border-radius:50%;
+  box-shadow: 0 8px 16px -8px rgba(0,0,0,.8); }
+.rs-ribbons::before { left:0;  top:0;   width:44%; aspect-ratio:1;
+  background: repeating-radial-gradient(circle, #d4708c 0 3px, #b04a68 3px 6px); }
+.rs-ribbons::after  { right:6%; top:36%; width:36%; aspect-ratio:1;
+  background: repeating-radial-gradient(circle, #e8d0a4 0 3px, #c0a478 3px 6px); }
+
+/* Two silhouettes at the horizon. Kept SMALL and dark — a large couple would
+   turn a reading room into an illustration of a couple. */
+.rs-couple { left:22%; bottom:21%; width:13%; height:22%; transform: translateX(-50%);
+  filter: drop-shadow(0 6px 10px rgba(60,20,0,0.45)); }
+/* A rounded rectangle is a gravestone. A person is a narrow head, a neck, and
+   shoulders that flare — three vertices, and it reads instantly. */
+.rs-couple::before, .rs-couple::after { content:''; position:absolute; bottom:0; width:46%; height:100%;
+  background: linear-gradient(180deg,#2e1710,#140702);
+  clip-path: polygon(38% 0, 62% 0, 67% 15%, 84% 27%, 90% 100%, 10% 100%, 16% 27%, 33% 15%); }
+.rs-couple::before { left:0;  transform: rotate(4deg); transform-origin: bottom center; }
+.rs-couple::after  { right:0; height:92%; transform: rotate(-4deg); transform-origin: bottom center; }
+
+.rs-blanket { left:-10%; right:-10%; bottom:-2%; height:26%;
+  border-radius: 44% 44% 0 0 / 70% 70% 0 0;
+  background:
+    repeating-linear-gradient(96deg, rgba(0,0,0,0.16) 0 5px, transparent 5px 15px),
+    linear-gradient(180deg,#6a4438,#2e1a14 78%);
+  box-shadow: 0 -16px 40px -18px rgba(0,0,0,.85), inset 0 4px 0 rgba(255,196,150,0.2); }
+.rs-wineglass { bottom:46%; width:16px; height:34px;
+  background: linear-gradient(180deg, rgba(255,236,214,0.34) 0 40%, rgba(150,26,50,0.85) 40% 74%, rgba(255,236,214,0.28) 74%);
+  border-radius: 46% 46% 46% 46% / 12% 12% 74% 74%;
+  box-shadow: 0 6px 12px -4px rgba(0,0,0,.8), inset 0 0 6px rgba(255,220,200,0.35); }
+.rs-wineglass::after { content:''; position:absolute; left:50%; top:100%; width:2px; height:12px;
+  margin-left:-1px; background: rgba(240,226,206,0.5);
+  box-shadow: 0 12px 0 -4px rgba(240,226,206,0.5), 0 12px 0 -3px rgba(240,226,206,0.35); }
+
+/* The wheel. Spokes by conic gradient, cars as lit beads around the rim, and
+   the whole thing turning once every three minutes, which is about right. */
+.rs-wheel { left:50%; top:4%; width:52%; aspect-ratio:1; transform: translateX(-50%); }
+.rs-wheel::before { content:''; position:absolute; inset:0; border-radius:50%;
+  border: 4px solid rgba(255,196,150,0.7);
+  background: repeating-conic-gradient(rgba(255,206,160,0.5) 0 1deg, transparent 1deg 15deg);
+  -webkit-mask-image: radial-gradient(circle, #000 0 96%, transparent 97%);
+  mask-image: radial-gradient(circle, #000 0 96%, transparent 97%);
+  animation: rsTurn 180s linear infinite; }
+/* The cars are the light. Thin spokes on their own read as a wire hoop, so
+   the rim gets fat lit beads and the hub gets a glow. */
+.rs-wheel::after { content:''; position:absolute; inset:-4%; border-radius:50%;
+  background: repeating-conic-gradient(from 0deg,
+    rgba(255,168,200,0.98) 0 3.4deg, transparent 3.4deg 15deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 0 86%, #000 89% 99%, transparent 100%);
+  mask-image: radial-gradient(circle, transparent 0 86%, #000 89% 99%, transparent 100%);
+  filter: drop-shadow(0 0 12px rgba(255,140,190,0.9));
+  animation: rsTurn 180s linear infinite; }
+.rs-wheel { filter: drop-shadow(0 0 40px rgba(255,130,180,0.34)); }
+.rs-stalls { left:0; right:0; bottom:10%; height:18%;
+  background:
+    linear-gradient(180deg, rgba(255,180,120,0.5), transparent 70%)  6% 100%/16% 60% no-repeat,
+    linear-gradient(180deg, rgba(180,220,255,0.45), transparent 70%) 80% 100%/18% 52% no-repeat,
+    linear-gradient(180deg,#1a1424,#0c0812);
+  filter: blur(1px); }
+
+.rs-lanternglow { left:0; right:0; top:20%; height:52%; mix-blend-mode: screen; opacity:.4; filter: blur(28px);
+  background: radial-gradient(60% 50% at 50% 70%, rgba(255,186,110,0.85), transparent 74%); }
+.rs-reeds { left:0; right:0; bottom:0; height:22%;
+  background: repeating-linear-gradient(86deg, #10161c 0 3px, transparent 3px 17px),
+              repeating-linear-gradient(94deg, #161e26 0 2px, transparent 2px 23px);
+  -webkit-mask-image: linear-gradient(0deg, #000 30%, transparent 96%);
+  mask-image: linear-gradient(0deg, #000 30%, transparent 96%);
+  animation: rsSway 8s ease-in-out infinite alternate; }
+
+/* Perfume bottles: glass is a vertical highlight and a dark edge, nothing
+   more, and the stopper is what makes it perfume rather than a jar. */
+.rs-bottles { left:0; right:0; bottom:18%; height:24%; }
+.rs-bottles::before { content:''; position:absolute; left:0; right:0; bottom:0; height:100%;
+  background:
+    linear-gradient(90deg, rgba(255,222,190,0.16), rgba(255,238,214,0.6) 30%, rgba(160,110,80,0.35) 62%, rgba(255,230,200,0.14))  4% 100%/11% 82% no-repeat,
+    linear-gradient(90deg, rgba(255,200,214,0.16), rgba(255,226,236,0.62) 30%, rgba(150,80,100,0.35) 62%, rgba(255,214,226,0.14)) 18% 100%/9%  64% no-repeat,
+    linear-gradient(90deg, rgba(226,214,255,0.16), rgba(238,232,255,0.6) 30%, rgba(100,86,140,0.35) 62%, rgba(222,214,255,0.14)) 74% 100%/10% 74% no-repeat,
+    linear-gradient(90deg, rgba(255,222,190,0.16), rgba(255,240,220,0.58) 30%, rgba(150,110,70,0.35) 62%, rgba(255,232,206,0.14)) 88% 100%/12% 90% no-repeat;
+  filter: drop-shadow(0 10px 14px rgba(0,0,0,.7)); }
+.rs-bottles::after { content:''; position:absolute; left:0; right:0; bottom:0; height:100%;
+  background:
+    radial-gradient(closest-side circle, rgba(255,236,206,0.9) 0 54%, transparent 100%)  9% 20%/13px 13px no-repeat,
+    radial-gradient(closest-side circle, rgba(255,214,226,0.9) 0 54%, transparent 100%) 22% 38%/10px 10px no-repeat,
+    radial-gradient(closest-side circle, rgba(226,214,255,0.9) 0 54%, transparent 100%) 79% 28%/11px 11px no-repeat,
+    radial-gradient(closest-side circle, rgba(255,240,220,0.9) 0 54%, transparent 100%) 94% 12%/14px 14px no-repeat; }
+
+/* ========================== the third wing ================================
+   Fifty more places. Written after screenshotting the last batch, so the rules
+   here are the ones that survived a look: nothing that matters in the middle
+   third, organic mass is many small dark blurred ellipses (never a repeating
+   tile, never a few pale ovals), an arc is a border rather than a mask, and
+   every object carries a lit edge or it is not in the picture.
+   ========================================================================= */
+
+/* -- Legal: the courtroom ------------------------------------------------- */
+.rs-benchhigh { left:-4%; right:34%; bottom:14%; height:34%; border-radius:3px 8px 2px 2px;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.3) 0 3px, transparent 3px 62px),
+    linear-gradient(170deg,#5a3e22,#26180c 78%);
+  box-shadow: 0 24px 40px -20px rgba(0,0,0,.9), inset 0 3px 0 rgba(255,214,160,0.28); }
+.rs-benchhigh::after { content:''; position:absolute; left:6%; right:14%; top:-14%; height:16%;
+  border-radius:2px; background: linear-gradient(180deg,#6a4a2a,#33200f);
+  box-shadow: inset 0 2px 0 rgba(255,222,178,0.3); }
+.rs-witnessbox { right:3%; bottom:14%; width:22%; height:24%; border-radius:3px;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.28) 0 3px, transparent 3px 40px),
+    linear-gradient(170deg,#4e3620,#20140a 78%);
+  box-shadow: 0 20px 34px -18px rgba(0,0,0,.9), inset 0 3px 0 rgba(255,214,160,0.2); }
+
+/* -- Psychological: the ward ---------------------------------------------- */
+.rs-tilesplash.cold { background:
+  repeating-linear-gradient(0deg,  rgba(0,0,0,0.3) 0 2px, transparent 2px 44px),
+  repeating-linear-gradient(90deg, rgba(0,0,0,0.3) 0 2px, transparent 2px 44px),
+  linear-gradient(180deg,#3e4448,#242a2d 66%,#141819); }
+.rs-barwin { right:5%; top:12%; width:20%; height:30%; border-radius:2px;
+  background: linear-gradient(180deg,#26313c,#121a22);
+  box-shadow: inset 0 0 0 7px #2c3238, 0 0 50px 12px rgba(150,180,200,0.14); }
+.rs-barwin::after { content:''; position:absolute; inset:7px;
+  background: repeating-linear-gradient(90deg, #1c2228 0 5px, transparent 5px 22px); }
+.rs-cot { left:-6%; bottom:13%; width:38%; height:20%; border-radius:3px;
+  background: linear-gradient(180deg,#8e8a80,#3e3c38 62%,#22201e);
+  box-shadow: 0 20px 34px -18px rgba(0,0,0,.9), inset 0 3px 0 rgba(255,255,255,0.24); }
+.rs-scratches { left:6%; top:24%; width:22%; height:26%; opacity:.22;
+  background: repeating-linear-gradient(84deg, rgba(255,255,255,0.5) 0 1px, transparent 1px 9px),
+              repeating-linear-gradient(96deg, rgba(255,255,255,0.35) 0 1px, transparent 1px 13px);
+  -webkit-mask-image: radial-gradient(70% 70% at 40% 50%, #000 20%, transparent 80%);
+  mask-image: radial-gradient(70% 70% at 40% 50%, #000 20%, transparent 80%); }
+.rs-striplight.cold { background: linear-gradient(180deg,#e4f2f8,#96b0be); animation: none; }
+.rs-striplight.soft { background: linear-gradient(180deg,#f0f4e8,#a8b4a0); animation: none;
+  box-shadow: 0 0 70px 24px rgba(200,220,200,0.18), 0 0 18px 5px rgba(230,240,224,0.4); }
+
+/* -- Jazz age: the speakeasy ---------------------------------------------- */
+/* A back bar is bottles LIT FROM BEHIND — that backlight is the whole look. */
+.rs-backbar { left:0; right:0; bottom:16%; height:32%; }
+.rs-backbar::before { content:''; position:absolute; left:0; right:0; bottom:0; height:26%;
+  background: linear-gradient(180deg,#5a3a1e,#2a1808); box-shadow: 0 -8px 20px -8px rgba(255,190,110,0.4); }
+.rs-backbar::after { content:''; position:absolute; left:0; right:0; bottom:22%; height:78%;
+  background:
+    linear-gradient(180deg, rgba(255,206,120,0.5), rgba(120,60,20,0.5))  3% 100%/4% 74% no-repeat,
+    linear-gradient(180deg, rgba(180,220,150,0.45), rgba(50,80,40,0.5))  9% 100%/3.4% 90% no-repeat,
+    linear-gradient(180deg, rgba(226,150,90,0.5), rgba(90,40,16,0.5))   15% 100%/4.4% 64% no-repeat,
+    linear-gradient(180deg, rgba(255,226,170,0.5), rgba(120,80,30,0.5)) 21% 100%/3% 82% no-repeat,
+    linear-gradient(180deg, rgba(200,120,80,0.45), rgba(70,30,14,0.5))  79% 100%/4% 78% no-repeat,
+    linear-gradient(180deg, rgba(255,206,120,0.5), rgba(120,60,20,0.5)) 86% 100%/3.4% 66% no-repeat,
+    linear-gradient(180deg, rgba(190,214,160,0.45), rgba(50,80,40,0.5)) 93% 100%/4.6% 88% no-repeat,
+    linear-gradient(180deg, rgba(255,226,170,0.5), rgba(120,80,30,0.5)) 98% 100%/3% 72% no-repeat;
+  filter: drop-shadow(0 0 10px rgba(255,190,110,0.35)); }
+.rs-backbar.small::after { opacity:.75; }
+.rs-boothseat { left:-8%; bottom:13%; width:34%; height:26%; border-radius:10px 14px 3px 3px;
+  background: linear-gradient(170deg,#5a2028,#260c11 76%);
+  box-shadow: 0 22px 36px -18px rgba(0,0,0,.9), inset 0 3px 0 rgba(255,180,150,0.2); }
+.rs-boothseat.low { height:19%; }
+
+/* -- Eastern thought: the zendo ------------------------------------------- */
+.rs-gong { right:8%; top:16%; width:16%; aspect-ratio:1; border-radius:50%;
+  background: radial-gradient(circle at 38% 34%, #d8b46a, #8a6a2c 62%, #4a3614 100%);
+  box-shadow: 0 14px 26px -12px rgba(0,0,0,.8), inset 0 0 20px rgba(0,0,0,.35); }
+.rs-gong::before { content:''; position:absolute; left:-14%; right:-14%; top:-16%; height:8%;
+  background: linear-gradient(180deg,#3a2a18,#1c1409); border-radius:2px; }
+.rs-zabuton { left:6%; bottom:16%; width:22%; height:9%; border-radius:6px;
+  background: linear-gradient(180deg,#2e3a44,#161d22);
+  box-shadow: 0 12px 22px -10px rgba(0,0,0,.8), inset 0 2px 0 rgba(220,235,245,0.16); }
+
+/* -- Silk road: the bazaar ------------------------------------------------ */
+.rs-rugs { left:0; right:0; bottom:15%; height:38%; }
+.rs-rugs::before, .rs-rugs::after { content:''; position:absolute; bottom:0; height:100%; border-radius:2px;
+  box-shadow: 0 18px 30px -16px rgba(0,0,0,.9); }
+/* Full-saturation stripes at even pitch read as bunting. Real rugs are dim in
+   lamplight, and their pattern is a fine repeat inside a plain border. */
+.rs-rugs::before { left:-2%; width:24%; transform: rotate(-1.5deg);
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.34) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.28) 0 2px, transparent 2px 9px),
+    linear-gradient(180deg,#6e2c22,#4a2a2c 42%,#33323e 70%,#4a3620);
+  box-shadow: inset 0 0 0 5px #2a1a14, 0 18px 30px -16px rgba(0,0,0,.9); }
+.rs-rugs::after { right:-2%; width:21%; transform: rotate(1.5deg);
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.3) 0 2px, transparent 2px 8px),
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.26) 0 2px, transparent 2px 11px),
+    linear-gradient(180deg,#2e4048,#5a3a26 44%,#6a3028 74%,#3e3420);
+  box-shadow: inset 0 0 0 5px #221a12, 0 18px 30px -16px rgba(0,0,0,.9); }
+/* Pierced brass: the light is what comes THROUGH the holes. */
+.rs-brasslamp { width:11%; aspect-ratio: 1 / 1.3;
+  border-radius: 40% 40% 46% 46% / 26% 26% 62% 62%;
+  background:
+    radial-gradient(circle, rgba(255,214,140,0.95) 0 1.6px, transparent 2px) 0 0/9px 9px,
+    linear-gradient(180deg,#a8802e,#4a3410);
+  box-shadow: 0 0 46px 14px rgba(255,180,90,0.36), inset 0 -8px 14px rgba(0,0,0,.4);
+  animation: rsFlicker 6.2s ease-in-out infinite; }
+.rs-brasslamp::before { content:''; position:absolute; left:50%; top:-40%; width:2px; height:40%;
+  margin-left:-1px; background: rgba(40,28,12,0.9); }
+
+/* -- Egyptology: the tomb -------------------------------------------------- */
+.rs-sandstone { inset:0; background:
+  repeating-linear-gradient(0deg, rgba(0,0,0,0.26) 0 3px, transparent 3px 74px),
+  radial-gradient(120% 80% at 30% 10%, rgba(255,206,140,0.12), transparent 62%),
+  linear-gradient(180deg,#6a5236,#3e2e1c 62%,#1e1610); }
+.rs-hieroglyphs { left:2%; right:2%; top:11%; height:38%; opacity:.5;
+  background:
+    repeating-linear-gradient(0deg,  rgba(20,12,6,0.9) 0 2px, transparent 2px 26px),
+    repeating-linear-gradient(90deg, rgba(20,12,6,0.75) 0 3px, transparent 3px 15px);
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 40px, transparent 40px 56px);
+  mask-image: repeating-linear-gradient(90deg, #000 0 40px, transparent 40px 56px); }
+/* Mummiform: narrow, with a squared head end and banding down the body. The
+   first attempt was a wide gold oval with a big blue disc in it, which is a
+   description of a toilet seat. */
+/* Mummiform means a rounded head end, shoulders, and a taper to the feet. A
+   border-radius box with a cap on top is a bin with a lid; the outline has to
+   be cut, so it is cut. */
+.rs-sarcophagus { right:5%; bottom:14%; width:15%; height:48%;
+  clip-path: polygon(34% 0, 66% 0, 84% 11%, 92% 26%, 84% 62%, 76% 100%, 24% 100%, 16% 62%, 8% 26%, 16% 11%);
+  background:
+    repeating-linear-gradient(180deg, transparent 0 15%, rgba(44,28,8,0.55) 15% 17.5%, transparent 17.5% 30%),
+    linear-gradient(150deg,#e0b862,#8a6424 56%,#3a290c);
+  filter: drop-shadow(0 18px 26px rgba(0,0,0,0.9)); }
+.rs-sarcophagus::after { content:''; position:absolute; left:28%; right:28%; top:9%; height:13%;
+  border-radius: 44% 44% 46% 46% / 46% 46% 54% 54%;
+  background: linear-gradient(170deg,#33587e,#0a1622 76%);
+  box-shadow: inset 0 2px 0 rgba(160,206,244,0.4); }
+/* The crossed arms — two bands is all it takes to say which way up it is. */
+.rs-sarcophagus::before { content:''; position:absolute; left:20%; right:20%; top:27%; height:9%;
+  background: linear-gradient(104deg, transparent 8%, rgba(50,32,10,0.75) 8% 46%, transparent 46% 54%, rgba(50,32,10,0.75) 54% 92%, transparent 92%); }
+.rs-surface.sandfloor { background: linear-gradient(180deg,#5a462c,#2a2014); }
+.rs-surface.sandfloor::after { opacity:.3; background: radial-gradient(rgba(0,0,0,0.22) .7px, transparent .9px); background-size:5px 5px; }
+
+/* -- Exploration: the camp ------------------------------------------------ */
+/* Six big ellipses is six blobs. Foliage needs many smaller masses at varied
+   size and value, and it needs to be much darker than the light behind it. */
+.rs-jungle { top:-8%; bottom:0; left:0; right:0; filter: blur(2.2px);
+  background:
+    radial-gradient(closest-side ellipse, #0e1c0a 0 64%, transparent 100%)  1%  8%/86px 50px no-repeat,
+    radial-gradient(closest-side ellipse, #081406 0 64%, transparent 100%)  9% 24%/70px 44px no-repeat,
+    radial-gradient(closest-side ellipse, #12240e 0 64%, transparent 100%)  3% 40%/94px 54px no-repeat,
+    radial-gradient(closest-side ellipse, #081406 0 64%, transparent 100%) 13% 56%/74px 46px no-repeat,
+    radial-gradient(closest-side ellipse, #0e1c0a 0 64%, transparent 100%)  5% 74%/90px 52px no-repeat,
+    radial-gradient(closest-side ellipse, #12240e 0 64%, transparent 100%) 15% 90%/78px 48px no-repeat,
+    radial-gradient(closest-side ellipse, #081406 0 64%, transparent 100%) 99% 12%/88px 50px no-repeat,
+    radial-gradient(closest-side ellipse, #0e1c0a 0 64%, transparent 100%) 91% 28%/72px 44px no-repeat,
+    radial-gradient(closest-side ellipse, #12240e 0 64%, transparent 100%) 97% 46%/92px 54px no-repeat,
+    radial-gradient(closest-side ellipse, #081406 0 64%, transparent 100%) 87% 62%/76px 46px no-repeat,
+    radial-gradient(closest-side ellipse, #0e1c0a 0 64%, transparent 100%) 95% 80%/86px 50px no-repeat,
+    radial-gradient(closest-side ellipse, #12240e 0 64%, transparent 100%) 85% 94%/80px 48px no-repeat; }
+.rs-jungle.far { filter: blur(7px); opacity:.5; }
+.rs-crates { left:4%; bottom:14%; width:22%; height:16%; }
+.rs-crates::before, .rs-crates::after { content:''; position:absolute; border-radius:2px;
+  background: repeating-linear-gradient(90deg, rgba(0,0,0,0.28) 0 2px, transparent 2px 16px),
+              linear-gradient(170deg,#7a5a30,#3a2a14);
+  box-shadow: 0 12px 22px -10px rgba(0,0,0,.85), inset 0 2px 0 rgba(255,214,160,0.2); }
+.rs-crates::before { left:0; bottom:0; width:58%; height:64%; }
+.rs-crates::after  { right:0; bottom:0; width:46%; height:100%; transform: rotate(-2deg); }
+
+/* -- War at sea: the boat -------------------------------------------------- */
+.rs-subhull { inset:0; background:
+  repeating-linear-gradient(0deg, rgba(0,0,0,0.34) 0 3px, transparent 3px 56px),
+  radial-gradient(circle, rgba(0,0,0,0.4) 0 2px, transparent 2.6px) 28px 28px/56px 56px,
+  linear-gradient(180deg,#33383c,#1e2225 64%,#101315); }
+/* Six bright discs on a grid is a domino. Dimmer faces, heavy bezels, and a
+   needle on each so they read as instruments. */
+.rs-gaugebank { left:2%; top:24%; width:24%; height:22%;
+  background:
+    radial-gradient(circle closest-side, rgba(180,168,140,0.85) 0 44%, rgba(120,60,44,0.9) 48% 58%, #1a1c1e 62% 76%, transparent 80%) 0 0/33.3% 50% repeat;
+  filter: drop-shadow(0 6px 10px rgba(0,0,0,.85)); opacity:.75; }
+.rs-gaugebank::after { content:''; position:absolute; inset:0;
+  background: linear-gradient(38deg, transparent 47%, rgba(30,20,16,0.9) 47% 53%, transparent 53%) 0 0/33.3% 50% repeat;
+  -webkit-mask-image: radial-gradient(circle closest-side, #000 0 40%, transparent 44%) 0 0/33.3% 50% repeat;
+  mask-image: radial-gradient(circle closest-side, #000 0 40%, transparent 44%) 0 0/33.3% 50% repeat; }
+.rs-periscope { right:12%; top:-4%; width:9%; height:56%;
+  background: linear-gradient(90deg,#1a1e20,#4a5054 42%,#15181a);
+  box-shadow: 0 0 26px rgba(0,0,0,.7); }
+.rs-periscope::after { content:''; position:absolute; left:-40%; bottom:8%; width:80%; height:9%;
+  border-radius:3px; background: linear-gradient(180deg,#4a5054,#1a1e20); }
+.rs-redlight { inset:0; mix-blend-mode: screen; opacity:.5;
+  background: radial-gradient(120% 90% at 50% 30%, rgba(255,60,40,0.5), rgba(180,20,10,0.2) 60%, transparent 82%);
+  animation: rsCamBreathe 12s ease-in-out infinite alternate; }
+
+/* -- Aviation: the cockpit ------------------------------------------------- */
+.rs-canopyglass { left:6%; right:6%; top:2%; height:52%; overflow:hidden;
+  border-radius: 44% 44% 8% 8% / 30% 30% 6% 6%;
+  box-shadow: inset 0 0 0 8px #23282c, 0 20px 40px -18px rgba(0,0,0,.9); }
+/* .rs-clouddeck is drawn at full-frame scale; inside a canopy it is two white
+   blobs. Shrink the tiles so it reads as cloud seen from height. */
+.rs-canopyglass .rs-clouddeck { background-size: 70px 26px, 90px 30px, 76px 24px; opacity:.75; filter: blur(1.4px); }
+.rs-canopyglass::after { content:''; position:absolute; inset:0;
+  background: linear-gradient(90deg, transparent 32%, #23282c 32% 36%, transparent 36%,
+              transparent 64%, #23282c 64% 68%, transparent 68%); }
+.rs-instruments { left:0; right:0; bottom:0; height:34%;
+  background:
+    radial-gradient(circle closest-side, rgba(120,220,180,0.7) 0 30%, #1a2022 36% 62%, transparent 66%) 0 20%/13% 56% repeat-x,
+    linear-gradient(180deg,#2a3032,#12171a);
+  box-shadow: 0 -12px 30px -12px rgba(120,220,180,0.3), inset 0 3px 0 rgba(160,220,200,0.18); }
+.rs-yoke { left:50%; bottom:2%; width:26%; height:16%; transform: translateX(-50%);
+  border:9px solid #23282c; border-radius: 40% 40% 18% 18% / 60% 60% 24% 24%;
+  border-bottom-color: transparent;
+  box-shadow: 0 -8px 18px -8px rgba(0,0,0,.8); }
+
+/* -- Heist: the card room -------------------------------------------------- */
+.rs-baize { left:-10%; right:-10%; bottom:8%; height:30%;
+  border-radius: 46% 46% 0 0 / 70% 70% 0 0;
+  background: radial-gradient(70% 120% at 50% 0%, #2a6a44, #14361f 62%, #08200f);
+  box-shadow: 0 -14px 40px -16px rgba(0,0,0,.85), inset 0 4px 0 rgba(140,220,160,0.2); }
+.rs-chips { left:0; right:0; bottom:22%; height:10%; }
+.rs-chips::before, .rs-chips::after { content:''; position:absolute; bottom:0; border-radius:3px;
+  filter: drop-shadow(0 5px 8px rgba(0,0,0,.8)); }
+.rs-chips::before { left:11%; width:7%; height:70%;
+  background: repeating-linear-gradient(0deg, #c8342c 0 4px, #f0e2d0 4px 6px); }
+.rs-chips::after { right:13%; width:6%; height:100%;
+  background: repeating-linear-gradient(0deg, #2c4a8e 0 4px, #f0e2d0 4px 6px); }
+
+/* -- Plays: the wings ------------------------------------------------------ */
+.rs-heavycurtain { top:-4%; bottom:0; width:30%;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.5) 0 8px, rgba(140,20,30,0.28) 8px 26px, rgba(0,0,0,0.42) 26px 34px),
+    linear-gradient(180deg,#5e1620,#1e070c 78%); }
+.rs-heavycurtain.left  { left:-2%;  box-shadow: inset -30px 0 50px -20px rgba(0,0,0,.9); }
+.rs-heavycurtain.right { right:-2%; box-shadow: inset  30px 0 50px -20px rgba(0,0,0,.9); }
+.rs-ropes { left:32%; top:-2%; width:9%; height:64%;
+  background: repeating-linear-gradient(90deg, transparent 0 3px, rgba(180,150,100,0.55) 3px 5px, transparent 5px 16px); }
+.rs-stagelight { left:36%; right:36%; top:0; bottom:0; mix-blend-mode: screen; opacity:.4; filter: blur(12px);
+  background: linear-gradient(90deg, transparent, rgba(255,238,200,0.7), transparent);
+  animation: rsCamBreathe 15s ease-in-out infinite alternate; }
+.rs-dustfloor { left:0; right:0; bottom:10%; height:22%; opacity:.2; filter: blur(5px); mix-blend-mode: screen;
+  background: linear-gradient(0deg, rgba(255,238,200,0.6), transparent 78%); }
+
+/* -- Film: the projection box --------------------------------------------- */
+.rs-projector { left:3%; bottom:15%; width:26%; height:24%; border-radius:4px;
+  background: linear-gradient(170deg,#4a4a4e,#1c1c20 76%);
+  box-shadow: 0 20px 34px -18px rgba(0,0,0,.9), inset 0 3px 0 rgba(220,226,236,0.2); }
+.rs-projector::after { content:''; position:absolute; right:-8%; top:26%; width:22%; height:30%; border-radius:3px;
+  background: radial-gradient(circle at 60% 50%, #fff6dc, #d8b060 60%, #4a3a18 100%);
+  box-shadow: 0 0 30px 8px rgba(255,232,180,0.5); }
+.rs-projbeam { left:22%; right:-6%; top:14%; height:46%; mix-blend-mode: screen; opacity:.34; filter: blur(6px);
+  clip-path: polygon(0 38%, 0 56%, 100% 100%, 100% 0);
+  background: linear-gradient(90deg, rgba(255,244,214,0.9), rgba(255,244,214,0.14) 78%, transparent);
+  animation: rsFlicker 5.4s ease-in-out infinite; }
+.rs-reels { right:5%; bottom:16%; width:20%; height:20%; }
+.rs-reels::before, .rs-reels::after { content:''; position:absolute; border-radius:50%;
+  background: repeating-radial-gradient(circle, rgba(255,255,255,0.06) 0 1px, transparent 1px 5px),
+              radial-gradient(circle, #6a6a6e 0 16%, #1e1e22 20%, #131316 100%);
+  box-shadow: 0 10px 18px -8px rgba(0,0,0,.85); }
+.rs-reels::before { left:0; bottom:0; width:62%; aspect-ratio:1; }
+.rs-reels::after  { right:0; top:0;   width:48%; aspect-ratio:1; }
+
+/* -- Late night: the radio station ---------------------------------------- */
+.rs-acousticfoam { inset:0; background:
+  repeating-conic-gradient(from 45deg at 50% 50%, #2a2a2e 0 25%, #1c1c20 0 50%) 0 0/34px 34px,
+  linear-gradient(180deg,#242428,#131316); }
+.rs-onair { left:6%; top:12%; width:24%; height:9%; border-radius:3px;
+  background: linear-gradient(180deg, rgba(255,70,50,0.9), rgba(150,20,10,0.85));
+  box-shadow: 0 0 44px 12px rgba(255,60,40,0.4), inset 0 0 14px rgba(255,180,160,0.5);
+  animation: rsCamBreathe 7s ease-in-out infinite alternate; }
+.rs-micarm { left:12%; top:22%; width:26%; height:34%; }
+.rs-micarm::before { content:''; position:absolute; left:0; top:0; width:74%; height:5%;
+  background: linear-gradient(90deg,#3a3a3e,#15151a); transform: rotate(22deg); transform-origin: left center; }
+.rs-micarm::after { content:''; position:absolute; right:6%; bottom:12%; width:20%; height:34%;
+  border-radius:38% 38% 44% 44% / 26% 26% 60% 60%;
+  background: repeating-linear-gradient(0deg, #4a4a50 0 2px, #23232a 2px 4px);
+  box-shadow: 0 8px 16px -6px rgba(0,0,0,.85); }
+
+/* -- Americana: the night diner -------------------------------------------- */
+.rs-dinerbooth { left:-6%; bottom:14%; width:34%; height:28%; border-radius:12px 16px 3px 3px;
+  background: linear-gradient(170deg,#8e2a2e,#3a0e12 78%);
+  box-shadow: 0 22px 38px -18px rgba(0,0,0,.9), inset 0 3px 0 rgba(255,180,160,0.26); }
+.rs-counterlight { left:0; right:0; top:0; height:30%; mix-blend-mode: screen; opacity:.4;
+  background: linear-gradient(180deg, rgba(220,248,255,0.55), transparent 76%); }
+.rs-surface.dinercounter { background:
+  repeating-linear-gradient(74deg, rgba(255,255,255,0.05) 0 2px, transparent 2px 26px),
+  linear-gradient(180deg,#c8c2b2,#5e5a50); }
+.rs-surface.dinercounter::after { opacity:.2; }
+
+/* -- Urban fiction: the last train ----------------------------------------- */
+.rs-carriage { inset:0; background:
+  repeating-linear-gradient(90deg, rgba(0,0,0,0.28) 0 3px, transparent 3px 78px),
+  linear-gradient(180deg,#3a3e44,#22262b 64%,#131619); }
+.rs-tunnel { position:absolute; inset:0; background: linear-gradient(180deg,#0a0c10,#05070a); }
+.rs-tunnel::after { content:''; position:absolute; inset:0; opacity:.5;
+  background: repeating-linear-gradient(90deg, rgba(160,180,200,0.28) 0 3px, transparent 3px 90px);
+  animation: rsPass 0.5s linear infinite; }
+.rs-handrail { left:0; right:0; top:16%; height:3%; border-radius:99px;
+  background: linear-gradient(180deg,#c2c8ce,#5a6068 60%,#2e3238);
+  box-shadow: 0 10px 20px -10px rgba(0,0,0,.8); }
+.rs-surface.carriagefloor { background:
+  repeating-linear-gradient(90deg, rgba(0,0,0,0.3) 0 3px, transparent 3px 34px),
+  linear-gradient(180deg,#33373c,#181b1e); }
+
+/* -- Medical drama: the night shift ---------------------------------------- */
+.rs-wardcurtain { left:-4%; width:38%; top:2%; bottom:12%;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.22) 0 6px, rgba(180,206,200,0.14) 6px 22px, rgba(0,0,0,0.16) 22px 30px),
+    linear-gradient(180deg,#7a9a94,#33443f 82%);
+  box-shadow: inset -24px 0 40px -20px rgba(0,0,0,.7); }
+.rs-vitals { right:5%; top:18%; width:22%; height:20%; border-radius:4px;
+  background: linear-gradient(180deg,#141a1c,#0a0e10);
+  box-shadow: inset 0 0 0 4px #2a3236, 0 0 34px 8px rgba(90,220,180,0.2); }
+.rs-vitals::after { content:''; position:absolute; inset:14%;
+  background: linear-gradient(90deg, transparent 0 18%, rgba(90,230,180,0.9) 18% 20%, transparent 20% 30%,
+              rgba(90,230,180,0.9) 30% 31%, transparent 31% 60%, rgba(90,230,180,0.9) 60% 62%, transparent 62%);
+  filter: drop-shadow(0 0 5px rgba(90,230,180,0.9));
+  animation: rsPass 3.6s linear infinite; }
+
+/* -- Cosy fantasy: the apothecary ------------------------------------------ */
+.rs-apothshelf { top:6%; bottom:16%; width:24%; }
+.rs-apothshelf.left  { left:1%; }
+.rs-apothshelf.right { right:1%; }
+.rs-apothshelf::before { content:''; position:absolute; inset:0;
+  background: repeating-linear-gradient(180deg, transparent 0 21%, #3a2814 21% 24%, transparent 24% 100%);
+  box-shadow: 0 10px 20px -10px rgba(0,0,0,.8); }
+.rs-apothshelf::after { content:''; position:absolute; inset:0;
+  background:
+    linear-gradient(180deg, rgba(200,170,110,0.55), rgba(90,60,26,0.6))  6% 21%/13% 15% no-repeat,
+    linear-gradient(180deg, rgba(140,190,150,0.5), rgba(40,70,44,0.6))  26% 21%/11% 13% no-repeat,
+    linear-gradient(180deg, rgba(206,140,110,0.5), rgba(90,40,26,0.6))  48% 21%/14% 16% no-repeat,
+    linear-gradient(180deg, rgba(180,160,200,0.5), rgba(60,50,80,0.6))  72% 21%/12% 14% no-repeat,
+    linear-gradient(180deg, rgba(220,190,130,0.5), rgba(100,70,30,0.6)) 10% 45%/12% 14% no-repeat,
+    linear-gradient(180deg, rgba(150,200,180,0.5), rgba(40,70,60,0.6))  34% 45%/13% 16% no-repeat,
+    linear-gradient(180deg, rgba(200,120,100,0.5), rgba(80,30,24,0.6))  60% 45%/11% 13% no-repeat,
+    linear-gradient(180deg, rgba(190,170,210,0.5), rgba(60,50,80,0.6))  84% 45%/13% 15% no-repeat,
+    linear-gradient(180deg, rgba(210,180,120,0.5), rgba(90,60,26,0.6))  16% 69%/14% 16% no-repeat,
+    linear-gradient(180deg, rgba(160,190,150,0.5), rgba(50,70,44,0.6))  44% 69%/12% 14% no-repeat,
+    linear-gradient(180deg, rgba(206,150,120,0.5), rgba(90,44,26,0.6))  70% 69%/13% 15% no-repeat;
+  filter: drop-shadow(0 4px 6px rgba(0,0,0,.7)); }
+.rs-mortar { left:30%; bottom:19%; width:9%; height:8%;
+  border-radius: 14% 14% 46% 46% / 10% 10% 62% 62%;
+  background: linear-gradient(180deg,#9a9186,#3e3a34);
+  box-shadow: 0 10px 18px -8px rgba(0,0,0,.85), inset 0 2px 0 rgba(255,255,255,0.22); }
+
+/* -- Steampunk: the clock tower -------------------------------------------- */
+/* Seen from BEHIND the dial, so the numerals are backwards and the light is
+   coming through the glass — which is the only interesting side of a clock. */
+.rs-clockface { left:50%; top:6%; width:46%; aspect-ratio:1; transform: translateX(-50%); border-radius:50%;
+  background: radial-gradient(circle, rgba(255,236,190,0.5) 0 62%, rgba(255,216,150,0.28) 74%, transparent 82%);
+  box-shadow: 0 0 70px 20px rgba(255,206,140,0.24); }
+.rs-clockface::before { content:''; position:absolute; inset:0; border-radius:50%;
+  border:10px solid rgba(40,28,14,0.9);
+  background: repeating-conic-gradient(rgba(40,28,14,0.85) 0 1.6deg, transparent 1.6deg 30deg); }
+.rs-clockface::after { content:''; position:absolute; left:50%; top:50%; width:3px; height:38%;
+  margin-left:-1.5px; transform-origin: top center; transform: rotate(148deg);
+  background: rgba(40,28,14,0.92); border-radius:2px; }
+.rs-pendulum { left:50%; top:44%; width:0; height:34%; margin-left:-1px;
+  transform-origin: top center; animation: rsSwing 3.4s ease-in-out infinite alternate; }
+.rs-pendulum::before { content:''; position:absolute; left:-1px; top:0; width:2px; height:100%;
+  background: rgba(60,44,20,0.9); }
+.rs-pendulum::after { content:''; position:absolute; left:50%; top:100%; width:34px; aspect-ratio:1;
+  margin-left:-17px; border-radius:50%;
+  background: radial-gradient(circle at 36% 32%, #d8b46a, #7a5a20 66%, #3a2a0c 100%);
+  box-shadow: 0 10px 20px -8px rgba(0,0,0,.9); }
+
+/* -- Solitude: the lighthouse ---------------------------------------------- */
+.rs-lampglass { left:50%; top:8%; width:34%; height:34%; transform: translateX(-50%);
+  border-radius: 40% 40% 12% 12% / 30% 30% 10% 10%;
+  background:
+    repeating-linear-gradient(0deg, rgba(255,246,214,0.34) 0 4px, rgba(255,226,160,0.14) 4px 9px),
+    radial-gradient(circle at 46% 40%, rgba(255,250,224,0.95), rgba(255,196,110,0.5) 62%, transparent 84%);
+  box-shadow: 0 0 90px 30px rgba(255,214,140,0.36); }
+.rs-beamsweep { left:-30%; right:-30%; top:14%; height:26%; mix-blend-mode: screen; opacity:.28; filter: blur(9px);
+  background: conic-gradient(from 250deg at 50% 100%, transparent 0 14deg, rgba(255,240,200,0.75) 18deg 24deg, transparent 28deg);
+  animation: rsBeamSweep 14s linear infinite; }
+@keyframes rsBeamSweep { to { transform: rotate(360deg) } }
+.rs-railcurve { left:-6%; right:-6%; bottom:9%; height:16%;
+  border-top:6px solid rgba(60,66,70,0.95);
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0; }
+.rs-railcurve::after { content:''; position:absolute; left:0; right:0; top:0; height:100%;
+  background: repeating-linear-gradient(90deg, rgba(60,66,70,0.95) 0 4px, transparent 4px 34px);
+  -webkit-mask-image: radial-gradient(100% 100% at 50% 100%, #000 0 96%, transparent 98%);
+  mask-image: radial-gradient(100% 100% at 50% 100%, #000 0 96%, transparent 98%); }
+
+/* -- For readers: the second-hand bookshop --------------------------------- */
+.rs-bookpiles { left:0; right:0; bottom:14%; height:26%; }
+.rs-bookpiles::before, .rs-bookpiles::after { content:''; position:absolute; bottom:0;
+  filter: drop-shadow(0 10px 16px rgba(0,0,0,.85)); }
+.rs-bookpiles::before { left:2%; width:16%; height:100%;
+  background: repeating-linear-gradient(0deg, #6d3b2a 0 9px, #2f3d55 9px 17px, #5a4a2c 17px 26px, #33333b 26px 33px); }
+.rs-bookpiles::after { right:3%; width:14%; height:74%; transform: rotate(1.5deg);
+  background: repeating-linear-gradient(0deg, #4a2f3a 0 8px, #7a5a34 8px 15px, #25404a 15px 24px); }
+
+/* -- Publishing: the press -------------------------------------------------- */
+.rs-pressframe { left:1%; bottom:15%; width:32%; height:44%; }
+.rs-pressframe::before { content:''; position:absolute; left:0; right:0; bottom:0; height:34%; border-radius:3px;
+  background: linear-gradient(170deg,#4a4238,#1e1a16);
+  box-shadow: 0 20px 34px -18px rgba(0,0,0,.9), inset 0 3px 0 rgba(255,214,170,0.2); }
+.rs-pressframe::after { content:''; position:absolute; left:12%; right:12%; bottom:30%; height:76%;
+  border:11px solid #2e2822; border-radius:3px;
+  box-shadow: inset 0 0 20px rgba(0,0,0,.6); }
+.rs-typecase { right:4%; top:16%; width:24%; height:26%;
+  background:
+    repeating-linear-gradient(90deg, rgba(30,22,14,0.9) 0 2px, transparent 2px 17px),
+    repeating-linear-gradient(0deg,  rgba(30,22,14,0.9) 0 2px, transparent 2px 15px),
+    linear-gradient(180deg,#7a6146,#3e3223);
+  box-shadow: 0 14px 26px -12px rgba(0,0,0,.85), inset 0 2px 0 rgba(255,222,180,0.22); }
+.rs-inkrollers { left:36%; bottom:19%; width:14%; height:7%; border-radius:99px;
+  background: linear-gradient(180deg,#2a2622,#0e0c0a);
+  box-shadow: 0 8px 16px -6px rgba(0,0,0,.9), inset 0 2px 0 rgba(180,170,160,0.24); }
+
+/* -- Martial arts: the dojo ------------------------------------------------ */
+.rs-weapons { left:3%; top:14%; width:20%; height:36%; }
+.rs-weapons::before, .rs-weapons::after { content:''; position:absolute; left:0; right:0; height:4%;
+  border-radius:99px; background: linear-gradient(180deg,#6a4a2a,#2e1f10);
+  box-shadow: 0 5px 9px -3px rgba(0,0,0,.8); }
+.rs-weapons::before { top:22%; transform: rotate(-2deg); }
+.rs-weapons::after  { top:52%; transform: rotate(1.5deg); right:8%; }
+.rs-scrollbanner { right:6%; top:8%; width:12%; height:44%; border-radius:2px;
+  background: linear-gradient(180deg,#efe6cf,#c2b69a);
+  box-shadow: 0 12px 22px -10px rgba(0,0,0,.7); }
+.rs-scrollbanner::after { content:''; position:absolute; left:30%; right:30%; top:14%; height:60%;
+  background: repeating-linear-gradient(180deg, rgba(28,22,16,0.85) 0 8px, transparent 8px 22px); }
+.rs-surface.matfloor { background:
+  repeating-linear-gradient(90deg, rgba(0,0,0,0.28) 0 3px, transparent 3px 120px),
+  linear-gradient(180deg,#3e4a44,#1c2422); }
+
+/* -- Study, extended -------------------------------------------------------- */
+.rs-easel { left:6%; bottom:14%; width:24%; height:46%; }
+.rs-easel::before { content:''; position:absolute; left:12%; right:12%; top:0; height:74%; border-radius:2px;
+  background: linear-gradient(160deg,#e8dfc8,#a89c80);
+  box-shadow: 0 16px 28px -14px rgba(0,0,0,.85), inset 0 0 26px rgba(90,70,40,0.24); }
+.rs-easel::after { content:''; position:absolute; left:0; right:0; bottom:0; height:34%;
+  background: linear-gradient(90deg, transparent 12%, #2e2216 12% 17%, transparent 17%,
+              transparent 80%, #2e2216 80% 85%, transparent 85%); }
+.rs-canvasstack { right:5%; bottom:14%; width:18%; height:24%;
+  background: linear-gradient(90deg, #6a5c44 0 4px, #cfc2a4 4px 9px, #4a4032 9px 13px, #bcae90 13px 19px, #5a4e3a 19px 23px);
+  box-shadow: 0 16px 28px -14px rgba(0,0,0,.85); transform: rotate(-2deg); }
+.rs-drystone { inset:0; background:
+  radial-gradient(closest-side ellipse, rgba(120,116,104,0.85) 0 74%, transparent 100%) 10% 12%/74px 42px,
+  radial-gradient(closest-side ellipse, rgba(96,92,82,0.85) 0 74%, transparent 100%)  54% 30%/86px 46px,
+  radial-gradient(closest-side ellipse, rgba(110,104,94,0.85) 0 74%, transparent 100%) 24% 58%/78px 44px,
+  radial-gradient(closest-side ellipse, rgba(88,84,76,0.85) 0 74%, transparent 100%)  72% 76%/82px 42px,
+  linear-gradient(180deg,#4a4640,#26241f 66%,#121110); }
+.rs-stove { left:4%; bottom:14%; width:24%; height:30%; border-radius:4px;
+  background: linear-gradient(170deg,#3a3630,#141210 78%);
+  box-shadow: 0 22px 36px -18px rgba(0,0,0,.9), inset 0 3px 0 rgba(255,200,150,0.18); }
+.rs-stove::before { content:''; position:absolute; left:18%; right:18%; top:34%; height:34%; border-radius:3px;
+  background: radial-gradient(circle at 50% 60%, #ffc064, #d2541a 56%, #6a1e06 100%);
+  box-shadow: 0 0 44px 12px rgba(255,150,60,0.5); animation: rsFlicker 3.6s ease-in-out infinite; }
+.rs-stove::after { content:''; position:absolute; left:36%; width:16%; bottom:100%; height:120%;
+  background: linear-gradient(90deg,#2a2622,#4a4640 40%,#1a1816); }
+
+/* -- Nature, extended ------------------------------------------------------ */
+.rs-lavaglow { left:0; right:0; bottom:26%; height:34%; mix-blend-mode: screen; filter: blur(22px); opacity:.66;
+  background: radial-gradient(60% 60% at 46% 100%, rgba(255,140,40,0.95), rgba(200,50,10,0.35) 58%, transparent 80%);
+  animation: rsCamBreathe 9s ease-in-out infinite alternate; }
+.rs-lavaflow { left:0; right:0; bottom:12%; height:22%;
+  background:
+    linear-gradient(112deg, transparent 44%, rgba(255,170,60,0.9) 46% 49%, transparent 51%),
+    linear-gradient(74deg,  transparent 60%, rgba(255,120,30,0.85) 62% 64%, transparent 66%);
+  filter: blur(1.6px) drop-shadow(0 0 12px rgba(255,120,40,0.8)); }
+.rs-acacia { bottom:22%; width:34%; height:34%; }
+.rs-acacia.left  { left:-4%; }
+.rs-acacia.right { right:-4%; transform: scaleX(-1) scale(0.86); }
+.rs-acacia::before { content:''; position:absolute; left:46%; bottom:0; width:4%; height:64%;
+  background: linear-gradient(90deg,#150e06,#3a2812 45%,#120c05); }
+.rs-acacia::after { content:''; position:absolute; left:0; right:0; top:0; height:48%; filter: blur(1.4px);
+  background:
+    radial-gradient(closest-side ellipse, #241a0c 0 70%, transparent 100%) 30% 70%/150px 26px no-repeat,
+    radial-gradient(closest-side ellipse, #1c1408 0 70%, transparent 100%) 52% 40%/180px 30px no-repeat,
+    radial-gradient(closest-side ellipse, #241a0c 0 70%, transparent 100%) 44% 12%/140px 24px no-repeat; }
+.rs-grass.dry { background: repeating-linear-gradient(84deg, #6a5424 0 2px, transparent 2px 9px),
+              repeating-linear-gradient(96deg, #7a6230 0 2px, transparent 2px 13px); }
+.rs-mossdrape { top:-4%; width:30%; height:56%; filter: blur(1.2px);
+  background: repeating-linear-gradient(92deg, rgba(80,96,64,0.6) 0 3px, transparent 3px 13px);
+  -webkit-mask-image: linear-gradient(180deg, #000 20%, transparent 92%);
+  mask-image: linear-gradient(180deg, #000 20%, transparent 92%); }
+.rs-mossdrape.left  { left:-2%; }
+.rs-mossdrape.right { right:-2%; }
+.rs-blackwater { left:0; right:0; bottom:0; height:34%;
+  background: linear-gradient(180deg, rgba(14,22,16,0.9), rgba(6,10,8,1));
+  box-shadow: inset 0 14px 30px -12px rgba(120,150,110,0.16); }
+.rs-blackwater::after { content:''; position:absolute; inset:0; opacity:.34;
+  background: repeating-linear-gradient(88deg, rgba(150,180,130,0.22) 0 1px, transparent 1px 26px);
+  animation: rsRipple 11s ease-in-out infinite alternate; }
+.rs-cavewall { inset:0; background:
+  radial-gradient(closest-side ellipse, rgba(40,50,62,0.9) 0 72%, transparent 100%) 12% 20%/160px 110px,
+  radial-gradient(closest-side ellipse, rgba(28,36,46,0.9) 0 72%, transparent 100%) 68% 44%/180px 130px,
+  radial-gradient(closest-side ellipse, rgba(34,44,56,0.9) 0 72%, transparent 100%) 34% 76%/150px 100px,
+  linear-gradient(180deg,#20293a,#0e1420 68%,#060a10); }
+.rs-stalactites { left:0; right:0; top:0; height:30%;
+  background: conic-gradient(from 180deg at 50% 0%, transparent 0 6deg, #131a26 6deg 9deg, transparent 9deg 16deg) 0 0/60px 100%;
+  filter: drop-shadow(0 4px 6px rgba(0,0,0,.7)); }
+.rs-crystals { left:0; right:0; bottom:11%; height:34%; }
+/* A flat pentagon of saturated blue is a game gem. Crystal is FACETED: two
+   values meeting on a hard vertical edge, dimmer than the glow around it. */
+.rs-crystals::before, .rs-crystals::after { content:''; position:absolute; bottom:0;
+  background: linear-gradient(94deg, rgba(96,150,190,0.75) 0 42%, rgba(176,222,250,0.85) 42% 58%, rgba(58,104,146,0.8) 58%);
+  filter: blur(0.5px) drop-shadow(0 0 16px rgba(120,200,255,0.5)); }
+.rs-crystals::before { left:5%;  width:8%;  height:80%; clip-path: polygon(50% 0, 100% 22%, 86% 100%, 14% 100%, 0 22%); }
+.rs-crystals::after  { right:7%; width:10%; height:100%; clip-path: polygon(50% 0, 100% 18%, 88% 100%, 12% 100%, 0 18%); }
+/* A second, smaller pair behind reads as a cluster rather than two spikes. */
+.rs-crystals { filter: drop-shadow(0 0 22px rgba(90,170,230,0.28)); }
+.rs-poolglow { left:0; right:0; bottom:0; height:24%; mix-blend-mode: screen; opacity:.4; filter: blur(16px);
+  background: radial-gradient(60% 90% at 50% 100%, rgba(120,200,255,0.8), transparent 76%);
+  animation: rsCamBreathe 10s ease-in-out infinite alternate; }
+.rs-surface.cavefloor { background: linear-gradient(180deg,#1a2230,#080c12); }
+.rs-cliffwall { top:-6%; bottom:0; width:26%;
+  background:
+    repeating-linear-gradient(-84deg, rgba(0,0,0,0.3) 0 5px, transparent 5px 26px),
+    linear-gradient(90deg,#141c24,#2a3742 56%,#101820); }
+.rs-cliffwall.left  { left:0;  box-shadow: inset -28px 0 46px -20px rgba(0,0,0,.85); }
+.rs-cliffwall.right { right:0; box-shadow: inset  28px 0 46px -20px rgba(0,0,0,.85); }
+.rs-mirrorflat { left:0; right:0; bottom:0; height:44%;
+  background: linear-gradient(180deg, rgba(240,214,206,0.62), rgba(150,130,140,0.5) 40%, rgba(70,60,72,0.7)); }
+.rs-mirrorflat::after { content:''; position:absolute; inset:0; opacity:.5;
+  background: linear-gradient(180deg, rgba(255,214,150,0.5), transparent 46%);
+  animation: rsRipple 13s ease-in-out infinite alternate; }
+.rs-saltcracks { left:0; right:0; bottom:0; height:34%; opacity:.24;
+  background:
+    repeating-linear-gradient(64deg, rgba(255,255,255,0.5) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(-58deg, rgba(255,255,255,0.42) 0 1px, transparent 1px 42px); }
+.rs-verandah { left:0; right:0; top:0; height:22%;
+  background: linear-gradient(180deg,#1a120c,#2e2014 62%,#150e08);
+  box-shadow: 0 20px 34px -16px rgba(0,0,0,.9); }
+.rs-verandah::after { content:''; position:absolute; left:0; right:0; bottom:-72%; height:72%;
+  background: linear-gradient(90deg, transparent 3%, #1c1409 3% 8%, transparent 8%,
+              transparent 92%, #1c1409 92% 97%, transparent 97%); }
+.rs-downpour { inset:0; opacity:.5;
+  background: repeating-linear-gradient(6deg, rgba(200,224,236,0.6) 0 1px, transparent 1px 7px);
+  -webkit-mask-image: linear-gradient(180deg, transparent 14%, #000 40%);
+  mask-image: linear-gradient(180deg, transparent 14%, #000 40%);
+  animation: rsRain 0.42s linear infinite; }
+.rs-puddle { left:0; right:0; bottom:0; height:18%; mix-blend-mode: screen; opacity:.3; filter: blur(4px);
+  background: linear-gradient(0deg, rgba(190,220,236,0.6), transparent 82%); }
+.rs-surface.wetstone { background: linear-gradient(180deg,#2e3236,#14171a); }
+.rs-surface.wetstone::after { opacity:.5;
+  background: repeating-linear-gradient(92deg, rgba(200,224,240,0.1) 0 1px, transparent 1px 30px); }
+.rs-springpool { left:-8%; right:-8%; bottom:0; height:28%;
+  border-radius: 40% 40% 0 0 / 60% 60% 0 0;
+  background: radial-gradient(70% 130% at 50% 0%, rgba(150,206,214,0.6), rgba(30,70,84,0.85) 66%, rgba(12,32,40,0.95));
+  box-shadow: inset 0 6px 0 rgba(220,246,250,0.34); }
+.rs-springsteam { left:-6%; right:-6%; bottom:14%; height:48%; opacity:.32; filter: blur(24px); mix-blend-mode: screen;
+  background: radial-gradient(60% 60% at 34% 80%, rgba(255,255,255,0.9), transparent 74%),
+              radial-gradient(52% 52% at 74% 68%, rgba(240,250,255,0.8), transparent 76%);
+  animation: rsSteamRise 15s ease-in-out infinite alternate; }
+.rs-rockrim { left:-6%; right:-6%; bottom:20%; height:16%; filter: blur(1px);
+  background:
+    radial-gradient(closest-side ellipse, #1a2028 0 74%, transparent 100%) 10% 60%/120px 44px no-repeat,
+    radial-gradient(closest-side ellipse, #141a22 0 74%, transparent 100%) 38% 76%/150px 50px no-repeat,
+    radial-gradient(closest-side ellipse, #1a2028 0 74%, transparent 100%) 72% 62%/140px 46px no-repeat,
+    radial-gradient(closest-side ellipse, #101620 0 74%, transparent 100%) 94% 80%/110px 42px no-repeat; }
+.rs-icewall { top:-6%; bottom:0; width:30%;
+  background:
+    repeating-linear-gradient(-80deg, rgba(255,255,255,0.14) 0 4px, transparent 4px 30px),
+    linear-gradient(90deg,#4a7a96,#8ec2d8 46%,#2e5a74); }
+.rs-icewall.left  { left:-2%;  box-shadow: inset -26px 0 44px -18px rgba(10,40,60,.7); }
+.rs-icewall.right { right:-2%; box-shadow: inset  26px 0 44px -18px rgba(10,40,60,.7); }
+.rs-icecrevasse { left:38%; right:38%; top:10%; bottom:14%;
+  background: linear-gradient(180deg, rgba(20,70,100,0.5), rgba(6,30,48,0.95));
+  box-shadow: inset 0 0 40px rgba(0,20,40,.7); filter: blur(1px); }
+.rs-surface.snowfloor { background: linear-gradient(180deg,#c6d8e4,#7e94a4); }
+.rs-surface.snowfloor::after { opacity:.2; }
+.rs-frostpane { inset:0; opacity:.34;
+  background:
+    radial-gradient(closest-side circle, rgba(255,255,255,0.7) 0 40%, transparent 100%) 0 0/26px 26px,
+    radial-gradient(closest-side circle, rgba(255,255,255,0.5) 0 34%, transparent 100%) 13px 13px/34px 34px;
+  -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, transparent 20%, #000 78%);
+  mask-image: radial-gradient(120% 90% at 50% 0%, transparent 20%, #000 78%); }
+.rs-palmhouse { bottom:12%; width:32%; height:60%; filter: blur(1.2px);
+  background:
+    radial-gradient(closest-side ellipse, #1c3418 0 68%, transparent 100%) 26% 16%/150px 34px no-repeat,
+    radial-gradient(closest-side ellipse, #16280f 0 68%, transparent 100%) 54% 34%/170px 38px no-repeat,
+    radial-gradient(closest-side ellipse, #1c3418 0 68%, transparent 100%) 34% 52%/160px 36px no-repeat,
+    radial-gradient(closest-side ellipse, #12220c 0 68%, transparent 100%) 60% 72%/140px 32px no-repeat; }
+.rs-palmhouse.left  { left:-6%; }
+.rs-palmhouse.right { right:-6%; transform: scaleX(-1); }
+
+/* -- Cosmos, extended ------------------------------------------------------ */
+.rs-earthsmall { right:8%; top:10%; width:22%; aspect-ratio:1; border-radius:50%;
+  background: radial-gradient(circle at 34% 30%, #7ab4e8, #2c5e9a 54%, #0e2848 82%, #050f1e 100%);
+  box-shadow: 0 0 60px 16px rgba(90,150,220,0.28), inset -14px -8px 34px rgba(0,0,0,.7); }
+.rs-regolith { left:0; right:0; bottom:0; height:26%;
+  background: linear-gradient(180deg,#6a6a68,#2c2c2a);
+  box-shadow: inset 0 4px 0 rgba(220,220,214,0.34); }
+.rs-regolith::after { content:''; position:absolute; inset:0; opacity:.42;
+  background:
+    radial-gradient(closest-side ellipse, rgba(0,0,0,0.5) 0 70%, transparent 100%) 16% 40%/70px 20px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(0,0,0,0.45) 0 70%, transparent 100%) 62% 66%/90px 24px no-repeat,
+    radial-gradient(closest-side ellipse, rgba(0,0,0,0.4) 0 70%, transparent 100%) 88% 28%/60px 18px no-repeat; }
+.rs-habdome { left:2%; bottom:20%; width:26%; height:22%;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  background: linear-gradient(180deg, rgba(214,226,236,0.5), rgba(90,110,130,0.6));
+  box-shadow: inset 0 3px 0 rgba(255,255,255,0.5), 0 0 40px 10px rgba(150,190,230,0.2); }
+.rs-cometbody { left:22%; top:26%; width:8%; aspect-ratio:1; border-radius:50%;
+  background: radial-gradient(circle at 36% 32%, #ffffff, #cfe6f6 46%, #6a8ea6 100%);
+  box-shadow: 0 0 44px 14px rgba(200,232,255,0.6); }
+.rs-comettail { left:26%; right:-8%; top:20%; height:22%; mix-blend-mode: screen; opacity:.6; filter: blur(8px);
+  background: linear-gradient(96deg, rgba(200,236,255,0.85), rgba(150,200,255,0.28) 46%, transparent 82%);
+  transform: rotate(-8deg); animation: rsCamBreathe 17s ease-in-out infinite alternate; }
+.rs-twinsun { left:0; right:0; top:34%; height:26%; }
+.rs-twinsun::before, .rs-twinsun::after { content:''; position:absolute; border-radius:50%; }
+.rs-twinsun::before { left:38%; top:0; width:16%; aspect-ratio:1;
+  background: radial-gradient(circle, #fff0c4 0 40%, rgba(255,168,96,0.55) 58%, transparent 78%);
+  box-shadow: 0 0 90px 30px rgba(255,160,80,0.3); }
+.rs-twinsun::after { left:58%; top:34%; width:10%; aspect-ratio:1;
+  background: radial-gradient(circle, #ffe0b0 0 40%, rgba(230,120,70,0.5) 58%, transparent 78%);
+  box-shadow: 0 0 60px 20px rgba(230,110,60,0.26); }
+.rs-dunesheen { left:0; right:0; bottom:10%; height:26%; mix-blend-mode: screen; opacity:.34; filter: blur(9px);
+  background: linear-gradient(0deg, rgba(255,190,110,0.6), transparent 76%); }
+.rs-earthlimb { left:-20%; right:-20%; bottom:-40%; height:96%; border-radius:50%;
+  background: radial-gradient(circle at 50% 20%, #4a92d8, #1c4e8a 42%, #0a1e3c 74%, #04101f 100%);
+  box-shadow: 0 -12px 90px 20px rgba(80,150,230,0.34), inset 0 14px 0 rgba(180,220,255,0.4); }
+/* You are inside the helmet: the visor is the frame, and it flares. */
+/* Looking OUT of a helmet: the frame is dark and close, not a white ring. A
+   bright thick border read as a toilet seat floating in space. */
+.rs-visor { inset:-2%; border: 40px solid #23252a; border-radius: 46% 46% 52% 52% / 40% 40% 56% 56%;
+  box-shadow: inset 0 0 0 5px #4a4d54, inset 0 0 0 9px #14161a,
+              inset 0 0 120px 40px rgba(0,0,0,0.85), 0 0 0 40px #14161a; }
+.rs-visor::after { content:''; position:absolute; inset:0; mix-blend-mode: screen; opacity:.24; filter: blur(3px);
+  background: linear-gradient(122deg, transparent 34%, rgba(255,240,214,0.85) 44% 48%, transparent 56%); }
+.rs-tether { left:-4%; top:38%; width:44%; height:5%;
+  background: repeating-linear-gradient(90deg, #c8c2b0 0 9px, #6a6558 9px 15px);
+  transform: rotate(-10deg); border-radius:99px;
+  box-shadow: 0 4px 8px rgba(0,0,0,.6); }
+/* Lensing: a ring of light, and the sky bent round the outside of it. */
+.rs-lensring { left:76%; top:32%; width:36%; aspect-ratio:1; transform: translate(-50%,-50%); border-radius:50%;
+  background: conic-gradient(from 200deg, rgba(255,236,190,0.9), rgba(190,160,255,0.55) 30%, rgba(120,190,255,0.7) 58%, rgba(255,214,170,0.85) 82%, rgba(255,236,190,0.9));
+  -webkit-mask-image: radial-gradient(circle, transparent 0 40%, #000 44% 54%, transparent 60%);
+  mask-image: radial-gradient(circle, transparent 0 40%, #000 44% 54%, transparent 60%);
+  filter: blur(2.4px) drop-shadow(0 0 26px rgba(200,180,255,0.6));
+  animation: rsTurn 90s linear infinite; }
+.rs-lenscore { left:76%; top:32%; width:15%; aspect-ratio:1; transform: translate(-50%,-50%); border-radius:50%;
+  background:#03030a; box-shadow: 0 0 40px 12px rgba(0,0,0,0.95), 0 0 0 3px rgba(255,226,180,0.32); }
+.rs-rock { width:16%; aspect-ratio: 1 / 0.78; border-radius: 46% 54% 40% 60% / 56% 42% 58% 44%;
+  background: radial-gradient(52% 46% at 34% 30%, #8e8878, #4a463e 58%, #1c1a16 100%);
+  box-shadow: inset -10px -8px 22px rgba(0,0,0,.7), 0 14px 26px -12px rgba(0,0,0,.8); }
+.rs-rock.sm { width:8%; }
+.rs-farsun { left:44%; top:14%; width:5%; aspect-ratio:1; border-radius:50%;
+  background: radial-gradient(circle, #ffffff 0 34%, rgba(255,232,190,0.5) 56%, transparent 76%);
+  box-shadow: 0 0 60px 16px rgba(255,226,180,0.28); }
+
+/* -- Journey, extended ----------------------------------------------------- */
+.rs-paddlewheel { right:2%; bottom:12%; width:26%; aspect-ratio:1; border-radius:50%;
+  background: repeating-conic-gradient(#5a3a1e 0 7deg, rgba(30,18,8,0.9) 7deg 22deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 0 34%, #000 38% 96%, transparent 99%);
+  mask-image: radial-gradient(circle, transparent 0 34%, #000 38% 96%, transparent 99%);
+  box-shadow: 0 14px 26px -12px rgba(0,0,0,.85);
+  animation: rsTurn 9s linear infinite; }
+.rs-deckrail { left:0; right:0; bottom:13%; height:16%; }
+.rs-deckrail::before { content:''; position:absolute; left:0; right:0; top:0; height:12%; border-radius:99px;
+  background: linear-gradient(180deg,#e2dcc8,#6a6250); box-shadow: 0 8px 16px -8px rgba(0,0,0,.8); }
+.rs-deckrail::after { content:''; position:absolute; left:0; right:0; top:8%; height:92%;
+  background: repeating-linear-gradient(90deg, rgba(226,220,200,0.85) 0 4px, transparent 4px 28px); }
+.rs-cablewire { left:-10%; right:-10%; top:6%; height:22%; }
+.rs-cablewire::before, .rs-cablewire::after { content:''; position:absolute; left:0; right:0; height:3px;
+  background: rgba(30,34,40,0.9); }
+.rs-cablewire::before { top:14%; transform: rotate(-1.6deg); }
+.rs-cablewire::after  { top:32%; transform: rotate(-1.6deg); }
+.rs-cabinframe { inset:0; border: 34px solid #2e3438; border-radius: 14px;
+  box-shadow: inset 0 0 0 7px #454c50, inset 0 0 70px 22px rgba(0,0,0,0.6); }
+.rs-cabinframe::after { content:''; position:absolute; left:50%; top:0; bottom:0; width:9px; margin-left:-4.5px;
+  background: linear-gradient(90deg,#454c50,#22282c); }
+.rs-roadstrip { left:0; right:0; bottom:0; height:30%; }
+.rs-roadstrip::after { content:''; position:absolute; left:44%; right:44%; top:0; bottom:0;
+  background: repeating-linear-gradient(180deg, rgba(246,232,190,0.85) 0 22px, transparent 22px 60px);
+  clip-path: polygon(38% 0, 62% 0, 100% 100%, 0 100%); }
+.rs-telegraph { left:0; right:0; bottom:22%; height:44%; }
+.rs-telegraph::before { content:''; position:absolute; left:6%; bottom:0; width:1.6%; height:100%;
+  background: linear-gradient(90deg,#1a1008,#3a2612 45%,#150d06); }
+.rs-telegraph::after { content:''; position:absolute; left:2%; top:2%; width:9%; height:4%;
+  background: #251708; border-radius:2px; }
+.rs-tentcamp { left:0; right:0; bottom:12%; height:26%; }
+.rs-tentcamp::before, .rs-tentcamp::after { content:''; position:absolute; bottom:0;
+  background: linear-gradient(170deg,#4a3a26,#1c1409);
+  box-shadow: 0 16px 26px -14px rgba(0,0,0,.9); }
+.rs-tentcamp::before { left:3%;  width:26%; height:82%; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.rs-tentcamp::after  { right:4%; width:22%; height:66%; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.rs-berth { left:-6%; bottom:13%; width:36%; height:22%; border-radius:4px 8px 2px 2px;
+  background: linear-gradient(180deg,#8e8878,#3a3630 58%,#201e1a);
+  box-shadow: 0 20px 34px -18px rgba(0,0,0,.9), inset 0 3px 0 rgba(255,244,220,0.34); }
+.rs-masts { left:0; right:0; bottom:26%; height:36%; }
+.rs-masts::before { content:''; position:absolute; left:0; right:0; bottom:0; height:100%;
+  background:
+    linear-gradient(180deg,#0e1620,#0e1620)  8% 100%/2px 84% no-repeat,
+    linear-gradient(180deg,#0e1620,#0e1620) 15% 100%/2px 64% no-repeat,
+    linear-gradient(180deg,#0e1620,#0e1620) 22% 100%/2px 92% no-repeat,
+    linear-gradient(180deg,#0e1620,#0e1620) 79% 100%/2px 72% no-repeat,
+    linear-gradient(180deg,#0e1620,#0e1620) 87% 100%/2px 90% no-repeat,
+    linear-gradient(180deg,#0e1620,#0e1620) 94% 100%/2px 60% no-repeat; }
+.rs-bollard { left:5%; bottom:12%; width:8%; height:12%;
+  border-radius: 40% 40% 12% 12% / 26% 26% 10% 10%;
+  background: linear-gradient(170deg,#3a3a38,#141412);
+  box-shadow: 0 14px 24px -10px rgba(0,0,0,.9), inset 0 3px 0 rgba(210,214,206,0.24); }
+
+/* -- Mood, extended -------------------------------------------------------- */
+.rs-beachfire { left:16%; bottom:14%; width:16%; height:20%; }
+.rs-beachfire::before { content:''; position:absolute; left:20%; right:20%; bottom:0; height:76%;
+  border-radius: 50% 50% 34% 34% / 76% 76% 24% 24%;
+  background: radial-gradient(circle at 50% 76%, #fff0b4, #ff9a2e 42%, #d2400c 74%, transparent 92%);
+  filter: blur(2px); animation: rsFlame 1.5s ease-in-out infinite alternate; }
+.rs-beachfire::after { content:''; position:absolute; left:0; right:0; bottom:0; height:22%;
+  background: linear-gradient(90deg, transparent 4%, #241609 4% 40%, transparent 40% 54%, #1c1207 54% 92%, transparent 92%);
+  transform: rotate(-3deg); border-radius:3px; }
+.rs-driftlogs { left:0; right:0; bottom:11%; height:12%; }
+.rs-driftlogs::before, .rs-driftlogs::after { content:''; position:absolute; bottom:0; height:34%; border-radius:99px;
+  background: linear-gradient(180deg,#6a6054,#2a2620);
+  box-shadow: 0 8px 14px -6px rgba(0,0,0,.85); }
+.rs-driftlogs::before { left:2%;  width:24%; transform: rotate(-3deg); }
+.rs-driftlogs::after  { right:3%; width:20%; transform: rotate(2deg); }
+.rs-mossmounds { left:0; right:0; bottom:10%; height:30%; filter: blur(2px);
+  background:
+    radial-gradient(closest-side ellipse, #2a4a24 0 74%, transparent 100%)  8% 74%/130px 54px no-repeat,
+    radial-gradient(closest-side ellipse, #1e3a1a 0 74%, transparent 100%) 30% 88%/150px 60px no-repeat,
+    radial-gradient(closest-side ellipse, #2a4a24 0 74%, transparent 100%) 70% 80%/140px 56px no-repeat,
+    radial-gradient(closest-side ellipse, #162c12 0 74%, transparent 100%) 92% 92%/120px 50px no-repeat; }
+.rs-longgrass { left:0; right:0; bottom:0; height:34%;
+  background: repeating-linear-gradient(85deg, #0e2010 0 2px, transparent 2px 8px),
+              repeating-linear-gradient(95deg, #14290f 0 2px, transparent 2px 12px);
+  -webkit-mask-image: linear-gradient(0deg, #000 40%, transparent 98%);
+  mask-image: linear-gradient(0deg, #000 40%, transparent 98%);
+  animation: rsSway 9s ease-in-out infinite alternate; }
+.rs-surface.ashfloor { background: linear-gradient(180deg,#2e2622,#131010); }
+.rs-surface.asphalt { background: linear-gradient(180deg,#2a2a2c,#121213); }
+.rs-surface.asphalt::after { opacity:.3; background: radial-gradient(rgba(0,0,0,0.3) .7px, transparent .9px); background-size:5px 5px; }
 
 /* ============================ picker previews ============================= */
 .rs-preview { position:relative; width:100%; aspect-ratio: 16 / 10; overflow:hidden; border-radius:10px; background:#0a0908; }
