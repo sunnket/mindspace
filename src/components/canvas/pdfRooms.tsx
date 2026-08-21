@@ -33,20 +33,26 @@ import React from 'react';
 export type Atmos =
   /* Study */
   | 'clean' | 'focus' | 'library' | 'study' | 'candle' | 'fireplace' | 'cafe'
-  | 'attic' | 'cabin' | 'parchment' | 'noir' | 'greenhouse'
+  | 'attic' | 'cabin' | 'parchment' | 'noir' | 'greenhouse' | 'bath'
   /* Nature */
   | 'rain' | 'storm' | 'snow' | 'forest' | 'autumn' | 'sakura' | 'meadow'
   | 'ocean' | 'lake' | 'mountain' | 'desert' | 'bamboo' | 'reef'
+  | 'waterfall' | 'canyon'
   /* Cosmos */
   | 'night' | 'moonlit' | 'aurora' | 'cosmos' | 'observatory' | 'orbit'
+  | 'ringed' | 'eclipse'
   /* Journey */
-  | 'train' | 'plane' | 'tent'
+  | 'train' | 'plane' | 'tent' | 'ferry' | 'motel' | 'balloon'
   /* Mood */
   | 'sunset' | 'dusk' | 'romance' | 'lavender' | 'zen' | 'neon'
+  | 'rooftop' | 'hammock' | 'fog'
   /* Genre — rooms that match what you're reading */
   | 'crypt' | 'manor' | 'stakeout' | 'oakroom' | 'poetseat' | 'carrel'
   | 'bridge' | 'tower' | 'tavern' | 'warroom' | 'chapel' | 'fort'
-  | 'maproom' | 'lab' | 'office' | 'kitchen' | 'arcade';
+  | 'maproom' | 'lab' | 'office' | 'kitchen' | 'arcade'
+  | 'parlour' | 'chambers' | 'newsroom' | 'captain' | 'bunker' | 'safehouse'
+  | 'temple' | 'gallery' | 'musicroom' | 'dorm' | 'bedtime' | 'workshop'
+  | 'porch' | 'tatami' | 'anatomy' | 'archive' | 'sunroom';
 
 type PKind =
   | 'none' | 'dust' | 'ember' | 'rain' | 'snow' | 'leaf' | 'petal' | 'bokeh'
@@ -60,6 +66,17 @@ export interface Room {
   group: RoomGroup;
   /** One line in the picker — what the place feels like, not what it contains. */
   blurb: string;
+  /**
+   * The kind of book this room was built for, printed on the card as an
+   * overline. Rooms that suit anything leave it off — a room labelled for
+   * everything is a room labelled for nothing.
+   */
+  reads?: string;
+  /**
+   * What someone might type looking for this place: authors, moods, the words
+   * a bookshop puts on the shelf edge. Never shown; only searched.
+   */
+  tags?: string[];
   /** "r,g,b" — drives every accent in the reader UI and the page's light spill. */
   accent: string;
   /** UI text colour, for rooms too pale for the default warm white. */
@@ -1108,27 +1125,485 @@ const S_arcade = () => (
   </>
 );
 
+/* ===================== genre, the second wing =============================
+   The first set covered the big shelves. These are the rooms the rest of the
+   library is written in or set in — one per kind of reading, and the card now
+   says which, so you pick a room the way you pick a book. Same house rules:
+   the side gutters and the bottom edge do the work, the middle stays clear. */
+
+/* Mystery. Fog on the glass, a fire in here, and the one chair that gets sat
+   in. Nothing is happening yet, which is the point. */
+const S_parlour = () => (
+  <>
+    {sky}
+    <div className="rs-panel warm" />
+    <div className="rs-wainscot" />
+    <Win side="right" top={9} w={29} h={50} bars="grid" wood="#241a12"
+      view={<><div className="rs-street night" /><div className="rs-gaslamp" /><div className="rs-fogbank a" /></>} />
+    <div className="rs-frame art" style={{ left: '6%' }} />
+    <div className="rs-violin" />
+    <Lamp x="21%" y={16} size={1.15} cone={0.9} warm="255,204,146" />
+    <div className="rs-wingchair" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(38% 40% at 22% 30%, rgba(255,198,138,0.18), transparent 64%)' })} />
+    <Surface h={17} cls="oak">
+      <i className="rs-papers" style={{ left: '10%' }} />
+      <i className="rs-mug steam" style={{ left: '74%' }} />
+    </Surface>
+  </>
+);
+
+/* Legal. Calf-bound reports by the yard, briefs tied in pink ribbon, and a
+   window onto a courtyard nobody crosses. */
+const S_chambers = () => (
+  <>
+    {sky}
+    <div className="rs-panel" />
+    <Shelf side="left" />
+    <Win side="right" top={7} w={27} h={56} bars="grid" wood="#2a2018"
+      view={<><div className="rs-street" /><Sil d={SKY_FAR} fill="#1a222c" style={{ bottom: 0, height: '42%' }} /></>} />
+    <div className="rs-briefs" />
+    <div className="rs-bankers" style={{ right: '30%', bottom: '20%', transform: 'scale(0.86)' }} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(34% 32% at 60% 46%, rgba(140,255,190,0.10), transparent 66%)' })} />
+    <Surface h={19} cls="oak">
+      <i className="rs-papers" style={{ left: '14%' }} />
+    </Surface>
+  </>
+);
+
+/* Journalism and reportage. Monitors, a wall of clocks set to cities you are
+   not in, and the copy still open. */
+const S_newsroom = () => (
+  <>
+    {sky}
+    <div className="rs-curtainwall">
+      <div className="rs-street night" />
+      <Sil d={SKY_NEAR} fill="#05070d" style={{ bottom: 0, height: '46%' }} />
+      <CityLights />
+    </div>
+    <div className="rs-mullions" />
+    <div className="rs-clockwall" />
+    <div className="rs-monitors" />
+    <Lamp x="13%" y={22} size={0.95} cone={0.42} warm="236,226,200" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(52% 24% at 50% 78%, rgba(150,200,255,0.12), transparent 64%)' })} />
+    <Surface h={15} cls="dark">
+      <i className="rs-papers" style={{ left: '80%' }} />
+    </Surface>
+  </>
+);
+
+/* Sea stories. Stern windows onto your own wake, and a lantern that keeps
+   telling you which way the ship is leaning. */
+const S_captain = () => (
+  <>
+    {sky}
+    <div className="rs-panel warm" />
+    <div className="rs-sternwin">
+      <Stars set={STARS_B} />
+      <Sea top={44} tint={['#08202e', '#0b2a3a', '#0f3647']} />
+      <div className="rs-wake" />
+    </div>
+    <div className="rs-swinglamp"><i /></div>
+    <div className="rs-chart" style={{ left: '3%', top: '46%', transform: 'rotate(-3deg)' }} />
+    <div className="rs-sextant" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(44% 40% at 50% 24%, rgba(255,196,130,0.16), transparent 64%)' })} />
+    <Surface h={17} cls="oak">
+      <i className="rs-papers" style={{ left: '78%' }} />
+    </Surface>
+  </>
+);
+
+/* Dystopia. Poured concrete, a strip light with a fault in it, and a door
+   built to be shut from this side. */
+const S_bunker = () => (
+  <>
+    {sky}
+    <div className="rs-concrete" />
+    <div className="rs-pipes" />
+    <div className="rs-blastdoor" />
+    <div className="rs-stencil" />
+    <div className="rs-striplight" />
+    <Surface h={13} cls="concretefloor" />
+  </>
+);
+
+/* Espionage. One bulb, tape on the glass so it does not go everywhere, and a
+   set you are not supposed to have. */
+const S_safehouse = () => (
+  <>
+    {sky}
+    <div className="rs-plaster cold" />
+    <div className="rs-peel" />
+    <Win side="right" top={12} w={28} h={44} bars="none" wood="#1a1a1c"
+      view={<><div className="rs-street night" /><CityLights /></>} />
+    <div className="rs-tape" />
+    <div className="rs-bulb" />
+    <div className="rs-radio" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(34% 34% at 50% 12%, rgba(255,226,180,0.16), transparent 62%)' })} />
+    <Surface h={14} cls="dark">
+      <i className="rs-papers" style={{ left: '18%' }} />
+    </Surface>
+  </>
+);
+
+/* Myth and epic. Columns, an olive going silver, and the sea going dark
+   below the steps. */
+const S_temple = () => (
+  <>
+    {sky}
+    <Sil d="M0 40 L0 30 Q16 24 34 28 T66 26 T100 30 L100 40 Z" fill="#3c3550" style={{ bottom: '40%', height: '22%', filter: 'blur(3px)', opacity: 0.65 }} />
+    <Sea top={54} tint={['#1a2340', '#20304e', '#2a3d5e']} />
+    <div className="rs-pediment" />
+    <div className="rs-column" style={{ left: '2%' }} />
+    <div className="rs-column" style={{ left: '16%', transform: 'scale(0.9)', filter: 'blur(0.6px)' }} />
+    <div className="rs-column" style={{ right: '2%' }} />
+    <div className="rs-column" style={{ right: '17%', transform: 'scale(0.92)', filter: 'blur(0.6px)' }} />
+    <div className="rs-olive" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(50% 38% at 50% 60%, rgba(255,190,130,0.14), transparent 66%)' })} />
+    <Surface h={14} cls="stonefloor" />
+  </>
+);
+
+/* Art, design, photography. A wall you may stand in front of for as long as
+   you like, and a bench that expects you to. */
+const S_gallery = () => (
+  <>
+    {sky}
+    <div className="rs-plaster bright" />
+    <div className="rs-picwall" />
+    <div className="rs-canvasart tall" style={{ left: '3%' }} />
+    <div className="rs-canvasart" style={{ left: '19%' }} />
+    <div className="rs-canvasart wide" style={{ right: '3%' }} />
+    <div className="rs-canvasart" style={{ right: '21%' }} />
+    <div className="rs-piclight" />
+    <div className="rs-bench" />
+    <Surface h={14} cls="parquet" />
+  </>
+);
+
+/* Music, and the lives of musicians. The lid up, the light low, something
+   still open on the stand. */
+const S_musicroom = () => (
+  <>
+    {sky}
+    <div className="rs-panel warm" />
+    <Win side="right" top={9} w={25} h={46} bars="cross" wood="#241a12"
+      view={<><div className="rs-street night" /><CityLights /></>} />
+    <div className="rs-piano" />
+    <div className="rs-stand" />
+    <Lamp x="15%" y={13} size={1.15} cone={0.9} warm="255,206,150" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(40% 42% at 17% 26%, rgba(255,200,140,0.18), transparent 64%)' })} />
+    <Surface h={14} cls="parquet" />
+  </>
+);
+
+/* Young adult and contemporary. String lights, a laptop nobody closed, and
+   somebody's laundry on the end of the bed. */
+const S_dorm = () => (
+  <>
+    {sky}
+    <div className="rs-plaster cold" />
+    <div className="rs-posters" />
+    <Win side="right" top={13} w={23} h={32} bars="cross" wood="#3a3a3c"
+      view={<><div className="rs-street night" /><CityLights /></>} />
+    <div className="rs-fairy" />
+    <div className="rs-laptop" />
+    <div className="rs-bunk" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(46% 40% at 50% 26%, rgba(255,186,150,0.16), transparent 66%)' })} />
+    <Surface h={15} cls="dormfloor" />
+  </>
+);
+
+/* Picture books, read to somebody. The ceiling is the sky and the light is a
+   very small one. */
+const S_bedtime = () => (
+  <>
+    {sky}
+    <div className="rs-projected"><Stars set={STARS_B} /></div>
+    <div className="rs-moon sm" style={{ left: '11%', top: '11%' }}><i className="crater a" /></div>
+    <div className="rs-toys" />
+    <div className="rs-nightlight" />
+    <div className="rs-duvet" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(38% 34% at 80% 56%, rgba(255,196,146,0.2), transparent 66%)' })} />
+  </>
+);
+
+/* Making things, and the books about making things. Brass, oil, and a gauge
+   that has been past the red at least once. */
+const S_workshop = () => (
+  <>
+    {sky}
+    <div className="rs-plaster warm" />
+    <div className="rs-pegboard" />
+    <div className="rs-pipes brass" />
+    <div className="rs-gears" />
+    <div className="rs-gauge" />
+    <Lamp x="78%" y={14} size={1.1} cone={0.95} warm="255,196,120" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(40% 40% at 78% 28%, rgba(255,190,110,0.18), transparent 64%)' })} />
+    <Surface h={17} cls="workbench">
+      <i className="rs-bookstack" style={{ left: '13%' }} />
+    </Surface>
+  </>
+);
+
+/* Westerns and the American road. A screen door, a lantern, and the last of
+   the day's heat coming back off the ground. */
+const S_porch = () => (
+  <>
+    {sky}
+    <div className="rs-sun low" style={{ left: '46%', top: '48%' }} />
+    <Sil d="M0 40 L0 30 C18 22 34 32 54 28 C72 24 86 18 100 26 L100 40 Z" fill="#5a3a24" style={{ bottom: '28%', height: '24%', filter: 'blur(2px)', opacity: 0.85 }} />
+    <Sil d="M0 40 L0 32 C24 26 44 36 66 32 C82 29 92 26 100 30 L100 40 Z" fill="#2b1a0e" style={{ bottom: '20%', height: '24%' }} />
+    <div className="rs-porchroof" />
+    <div className="rs-porchpost" style={{ left: '5%' }} />
+    <div className="rs-porchpost" style={{ right: '5%' }} />
+    <div className="rs-lantern" style={{ right: '17%', top: '13%', transform: 'scale(0.78)' }} />
+    <div className="rs-rocker" />
+    <Surface h={16} cls="planks" />
+  </>
+);
+
+/* Manga, and fiction that arrived in translation. A small room, a low table,
+   and the city coming in through one wet pane. */
+const S_tatami = () => (
+  <>
+    {sky}
+    <div className="rs-shoji" />
+    <Win side="right" top={15} w={21} h={29} glass="rain" bars="grid" wood="#2a231c"
+      view={<><div className="rs-street night" /><div className="rs-neonsign" style={v({ left: '12%', top: '26%', transform: 'scale(0.42)', '--c': '255,60,120' })}><i /></div><CityLights /></>} />
+    <div className="rs-paperlamp" />
+    <div className="rs-lowtable" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(38% 38% at 23% 38%, rgba(255,214,170,0.16), transparent 66%)' })} />
+    <Surface h={16} cls="tatami" />
+  </>
+);
+
+/* Medicine and the body. Tiered rails, a cold light straight down, and the
+   rest of the room left in the dark where it belongs. */
+const S_anatomy = () => (
+  <>
+    {sky}
+    <div className="rs-tiers" />
+    <div className="rs-skeleton" />
+    <div className="rs-jars" />
+    <div className="rs-overhead" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(28% 40% at 50% 0%, rgba(210,235,255,0.2), transparent 62%)' })} />
+    <Surface h={14} cls="slab" />
+  </>
+);
+
+/* Biography, history, anything with sources. Stacks on rails, grey boxes, and
+   exactly one lamp switched on. */
+const S_archive = () => (
+  <>
+    {sky}
+    <div className="rs-stacks left" />
+    <div className="rs-stacks right" />
+    <div className="rs-railtrack" />
+    <div className="rs-boxrow" />
+    <Lamp x="23%" y={0} size={1.05} cone={1.15} drop={76} warm="255,214,160" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(34% 40% at 23% 34%, rgba(255,206,150,0.2), transparent 64%)' })} />
+    <Surface h={13} cls="lino" />
+  </>
+);
+
+/* Wellbeing, and everything read early. Linen, plants, and a morning nobody
+   has used yet. */
+const S_sunroom = () => (
+  <>
+    {sky}
+    <div className="rs-plaster bright" />
+    <div className="rs-frenchdoor" />
+    <div className="rs-castshadow" />
+    <div className="rs-plant left" />
+    <div className="rs-hanging" style={{ right: '7%', transform: 'scale(0.76)' }} />
+    <div className="rs-wicker" />
+    <div className="rs-key" style={v({ background: 'radial-gradient(54% 62% at 76% 18%, rgba(255,250,238,0.5), transparent 64%)' })} />
+    <Surface h={15} cls="linen">
+      <i className="rs-mug steam" style={{ left: '19%' }} />
+    </Surface>
+  </>
+);
+
+/* ==================== the rest of the house, extended =====================
+   A few more places to be that are not tied to a genre: the bath, weather
+   that hides things, two more skies, three more journeys. */
+
+/* The one place where a paperback going soft is an acceptable cost. */
+const S_bath = () => (
+  <>
+    {sky}
+    <div className="rs-tilewall" />
+    <div className="rs-tub" />
+    <div className="rs-bathsteam" />
+    <Candle x="7%" bottom="34%" h={40} s={0.9} />
+    <Candle x="14%" bottom="32%" h={28} s={0.7} />
+    <Candle x="90%" bottom="34%" h={34} s={0.85} />
+    <div className="rs-key" style={v({ background: 'radial-gradient(46% 40% at 50% 70%, rgba(255,184,110,0.14), transparent 66%)' })} />
+  </>
+);
+
+const S_waterfall = () => (
+  <>
+    {sky}
+    <div className="rs-cliff left" />
+    <div className="rs-cliff right" />
+    <div className="rs-fall" />
+    <div className="rs-spray" />
+    <div className="rs-godrays green" />
+    <div className="rs-fern left" />
+    <div className="rs-fern right" />
+    <Surface h={13} cls="moss" />
+  </>
+);
+
+const S_canyon = () => (
+  <>
+    {sky}
+    <div className="rs-slot left" />
+    <div className="rs-slot right" />
+    <div className="rs-shaft" />
+    <div className="rs-sandfall" />
+    <Surface h={12} cls="sand" />
+  </>
+);
+
+const S_ringed = () => (
+  <>
+    {sky}
+    <Stars set={STARS_C} />
+    <div className="rs-giant" />
+    <div className="rs-rings" />
+    <div className="rs-strut" />
+    <div className="rs-portframe" />
+  </>
+);
+
+const S_eclipse = () => (
+  <>
+    {sky}
+    <Stars set={STARS_B} cls="faint" />
+    <div className="rs-corona" />
+    <div className="rs-disc" />
+    <div className="rs-horizonglow" />
+    <Sil d={SKY_NEAR} fill="#05060c" style={{ bottom: 0, height: '32%' }} />
+  </>
+);
+
+const S_ferry = () => (
+  <>
+    {sky}
+    <Sil d="M0 40 L0 30 L14 22 L28 30 L44 24 L60 31 L78 25 L100 31 L100 40 Z" fill="#1c2b34" style={{ bottom: '48%', height: '18%', filter: 'blur(2.4px)', opacity: 0.75 }} />
+    <Sea top={54} tint={['#12303c', '#17414f', '#1d5262']} />
+    <div className="rs-gull" />
+    <div className="rs-railing" />
+    <div className="rs-deckbench" />
+    <Surface h={14} cls="deckplanks" />
+  </>
+);
+
+const S_motel = () => (
+  <>
+    {sky}
+    <div className="rs-plaster warm" />
+    <Win side="right" top={13} w={29} h={40} bars="none" wood="#2c2622"
+      view={<><div className="rs-street night" /><div className="rs-lot" /><div className="rs-vacancy" /></>} />
+    <div className="rs-motellight" />
+    <Lamp x="22%" y={26} size={1} cone={0.85} warm="255,206,150" />
+    <div className="rs-headboard" />
+    <Surface h={16} cls="dark">
+      <i className="rs-bookstack" style={{ left: '13%' }} />
+    </Surface>
+  </>
+);
+
+const S_balloon = () => (
+  <>
+    {sky}
+    <Sil d="M0 40 L0 32 L16 26 L30 33 L48 27 L66 34 L84 28 L100 33 L100 40 Z" fill="#4a5a70" style={{ bottom: '12%', height: '22%', filter: 'blur(3px)', opacity: 0.55 }} />
+    <div className="rs-clouddeck" style={{ bottom: '14%', opacity: 0.7 }} />
+    <div className="rs-envelope" />
+    <div className="rs-burner" />
+    <div className="rs-basket" />
+  </>
+);
+
+const S_rooftop = () => (
+  <>
+    {sky}
+    <Sil d={SKY_FAR} fill="#1a2036" style={{ bottom: '24%', height: '34%', filter: 'blur(2px)', opacity: 0.8 }} />
+    <Sil d={SKY_NEAR} fill="#0b0e1c" style={{ bottom: '16%', height: '40%' }} />
+    <CityLights />
+    <div className="rs-festoon" />
+    <div className="rs-parapet" />
+    <div className="rs-deckchair" />
+    <Surface h={13} cls="roofdeck" />
+  </>
+);
+
+const S_hammock = () => (
+  <>
+    {sky}
+    <div className="rs-sun low" style={{ left: '58%', top: '50%' }} />
+    <Sea top={58} tint={['#0e4a58', '#12606e', '#1a7a84']} />
+    <div className="rs-palm left" />
+    <div className="rs-palm right" />
+    <div className="rs-hammock" />
+    <Surface h={13} cls="sand" />
+  </>
+);
+
+const S_fog = () => (
+  <>
+    {sky}
+    <Sil d={FIR_FAR} fill="#39434a" style={{ bottom: '34%', height: '24%', filter: 'blur(6px)', opacity: 0.45 }} />
+    <Sil d={FIR_NEAR} fill="#242c33" style={{ bottom: '26%', height: '30%', filter: 'blur(2.4px)', opacity: 0.8 }} />
+    <div className="rs-fogbank a" />
+    <div className="rs-fogbank b" />
+    <Trunk side="left" at="1%" w={72} tilt={-1} />
+    <Trunk side="right" at="0%" w={84} tilt={1} />
+    <Surface h={12} cls="moss" />
+  </>
+);
+
 /* ================================ registry ================================ */
 
 export const ROOMS: Room[] = [
-  /* -- Genre: pick the room that matches the book -- */
-  { key: 'crypt', label: 'The Crypt', group: 'Genre', blurb: 'Horror — one candle, and a great deal of dark', accent: '255,152,74', glow: 0.5, fx: { kind: 'dust', n: 28 }, scene: S_crypt },
-  { key: 'manor', label: 'Storm Manor', group: 'Genre', blurb: 'Gothic — rain on old glass, lightning behind it', accent: '206,182,150', sound: 'rain', glow: 0.4, fx: { kind: 'none' }, scene: S_manor },
-  { key: 'stakeout', label: 'The Stakeout', group: 'Genre', blurb: 'Thriller — blinds, cold coffee, a case wall', accent: '214,220,228', glow: 0.32, fx: { kind: 'dust', n: 20 }, scene: S_stakeout },
-  { key: 'oakroom', label: 'The Oak Room', group: 'Genre', blurb: 'Classics — green glass, brass, deep panelling', accent: '150,236,190', glow: 0.42, fx: { kind: 'dust', n: 26 }, scene: S_oakroom },
-  { key: 'poetseat', label: "Poet's Window", group: 'Genre', blurb: 'Poetry — a window seat, rain, tea going cold', accent: '176,206,236', ink: '#eaf1f8', sound: 'rain', glow: 0.34, fx: { kind: 'none' }, scene: S_poetseat },
-  { key: 'carrel', label: 'The Carrel', group: 'Genre', blurb: 'Study — a library cubicle at two in the morning', accent: '255,206,140', glow: 0.46, fx: { kind: 'dust', n: 22 }, scene: S_carrel },
-  { key: 'bridge', label: "Ship's Bridge", group: 'Genre', blurb: 'Science fiction — your watch, and everything else out there', accent: '130,200,255', ink: '#e8f2fc', sound: 'drone', glow: 0.4, fx: { kind: 'none' }, scene: S_bridge },
-  { key: 'tower', label: "Wizard's Tower", group: 'Genre', blurb: 'Fantasy — star charts, old stone, candles that float', accent: '196,172,255', ink: '#efeafc', glow: 0.48, fx: { kind: 'ember', n: 16 }, scene: S_tower },
-  { key: 'tavern', label: 'The Tavern', group: 'Genre', blurb: 'Adventure — low beams, a fire, someone telling it wrong', accent: '255,178,96', glow: 0.55, fx: { kind: 'ember', n: 22 }, scene: S_tavern },
-  { key: 'warroom', label: 'The War Room', group: 'Genre', blurb: 'History — one lamp over a table of maps', accent: '255,222,170', glow: 0.42, fx: { kind: 'dust', n: 26 }, scene: S_warroom },
-  { key: 'chapel', label: 'The Chapel', group: 'Genre', blurb: 'Philosophy — colour arriving through very old glass', accent: '226,196,140', glow: 0.44, fx: { kind: 'dust', n: 30 }, scene: S_chapel },
-  { key: 'fort', label: 'Blanket Fort', group: 'Genre', blurb: "Children's — sheets, fairy lights, no bedtime", accent: '255,206,150', glow: 0.5, fx: { kind: 'bokeh', n: 8 }, scene: S_fort },
-  { key: 'maproom', label: 'The Map Room', group: 'Genre', blurb: 'Travel — charts, a globe, somewhere to be going', accent: '246,200,132', glow: 0.44, fx: { kind: 'dust', n: 22 }, scene: S_maproom },
-  { key: 'lab', label: 'The Laboratory', group: 'Genre', blurb: 'Science — cold, clean, lit from directly above', accent: '186,226,244', ink: '#eaf4fa', glow: 0.3, fx: { kind: 'none' }, scene: S_lab },
-  { key: 'office', label: 'Corner Office', group: 'Genre', blurb: 'Business — the city doing the work of a wallpaper', accent: '226,206,180', glow: 0.36, fx: { kind: 'none' }, scene: S_office },
-  { key: 'kitchen', label: 'Kitchen Table', group: 'Genre', blurb: 'Cookery & memoir — somebody has been in here all afternoon', accent: '255,224,164', glow: 0.42, fx: { kind: 'dust', n: 20 }, scene: S_kitchen },
-  { key: 'arcade', label: 'The Arcade', group: 'Genre', blurb: 'Comics & games — every light in here is a screen', accent: '255,110,180', ink: '#fbe9f4', glow: 0.5, fx: { kind: 'none' }, scene: S_arcade },
+  /* -- Genre: pick the room that matches the book. `reads` is printed on the
+     card, so the grid answers "what do I read in here" without a hover. -- */
+  { key: 'crypt', label: 'The Crypt', group: 'Genre', reads: 'Horror', blurb: 'One candle, and a great deal of dark', tags: ['horror', 'ghost', 'scary', 'gothic', 'supernatural', 'king'], accent: '255,152,74', glow: 0.5, fx: { kind: 'dust', n: 28 }, scene: S_crypt },
+  { key: 'parlour', label: 'The Parlour', group: 'Genre', reads: 'Mystery', blurb: 'Fog at the glass, a fire, and one chair that gets sat in', tags: ['mystery', 'detective', 'whodunit', 'crime', 'cosy', 'cozy', 'sherlock', 'christie', 'victorian'], accent: '255,196,132', glow: 0.46, fx: { kind: 'dust', n: 24 }, scene: S_parlour },
+  { key: 'stakeout', label: 'The Stakeout', group: 'Genre', reads: 'Thriller', blurb: 'Blinds, cold coffee, a case wall', tags: ['thriller', 'crime', 'true crime', 'noir', 'police', 'suspense'], accent: '214,220,228', glow: 0.32, fx: { kind: 'dust', n: 20 }, scene: S_stakeout },
+  { key: 'safehouse', label: 'Safe House', group: 'Genre', reads: 'Espionage', blurb: 'One bulb, tape on the glass, a set you should not have', tags: ['spy', 'espionage', 'cold war', 'thriller', 'le carre', 'conspiracy'], accent: '236,214,168', glow: 0.34, fx: { kind: 'dust', n: 18 }, scene: S_safehouse },
+  { key: 'chambers', label: 'Barrister’s Chambers', group: 'Genre', reads: 'Legal', blurb: 'Calf-bound reports and briefs tied in pink ribbon', tags: ['legal', 'law', 'court', 'courtroom', 'trial', 'grisham', 'justice'], accent: '164,232,192', glow: 0.4, fx: { kind: 'dust', n: 22 }, scene: S_chambers },
+  { key: 'bridge', label: "Ship's Bridge", group: 'Genre', reads: 'Science fiction', blurb: 'Your watch, and everything else out there', tags: ['sci fi', 'science fiction', 'space opera', 'future', 'starship'], accent: '130,200,255', ink: '#e8f2fc', sound: 'drone', glow: 0.4, fx: { kind: 'none' }, scene: S_bridge },
+  { key: 'bunker', label: 'The Bunker', group: 'Genre', reads: 'Dystopia', blurb: 'Concrete, a fault in the strip light, a door that seals', tags: ['dystopia', 'post apocalyptic', 'apocalypse', 'survival', 'orwell', 'grimdark'], accent: '196,208,206', ink: '#e9eeed', glow: 0.26, fx: { kind: 'dust', n: 22 }, scene: S_bunker },
+  { key: 'tower', label: "Wizard's Tower", group: 'Genre', reads: 'Fantasy', blurb: 'Star charts, old stone, candles that float', tags: ['fantasy', 'magic', 'epic fantasy', 'wizard', 'tolkien', 'dragons'], accent: '196,172,255', ink: '#efeafc', glow: 0.48, fx: { kind: 'ember', n: 16 }, scene: S_tower },
+  { key: 'temple', label: 'Temple Steps', group: 'Genre', reads: 'Myth & epic', blurb: 'Columns, an olive going silver, the sea going dark', tags: ['mythology', 'myth', 'epic', 'greek', 'roman', 'homer', 'ancient', 'classics'], accent: '246,206,150', glow: 0.42, fx: { kind: 'dust', n: 20 }, scene: S_temple },
+  { key: 'tavern', label: 'The Tavern', group: 'Genre', reads: 'Adventure', blurb: 'Low beams, a fire, someone telling it wrong', tags: ['adventure', 'quest', 'swashbuckling', 'rpg', 'dungeons'], accent: '255,178,96', glow: 0.55, fx: { kind: 'ember', n: 22 }, scene: S_tavern },
+  { key: 'captain', label: "Captain's Cabin", group: 'Genre', reads: 'Sea stories', blurb: 'Stern windows onto your own wake', tags: ['nautical', 'sea', 'maritime', 'sailing', 'naval', 'obrian', 'melville', 'pirates'], accent: '255,200,140', glow: 0.44, sound: 'ocean', fx: { kind: 'dust', n: 18 }, scene: S_captain },
+  { key: 'manor', label: 'Storm Manor', group: 'Genre', reads: 'Gothic', blurb: 'Rain on old glass, lightning behind it', tags: ['gothic', 'bronte', 'romance', 'haunted', 'victorian', 'du maurier'], accent: '206,182,150', sound: 'rain', glow: 0.4, fx: { kind: 'none' }, scene: S_manor },
+  { key: 'oakroom', label: 'The Oak Room', group: 'Genre', reads: 'Classics', blurb: 'Green glass, brass, deep panelling', tags: ['classics', 'literary fiction', 'canon', 'austen', 'dickens', 'literature'], accent: '150,236,190', glow: 0.42, fx: { kind: 'dust', n: 26 }, scene: S_oakroom },
+  { key: 'poetseat', label: "Poet's Window", group: 'Genre', reads: 'Poetry', blurb: 'A window seat, rain, tea going cold', tags: ['poetry', 'verse', 'poems', 'essays', 'letters', 'quiet'], accent: '176,206,236', ink: '#eaf1f8', sound: 'rain', glow: 0.34, fx: { kind: 'none' }, scene: S_poetseat },
+  { key: 'chapel', label: 'The Chapel', group: 'Genre', reads: 'Philosophy', blurb: 'Colour arriving through very old glass', tags: ['philosophy', 'theology', 'scripture', 'religion', 'spiritual', 'stoic'], accent: '226,196,140', glow: 0.44, fx: { kind: 'dust', n: 30 }, scene: S_chapel },
+  { key: 'warroom', label: 'The War Room', group: 'Genre', reads: 'History', blurb: 'One lamp over a table of maps', tags: ['history', 'war', 'military', 'strategy', 'politics'], accent: '255,222,170', glow: 0.42, fx: { kind: 'dust', n: 26 }, scene: S_warroom },
+  { key: 'archive', label: 'The Archive', group: 'Genre', reads: 'Biography', blurb: 'Stacks on rails, grey boxes, one lamp switched on', tags: ['biography', 'memoir', 'history', 'research', 'genealogy', 'sources', 'nonfiction'], accent: '246,208,156', glow: 0.4, fx: { kind: 'dust', n: 30 }, scene: S_archive },
+  { key: 'newsroom', label: 'The Newsroom', group: 'Genre', reads: 'Reportage', blurb: 'A wall of clocks set to cities you are not in', tags: ['journalism', 'reportage', 'news', 'current affairs', 'politics', 'essays', 'nonfiction'], accent: '186,214,246', ink: '#eaf1fa', glow: 0.32, fx: { kind: 'none' }, scene: S_newsroom },
+  { key: 'lab', label: 'The Laboratory', group: 'Genre', reads: 'Science', blurb: 'Cold, clean, and lit from directly above', tags: ['science', 'physics', 'chemistry', 'textbook', 'research', 'stem'], accent: '186,226,244', ink: '#eaf4fa', glow: 0.3, fx: { kind: 'none' }, scene: S_lab },
+  { key: 'anatomy', label: 'Anatomy Theatre', group: 'Genre', reads: 'Medicine', blurb: 'Tiered rails, and a light that comes straight down', tags: ['medicine', 'medical', 'anatomy', 'biology', 'nursing', 'body', 'health'], accent: '206,230,246', ink: '#ecf5fb', glow: 0.28, fx: { kind: 'dust', n: 16 }, scene: S_anatomy },
+  { key: 'carrel', label: 'The Carrel', group: 'Genre', reads: 'Study', blurb: 'A library cubicle at two in the morning', tags: ['study', 'revision', 'exam', 'thesis', 'academic', 'university', 'notes'], accent: '255,206,140', glow: 0.46, fx: { kind: 'dust', n: 22 }, scene: S_carrel },
+  { key: 'office', label: 'Corner Office', group: 'Genre', reads: 'Business', blurb: 'The city doing the work of a wallpaper', tags: ['business', 'economics', 'finance', 'startup', 'management', 'strategy'], accent: '226,206,180', glow: 0.36, fx: { kind: 'none' }, scene: S_office },
+  { key: 'workshop', label: 'The Workshop', group: 'Genre', reads: 'Making', blurb: 'Brass, oil, and a gauge that has been past the red', tags: ['steampunk', 'engineering', 'diy', 'craft', 'how to', 'making', 'maker', 'tinker'], accent: '255,190,110', glow: 0.46, fx: { kind: 'dust', n: 26 }, scene: S_workshop },
+  { key: 'maproom', label: 'The Map Room', group: 'Genre', reads: 'Travel', blurb: 'Charts, a globe, somewhere to be going', tags: ['travel', 'exploration', 'geography', 'expedition', 'atlas'], accent: '246,200,132', glow: 0.44, fx: { kind: 'dust', n: 22 }, scene: S_maproom },
+  { key: 'porch', label: 'The Porch', group: 'Genre', reads: 'Westerns', blurb: 'A lantern, and the day’s heat coming back off the ground', tags: ['western', 'americana', 'frontier', 'southern', 'road', 'cormac'], accent: '255,182,110', glow: 0.46, sound: 'wind', fx: { kind: 'gold', n: 18 }, scene: S_porch },
+  { key: 'kitchen', label: 'Kitchen Table', group: 'Genre', reads: 'Cookery', blurb: 'Somebody has been in here all afternoon', tags: ['cookery', 'cooking', 'food', 'recipes', 'memoir', 'baking'], accent: '255,224,164', glow: 0.42, fx: { kind: 'dust', n: 20 }, scene: S_kitchen },
+  { key: 'sunroom', label: 'The Sunroom', group: 'Genre', reads: 'Wellbeing', blurb: 'Linen, plants, and a morning nobody has used yet', tags: ['self help', 'wellbeing', 'wellness', 'mindfulness', 'health', 'habits', 'morning'], accent: '255,238,206', glow: 0.34, fx: { kind: 'dust', n: 20 }, scene: S_sunroom },
+  { key: 'gallery', label: 'The Gallery', group: 'Genre', reads: 'Art & design', blurb: 'A wall you may stand in front of for as long as you like', tags: ['art', 'design', 'photography', 'architecture', 'museum', 'painting'], accent: '236,226,210', glow: 0.3, fx: { kind: 'dust', n: 18 }, scene: S_gallery },
+  { key: 'musicroom', label: 'The Music Room', group: 'Genre', reads: 'Music', blurb: 'The lid up, the light low, something still on the stand', tags: ['music', 'jazz', 'classical', 'opera', 'band', 'biography', 'lyrics'], accent: '255,204,150', glow: 0.44, fx: { kind: 'dust', n: 22 }, scene: S_musicroom },
+  { key: 'tatami', label: 'Tokyo Room', group: 'Genre', reads: 'Manga', blurb: 'A low table, and the city through one wet pane', tags: ['manga', 'anime', 'japan', 'japanese', 'translated', 'murakami', 'light novel'], accent: '255,206,164', sound: 'rain', glow: 0.4, fx: { kind: 'none' }, scene: S_tatami },
+  { key: 'arcade', label: 'The Arcade', group: 'Genre', reads: 'Comics & games', blurb: 'Every light in here is a screen', tags: ['comics', 'graphic novel', 'games', 'gaming', 'retro', 'cyberpunk'], accent: '255,110,180', ink: '#fbe9f4', glow: 0.5, fx: { kind: 'none' }, scene: S_arcade },
+  { key: 'dorm', label: 'Dorm Room', group: 'Genre', reads: 'Young adult', blurb: 'String lights, and a laptop nobody closed', tags: ['ya', 'young adult', 'romance', 'contemporary', 'college', 'coming of age', 'booktok'], accent: '255,178,158', glow: 0.42, fx: { kind: 'bokeh', n: 7 }, scene: S_dorm },
+  { key: 'fort', label: 'Blanket Fort', group: 'Genre', reads: 'Middle grade', blurb: 'Sheets, fairy lights, no bedtime', tags: ['children', 'kids', 'middle grade', 'adventure', 'family'], accent: '255,206,150', glow: 0.5, fx: { kind: 'bokeh', n: 8 }, scene: S_fort },
+  { key: 'bedtime', label: 'Bedtime', group: 'Genre', reads: 'Picture books', blurb: 'The ceiling is the sky and the light is a small one', tags: ['children', 'picture book', 'bedtime', 'kids', 'toddler', 'read aloud', 'nursery'], accent: '255,196,146', glow: 0.4, fx: { kind: 'star', n: 0 }, scene: S_bedtime },
 
   /* -- Study -- */
   { key: 'clean', label: 'Studio', group: 'Study', blurb: 'White walls, north light, nothing else', accent: '206,214,224', glow: 0.2, fx: { kind: 'dust', n: 22 }, scene: S_clean },
@@ -1143,6 +1618,7 @@ export const ROOMS: Room[] = [
   { key: 'parchment', label: 'Scriptorium', group: 'Study', blurb: 'Vaulted stone and tallow light', accent: '226,188,130', glow: 0.45, fx: { kind: 'dust', n: 26 }, scene: S_parchment },
   { key: 'noir', label: 'Noir', group: 'Study', blurb: 'Blind slats across the wall, rain outside', accent: '206,214,226', glow: 0.3, fx: { kind: 'dust', n: 18 }, scene: S_noir },
   { key: 'greenhouse', label: 'Greenhouse', group: 'Study', blurb: 'Glass overhead, everything growing', accent: '186,224,150', ink: '#eef6e6', glow: 0.35, fx: { kind: 'pollen', n: 26 }, scene: S_greenhouse },
+  { key: 'bath', label: 'The Long Bath', group: 'Study', blurb: 'Steam, tile, and a paperback going soft', tags: ['bath', 'soak', 'relax', 'unwind', 'candles', 'evening'], accent: '255,184,124', glow: 0.44, fx: { kind: 'dust', n: 16 }, scene: S_bath },
 
   /* -- Nature -- */
   { key: 'rain', label: 'Rain Window', group: 'Nature', blurb: 'Beads on the pane, city gone soft', accent: '158,200,236', ink: '#e8eff7', sound: 'rain', glow: 0.28, fx: { kind: 'none' }, scene: S_rain },
@@ -1158,6 +1634,8 @@ export const ROOMS: Room[] = [
   { key: 'desert', label: 'Dunes', group: 'Nature', blurb: 'Last heat coming off the sand', accent: '246,178,110', glow: 0.44, fx: { kind: 'gold', n: 20 }, scene: S_desert },
   { key: 'bamboo', label: 'Bamboo Grove', group: 'Nature', blurb: 'Green light between the stalks', accent: '164,214,138', ink: '#edf6e8', sound: 'wind', glow: 0.34, fx: { kind: 'leaf', n: 16, color: '#8fbf5a' }, scene: S_bamboo },
   { key: 'reef', label: 'Underwater', group: 'Nature', blurb: 'Caustics overhead, everything slow', accent: '110,206,224', ink: '#e4f4f7', sound: 'ocean', glow: 0.36, fx: { kind: 'bubble', n: 26 }, scene: S_reef },
+  { key: 'waterfall', label: 'The Falls', group: 'Nature', blurb: 'Green light, wet rock, and a noise you stop hearing', accent: '158,224,196', ink: '#e8f7f0', sound: 'ocean', glow: 0.34, fx: { kind: 'pollen', n: 20 }, scene: S_waterfall },
+  { key: 'canyon', label: 'Slot Canyon', group: 'Nature', blurb: 'Sandstone, and one shaft of noon getting in', accent: '255,168,96', glow: 0.46, fx: { kind: 'gold', n: 26 }, scene: S_canyon },
 
   /* -- Cosmos -- */
   { key: 'night', label: 'Starfield', group: 'Cosmos', blurb: 'The Milky Way over a treeline', accent: '178,186,255', ink: '#eaebfc', glow: 0.34, fx: { kind: 'firefly', n: 18 }, scene: S_night },
@@ -1166,10 +1644,15 @@ export const ROOMS: Room[] = [
   { key: 'cosmos', label: 'Deep Space', group: 'Cosmos', blurb: 'Nebula dust, a planet on the edge', accent: '190,170,255', ink: '#efe9fb', sound: 'drone', glow: 0.42, fx: { kind: 'none' }, scene: S_cosmos },
   { key: 'observatory', label: 'Observatory', group: 'Cosmos', blurb: 'The dome open on a cold sky', accent: '196,184,240', ink: '#eee9fa', sound: 'drone', glow: 0.3, fx: { kind: 'dust', n: 16 }, scene: S_observatory },
   { key: 'orbit', label: 'Low Orbit', group: 'Cosmos', blurb: 'Earthrise through the port', accent: '150,196,255', ink: '#e9f0fc', sound: 'drone', glow: 0.44, fx: { kind: 'none' }, scene: S_orbit },
+  { key: 'ringed', label: 'Ring System', group: 'Cosmos', blurb: 'A gas giant on its side, and its ice edge-on', accent: '246,214,164', ink: '#f6efe2', sound: 'drone', glow: 0.42, fx: { kind: 'none' }, scene: S_ringed },
+  { key: 'eclipse', label: 'Totality', group: 'Cosmos', blurb: 'Two minutes of the wrong kind of night', accent: '255,236,196', ink: '#f6f0e4', glow: 0.38, fx: { kind: 'star', n: 0 }, scene: S_eclipse },
 
   /* -- Journey -- */
   { key: 'train', label: 'Night Train', group: 'Journey', blurb: 'Poles going past, a reading lamp on', accent: '246,190,124', glow: 0.42, fx: { kind: 'dust', n: 14 }, scene: S_train },
   { key: 'plane', label: 'Window Seat', group: 'Journey', blurb: 'Cloud deck at dawn, cabin dim', accent: '244,190,160', glow: 0.36, fx: { kind: 'none' }, scene: S_plane },
+  { key: 'ferry', label: 'Ferry Deck', group: 'Journey', blurb: 'A rail, a wake, and an hour with nothing to do', accent: '166,214,230', ink: '#eaf4f8', sound: 'ocean', glow: 0.32, fx: { kind: 'bokeh', n: 6 }, scene: S_ferry },
+  { key: 'balloon', label: 'Basket', group: 'Journey', blurb: 'Above the cloud deck, and only the burner for company', accent: '255,200,140', glow: 0.44, fx: { kind: 'none' }, scene: S_balloon },
+  { key: 'motel', label: 'Roadside Motel', group: 'Journey', blurb: 'A sign you can read through the curtain', accent: '255,164,140', glow: 0.4, fx: { kind: 'dust', n: 16 }, scene: S_motel },
   { key: 'tent', label: 'Campsite', group: 'Journey', blurb: 'Fire at the door, stars past it', accent: '255,170,96', sound: 'wind', glow: 0.5, fx: { kind: 'ember', n: 26 }, scene: S_tent },
 
   /* -- Mood -- */
@@ -1179,6 +1662,9 @@ export const ROOMS: Room[] = [
   { key: 'lavender', label: 'Lavender Field', group: 'Mood', blurb: 'Rows running to a hazy sun', accent: '198,178,240', ink: '#efeafb', sound: 'wind', glow: 0.38, fx: { kind: 'pollen', n: 24 }, scene: S_lavender },
   { key: 'zen', label: 'Zen Garden', group: 'Mood', blurb: 'Raked sand, stones, paper screens', accent: '226,204,164', glow: 0.3, fx: { kind: 'leaf', n: 10, color: '#c4593a' }, scene: S_zen },
   { key: 'neon', label: 'Neon Rain', group: 'Mood', blurb: 'Signs bleeding into wet asphalt', accent: '255,110,180', ink: '#fbe9f4', sound: 'rain', glow: 0.46, fx: { kind: 'rain', n: 64 }, scene: S_neon },
+  { key: 'rooftop', label: 'Rooftop', group: 'Mood', blurb: 'Festoon bulbs, and the whole town below them', accent: '255,198,148', glow: 0.42, fx: { kind: 'bokeh', n: 9 }, scene: S_rooftop },
+  { key: 'hammock', label: 'Hammock', group: 'Mood', blurb: 'Palms, a slow sea, and no reason to sit up', accent: '255,204,140', sound: 'ocean', glow: 0.46, fx: { kind: 'gold', n: 16 }, scene: S_hammock },
+  { key: 'fog', label: 'Sea Fog', group: 'Mood', blurb: 'Everything past the second tree, gone', accent: '198,210,216', ink: '#eef2f4', sound: 'wind', glow: 0.24, fx: { kind: 'dust', n: 18 }, scene: S_fog },
 ];
 
 export const ROOM_GROUPS: RoomGroup[] = ['Genre', 'Study', 'Nature', 'Cosmos', 'Journey', 'Mood'];
@@ -1251,11 +1737,17 @@ export function RoomScene({ atmos, still = false }: { atmos: Atmos; still?: bool
   );
 }
 
-/** A room reduced to a card — the real scene, scaled down. */
-export function RoomPreview({ atmos }: { atmos: Atmos }) {
+/**
+ * A room reduced to a card — the real scene, scaled down.
+ *
+ * `live` wakes one card up: rain falls, the candle gutters, the fog moves.
+ * Eighty-five of those at once would melt the tab, so the picker only ever
+ * passes it for the card under the cursor.
+ */
+export function RoomPreview({ atmos, live = false }: { atmos: Atmos; live?: boolean }) {
   return (
-    <div className="rs-preview">
-      <div className="rs-preview-stage"><RoomScene atmos={atmos} still /></div>
+    <div className={`rs-preview${live ? ' live' : ''}`}>
+      <div className="rs-preview-stage"><RoomScene atmos={atmos} still={!live} /></div>
     </div>
   );
 }

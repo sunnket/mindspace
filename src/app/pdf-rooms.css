@@ -80,6 +80,37 @@
 [data-room="zen"]         .rs-sky { background: linear-gradient(180deg,#3a3026,#241d16 62%,#141009); }
 [data-room="neon"]        .rs-sky { background: linear-gradient(180deg,#160c22,#0d0716 48%,#05030a); }
 
+/* -- the second wing ------------------------------------------------------ */
+[data-room="parlour"]     .rs-sky { background: linear-gradient(170deg,#33251a,#1d140d 60%,#0e0906); }
+[data-room="chambers"]    .rs-sky { background: linear-gradient(170deg,#2a2318,#191410 60%,#0c0a07); }
+[data-room="newsroom"]    .rs-sky { background: linear-gradient(180deg,#141a24,#0c1119 58%,#06080d); }
+[data-room="captain"]     .rs-sky { background: linear-gradient(170deg,#2c2015,#180f08 60%,#0a0604); }
+[data-room="bunker"]      .rs-sky { background: linear-gradient(180deg,#22252a,#15181c 58%,#0a0c0e); }
+[data-room="safehouse"]   .rs-sky { background: linear-gradient(180deg,#22242a,#14161b 60%,#08090c); }
+[data-room="temple"]      .rs-sky { background: linear-gradient(180deg,#2e2b52,#6b4a68 34%,#c47a5e 58%,#f2b077 70%,#3a2436); }
+[data-room="gallery"]     .rs-sky { background: linear-gradient(174deg,#e6e2da,#cbc5bb 52%,#a8a29a); }
+[data-room="musicroom"]   .rs-sky { background: linear-gradient(170deg,#2b2016,#180f0a 60%,#0b0706); }
+[data-room="dorm"]        .rs-sky { background: linear-gradient(170deg,#242630,#15171e 60%,#0a0b0f); }
+[data-room="bedtime"]     .rs-sky { background: radial-gradient(120% 100% at 50% 6%,#1d2447,#101533 48%,#06070f); }
+[data-room="workshop"]    .rs-sky { background: linear-gradient(170deg,#33261a,#1d150e 60%,#0e0a06); }
+[data-room="porch"]       .rs-sky { background: linear-gradient(180deg,#432c50,#a85a44 40%,#e89a52 60%,#8a4a26 82%,#33200f); }
+[data-room="tatami"]      .rs-sky { background: linear-gradient(170deg,#2a251c,#1a1610 60%,#0d0b07); }
+[data-room="anatomy"]     .rs-sky { background: radial-gradient(90% 70% at 50% 0%,#1d232a,#12161b 52%,#07090b); }
+[data-room="archive"]     .rs-sky { background: linear-gradient(180deg,#26241f,#161511 60%,#0a0a08); }
+[data-room="sunroom"]     .rs-sky { background: linear-gradient(170deg,#f2ede2,#ded6c8 50%,#b0a898); }
+
+[data-room="bath"]        .rs-sky { background: linear-gradient(170deg,#2a2220,#191313 60%,#0c0909); }
+[data-room="waterfall"]   .rs-sky { background: linear-gradient(180deg,#9fc47e,#4e7a52 34%,#1e3a2c 74%,#0c1a14); }
+[data-room="canyon"]      .rs-sky { background: linear-gradient(180deg,#f0b26a,#c4703a 32%,#7a3a1e 66%,#331708); }
+[data-room="ringed"]      .rs-sky { background: #03040c; }
+[data-room="eclipse"]     .rs-sky { background: radial-gradient(120% 100% at 50% 34%,#2a2a3e,#14141f 42%,#07070c); }
+[data-room="ferry"]       .rs-sky { background: linear-gradient(180deg,#8fb4c8,#c3d2d8 40%,#e2d2bc 62%,#6a7a84); }
+[data-room="motel"]       .rs-sky { background: linear-gradient(170deg,#2e2622,#1a1512 60%,#0d0a08); }
+[data-room="balloon"]     .rs-sky { background: linear-gradient(180deg,#2a3f6e,#6a86b4 34%,#d9a878 66%,#f0c68e 80%,#8a7a72); }
+[data-room="rooftop"]     .rs-sky { background: linear-gradient(180deg,#1c2244,#3a2f56 34%,#7c4a5e 58%,#b4705a 72%,#241a2a); }
+[data-room="hammock"]     .rs-sky { background: linear-gradient(180deg,#f6cf94,#eda06a 30%,#c76a72 56%,#5e4a72); }
+[data-room="fog"]         .rs-sky { background: linear-gradient(180deg,#8e9aa0,#6e7a82 42%,#48525a 74%,#2a3238); }
+
 /* =========================== interior surfaces ============================ */
 
 .rs-plaster { inset: 0; background:
@@ -1116,6 +1147,759 @@
 
 .rs-fx-star i { width:2px; height:2px; border-radius:50%; background:#fff; box-shadow:0 0 6px rgba(200,214,255,0.9);
   animation: rsTwinkle ease-in-out infinite alternate; }
+
+/* ========================= the second wing ================================
+   Rooms added in the 2026-08 pass. Same house rules as everything above: the
+   side gutters and the bottom edge carry the scene, distance is blur and not
+   size, and the darkest layer is the one nearest the eye.
+   ========================================================================= */
+
+@keyframes rsTurn { to { transform: rotate(360deg) } }
+
+/* -- Mystery: The Parlour ------------------------------------------------- */
+
+/* Fog. Two bands drifting at different rates read as depth; one band reads as
+   a grey wash over the picture. */
+.rs-fogbank { position:absolute; left:-20%; right:-20%; border-radius:50%; pointer-events:none;
+  background: linear-gradient(90deg, transparent, rgba(224,230,234,0.72) 32%, rgba(206,214,220,0.46) 64%, transparent); }
+.rs-fogbank.a { bottom:12%; height:34%; opacity:.5; filter: blur(14px); animation: rsFogA 34s ease-in-out infinite alternate; }
+.rs-fogbank.b { bottom:32%; height:28%; opacity:.32; filter: blur(24px); animation: rsFogB 46s ease-in-out infinite alternate; }
+@keyframes rsFogA { from{transform:translate3d(-6%,0,0) scaleY(.9)} to{transform:translate3d(7%,-3%,0) scaleY(1.1)} }
+@keyframes rsFogB { from{transform:translate3d(8%,2%,0)} to{transform:translate3d(-9%,-2%,0)} }
+
+/* A street lamp seen through it is a halo, not a lamp. Anything more detailed
+   at that distance reads as a sticker. */
+.rs-gaslamp { position:absolute; left:20%; top:32%; width:46px; height:46px; border-radius:50%;
+  background: radial-gradient(circle, rgba(255,216,152,0.95), rgba(255,180,100,0.34) 40%, transparent 72%);
+  box-shadow: 0 0 60px 26px rgba(255,190,120,0.26); animation: rsFlicker 5.6s ease-in-out infinite; }
+
+.rs-violin { left:7%; top:44%; width:5.5%; height:20%; transform: rotate(-11deg);
+  border-radius: 52% 52% 46% 46% / 30% 30% 62% 62%;
+  background: linear-gradient(150deg,#6a3418,#3a1a0b 72%);
+  box-shadow: inset 0 0 14px rgba(0,0,0,.6), 0 14px 26px -14px rgba(0,0,0,.9); }
+.rs-violin::after { content:''; position:absolute; left:44%; top:-44%; width:9%; height:50%; border-radius:2px;
+  background: linear-gradient(180deg,#2a1408,#4a2410); }
+
+/* The chair, from behind and to one side: a dark mass with one rim of light. */
+.rs-wingchair { right:5%; bottom:14%; width:23%; height:34%;
+  border-radius: 42% 42% 8% 8% / 32% 32% 8% 8%;
+  background: linear-gradient(160deg,#3a2118,#1a0e09 74%);
+  box-shadow: inset 12px 0 26px rgba(0,0,0,.6), -16px 0 44px -20px rgba(0,0,0,.95), inset 0 3px 0 rgba(255,196,140,0.10); }
+.rs-wingchair::after { content:''; position:absolute; left:-10%; bottom:0; width:36%; height:36%;
+  border-radius:6px 6px 2px 2px; background: linear-gradient(180deg,#42261a,#1e110a); }
+
+/* -- Legal: Chambers ------------------------------------------------------ */
+
+/* Briefs: bundles of paper, tied. The pink ribbon is the only thing anyone
+   remembers about a set of chambers, so it is the only detail drawn. */
+.rs-briefs { left:6%; bottom:20%; width:16%; height:13%; filter: drop-shadow(0 10px 16px rgba(0,0,0,.8)); }
+.rs-briefs::before, .rs-briefs::after { content:''; position:absolute; border-radius:2px;
+  background:
+    linear-gradient(90deg, transparent 32%, rgba(228,132,162,0.9) 32% 41%, transparent 41%),
+    linear-gradient(180deg,#efe6cf,#c2b69a); }
+.rs-briefs::before { left:0; right:0; bottom:0; height:46%; }
+.rs-briefs::after  { left:9%; right:5%; bottom:50%; height:42%; transform: rotate(-3deg); }
+
+/* -- Reportage: The Newsroom ---------------------------------------------- */
+
+/* A row of clocks. Faces only: hands at this size are four grey pixels that
+   read as dirt on the screen. */
+.rs-clockwall { left:3%; top:9%; width:24%; height:8%; opacity:.6;
+  background: radial-gradient(circle closest-side, #cfc9bb 0 74%, #45403a 80%, transparent 100%) 0 50%/18% 100% repeat-x;
+  filter: drop-shadow(0 8px 12px rgba(0,0,0,.7)); }
+
+/* Monitors, backs to us, throwing their own light up the room. */
+.rs-monitors { left:0; right:0; bottom:14%; height:19%; }
+.rs-monitors::before, .rs-monitors::after { content:''; position:absolute; bottom:0; border-radius:3px;
+  background: linear-gradient(180deg,#212832,#0d1015);
+  box-shadow: 0 0 70px 8px rgba(120,180,255,0.16), inset 0 2px 0 rgba(150,200,255,0.2); }
+.rs-monitors::before { left:2%;  width:20%; height:100%; }
+.rs-monitors::after  { right:2%; width:24%; height:86%; }
+
+/* -- Sea stories: The Captain's Cabin ------------------------------------- */
+
+/* Stern windows. Kept to the right gutter so the sea is visible beside the
+   page rather than politely hidden behind it. */
+.rs-sternwin { right:4%; width:30%; top:12%; height:44%; overflow:hidden; border-radius:5px 5px 2px 2px;
+  box-shadow: inset 0 0 0 8px #2e1c0e, 0 22px 46px -18px rgba(0,0,0,.9), inset 0 0 40px rgba(0,0,0,.55); }
+.rs-sternwin::after { content:''; position:absolute; inset:0;
+  background:
+    linear-gradient(90deg, transparent 31%, #2e1c0e 31% 35%, transparent 35%, transparent 65%, #2e1c0e 65% 69%, transparent 69%),
+    linear-gradient(180deg, transparent 46%, #2e1c0e 46% 51%, transparent 51%); }
+.rs-wake { position:absolute; left:50%; bottom:0; width:38%; height:66%; transform: translateX(-50%); filter: blur(3px);
+  background: linear-gradient(0deg, rgba(226,238,255,0.32), transparent 76%);
+  -webkit-mask-image: linear-gradient(0deg,#000,transparent 86%); mask-image: linear-gradient(0deg,#000,transparent 86%); }
+
+/* Swings, because the ship does. The pivot is the point: rotate about the top
+   of the cord, never about the lamp. */
+.rs-swinglamp { left:15%; top:0; width:0; height:24%; transform-origin: top center;
+  animation: rsSwing 7s ease-in-out infinite alternate; }
+.rs-swinglamp::before { content:''; position:absolute; left:-1px; top:0; width:2px; height:100%; background: rgba(30,20,12,0.9); }
+.rs-swinglamp i { position:absolute; left:50%; top:100%; width:34px; height:44px; transform: translateX(-50%);
+  border-radius:6px 6px 9px 9px;
+  background: linear-gradient(180deg, rgba(255,216,158,0.95), rgba(240,152,86,0.9));
+  box-shadow: 0 0 46px 14px rgba(255,178,108,0.4), inset 0 0 12px rgba(255,120,60,0.5);
+  animation: rsFlicker 4.2s ease-in-out infinite; }
+@keyframes rsSwing { from{transform:rotate(-6deg)} to{transform:rotate(6deg)} }
+
+/* A sextant: an arc, a frame, and nothing else legible at this size. */
+.rs-sextant { right:7%; bottom:19%; width:11%; height:15%; transform: rotate(-6deg);
+  border:5px solid #b08a3c; border-bottom-width:7px;
+  border-radius: 50% 50% 6px 6px / 68% 68% 6px 6px;
+  background: linear-gradient(180deg, rgba(60,42,18,0.5), rgba(24,16,8,0.85));
+  box-shadow: 0 14px 26px -12px rgba(0,0,0,.9), inset 0 0 16px rgba(0,0,0,.7); }
+
+/* -- Dystopia: The Bunker ------------------------------------------------- */
+
+/* Concrete is board marks, tie-holes on a grid, and a damp patch. That is the
+   whole material. */
+.rs-concrete { inset:0; background:
+  repeating-linear-gradient(0deg, rgba(0,0,0,0.28) 0 2px, transparent 2px 92px),
+  radial-gradient(circle, rgba(0,0,0,0.42) 0 2.5px, transparent 3px) 46px 46px/92px 92px,
+  radial-gradient(120% 80% at 20% 8%, rgba(255,255,255,0.05), transparent 60%),
+  linear-gradient(180deg,#3a3d41,#232629 62%,#131517); }
+.rs-concrete::before { content:''; position:absolute; inset:0; opacity:.5;
+  background: radial-gradient(60% 40% at 78% 86%, rgba(18,26,24,0.65), transparent 70%),
+              radial-gradient(rgba(255,255,255,0.05) .6px, transparent .8px);
+  background-size: auto, 5px 5px; }
+
+/* Two runs of pipe along the top. `.brass` is the workshop's. */
+.rs-pipes { left:0; right:0; top:4%; height:10%; }
+.rs-pipes::before, .rs-pipes::after { content:''; position:absolute; left:0; right:0; border-radius:5px;
+  background: linear-gradient(180deg,#4c5054,#2c3033 42%,#171a1c);
+  box-shadow: 0 10px 22px -10px rgba(0,0,0,.9), inset 0 2px 0 rgba(255,255,255,0.1); }
+.rs-pipes::before { top:0;   height:26%; }
+.rs-pipes::after  { top:46%; height:16%; opacity:.82; }
+.rs-pipes.brass::before, .rs-pipes.brass::after { background: linear-gradient(180deg,#c19a4e,#8a6a2e 44%,#3e2f14); }
+
+.rs-blastdoor { right:5%; bottom:13%; width:21%; height:54%; border-radius:5px;
+  background: linear-gradient(100deg,#33373b,#22262a 54%,#15181b);
+  box-shadow: inset 0 0 0 5px #2a2e32, inset 0 0 44px rgba(0,0,0,.7), -20px 0 46px -22px rgba(0,0,0,.9); }
+.rs-blastdoor::before { content:''; position:absolute; left:50%; top:44%; width:40%; aspect-ratio:1;
+  transform: translate(-50%,-50%); border:6px solid #4a4f54; border-radius:50%;
+  box-shadow: 0 0 0 3px rgba(0,0,0,.4), inset 0 0 12px rgba(0,0,0,.6); }
+.rs-blastdoor::after { content:''; position:absolute; left:-3%; top:0; bottom:0; width:8%;
+  background: linear-gradient(180deg, transparent 12%, #4a4f54 12% 24%, transparent 24%, transparent 70%, #4a4f54 70% 82%, transparent 82%); }
+
+/* A stencilled number, half worn off. */
+.rs-stencil { left:6%; top:22%; width:15%; height:8%; opacity:.32;
+  background: repeating-linear-gradient(90deg, #cdd2d4 0 14%, transparent 14% 20%);
+  -webkit-mask-image: radial-gradient(120% 100% at 30% 40%, #000 30%, transparent 82%);
+  mask-image: radial-gradient(120% 100% at 30% 40%, #000 30%, transparent 82%); }
+
+/* The fault is a fast double-blink on a long cycle. A steady flicker reads as
+   a candle; a tube about to go does this instead. */
+.rs-striplight { left:12%; right:12%; top:0; height:4%; border-radius:0 0 4px 4px;
+  background: linear-gradient(180deg,#e8f2f6,#9fb2bc);
+  box-shadow: 0 0 90px 30px rgba(190,220,236,0.24), 0 0 22px 6px rgba(220,238,246,0.5);
+  animation: rsStrip 9s linear infinite; }
+@keyframes rsStrip { 0%,86%,100%{opacity:1} 87%{opacity:.14} 88%{opacity:1} 90%{opacity:.2} 91.5%{opacity:.95} }
+
+.rs-surface.concretefloor { background: linear-gradient(180deg,#2e3134,#15171a); }
+.rs-surface.concretefloor::after { opacity:.4;
+  background: repeating-linear-gradient(90deg, rgba(0,0,0,0.34) 0 3px, transparent 3px 130px); }
+
+/* -- Espionage: The Safe House -------------------------------------------- */
+
+/* Wallpaper coming off in one corner is the whole story of the room. */
+.rs-peel { left:0; top:0; width:34%; height:46%; opacity:.5;
+  background: linear-gradient(200deg, rgba(190,180,164,0.45), transparent 62%);
+  -webkit-mask-image: linear-gradient(200deg,#000 12%, transparent 60%);
+  mask-image: linear-gradient(200deg,#000 12%, transparent 60%); }
+.rs-peel::after { content:''; position:absolute; left:16%; top:0; width:22%; height:34%;
+  background: linear-gradient(180deg, rgba(214,204,186,0.7), rgba(140,130,116,0.2));
+  clip-path: polygon(0 0, 100% 0, 62% 100%, 22% 76%);
+  filter: drop-shadow(-4px 8px 10px rgba(0,0,0,.6)); }
+
+/* Tape across the pane. The numbers match the window it belongs to. */
+.rs-tape { right:3%; top:12%; width:28%; height:44%; opacity:.4;
+  background:
+    linear-gradient(52deg,  transparent calc(50% - 5px), rgba(226,220,200,0.9) calc(50% - 5px) calc(50% + 5px), transparent calc(50% + 5px)),
+    linear-gradient(-52deg, transparent calc(50% - 5px), rgba(226,220,200,0.9) calc(50% - 5px) calc(50% + 5px), transparent calc(50% + 5px)); }
+
+/* One bulb on a flex, no shade. */
+.rs-bulb { left:22%; top:0; width:26px; height:26px; margin-left:-13px; border-radius:50%;
+  background: radial-gradient(circle at 40% 34%, #fff8e4, #ffd28a 46%, #e09a44 78%);
+  box-shadow: 0 0 90px 34px rgba(255,208,140,0.28), 0 0 26px 8px rgba(255,220,160,0.5);
+  transform: translateY(110px); animation: rsFlicker 6.4s ease-in-out infinite; }
+.rs-bulb::before { content:''; position:absolute; left:50%; bottom:100%; width:2px; height:110px;
+  margin-left:-1px; background: rgba(30,28,24,0.9); }
+
+.rs-radio { left:7%; bottom:15%; width:16%; height:12%; border-radius:3px;
+  background: linear-gradient(180deg,#3e352a,#211b14);
+  box-shadow: 0 14px 28px -14px rgba(0,0,0,.9), inset 0 2px 0 rgba(255,220,170,0.1); }
+.rs-radio::before { content:''; position:absolute; left:8%; top:20%; width:44%; height:46%; border-radius:2px;
+  background: linear-gradient(180deg, rgba(120,200,150,0.45), rgba(28,58,38,0.7));
+  box-shadow: inset 0 0 10px rgba(0,0,0,.7), 0 0 18px rgba(120,220,160,0.26); }
+.rs-radio::after { content:''; position:absolute; right:10%; top:26%; width:16%; aspect-ratio:1; border-radius:50%;
+  background: radial-gradient(circle at 36% 32%, #a89878, #3e352a 70%); box-shadow: 0 3px 6px rgba(0,0,0,.7); }
+
+/* -- Myth: Temple Steps --------------------------------------------------- */
+
+/* Flutes are what make it a column rather than a post. */
+.rs-column { bottom:12%; width:9%; height:72%;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.28) 0 2px, transparent 2px 13%),
+    linear-gradient(90deg,#463c30,#8a7c68 30%,#b3a389 48%,#6b5f50 76%,#382f26);
+  box-shadow: inset 0 -50px 70px -34px rgba(0,0,0,.7); }
+.rs-column::before { content:''; position:absolute; left:-15%; right:-15%; top:-4%; height:6%; border-radius:2px;
+  background: linear-gradient(180deg,#c2b298,#7c6f5c); box-shadow: 0 6px 14px -6px rgba(0,0,0,.7); }
+.rs-column::after { content:''; position:absolute; left:-9%; right:-9%; bottom:-3%; height:4%;
+  background: linear-gradient(180deg,#8a7c68,#463c30); }
+
+.rs-pediment { left:0; right:0; top:0; height:11%;
+  background: linear-gradient(180deg,#8f8168,#5e5343 60%,#2e281f);
+  box-shadow: 0 20px 36px -18px rgba(0,0,0,.85); }
+.rs-pediment::after { content:''; position:absolute; left:0; right:0; bottom:16%; height:28%;
+  background: repeating-linear-gradient(90deg, rgba(0,0,0,0.32) 0 6px, transparent 6px 42px); }
+
+/* An olive: a dark trunk and a mass of small leaves going silver at the edge. */
+.rs-olive { left:-3%; bottom:16%; width:22%; height:46%; }
+.rs-olive::before { content:''; position:absolute; left:34%; bottom:0; width:9%; height:58%; transform: rotate(4deg);
+  background: linear-gradient(90deg,#241a10,#40301c 45%,#19110a); }
+/* Any dot GRID over a mass reads as polka dots, however soft the dots are and
+   however hard it is blurred — the give-away is the regular spacing, not the
+   contrast. A handful of overlapping ellipses at irregular positions is what
+   .rs-plant and .rs-fern use, and it reads as foliage at every size. */
+.rs-olive::after { content:''; position:absolute; left:-8%; right:-8%; top:0; height:64%; filter: blur(2.2px);
+  background:
+    radial-gradient(closest-side ellipse, #5c6842 0 76%, transparent 100%) 22% 72%/54px 40px no-repeat,
+    radial-gradient(closest-side ellipse, #49553a 0 76%, transparent 100%) 62% 54%/62px 46px no-repeat,
+    radial-gradient(closest-side ellipse, #6a7650 0 76%, transparent 100%) 40% 26%/58px 42px no-repeat,
+    radial-gradient(closest-side ellipse, #3a4630 0 76%, transparent 100%) 80% 84%/46px 34px no-repeat,
+    radial-gradient(closest-side ellipse, #55613c 0 76%, transparent 100%)  8% 34%/44px 32px no-repeat; }
+
+/* -- Art: The Gallery ----------------------------------------------------- */
+
+.rs-picwall { inset:0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.1), transparent 22%),
+              linear-gradient(180deg, transparent 74%, rgba(40,36,30,0.22)); }
+.rs-picwall::after { content:''; position:absolute; left:0; right:0; top:8%; height:4px;
+  background: linear-gradient(180deg, rgba(90,82,70,0.45), transparent); }
+
+/* Deliberately abstract. A recognisable painting in here reads as clip art. */
+.rs-canvasart { top:24%; width:14%; height:30%; border:9px solid #efeae0; border-radius:1px;
+  background: linear-gradient(140deg,#6b7a86,#c8a77e 44%,#8a5f5a 78%);
+  box-shadow: 0 22px 40px -20px rgba(0,0,0,.5), inset 0 0 30px rgba(0,0,0,.25); }
+.rs-canvasart.tall { top:16%; width:12%; height:45%; background: linear-gradient(160deg,#3f4f5e,#7d8f7a 50%,#d0bb92 86%); }
+.rs-canvasart.wide { top:28%; width:16%; height:22%; background: linear-gradient(120deg,#8d6a4a,#e0cdb0 46%,#5a6a72 84%); }
+
+/* Picture lights: a wash down each canvas from above, nothing on the wall. */
+.rs-piclight { left:0; right:0; top:6%; height:56%; mix-blend-mode: screen; opacity:.5;
+  background:
+    radial-gradient(26% 60% at 9%  0%, rgba(255,246,224,0.7), transparent 70%),
+    radial-gradient(22% 56% at 25% 0%, rgba(255,246,224,0.6), transparent 70%),
+    radial-gradient(26% 60% at 91% 0%, rgba(255,246,224,0.7), transparent 70%),
+    radial-gradient(22% 56% at 74% 0%, rgba(255,246,224,0.6), transparent 70%); }
+
+.rs-bench { left:14%; right:14%; bottom:13%; height:8%; border-radius:3px;
+  background: linear-gradient(180deg,#4a3f30,#241d15);
+  box-shadow: 0 22px 40px -18px rgba(0,0,0,.65), inset 0 2px 0 rgba(255,240,214,0.12); }
+.rs-bench::after { content:''; position:absolute; left:0; right:0; bottom:-72%; height:72%;
+  background: linear-gradient(90deg, transparent 6%, #1d1811 6% 11%, transparent 11%, transparent 89%, #1d1811 89% 94%, transparent 94%); }
+
+.rs-surface.parquet { background:
+  repeating-linear-gradient(90deg, rgba(0,0,0,0.3) 0 2px, transparent 2px 54px),
+  repeating-linear-gradient(0deg, rgba(0,0,0,0.2) 0 2px, transparent 2px 26px),
+  linear-gradient(180deg,#6a4a2c,#33200f); }
+.rs-surface.parquet::after { opacity:.2;
+  background: repeating-linear-gradient(64deg, rgba(255,224,180,0.08) 0 2px, transparent 2px 22px); }
+
+/* -- Music: The Music Room ------------------------------------------------ */
+
+/* A grand with the lid up: a body curve, and a second curve above it holding
+   whatever light there is. */
+.rs-piano { left:-7%; bottom:13%; width:34%; height:33%;
+  border-radius: 8% 44% 30% 12% / 22% 70% 40% 18%;
+  background: linear-gradient(160deg,#2a2422,#0d0b0b 76%);
+  box-shadow: 0 26px 50px -22px rgba(0,0,0,.95), inset 0 3px 0 rgba(255,224,180,0.14),
+              inset -3px 0 0 rgba(255,226,186,0.16); }
+.rs-piano::before { content:''; position:absolute; left:6%; right:-2%; bottom:74%; height:58%;
+  transform: rotate(-6deg); transform-origin: bottom left;
+  border-radius: 6% 60% 4% 40% / 40% 90% 10% 30%;
+  background: linear-gradient(150deg,#3a322e,#141110 72%);
+  box-shadow: inset 0 2px 0 rgba(255,230,190,0.2), 0 14px 30px -14px rgba(0,0,0,.9); }
+.rs-piano::after { content:''; position:absolute; left:14%; right:28%; bottom:22%; height:8%; border-radius:2px;
+  background: repeating-linear-gradient(90deg, #e8e2d4 0 6px, #1a1614 6px 8px);
+  box-shadow: 0 4px 10px -3px rgba(0,0,0,.8); }
+
+.rs-stand { right:15%; bottom:14%; width:11%; height:29%; }
+.rs-stand::before { content:''; position:absolute; left:48%; bottom:0; width:3px; height:64%; background:#2a2622; }
+.rs-stand::after { content:''; position:absolute; left:0; right:0; top:0; height:46%; border-radius:2px;
+  transform: rotate(-7deg); background: linear-gradient(180deg,#e4dcc6,#b0a68d);
+  box-shadow: 0 8px 16px -8px rgba(0,0,0,.8); }
+
+/* -- Young adult: Dorm Room ----------------------------------------------- */
+
+.rs-posters { left:2%; top:8%; width:26%; height:40%; }
+.rs-posters::before, .rs-posters::after { content:''; position:absolute; border-radius:2px;
+  box-shadow: 0 10px 22px -12px rgba(0,0,0,.8); }
+.rs-posters::before { left:0;  top:0;   width:56%; height:56%; transform: rotate(-3deg);
+  background: linear-gradient(150deg,#c8425e,#3a1f3e 68%); }
+.rs-posters::after  { right:0; top:22%; width:50%; height:62%; transform: rotate(2.5deg);
+  background: linear-gradient(200deg,#2f6f86,#16323f 70%); }
+
+.rs-laptop { left:11%; bottom:16%; width:17%; height:12%; }
+.rs-laptop::before { content:''; position:absolute; left:0; right:0; bottom:24%; height:100%; border-radius:2px;
+  transform: perspective(220px) rotateX(-12deg);
+  background: linear-gradient(180deg,#8fb8d8,#2e4c66 78%);
+  box-shadow: 0 0 60px 12px rgba(140,190,240,0.26); }
+.rs-laptop::after { content:''; position:absolute; left:-6%; right:-6%; bottom:0; height:24%; border-radius:2px;
+  background: linear-gradient(180deg,#3e444c,#1c2026); }
+
+.rs-bunk { right:-5%; bottom:13%; width:30%; height:25%; border-radius:4px 10px 4px 4px;
+  background: linear-gradient(170deg,#4a4a58,#20202a 74%);
+  box-shadow: -22px 0 46px -22px rgba(0,0,0,.9), inset 0 3px 0 rgba(255,255,255,0.08); }
+.rs-bunk::after { content:''; position:absolute; left:14%; top:-17%; width:44%; height:33%; filter: blur(0.5px);
+  border-radius: 40% 50% 44% 46%; background: linear-gradient(160deg,#b8607a,#5c2a3e); }
+
+.rs-surface.dormfloor { background: linear-gradient(180deg,#3a3630,#1a1815); }
+.rs-surface.dormfloor::after { opacity:.3;
+  background: repeating-linear-gradient(90deg, rgba(0,0,0,0.3) 0 2px, transparent 2px 70px); }
+
+/* -- Picture books: Bedtime ----------------------------------------------- */
+
+/* Stars projected onto a ceiling, not stars in a sky: soft, slightly out of
+   focus, and turning very slowly. */
+.rs-projected { inset:0; filter: blur(1.1px); opacity:1;
+  -webkit-mask-image: radial-gradient(90% 70% at 50% 6%, #000 24%, transparent 78%);
+  mask-image: radial-gradient(90% 70% at 50% 6%, #000 24%, transparent 78%);
+  animation: rsTurn 150s linear infinite; }
+/* A projector throws soft haloes, not pinpricks — the halo is what separates
+   "stars on the ceiling" from "stars in the sky". */
+.rs-projected .rs-stars i { box-shadow: 0 0 9px 2px rgba(190,214,255,0.75); }
+
+.rs-nightlight { right:13%; bottom:25%; width:7%; aspect-ratio:1; border-radius:50%;
+  background: radial-gradient(circle at 40% 36%, #fff2d4, #ffbe7a 52%, #d97f3c 84%);
+  box-shadow: 0 0 80px 26px rgba(255,180,110,0.28), 0 0 24px 8px rgba(255,206,150,0.5); }
+
+.rs-toys { left:3%; bottom:22%; width:27%; height:15%; }
+.rs-toys::before { content:''; position:absolute; left:0; bottom:0; width:36%; height:82%;
+  border-radius: 40% 40% 18% 18%; background: linear-gradient(170deg,#7a6a58,#382e26); }
+/* Three shapes, not two: two objects on a floor read as a mistake. */
+.rs-toys::after { content:''; position:absolute; left:40%; right:0; bottom:0; height:58%;
+  background:
+    linear-gradient(170deg,#4a5a78,#222b3a)  0 100%/38% 100% no-repeat,
+    linear-gradient(170deg,#7a5566,#33222c) 56% 100%/30% 74%  no-repeat;
+  border-radius:4px; }
+
+/* The duvet horizon: you are under it, looking up the bed. */
+.rs-duvet { left:-8%; right:-8%; bottom:-4%; height:25%;
+  border-radius: 46% 54% 0 0 / 70% 70% 0 0;
+  background: linear-gradient(180deg,#3c4468,#191d2e 78%);
+  box-shadow: 0 -18px 46px -18px rgba(0,0,0,.9), inset 0 4px 0 rgba(190,206,255,0.12); }
+
+/* -- Making: The Workshop ------------------------------------------------- */
+
+/* Pegboard: holes on a grid, with the painted ghosts of the tools on it. */
+.rs-pegboard { left:2%; top:8%; width:28%; height:44%; border-radius:2px;
+  background:
+    radial-gradient(circle, rgba(0,0,0,0.5) 0 1.6px, transparent 2px) 0 0/18px 18px,
+    linear-gradient(180deg,#5a4028,#33230f);
+  box-shadow: inset 0 0 34px rgba(0,0,0,.6), 0 16px 30px -18px rgba(0,0,0,.8); }
+.rs-pegboard::after { content:''; position:absolute; inset:8% 10%;
+  background:
+    linear-gradient(180deg, rgba(20,14,8,0.55) 0 60%, transparent 60%)  6% 0/6% 100% no-repeat,
+    linear-gradient(180deg, rgba(20,14,8,0.55) 0 44%, transparent 44%) 22% 0/5% 100% no-repeat,
+    linear-gradient(180deg, rgba(20,14,8,0.55) 0 72%, transparent 72%) 40% 0/7% 100% no-repeat,
+    linear-gradient(180deg, rgba(20,14,8,0.55) 0 50%, transparent 50%) 62% 0/5% 100% no-repeat,
+    linear-gradient(180deg, rgba(20,14,8,0.55) 0 64%, transparent 64%) 82% 0/8% 100% no-repeat; }
+
+/* Gears: toothed rings, cut out of a conic gradient by a ring-shaped mask,
+   turning against each other. */
+.rs-gears { left:5%; top:56%; width:13%; aspect-ratio:1; }
+.rs-gears::before, .rs-gears::after { content:''; position:absolute; border-radius:50%; opacity:.9;
+  background: repeating-conic-gradient(#b08c42 0 7deg, #6b5222 7deg 14deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 0 30%, #000 34% 78%, transparent 84%);
+  mask-image: radial-gradient(circle, transparent 0 30%, #000 34% 78%, transparent 84%);
+  filter: drop-shadow(0 8px 14px rgba(0,0,0,.7)); }
+.rs-gears::before { left:0;  top:0;     width:70%; height:70%; animation: rsTurn 26s linear infinite; }
+.rs-gears::after  { right:0; bottom:0;  width:52%; height:52%; animation: rsTurn 19s linear infinite reverse; }
+
+/* One gauge, needle past the middle. */
+.rs-gauge { left:21%; top:60%; width:9%; aspect-ratio:1; border-radius:50%;
+  background: radial-gradient(circle at 40% 34%, #f0e6cc, #b8a882 62%, #6a5c40 100%);
+  box-shadow: inset 0 0 0 5px #8a6a2e, 0 12px 24px -10px rgba(0,0,0,.85); }
+.rs-gauge::before { content:''; position:absolute; inset:22%; border-radius:50%; opacity:.5;
+  background: conic-gradient(from 220deg, #2e2a20 0 46%, #a8341e 46% 62%, transparent 62%); }
+.rs-gauge::after { content:''; position:absolute; left:50%; top:50%; width:34%; height:3px; margin-top:-1.5px;
+  transform-origin: left center; transform: rotate(-32deg); background:#8a1e12; border-radius:2px; }
+
+.rs-surface.workbench { background:
+  repeating-linear-gradient(90deg, rgba(0,0,0,0.26) 0 3px, transparent 3px 96px),
+  linear-gradient(180deg,#6a4a2a,#2e1d0e); }
+.rs-surface.workbench::after { opacity:.34;
+  background: radial-gradient(rgba(0,0,0,0.3) .8px, transparent 1px) 0 0/9px 9px,
+              radial-gradient(60% 40% at 30% 40%, rgba(20,14,6,0.5), transparent 70%); }
+
+/* -- Westerns: The Porch -------------------------------------------------- */
+
+.rs-porchroof { left:0; right:0; top:0; height:15%;
+  background: linear-gradient(180deg,#180f08,#2c1c10 60%,#150d07);
+  box-shadow: 0 22px 40px -18px rgba(0,0,0,.95); }
+.rs-porchroof::after { content:''; position:absolute; left:0; right:0; bottom:0; height:26%;
+  background: repeating-linear-gradient(90deg, rgba(0,0,0,0.4) 0 4px, transparent 4px 46px); }
+.rs-porchpost { top:13%; bottom:8%; width:5%;
+  background: linear-gradient(90deg,#0d0805,#2e1e11 40%,#140c07);
+  box-shadow: 0 0 30px rgba(0,0,0,.6); }
+.rs-porchpost::after { content:''; position:absolute; left:-40%; right:-40%; top:0; height:5%;
+  background: linear-gradient(180deg,#2e1e11,#130b05); }
+
+.rs-rocker { right:11%; bottom:14%; width:24%; height:37%; }
+.rs-rocker::before { content:''; position:absolute; left:0; right:20%; top:0; bottom:26%; border-radius:6px 8px 2px 2px;
+  transform: rotate(-4deg);
+  background: repeating-linear-gradient(90deg, #1a1008 0 5px, transparent 5px 16px),
+              linear-gradient(180deg, rgba(30,18,10,0.45), rgba(12,7,3,0.88));
+  box-shadow: 0 18px 30px -18px rgba(0,0,0,.9); }
+.rs-rocker::after { content:''; position:absolute; left:-8%; right:2%; bottom:0; height:26%;
+  border-bottom:6px solid #150d06; border-radius:0 0 60% 60% / 0 0 100% 100%; }
+
+/* -- Manga: Tokyo Room ---------------------------------------------------- */
+
+/* The shoji is drawn for Zen Garden's daylight. In a small room at night it
+   was the brightest thing in frame and read as bathroom tile. */
+[data-room="tatami"] .rs-shoji { filter: brightness(0.34) saturate(0.7); }
+
+.rs-paperlamp { left:8%; bottom:16%; width:13%; height:25%; border-radius:14% / 22%;
+  background:
+    repeating-linear-gradient(0deg, rgba(190,150,96,0.28) 0 2px, transparent 2px 13%),
+    linear-gradient(90deg, rgba(238,196,140,0.75), rgba(255,228,186,0.95) 42%, rgba(210,160,104,0.7));
+  box-shadow: 0 0 90px 28px rgba(255,196,130,0.22), inset 0 0 24px rgba(220,150,80,0.4); }
+
+.rs-lowtable { left:-6%; right:46%; bottom:12%; height:10%; border-radius:3px;
+  background: linear-gradient(180deg,#4a3520,#231607);
+  box-shadow: 0 22px 36px -18px rgba(0,0,0,.9), inset 0 2px 0 rgba(255,222,170,0.14); }
+.rs-lowtable::after { content:''; position:absolute; left:0; right:0; bottom:-64%; height:64%;
+  background: linear-gradient(90deg, transparent 8%, #1c1208 8% 14%, transparent 14%, transparent 78%, #1c1208 78% 84%, transparent 84%); }
+
+.rs-surface.tatami { background:
+  repeating-linear-gradient(0deg, rgba(255,240,200,0.05) 0 1px, transparent 1px 4px),
+  linear-gradient(180deg,#8a7a4e,#4a4028); }
+.rs-surface.tatami::after { opacity:.32;
+  background: repeating-linear-gradient(90deg, rgba(20,14,6,0.5) 0 5px, transparent 5px 128px); }
+
+/* -- Medicine: Anatomy Theatre -------------------------------------------- */
+
+/* Tiered rails climbing away into the dark — what makes it a theatre and not
+   a lab. Masked so they fade before they reach the page. */
+.rs-tiers { left:0; right:0; top:4%; height:58%; opacity:1; }
+.rs-tiers::before { content:''; position:absolute; inset:0;
+  background:
+    linear-gradient(180deg, transparent 0 13%,  #4a3a24 13% 19%,   transparent 19%),
+    linear-gradient(180deg, transparent 0 39%,  #56422a 39% 46%,   transparent 46%),
+    linear-gradient(180deg, transparent 0 69%,  #614b30 69% 77%,   transparent 77%);
+  -webkit-mask-image: radial-gradient(120% 100% at 50% 100%, transparent 26%, #000 52%);
+  mask-image: radial-gradient(120% 100% at 50% 100%, transparent 26%, #000 52%); }
+.rs-tiers::after { content:''; position:absolute; inset:0; opacity:.8;
+  background: repeating-linear-gradient(90deg, rgba(70,56,36,0.95) 0 5px, transparent 5px 33px);
+  -webkit-mask-image: radial-gradient(120% 100% at 50% 100%, transparent 30%, #000 56%);
+  mask-image: radial-gradient(120% 100% at 50% 100%, transparent 30%, #000 56%); }
+
+.rs-skeleton { left:5%; bottom:14%; width:11%; height:46%; opacity:.9;
+  filter: drop-shadow(0 10px 20px rgba(0,0,0,.8)); }
+.rs-skeleton::before { content:''; position:absolute; left:22%; top:0; width:56%; aspect-ratio: 1 / 1.2;
+  border-radius:48% 48% 40% 40%;
+  background: radial-gradient(60% 50% at 46% 34%, #cfc8b8, #8a8272 78%);
+  box-shadow: inset -4px -6px 10px rgba(0,0,0,.5); }
+/* Ribs taper: a constant-width stack of bars is a radiator. The mask narrows
+   them towards the bottom, which is the only thing that says ribcage. */
+.rs-skeleton::after { content:''; position:absolute; left:10%; right:10%; top:24%; height:40%;
+  border-radius:22% 22% 46% 46%;
+  background: repeating-linear-gradient(0deg, rgba(214,206,190,0.8) 0 3px, transparent 3px 8px);
+  -webkit-mask-image: radial-gradient(64% 96% at 50% 6%, #000 42%, transparent 88%);
+  mask-image: radial-gradient(64% 96% at 50% 6%, #000 42%, transparent 88%); }
+
+.rs-jars { right:4%; top:22%; width:16%; height:20%; }
+.rs-jars::before { content:''; position:absolute; left:0; right:0; bottom:0; height:12%;
+  background: linear-gradient(180deg,#2e2a22,#151310); }
+.rs-jars::after { content:''; position:absolute; left:0; right:0; bottom:12%; height:88%;
+  background:
+    linear-gradient(180deg, rgba(180,206,196,0.3),  rgba(110,142,132,0.42))  4% 100%/22% 100% no-repeat,
+    linear-gradient(180deg, rgba(180,206,196,0.24), rgba(110,142,132,0.36)) 40% 100%/26% 82%  no-repeat,
+    linear-gradient(180deg, rgba(180,206,196,0.28), rgba(110,142,132,0.4))  76% 100%/20% 92%  no-repeat; }
+
+/* The light comes straight down, and goes nowhere else. */
+.rs-overhead { left:20%; right:20%; top:0; height:62%; mix-blend-mode: screen; opacity:.5;
+  background: linear-gradient(180deg, rgba(214,238,255,0.55), transparent 72%);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); }
+
+.rs-surface.slab { background: linear-gradient(180deg,#4e5450,#22262a); }
+.rs-surface.slab::after { opacity:.22;
+  background: repeating-linear-gradient(90deg, rgba(0,0,0,0.3) 0 2px, transparent 2px 160px); }
+
+/* -- Biography: The Archive ----------------------------------------------- */
+
+.rs-stacks { top:2%; bottom:12%; width:26%;
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.42) 0 4px, transparent 4px 15%),
+    linear-gradient(90deg,#3e423f,#222523 62%,#141615); }
+.rs-stacks.left  { left:0;  box-shadow: inset -24px 0 42px -18px rgba(0,0,0,.9); }
+.rs-stacks.right { right:0; box-shadow: inset  24px 0 42px -18px rgba(0,0,0,.9); }
+.rs-stacks::after { content:''; position:absolute; top:38%; width:22%; aspect-ratio:1; border-radius:50%;
+  border:5px solid #6a6a60; opacity:.75; }
+.rs-stacks.left::after  { right:8%; }
+.rs-stacks.right::after { left:8%; }
+
+.rs-railtrack { left:0; right:0; bottom:12%; height:1.6%;
+  background: linear-gradient(180deg,#5a5a52,#2a2a26); box-shadow: 0 3px 8px rgba(0,0,0,.7); }
+.rs-boxrow { left:0; right:0; bottom:13%; height:11%;
+  filter: drop-shadow(0 10px 16px rgba(0,0,0,.8));
+  background:
+    linear-gradient(180deg,#9a8f78,#6a614f)  2% 100%/13% 84% no-repeat,
+    linear-gradient(180deg,#8f8471,#5f5748) 17% 100%/11% 96% no-repeat,
+    linear-gradient(180deg,#a2977f,#6f6653) 72% 100%/12% 90% no-repeat,
+    linear-gradient(180deg,#8a8069,#5a5344) 86% 100%/14% 78% no-repeat; }
+
+.rs-surface.lino { background: linear-gradient(180deg,#3e3a32,#1c1a16); }
+.rs-surface.lino::after { opacity:.24;
+  background: repeating-linear-gradient(90deg, rgba(255,240,210,0.06) 0 1px, transparent 1px 60px); }
+
+/* -- Wellbeing: The Sunroom ----------------------------------------------- */
+
+.rs-frenchdoor { right:2%; top:6%; bottom:14%; width:30%; border-radius:3px;
+  background: linear-gradient(180deg, rgba(255,252,242,0.95), rgba(226,232,220,0.8) 62%, rgba(178,190,174,0.7));
+  box-shadow: inset 0 0 0 9px #f2ece0, 0 0 90px 24px rgba(255,250,232,0.38); }
+.rs-frenchdoor::after { content:''; position:absolute; inset:9px;
+  background:
+    linear-gradient(90deg, transparent 46%, #f2ece0 46% 54%, transparent 54%),
+    repeating-linear-gradient(180deg, transparent 0 21%, #f2ece0 21% 24%); }
+
+.rs-wicker { left:2%; bottom:13%; width:25%; height:39%;
+  border-radius: 40% 40% 10% 10% / 30% 30% 8% 8%;
+  background:
+    repeating-linear-gradient(58deg,  rgba(90,66,38,0.5)  0 3px, transparent 3px 11px),
+    repeating-linear-gradient(-58deg, rgba(90,66,38,0.45) 0 3px, transparent 3px 11px),
+    linear-gradient(170deg,#c9a878,#8a6c44 78%);
+  box-shadow: 0 24px 40px -20px rgba(0,0,0,.55), inset 0 0 30px rgba(90,66,38,0.3); }
+.rs-wicker::after { content:''; position:absolute; left:8%; right:8%; bottom:14%; height:26%; border-radius:8px;
+  background: linear-gradient(180deg,#f4efe4,#cfc7b6); box-shadow: 0 8px 16px -8px rgba(0,0,0,.4); }
+
+.rs-surface.linen { background: linear-gradient(180deg,#cfc6b4,#988e7e); }
+.rs-surface.linen::after { opacity:.26;
+  background: repeating-linear-gradient(90deg, rgba(255,255,255,0.3) 0 1px, transparent 1px 5px),
+              repeating-linear-gradient(0deg, rgba(120,110,94,0.2) 0 1px, transparent 1px 5px); }
+
+/* -- The Long Bath -------------------------------------------------------- */
+
+.rs-tilewall { inset:0; background:
+  repeating-linear-gradient(0deg,  rgba(0,0,0,0.32) 0 2px, transparent 2px 40px),
+  repeating-linear-gradient(90deg, rgba(0,0,0,0.32) 0 2px, transparent 2px 40px),
+  radial-gradient(120% 90% at 30% 8%, rgba(255,230,196,0.14), transparent 62%),
+  linear-gradient(180deg,#3a332e,#221d1a 66%,#120f0e); }
+.rs-tilewall::before { content:''; position:absolute; inset:0; opacity:.35;
+  background: radial-gradient(rgba(255,255,255,0.05) .6px, transparent .8px); background-size:5px 5px; }
+
+.rs-tub { left:-10%; right:-10%; bottom:0; height:29%;
+  border-radius: 34% 34% 8% 8% / 40% 40% 8% 8%;
+  background: linear-gradient(180deg,#efece4,#b7b0a4 34%,#69645c);
+  box-shadow: 0 -18px 46px -20px rgba(0,0,0,.85), inset 0 5px 0 rgba(255,255,255,0.5); }
+.rs-tub::after { content:''; position:absolute; left:5%; right:5%; top:16%; bottom:22%;
+  border-radius: 40% 40% 10% 10% / 50% 50% 10% 10%;
+  background: linear-gradient(180deg, rgba(160,196,200,0.55), rgba(56,86,92,0.75));
+  box-shadow: inset 0 8px 26px rgba(0,0,0,.4); }
+
+/* Steam: wide, slow, and blurred past the point of having an edge. */
+.rs-bathsteam { left:-10%; right:-10%; bottom:14%; height:54%; opacity:.3; filter: blur(26px); mix-blend-mode: screen;
+  background: radial-gradient(60% 50% at 30% 70%, rgba(255,250,244,0.9), transparent 72%),
+              radial-gradient(52% 46% at 74% 60%, rgba(255,248,240,0.8), transparent 74%);
+  animation: rsSteamRise 16s ease-in-out infinite alternate; }
+@keyframes rsSteamRise { from{transform:translate3d(-2%,4%,0) scale(1)} to{transform:translate3d(3%,-6%,0) scale(1.12)} }
+
+/* -- The Falls ------------------------------------------------------------ */
+
+.rs-cliff { top:-6%; bottom:0; width:28%;
+  background: repeating-linear-gradient(84deg, rgba(0,0,0,0.36) 0 6px, transparent 6px 30px),
+              linear-gradient(90deg,#0c140e,#1e2a1c 56%,#0a110c); }
+.rs-cliff.left  { left:0;  border-radius:0 40% 20% 0 / 0 18% 8% 0; box-shadow: inset -26px 0 46px -22px rgba(0,0,0,.9); }
+.rs-cliff.right { right:0; border-radius:40% 0 0 20% / 18% 0 0 8%; box-shadow: inset  26px 0 46px -22px rgba(0,0,0,.9); }
+
+/* The fall lives in the right gutter: a waterfall behind the page is a
+   waterfall nobody sees. Three columns, not one — one column is a stripe. */
+.rs-fall { right:6%; width:23%; top:0; bottom:20%; opacity:.9; filter: blur(2px);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.85), rgba(200,226,214,0.5) 70%,  transparent) 12% 0/22% 100% no-repeat,
+    linear-gradient(180deg, rgba(255,255,255,0.75), rgba(190,220,208,0.42) 74%, transparent) 44% 0/30% 100% no-repeat,
+    linear-gradient(180deg, rgba(255,255,255,0.7),  rgba(190,220,208,0.4) 72%,  transparent) 82% 0/18% 100% no-repeat;
+  animation: rsFallRun .9s linear infinite; }
+@keyframes rsFallRun { from{background-position-y:0,0,0} to{background-position-y:40px,52px,34px} }
+
+.rs-spray { right:0; bottom:11%; width:44%; height:26%; opacity:.42; filter: blur(18px); mix-blend-mode: screen;
+  background: radial-gradient(60% 60% at 62% 80%, rgba(255,255,255,0.95), transparent 74%);
+  animation: rsSteamRise 11s ease-in-out infinite alternate; }
+
+/* -- Slot Canyon ---------------------------------------------------------- */
+
+.rs-slot { top:-4%; bottom:0; width:36%; }
+.rs-slot.left { left:0; border-radius:0 34% 60% 0 / 0 26% 40% 0;
+  box-shadow: inset -30px 0 60px -20px rgba(0,0,0,.85);
+  background: repeating-linear-gradient(-7deg, rgba(0,0,0,0.15) 0 3px, transparent 3px 9px,
+              rgba(0,0,0,0.08) 9px 12px, transparent 12px 27px),
+              linear-gradient(180deg,#e08a44,#a4501e 44%,#4a1e0a 84%,#200c04); }
+.rs-slot.right { right:0; border-radius:34% 0 0 60% / 26% 0 0 40%;
+  box-shadow: inset 30px 0 60px -20px rgba(0,0,0,.85);
+  background: repeating-linear-gradient(6deg, rgba(0,0,0,0.17) 0 4px, transparent 4px 11px,
+              rgba(0,0,0,0.09) 11px 14px, transparent 14px 31px),
+              linear-gradient(180deg,#c87a3a,#8a4418 46%,#3e1808 86%,#190903); }
+
+.rs-sandfall { right:20%; top:5%; width:8%; height:66%; opacity:.5; filter: blur(2.4px); mix-blend-mode: screen;
+  background: linear-gradient(180deg, rgba(255,220,160,0.9), transparent 84%);
+  animation: rsSandFall 3.4s linear infinite; }
+@keyframes rsSandFall { from{transform:translate3d(0,-8%,0);opacity:.14} 40%{opacity:.55} to{transform:translate3d(3%,26%,0);opacity:0} }
+
+/* -- Ring System ---------------------------------------------------------- */
+
+.rs-giant { right:-16%; top:6%; width:56%; aspect-ratio:1; border-radius:50%;
+  background:
+    repeating-linear-gradient(178deg, rgba(255,236,200,0.14) 0 8px, transparent 8px 26px),
+    radial-gradient(60% 60% at 34% 30%, #f0d6a4, #c99a5e 52%, #7a5530 78%, #2b1c0f 100%);
+  box-shadow: inset -40px -20px 90px rgba(0,0,0,.75), 0 0 120px 30px rgba(240,200,140,0.12); }
+.rs-rings { right:-42%; top:26%; width:120%; height:26%; border-radius:50%;
+  transform: rotate(-12deg); filter: blur(0.6px); opacity:.85;
+  background: linear-gradient(180deg, transparent 34%, rgba(236,214,176,0.5) 40%, rgba(196,172,136,0.2) 50%, rgba(236,214,176,0.42) 58%, transparent 66%); }
+
+/* -- Totality ------------------------------------------------------------- */
+
+/* The corona is the picture. It has to be irregular and it has to breathe, or
+   it reads as a lens flare. Kept off-centre so the page does not eat it. */
+.rs-corona { left:76%; top:24%; width:32%; aspect-ratio:1; border-radius:50%; filter: blur(6px);
+  transform: translate(-50%,-50%);
+  background: radial-gradient(circle, rgba(255,250,238,0.9) 0 26%, rgba(255,238,206,0.32) 34%, rgba(200,206,255,0.12) 56%, transparent 74%);
+  animation: rsCorona 9s ease-in-out infinite alternate; }
+@keyframes rsCorona { from{transform:translate(-50%,-50%) scale(1)} to{transform:translate(-50%,-50%) scale(1.09)} }
+.rs-disc { left:76%; top:24%; width:8%; aspect-ratio:1; border-radius:50%; transform: translate(-50%,-50%);
+  background:#050509; box-shadow: 0 0 26px 6px rgba(255,244,220,0.55); }
+.rs-horizonglow { left:0; right:0; bottom:18%; height:24%; mix-blend-mode: screen; opacity:.55;
+  background: linear-gradient(180deg, transparent, rgba(255,178,120,0.5) 70%, rgba(255,150,100,0.7)); }
+
+/* -- Ferry Deck ----------------------------------------------------------- */
+
+.rs-railing { left:0; right:0; bottom:14%; height:24%; }
+.rs-railing::before { content:''; position:absolute; left:0; right:0; top:0; height:7%; border-radius:99px;
+  background: linear-gradient(180deg,#e2e6e8,#8c9497 60%,#484f51);
+  box-shadow: 0 10px 22px -10px rgba(0,0,0,.7); }
+.rs-railing::after { content:''; position:absolute; left:0; right:0; top:44%; height:5%; opacity:.9;
+  background: linear-gradient(180deg,#c6cccd,#6c7477); }
+
+.rs-deckbench { left:2%; bottom:13%; width:26%; height:19%; border-radius:4px;
+  background: repeating-linear-gradient(0deg, #4a3a24 0 6px, rgba(0,0,0,0.3) 6px 8px),
+              linear-gradient(180deg,#5a4630,#2a1e12);
+  box-shadow: 0 22px 36px -18px rgba(0,0,0,.8); }
+
+/* Gulls: two strokes, doing the whole job. */
+.rs-gull { left:0; top:16%; width:44px; height:14px; opacity:.7;
+  background:
+    radial-gradient(closest-side ellipse at 100% 100%, transparent 0 62%, #e8eef0 64% 74%, transparent 76%)   0 0/50% 100% no-repeat,
+    radial-gradient(closest-side ellipse at 0    100%, transparent 0 62%, #e8eef0 64% 74%, transparent 76%) 100% 0/50% 100% no-repeat;
+  animation: rsGull 26s linear infinite; }
+@keyframes rsGull { from{transform:translate3d(-12vw,0,0) scale(.8)} to{transform:translate3d(72vw,-6vh,0) scale(1.1)} }
+
+.rs-surface.deckplanks { background:
+  repeating-linear-gradient(90deg, rgba(0,0,0,0.34) 0 3px, transparent 3px 46px),
+  linear-gradient(180deg,#6a5f4c,#332c22); }
+
+/* -- Roadside Motel ------------------------------------------------------- */
+
+/* The sign, seen as colour and buzz rather than as letters. */
+.rs-vacancy { position:absolute; left:8%; top:22%; width:34%; height:26%; border-radius:3px;
+  background: linear-gradient(180deg, rgba(255,90,120,0.85), rgba(200,40,80,0.7));
+  box-shadow: 0 0 60px 18px rgba(255,80,110,0.38), inset 0 0 20px rgba(255,180,200,0.5);
+  animation: rsBuzz 5.5s steps(1) infinite; }
+@keyframes rsBuzz { 0%,92%,100%{opacity:.95} 94%{opacity:.4} 96%{opacity:.9} 98%{opacity:.5} }
+.rs-lot { position:absolute; left:0; right:0; bottom:0; height:34%;
+  background: radial-gradient(40% 90% at 74% 100%, rgba(255,190,110,0.32), transparent 72%),
+              linear-gradient(180deg,#1a1c20,#0a0b0e); }
+
+/* The sign's colour arriving in the room, along one wall. */
+.rs-motellight { right:0; top:0; bottom:0; width:64%; mix-blend-mode: screen; opacity:.62;
+  background: linear-gradient(250deg, rgba(255,96,126,0.7), transparent 70%); }
+
+.rs-headboard { left:-6%; bottom:14%; width:38%; height:33%; border-radius:6px 16px 4px 4px;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.22) 0 3px, transparent 3px 34px),
+    linear-gradient(170deg,#5e4a3c,#241b16 78%);
+  box-shadow: 0 22px 40px -20px rgba(0,0,0,.9), inset 0 3px 0 rgba(255,214,170,0.22); }
+.rs-headboard::after { content:''; position:absolute; left:6%; right:-14%; bottom:-16%; height:22%;
+  border-radius:4px; background: linear-gradient(180deg,#c9bfae,#7d7466);
+  box-shadow: 0 14px 26px -12px rgba(0,0,0,.85); }
+
+/* -- Basket (hot air) ----------------------------------------------------- */
+
+/* You are UNDER the envelope, not inside a circus tent: it takes the top third
+   and it is in its own shadow. At full width and full saturation the gores ate
+   the whole frame and the view — which is the actual subject — disappeared. */
+.rs-envelope { left:50%; top:-40%; width:80%; height:72%; transform: translateX(-50%);
+  border-radius: 50% 50% 44% 44% / 56% 56% 44% 44%;
+  background: repeating-conic-gradient(from 168deg at 50% 40%, #7c2c20 0 8deg, #93866a 8deg 16deg, #26485c 16deg 24deg);
+  filter: saturate(.5) brightness(.46);
+  box-shadow: inset 0 -80px 140px rgba(0,0,0,.8), 0 40px 90px -30px rgba(0,0,0,.8); }
+.rs-burner { left:26%; bottom:17%; width:8%; height:12%; filter: blur(3px);
+  background: radial-gradient(50% 70% at 50% 100%, rgba(255,206,120,0.9), rgba(255,140,60,0.4) 52%, transparent 76%);
+  animation: rsFlicker 2.6s ease-in-out infinite; }
+.rs-basket { left:6%; right:6%; bottom:0; height:19%; border-radius:4px 4px 8px 8px;
+  background:
+    repeating-linear-gradient(58deg,  rgba(60,40,18,0.5)  0 4px, transparent 4px 13px),
+    repeating-linear-gradient(-58deg, rgba(60,40,18,0.45) 0 4px, transparent 4px 13px),
+    linear-gradient(180deg,#b08a52,#684a24);
+  box-shadow: 0 -14px 40px -18px rgba(0,0,0,.8), inset 0 3px 0 rgba(255,230,180,0.2); }
+
+/* -- Rooftop -------------------------------------------------------------- */
+
+/* Festoon bulbs. Two runs at opposing angles: the crossing is what reads as
+   slack wire at this size. */
+.rs-festoon { left:-8%; right:-8%; top:6%; height:12%; }
+.rs-festoon::before, .rs-festoon::after { content:''; position:absolute; left:0; right:0; top:0; height:100%; }
+.rs-festoon::before { border-top:2px solid rgba(26,22,18,0.9); transform: rotate(1.6deg);
+  background: radial-gradient(circle closest-side, rgba(255,214,150,0.95) 0 40%, rgba(255,170,90,0.26) 62%, transparent 100%) 0 6px/64px 22px repeat-x;
+  filter: drop-shadow(0 0 9px rgba(255,190,120,0.6)); animation: rsFlicker 8s ease-in-out infinite; }
+.rs-festoon::after { border-top:2px solid rgba(26,22,18,0.85); transform: rotate(-2.2deg) translateY(26px); opacity:.85;
+  background: radial-gradient(circle closest-side, rgba(255,204,140,0.9) 0 40%, rgba(255,160,80,0.22) 62%, transparent 100%) 22px 6px/74px 20px repeat-x;
+  filter: drop-shadow(0 0 8px rgba(255,180,110,0.5)); animation: rsFlicker 6.4s ease-in-out infinite; }
+
+.rs-parapet { left:0; right:0; bottom:12%; height:13%;
+  background: linear-gradient(180deg,#2e2a2c,#141213);
+  box-shadow: 0 -12px 30px -14px rgba(0,0,0,.9), inset 0 3px 0 rgba(255,220,180,0.1); }
+.rs-parapet::after { content:''; position:absolute; left:0; right:0; top:0; height:22%;
+  background: linear-gradient(180deg,#4a4446,#241f21); }
+
+.rs-deckchair { right:6%; bottom:20%; width:23%; height:25%; }
+.rs-deckchair::before { content:''; position:absolute; left:0; right:22%; top:0; bottom:0; border-radius:4px;
+  transform: rotate(-5deg); opacity:.75;
+  background: repeating-linear-gradient(90deg, #b8552e 0 8px, #e8d0a4 8px 16px);
+  box-shadow: 0 16px 30px -16px rgba(0,0,0,.85); }
+
+.rs-surface.roofdeck { background:
+  repeating-linear-gradient(90deg, rgba(0,0,0,0.34) 0 3px, transparent 3px 52px),
+  linear-gradient(180deg,#4a4038,#221e1a); }
+
+/* -- Hammock -------------------------------------------------------------- */
+
+/* A frond is a blade, not a blob: the conic gradient cuts real leaflets. */
+.rs-palm { top:-8%; bottom:14%; width:30%; }
+.rs-palm.left  { left:-4%; }
+.rs-palm.right { right:-4%; }
+.rs-palm::before { content:''; position:absolute; bottom:0; width:22px; height:74%;
+  transform-origin: bottom center; border-radius:40% 40% 0 0 / 6% 6% 0 0;
+  background: linear-gradient(90deg,#0e0906,#2e1e10 46%,#0b0604); }
+.rs-palm.left::before  { left:24%;  transform: rotate(7deg); }
+.rs-palm.right::before { right:24%; transform: rotate(-7deg); }
+/* A conic gradient puts every blade on one origin, which at this size reads as
+   crossed sticks rather than a crown. Fronds are long flat ellipses, arranged
+   irregularly around the top of the trunk. */
+.rs-palm::after { content:''; position:absolute; top:8%; width:124%; height:34%; filter: blur(1px);
+  background:
+    radial-gradient(closest-side ellipse, #0e1c11 0 74%, transparent 100%) 12% 40%/122px 26px no-repeat,
+    radial-gradient(closest-side ellipse, #12200f 0 74%, transparent 100%) 42% 16%/104px 22px no-repeat,
+    radial-gradient(closest-side ellipse, #0c1a10 0 74%, transparent 100%) 72% 46%/132px 24px no-repeat,
+    radial-gradient(closest-side ellipse, #101e12 0 74%, transparent 100%) 28% 70%/112px 20px no-repeat,
+    radial-gradient(closest-side ellipse, #0a170d 0 74%, transparent 100%) 64% 78%/96px 18px no-repeat; }
+.rs-palm.left::after  { left:6%; }
+.rs-palm.right::after { right:6%; transform: scaleX(-1); }
+
+.rs-hammock { left:-10%; right:-10%; bottom:-2%; height:23%; opacity:.92;
+  border-radius: 46% 46% 0 0 / 90% 90% 0 0;
+  background: repeating-linear-gradient(90deg, #e6dcc4 0 6px, rgba(120,100,72,0.5) 6px 9px);
+  box-shadow: 0 -16px 40px -18px rgba(0,0,0,.7), inset 0 4px 0 rgba(255,255,255,0.3); }
 
 /* ============================ picker previews ============================= */
 .rs-preview { position:relative; width:100%; aspect-ratio: 16 / 10; overflow:hidden; border-radius:10px; background:#0a0908; }

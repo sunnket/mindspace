@@ -37,7 +37,7 @@ import { getFileForBlock } from '@/lib/fileIngest';
 import { PdfSession, type TextSpan } from '@/lib/pdf/pdfReader';
 import { playSnap, startRain, stopRain, startAmbience, stopAmbience, playPageTurn, playCoverOpen, playCoverClose, playSpineCreak, playPaperSettle } from '@/lib/relaxAudio';
 import { ageMarks, ageFilter, agePresetOf, AGE_PRESETS, type AgeCfg } from '@/lib/pdf/aging';
-import { ROOMS, ROOM_GROUPS, RoomScene, RoomPreview, getRoom, isRoom, type Atmos, type RoomGroup } from './pdfRooms';
+import { ROOMS, ROOM_GROUPS, RoomScene, RoomPreview, getRoom, isRoom, type Atmos, type Room, type RoomGroup } from './pdfRooms';
 
 /* ------------------------------- model ---------------------------------- */
 type Layout = 'scroll' | 'book' | 'typeset';
@@ -290,6 +290,8 @@ interface ReaderState {
   focusSteady: boolean;
   /** Which tint the colour film uses. */
   focusTint: string;
+  /** Rooms you keep coming back to, pinned to the top of the picker. */
+  favs: Atmos[];
   bookmarks: number[]; highlights: Highlight[]; drawings: Stroke[]; stickies: Sticky[];
 }
 const DEFAULTS: ReaderState = {
@@ -297,6 +299,7 @@ const DEFAULTS: ReaderState = {
   age: { preset: 'foxed', amount: 0.75 },
   zen: false, ruler: false, focusMode: 'ruler', focusDarkness: 0.72, typo: TYPO,
   focusSize: 1, focusSteady: false, focusTint: 'amber',
+  favs: [],
   bookmarks: [], highlights: [], drawings: [], stickies: [],
 };
 function arr<T>(v: unknown): T[] { return Array.isArray(v) ? v as T[] : []; }
@@ -324,6 +327,9 @@ function initState(raw: unknown): ReaderState {
     },
     typo: { ...TYPO, ...(r.typo && typeof r.typo === 'object' ? r.typo : {}) },
     page: Math.max(1, r.page || 1),
+    /* A room that has since been renamed away is dropped rather than kept as a
+       dead star in the Saved tab. */
+    favs: arr<Atmos>(r.favs).filter(isRoom),
     bookmarks: arr(r.bookmarks), highlights: arr(r.highlights),
     drawings: arr(r.drawings), stickies: arr<Sticky>(r.stickies).map((s) => ({ ...s, w: s.w || 150, h: s.h || 104 })),
   };
@@ -558,6 +564,10 @@ const I = {
   define: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2zM10 7h6M10 11h4',
   ruler: 'M3 8h18M3 16h18M6 12h12',
   focusMenu: 'M12 3v1m0 16v1m-9-9H2m20 0h-1m-2.64-6.36-.7.7M6.34 17.66l-.7.7m12.72 0-.7-.7M6.34 6.34l-.7-.7M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0z',
+  search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4.2-4.2',
+  star: 'm12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z',
+  dice: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8.5 8.5h.01M15.5 15.5h.01M12 12h.01',
+  check: 'm5 13 4 4L19 7',
 };
 function Ico({ d, s = 16 }: { d: string; s?: number }) {
   return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
@@ -618,7 +628,6 @@ function Reader({ objId }: { objId: string }) {
      section rather than at the top when it was. */
   const [typeJump, setTypeJump] = useState(false);
   const [focusOpen, setFocusOpen] = useState(false);
-  const [roomTab, setRoomTab] = useState<RoomGroup | 'All'>('All');
   const [card, setCard] = useState<{ label: string; blurb: string } | null>(null);
   const [toast, setToast] = useState('');
   const [anim, setAnim] = useState<BookAnim | null>(null);
@@ -1294,6 +1303,13 @@ function Reader({ objId }: { objId: string }) {
     window.setTimeout(() => setCard((c) => (c && c.label === r.label ? null : c)), 2600);
   }, [set]);
 
+  /* Starring a room. Kept on the reader's own state so it travels with the
+     document — the rooms you want for a novel are not the ones you want for a
+     spec, and this board remembers which was which. */
+  const toggleFav = useCallback((k: Atmos) => {
+    setSt((s) => ({ ...s, favs: s.favs.includes(k) ? s.favs.filter((x) => x !== k) : [...s.favs, k] }));
+  }, []);
+
   /* The paper this book is printed on. `aged` is the switch, `age` is which
      paper — memoised so a page's marks aren't regenerated on every render of
      the reader (they're pure, but the object identity is what `AgedPaper`
@@ -1505,59 +1521,18 @@ function Reader({ objId }: { objId: string }) {
       )}
 
       {roomOpen && (
-        <div className="pdfr-drawer" onClick={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
-          <div className="head">
-            <div>
-              <h3>Rooms</h3>
-              <p>Somewhere to read this. {ROOMS.length} of them — the light, the weather and the furniture change, the page doesn&apos;t.</p>
-            </div>
-            <div className="x" title="Close" onClick={() => setRoomOpen(false)}><Ico d={I.close} s={15} /></div>
-          </div>
-
-          <div className="pdfr-tabs">
-            {(['All', ...ROOM_GROUPS] as const).map((g) => (
-              <button key={g} className={`pdfr-tab ${roomTab === g ? 'active' : ''}`} onClick={() => setRoomTab(g)}>{g}</button>
-            ))}
-          </div>
-
-          <div className="body">
-            {ROOM_GROUPS.filter((g) => roomTab === 'All' || roomTab === g).map((g) => (
-              <div key={g}>
-                <h4>{g}</h4>
-                <div className="pdfr-grid">
-                  {ROOMS.filter((r) => r.group === g).map((r) => (
-                    <div key={r.key} className={`pdfr-roomcard ${st.atmos === r.key ? 'active' : ''}`} title={r.blurb} onClick={() => enterRoom(r)}>
-                      <RoomPreview atmos={r.key} />
-                      <div className="cap">
-                        <span className="dot" />{r.label}
-                        {r.sound && <Ico d={I.sound} s={11} />}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* "Page Turn Physics — ⚡ Fast / 📖 Curl / 🚀 Glide" used to sit here.
-              Three settings for one gesture, where two were near-identical
-              rotations and the third ("Glide") slid the page sideways and did
-              not look like a book at all. A flipbook should turn correctly, not
-              ask which kind of correct you would like. There is one turn now,
-              and you can pull it with the corner. */}
-          <div className="foot" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className={`pdfr-btn ${st.sound ? 'active' : ''}`} onClick={once(() => set({ sound: !st.sound }))} title={room.sound ? '' : 'This room is a quiet one'}>
-                <Ico d={st.sound ? I.sound : I.mute} s={14} /> Ambient sound {st.sound ? 'on' : 'off'}
-              </button>
-              <button className={`pdfr-btn ${st.aged ? 'active' : ''}`}
-                title="Which paper, and how worn, lives in Typography"
-                onClick={once(() => set({ aged: !st.aged }))}>
-                <Ico d={I.aged} s={14} /> {st.aged ? agePresetOf(st.age.preset).label : 'Old'} paper
-              </button>
-            </div>
-          </div>
-        </div>
+        <RoomsDrawer
+          atmos={st.atmos}
+          favs={st.favs}
+          sound={st.sound}
+          aged={st.aged}
+          agedLabel={agePresetOf(st.age.preset).label}
+          onPick={enterRoom}
+          onToggleFav={toggleFav}
+          onToggleSound={() => set({ sound: !st.sound })}
+          onToggleAged={() => set({ aged: !st.aged })}
+          onClose={() => setRoomOpen(false)}
+        />
       )}
 
       {stripShown && session && <Filmstrip session={session} page={st.page} bookmarks={st.bookmarks} onJump={go} />}
@@ -1859,6 +1834,222 @@ function useLightZone(active: boolean, deps: unknown[]): Zone | null {
   }, [active, ...deps]);
 
   return zone;
+}
+
+/* --------------------------- the rooms drawer ---------------------------- */
+
+/** Search compares words, so punctuation and case are thrown away first. */
+const normQ = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * How well a room answers what you typed.
+ *
+ * The ranking matters more than the matching: typing "my" should put The
+ * Parlour above rooms whose *blurb* happens to contain "my". Name and genre
+ * beat tags, tags beat prose, and a prefix always beats a substring.
+ */
+function scoreRoom(r: Room, q: string): number {
+  const label = normQ(r.label);
+  const reads = normQ(r.reads ?? '');
+  const tags = r.tags ?? [];
+  if (label.startsWith(q)) return 100;
+  if (reads.startsWith(q)) return 92;
+  if (tags.some((t) => t.startsWith(q))) return 84;
+  if (label.includes(q)) return 62;
+  if (reads.includes(q)) return 56;
+  if (tags.some((t) => t.includes(q))) return 44;
+  if (normQ(r.group).startsWith(q)) return 30;
+  if (normQ(r.blurb).includes(q)) return 22;
+  return 0;
+}
+
+/**
+ * Eighty-five rooms is a shelf, not a menu.
+ *
+ * The old picker was a tab per group over a scroll — fine for twenty-two
+ * rooms, useless once the Genre wing tripled. Three things fix it, and they
+ * are all the same idea: *you already know what you are reading*.
+ *
+ *   • Search matches the words a bookshop puts on the shelf edge, not just the
+ *     room's name — "detective", "manga", "dystopia", "revision" all land.
+ *   • Every genre card prints what it is FOR above its name, so the grid
+ *     answers "which room for this book" with no hover and no tooltip.
+ *   • A card is a photograph, not a form row: the name sits on the scene under
+ *     a scrim, and the scene comes alive under the cursor. Stills stay cheap —
+ *     exactly one card animates at a time.
+ */
+function RoomsDrawer({
+  atmos, favs, sound, aged, agedLabel,
+  onPick, onToggleFav, onToggleSound, onToggleAged, onClose,
+}: {
+  atmos: Atmos; favs: Atmos[]; sound: boolean; aged: boolean; agedLabel: string;
+  onPick: (r: Room) => void;
+  onToggleFav: (k: Atmos) => void;
+  onToggleSound: () => void;
+  onToggleAged: () => void;
+  onClose: () => void;
+}) {
+  const once = useOnce();
+  const [q, setQ] = useState('');
+  const [tab, setTab] = useState<RoomGroup | 'All' | 'Saved'>('All');
+  /* Which card is under the cursor, and therefore the only one animating. */
+  const [live, setLive] = useState<Atmos | null>(null);
+
+  const favSet = useMemo(() => new Set(favs), [favs]);
+  const query = normQ(q);
+
+  /* Searching flattens the groups. When you typed "detective" you want the
+     answer, not the answer filed under a heading you then have to find. */
+  const results = useMemo(() => {
+    if (!query) return null;
+    return ROOMS
+      .map((r) => ({ r, s: scoreRoom(r, query) }))
+      .filter((x) => x.s > 0)
+      .sort((a, b) => b.s - a.s || a.r.label.localeCompare(b.r.label))
+      .map((x) => x.r);
+  }, [query]);
+
+  const counts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of ROOMS) m.set(r.group, (m.get(r.group) ?? 0) + 1);
+    return m;
+  }, []);
+
+  const sections = useMemo<{ title: string; rooms: Room[] }[]>(() => {
+    if (results) return [{ title: results.length === 1 ? '1 room' : `${results.length} rooms`, rooms: results }];
+    if (tab === 'Saved') return [{ title: 'Saved', rooms: ROOMS.filter((r) => favSet.has(r.key)) }];
+    return ROOM_GROUPS
+      .filter((g) => tab === 'All' || tab === g)
+      .map((g) => ({ title: g, rooms: ROOMS.filter((r) => r.group === g) }));
+  }, [results, tab, favSet]);
+
+  const empty = sections.every((s) => !s.rooms.length);
+
+  /* Somewhere you have not just been. Picking inside the JSX trips the purity
+     rule (Math.random during render), and landing on the room you are already
+     in is the one outcome that makes the button feel broken. */
+  const surprise = useCallback(() => {
+    const pool = ROOMS.filter((r) => r.key !== atmos);
+    onPick(pool[Math.floor(Math.random() * pool.length)]);
+  }, [atmos, onPick]);
+
+  return (
+    <div className="pdfr-drawer rooms" onClick={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
+      <div className="head">
+        <div>
+          <h3>Rooms</h3>
+          <p>{ROOMS.length} places to read this. The light, the weather and the furniture change — the page never does.</p>
+        </div>
+        <div className="x" title="Close" onClick={onClose}><Ico d={I.close} s={15} /></div>
+      </div>
+
+      {/* One field, and it searches what a reader actually knows: the kind of
+          book in front of them. */}
+      <div className="pdfr-search">
+        <Ico d={I.search} s={14} />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search rooms — “detective”, “manga”, “revision”…"
+          aria-label="Search reading rooms"
+          spellCheck={false}
+        />
+        {q && <button className="clr" title="Clear" onClick={() => setQ('')}><Ico d={I.close} s={12} /></button>}
+      </div>
+
+      {!query && (
+        <div className="pdfr-tabs">
+          <button className={`pdfr-tab ${tab === 'All' ? 'active' : ''}`} onClick={() => setTab('All')}>
+            All <em>{ROOMS.length}</em>
+          </button>
+          <button className={`pdfr-tab ${tab === 'Saved' ? 'active' : ''}`} onClick={() => setTab('Saved')} title="Rooms you starred">
+            <Ico d={I.star} s={11} /> <em>{favs.length}</em>
+          </button>
+          {ROOM_GROUPS.map((g) => (
+            <button key={g} className={`pdfr-tab ${tab === g ? 'active' : ''}`} onClick={() => setTab(g)}>
+              {g} <em>{counts.get(g) ?? 0}</em>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="body">
+        {empty && (
+          <div className="pdfr-empty">
+            {query
+              ? <><b>Nothing here reads like “{q.trim()}”.</b><span>Try a genre — horror, poetry, legal, manga — or a place, like rain or library.</span></>
+              : <><b>No saved rooms yet.</b><span>Star a room and it will wait for you here.</span></>}
+          </div>
+        )}
+
+        {sections.filter((s) => s.rooms.length > 0).map((s) => (
+          <div key={s.title}>
+            <h4>{s.title}</h4>
+            <div className="pdfr-grid">
+              {s.rooms.map((r) => {
+                const on = atmos === r.key;
+                const saved = favSet.has(r.key);
+                return (
+                  <div
+                    key={r.key}
+                    className={`pdfr-roomcard ${on ? 'active' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={on}
+                    title={r.blurb}
+                    onMouseEnter={() => setLive(r.key)}
+                    onMouseLeave={() => setLive((k) => (k === r.key ? null : k))}
+                    onFocus={() => setLive(r.key)}
+                    onBlur={() => setLive((k) => (k === r.key ? null : k))}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(r); } }}
+                    onClick={once(() => onPick(r))}
+                  >
+                    <RoomPreview atmos={r.key} live={live === r.key} />
+                    <div className="cap">
+                      {r.reads && <b className="reads">{r.reads}</b>}
+                      <span className="name">{r.label}</span>
+                    </div>
+                    <div className="badges">
+                      {r.sound && <span className="snd" title="Comes with an ambient bed"><Ico d={I.sound} s={10} /></span>}
+                      {on && <span className="tick"><Ico d={I.check} s={11} /></span>}
+                    </div>
+                    <button
+                      className={`fav ${saved ? 'on' : ''}`}
+                      title={saved ? 'Remove from Saved' : 'Save this room'}
+                      aria-label={saved ? `Remove ${r.label} from saved` : `Save ${r.label}`}
+                      onClick={(e) => { e.stopPropagation(); once(() => onToggleFav(r.key))(e); }}
+                    >
+                      <Ico d={I.star} s={12} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* "Page Turn Physics — ⚡ Fast / 📖 Curl / 🚀 Glide" used to sit here.
+          Three settings for one gesture, where two were near-identical
+          rotations and the third ("Glide") slid the page sideways and did not
+          look like a book at all. A flipbook should turn correctly, not ask
+          which kind of correct you would like. There is one turn now, and you
+          can pull it with the corner. */}
+      <div className="foot">
+        <button className={`pdfr-btn ${sound ? 'active' : ''}`} onClick={once(onToggleSound)}
+          title="Rooms that have a bed — rain, sea, wind, drone — will play it">
+          <Ico d={sound ? I.sound : I.mute} s={14} /> Sound {sound ? 'on' : 'off'}
+        </button>
+        <button className={`pdfr-btn ${aged ? 'active' : ''}`} onClick={once(onToggleAged)}
+          title="Which paper, and how worn, lives in Typography">
+          <Ico d={I.aged} s={14} /> {aged ? agedLabel : 'Old'} paper
+        </button>
+        <button className="pdfr-btn" title="Take me somewhere" onClick={once(surprise)}>
+          <Ico d={I.dice} s={14} /> Surprise me
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /* --------------------------- the focus drawer ---------------------------- */

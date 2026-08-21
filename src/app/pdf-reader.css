@@ -5,7 +5,7 @@
 
    No top chrome — the page owns the frame. One floating dock at the bottom holds
    every control. Root switches:
-     data-atmos — the room (drawn by pdf-rooms.css / pdfRooms.tsx)   [40 rooms]
+     data-atmos — the room (drawn by pdf-rooms.css / pdfRooms.tsx)   [85 rooms]
      data-aged  — yellows the actual page content (a real filter, not a tint)
      data-tool  — the active annotation tool (drives the page cursor)
    All motion is transform / opacity / filter only.
@@ -434,8 +434,9 @@
 }
 
 /* ------------------------------ rooms drawer ----------------------------- */
-/* Rooms get a real drawer rather than a popover: forty places, each previewed
-   with the actual scene, need room to breathe and a scroll of their own. */
+/* Rooms get a real drawer rather than a popover: 85 places, each previewed
+   with the actual scene, need room to breathe and a scroll of their own — and
+   at that length, a search field rather than a tab bar you read top to bottom. */
 .pdfr-drawer { position:absolute; top:0; right:0; bottom:0; z-index:34; width:372px; max-width:92vw;
   display:flex; flex-direction:column; color:#f4ece0;
   background: linear-gradient(200deg, rgba(30,26,22,0.92), rgba(14,12,10,0.94));
@@ -451,12 +452,42 @@
   color: rgba(244,236,224,0.6); cursor:pointer; transition: background .16s, color .16s; }
 .pdfr-drawer .x:hover { background: rgba(255,255,255,0.1); color:#fff; }
 
-.pdfr-tabs { display:flex; flex-wrap:wrap; gap:4px; padding:0 16px 12px; }
-.pdfr-tab { flex:0 0 auto; height:29px; padding:0 12px; border-radius:9px; font-size:11px; font-weight:700; letter-spacing:.02em;
+/* Rooms is the widest drawer: at 85 places the grid is the whole interface,
+   and a card has to be big enough to read as a photograph. */
+.pdfr-drawer.rooms { width:412px; }
+
+/* One field, above the tabs, because searching is the primary way in once the
+   list is longer than a screen. */
+.pdfr-search { display:flex; align-items:center; gap:8px; margin:0 16px 10px; padding:0 10px; height:36px;
+  border-radius:11px; background: rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);
+  color: rgba(244,236,224,0.5); transition: border-color .16s, background .16s; }
+.pdfr-search:focus-within { border-color: rgba(var(--accent),0.6); background: rgba(255,255,255,0.09);
+  box-shadow: 0 0 0 3px rgba(var(--accent),0.12); }
+.pdfr-search input { flex:1; min-width:0; height:100%; border:0; outline:0; background:transparent;
+  color:#f4ece0; font-size:12px; font-weight:600; letter-spacing:.01em; font-family: inherit; }
+.pdfr-search input::placeholder { color: rgba(244,236,224,0.34); font-weight:500; }
+.pdfr-search .clr { flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:20px; height:20px;
+  border:0; border-radius:6px; cursor:pointer; background: rgba(255,255,255,0.1); color: rgba(244,236,224,0.7); }
+.pdfr-search .clr:hover { background: rgba(255,255,255,0.18); color:#fff; }
+
+/* Tabs scroll on one line rather than wrapping to three: a wrapped tab bar
+   pushes the grid down the screen every time a count changes. */
+.pdfr-tabs { display:flex; flex-wrap:nowrap; overflow-x:auto; gap:4px; padding:0 16px 12px;
+  scrollbar-width:none; -ms-overflow-style:none; }
+.pdfr-tabs::-webkit-scrollbar { display:none; }
+.pdfr-tab { flex:0 0 auto; display:inline-flex; align-items:center; gap:5px; height:29px; padding:0 11px;
+  border-radius:9px; font-size:11px; font-weight:700; letter-spacing:.02em; white-space:nowrap;
   color: rgba(244,236,224,0.6); background: rgba(255,255,255,0.05); cursor:pointer; border:1px solid transparent;
   transition: background .16s, color .16s, border-color .16s; }
 .pdfr-tab:hover { color:#fff; background: rgba(255,255,255,0.1); }
 .pdfr-tab.active { color:#fff; background: rgba(var(--accent),0.22); border-color: rgba(var(--accent),0.5); }
+.pdfr-tab em { font-style:normal; font-size:9.5px; font-weight:800; opacity:.5;
+  font-variant-numeric: tabular-nums; }
+.pdfr-tab.active em { opacity:.8; }
+
+.pdfr-empty { padding:34px 8px; text-align:center; display:flex; flex-direction:column; gap:6px; }
+.pdfr-empty b { font-size:12.5px; font-weight:700; color: rgba(244,236,224,0.82); }
+.pdfr-empty span { font-size:11.5px; line-height:1.5; color: rgba(244,236,224,0.44); }
 
 .pdfr-drawer .body { flex:1; overflow-y:auto; overscroll-behavior: contain; padding: 2px 16px 18px;
   scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent; }
@@ -466,18 +497,64 @@
 .pdfr-drawer h4:first-child { margin-top:4px; }
 .pdfr-grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; }
 
-.pdfr-roomcard { position:relative; cursor:pointer; border-radius:12px; padding:3px; background: rgba(255,255,255,0.05);
-  border:1px solid rgba(255,255,255,0.08); transition: transform .18s cubic-bezier(.16,1,.3,1), border-color .18s, background .18s; }
-.pdfr-roomcard:hover { transform: translateY(-2px); background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.18); }
-.pdfr-roomcard.active { border-color: rgba(var(--accent),0.85); background: rgba(var(--accent),0.14);
-  box-shadow: 0 0 0 1px rgba(var(--accent),0.35), 0 10px 26px -12px rgba(0,0,0,0.8); }
-.pdfr-roomcard .cap { display:flex; align-items:center; gap:5px; padding:6px 5px 3px; font-size:11px; font-weight:700; letter-spacing:.01em; }
-.pdfr-roomcard .cap .dot { width:5px; height:5px; border-radius:50%; background: rgb(var(--accent)); opacity:0; flex:0 0 auto; }
-.pdfr-roomcard.active .cap .dot { opacity:1; }
-.pdfr-roomcard .cap .snd { margin-left:auto; opacity:.45; flex:0 0 auto; }
+/* A room card is a photograph with its title printed on it, not a thumbnail
+   with a label underneath. The scrim is what lets type sit on a scene whose
+   brightness we do not control — 85 rooms run from Studio white to Deep Space
+   black, and one gradient has to carry both. */
+.pdfr-roomcard { position:relative; cursor:pointer; border-radius:12px; overflow:hidden; isolation:isolate;
+  background:#0a0908; border:1px solid rgba(255,255,255,0.1); outline:none;
+  transition: transform .2s cubic-bezier(.16,1,.3,1), border-color .18s, box-shadow .18s; }
+.pdfr-roomcard:hover { transform: translateY(-3px); border-color: rgba(255,255,255,0.24);
+  box-shadow: 0 16px 30px -16px rgba(0,0,0,0.9); }
+.pdfr-roomcard:focus-visible { border-color: rgb(var(--accent));
+  box-shadow: 0 0 0 3px rgba(var(--accent),0.3); }
+.pdfr-roomcard.active { border-color: rgba(var(--accent),0.9);
+  box-shadow: 0 0 0 1px rgba(var(--accent),0.4), 0 12px 28px -12px rgba(0,0,0,0.85); }
 
-.pdfr-drawer .foot { padding:12px 16px 16px; border-top:1px solid rgba(255,255,255,0.09); display:flex; gap:8px; }
-.pdfr-drawer .foot .pdfr-btn { flex:1; background: rgba(255,255,255,0.05); }
+/* The scene fills the card edge to edge.
+   The stage is a fixed 800×500 that gets scaled down, so `--rs-k` has to be
+   big enough to COVER the card at every drawer width — it was 0.18 against a
+   157px card, which left a black L down the right and bottom of all 85
+   previews. Scaling to cover crops a few percent instead, which is what a
+   photograph does anyway. */
+.pdfr-roomcard .rs-preview { border-radius:0; aspect-ratio: 16 / 11; }
+.pdfr-roomcard .rs-preview-stage { --rs-k: 0.255; }
+
+.pdfr-roomcard .cap { position:absolute; left:0; right:0; bottom:0; z-index:2;
+  display:flex; flex-direction:column; gap:1px; padding:16px 9px 7px; pointer-events:none;
+  background: linear-gradient(180deg, transparent, rgba(6,5,4,0.5) 42%, rgba(6,5,4,0.88)); }
+/* What the room is FOR, above what it is called. This line is the point of the
+   Genre wing: it turns a grid of pretty pictures into an index. */
+.pdfr-roomcard .cap .reads { font-size:8px; font-weight:800; letter-spacing:0.14em; text-transform:uppercase;
+  color: rgb(var(--accent)); opacity:.92; text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+.pdfr-roomcard .cap .name { font-size:11.5px; font-weight:700; letter-spacing:.005em; color:#fff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.95); line-height:1.25; }
+
+.pdfr-roomcard .badges { position:absolute; left:7px; top:7px; z-index:3; display:flex; align-items:center; gap:4px; }
+.pdfr-roomcard .badges .snd,
+.pdfr-roomcard .badges .tick { display:flex; align-items:center; justify-content:center; width:18px; height:18px;
+  border-radius:6px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.pdfr-roomcard .badges .snd { background: rgba(10,8,6,0.55); color: rgba(255,255,255,0.72); }
+.pdfr-roomcard .badges .tick { background: rgb(var(--accent)); color:#14100c; }
+
+/* The star only shows on hover, on the card you are already looking at, or
+   when it is on — otherwise 85 grey stars compete with the pictures. */
+.pdfr-roomcard .fav { position:absolute; right:6px; top:6px; z-index:3; width:22px; height:22px;
+  display:flex; align-items:center; justify-content:center; border:0; border-radius:7px; cursor:pointer;
+  background: rgba(10,8,6,0.5); color: rgba(255,255,255,0.55); opacity:0;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  transition: opacity .16s, color .16s, background .16s, transform .16s; }
+.pdfr-roomcard:hover .fav,
+.pdfr-roomcard:focus-within .fav,
+.pdfr-roomcard .fav.on { opacity:1; }
+.pdfr-roomcard .fav:hover { background: rgba(10,8,6,0.75); color:#fff; transform: scale(1.1); }
+.pdfr-roomcard .fav.on { color:#ffcf6a; }
+.pdfr-roomcard .fav.on svg { fill: currentColor; }
+
+.pdfr-drawer .foot { padding:12px 16px 16px; border-top:1px solid rgba(255,255,255,0.09);
+  display:flex; flex-wrap:wrap; gap:8px; }
+.pdfr-drawer .foot .pdfr-btn { flex:1 1 46%; justify-content:center; background: rgba(255,255,255,0.05); }
+.pdfr-drawer.rooms .foot .pdfr-btn:last-child { flex-basis:100%; }
 
 .pdfr-range { -webkit-appearance:none; appearance:none; height:4px; border-radius:3px; background: rgba(255,255,255,0.16); outline:none; }
 .pdfr-range::-webkit-slider-thumb { -webkit-appearance:none; width:15px; height:15px; border-radius:50%; background: rgb(var(--accent)); cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,0.4); }
