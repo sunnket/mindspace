@@ -187,5 +187,113 @@ export default function RelaxIcon({ id, size = 18 }: { id: RelaxEffectId; size?:
           <path d="M20.4 5c-.4 3.8 0 7.6 1 11" opacity="0.35" />
         </svg>
       );
+
+    /* A fish seen from above, curled — which is how the pond reads. */
+    case 'koi':
+      return (
+        <svg {...common}>
+          <path d="M15.4 8.2c2.6 1 3.7 3.4 3 5.9-.8 2.6-3.3 4-6 3.4-2.6-.6-4.2-3-3.7-5.6.5-2.6 3-4.5 6.7-3.7Z" />
+          <path d="M9 12.6 4.6 9.4v6.4L9 13.4" />
+          <circle cx="15.2" cy="11.4" r="0.9" fill="currentColor" stroke="none" />
+        </svg>
+      );
+
+    /* A drop, and the bloom under it. */
+    case 'ink':
+      return (
+        <svg {...common}>
+          <path d="M12 3.2c1.8 2.4 3 4 3 5.4a3 3 0 0 1-6 0c0-1.4 1.2-3 3-5.4Z" />
+          <path d="M7.2 14.6c1.6-1 3.2-1.2 4.8-1.2s3.2.2 4.8 1.2" opacity="0.7" />
+          <path d="M4.8 18.2c2.4-1.6 4.8-2 7.2-2s4.8.4 7.2 2" opacity="0.45" />
+        </svg>
+      );
+
+    /* Two films with their highlights. */
+    case 'soap':
+      return (
+        <svg {...common}>
+          <circle cx="9.4" cy="13.6" r="5.6" />
+          <circle cx="16.6" cy="7.8" r="3.4" />
+          <path d="M6.6 10.8a3.6 3.6 0 0 1 1.8-1.4" opacity="0.75" />
+          <path d="M15.2 6.4a2 2 0 0 1 1.1-.8" opacity="0.6" />
+        </svg>
+      );
+
+    /* A pane, a bead that is still sitting, and one that has gone. */
+    case 'glassrain':
+      return (
+        <svg {...common}>
+          <rect x="3.4" y="3.4" width="17.2" height="17.2" rx="2" opacity="0.5" />
+          <path d="M9 7.6c0 1-1.4 1.7-1.4 3a1.4 1.4 0 0 0 2.8 0c0-1.3-1.4-2-1.4-3Z" />
+          <path d="M15.2 6.6c0 1.1-1.5 1.9-1.5 3.3a1.5 1.5 0 0 0 3 0c0-1.4-1.5-2.2-1.5-3.3Z" />
+          <path d="M15.2 11.4v5.8" opacity="0.55" />
+        </svg>
+      );
+
+    /* The clock, half gone. */
+    case 'dandelion':
+      return (
+        <svg {...common}>
+          <path d="M11 21v-8" />
+          <circle cx="11" cy="10" r="3.4" strokeDasharray="1.6 2.2" />
+          <path d="M17.4 4.6 15.6 6.4M20.4 8.2l-2.4.8M18.6 12.8l-2.2-.6" opacity="0.7" />
+          <circle cx="18.4" cy="3.6" r="1.1" opacity="0.8" />
+          <circle cx="21" cy="7" r="0.9" opacity="0.6" />
+        </svg>
+      );
+
+    /* Six-fold symmetry — the thing itself. */
+    case 'kaleido':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="8.6" opacity="0.55" />
+          <path d="M12 3.4 16.4 12 12 20.6 7.6 12Z" />
+          <path d="M4 8.6 20 15.4M20 8.6 4 15.4" opacity="0.5" />
+        </svg>
+      );
+
+    /* Three, getting smaller. */
+    case 'stones':
+      return (
+        <svg {...common}>
+          <ellipse cx="12" cy="18.4" rx="7.4" ry="2.6" />
+          <ellipse cx="12" cy="13.2" rx="5.4" ry="2.2" />
+          <ellipse cx="12" cy="8.6" rx="3.4" ry="1.8" />
+        </svg>
+      );
+
+    /* A bed of coals with two sparks off it. */
+    case 'embers':
+      return (
+        <svg {...common}>
+          <path d="M3.6 19.4c2.4-2 5.2-3 8.4-3s6 1 8.4 3" />
+          <path d="M6.6 16.2c1.6-1 3.4-1.5 5.4-1.5s3.8.5 5.4 1.5" opacity="0.6" />
+          <circle cx="9" cy="8.4" r="1.2" />
+          <circle cx="15.2" cy="5.4" r="0.9" opacity="0.7" />
+          <circle cx="13" cy="10.6" r="0.7" opacity="0.5" />
+        </svg>
+      );
+
+    /* Bell and tentacles. */
+    case 'jellyfish':
+      return (
+        <svg {...common}>
+          <path d="M5 12a7 7 0 0 1 14 0Z" />
+          <path d="M8 12.4c0 2-.9 2.6-.9 4.2s.9 2 .9 3.4" opacity="0.8" />
+          <path d="M12 12.4c0 2.2-1 2.8-1 4.6s1 2.2 1 3.6" opacity="0.65" />
+          <path d="M16 12.4c0 2-.9 2.6-.9 4.2s.9 2 .9 3.4" opacity="0.5" />
+        </svg>
+      );
+
+    /* One lit, one that has been put out. */
+    case 'candles':
+      return (
+        <svg {...common}>
+          <rect x="4.6" y="10.4" width="4.4" height="10" rx="1" />
+          <path d="M6.8 9.6c1.4-1.2 1.9-2.2 1.9-3.1a1.9 1.9 0 0 0-3.8 0c0 .9.5 1.9 1.9 3.1Z" />
+          <rect x="14.4" y="12.4" width="4" height="8" rx="1" opacity="0.65" />
+          <path d="M16.4 11.4c.7-.8.3-1.6-.3-2.2" opacity="0.5" />
+        </svg>
+      );
   }
 }

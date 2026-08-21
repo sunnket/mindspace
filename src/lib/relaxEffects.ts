@@ -22,6 +22,7 @@
  */
 
 import { BLOOM_FLOWERS, BLOOM_LEAVES } from './bloomAssets';
+import { RELAX_DRIFT, RELAX_KOI, RELAX_SEEDHEAD } from './relaxAssets';
 import {
   HIRAJOSHI,
   PENTATONIC,
@@ -32,6 +33,7 @@ import {
   playHandpan,
   playKoto,
   playLaunch,
+  playPlop,
   playSnap,
   playSparkle,
   playWhoosh,
@@ -58,7 +60,18 @@ export type RelaxEffectId =
   | 'lanterns'
   | 'gate'
   | 'breathing'
-  | 'aurora';
+  | 'aurora'
+  /* the second shelf */
+  | 'koi'
+  | 'ink'
+  | 'soap'
+  | 'glassrain'
+  | 'dandelion'
+  | 'kaleido'
+  | 'stones'
+  | 'embers'
+  | 'jellyfish'
+  | 'candles';
 
 export interface Particle {
   el: HTMLElement;
@@ -98,9 +111,22 @@ export interface EffectApi {
   readonly isDark: boolean;
 }
 
+/**
+ * What shelf an effect sits on in the picker.
+ *
+ * Twenty-seven tiles in one undifferentiated grid is a wall, and you stop
+ * reading a wall after the first row. Grouping by what the thing IS — water,
+ * sky, garden, firelight, something to play with, something to sit in front of
+ * — is how you find the one you are in the mood for without reading all of it.
+ */
+export type RelaxGroup = 'Water' | 'Sky' | 'Garden' | 'Firelight' | 'Play' | 'Stillness';
+
+export const RELAX_GROUPS: readonly RelaxGroup[] = ['Water', 'Garden', 'Sky', 'Firelight', 'Play', 'Stillness'];
+
 export interface RelaxEffect {
   id: RelaxEffectId;
   label: string;
+  group: RelaxGroup;
   blurb: string;
   space: 'world' | 'screen';
   /** colour of the shockwave ring that opens the burst; '' for none */
@@ -204,6 +230,7 @@ function preloadFlowers() {
 const flowers: RelaxEffect = {
   id: 'flowers',
   label: 'Flower Burst',
+  group: 'Garden',
   blurb: 'Blooms pop from your cursor and drift away on the breeze.',
   space: 'world',
   flash: 'rgba(255, 140, 170, 0.55)',
@@ -310,6 +337,7 @@ const BLOOM_STEM_GREENS = [
 const blooming: RelaxEffect = {
   id: 'blooming',
   label: 'Blooming Garden',
+  group: 'Garden',
   blurb: 'Press the canvas and a flowerbed grows out of it — stems climb, leaves unfurl, and the buds blow open in their own time.',
   space: 'world',
   flash: 'rgba(150, 205, 145, 0.42)',
@@ -470,6 +498,7 @@ let petalSeedUntil = 0;
 const petalfall: RelaxEffect = {
   id: 'petalfall',
   label: 'Petal Drift',
+  group: 'Garden',
   blurb: 'Blossom and leaf come down across the whole canvas, on a wind that gusts and settles. Lasts a minute.',
   space: 'screen',
   flash: '',
@@ -579,6 +608,7 @@ let stormTimers: number[] = [];
 const rain: RelaxEffect = {
   id: 'rain',
   label: 'Rainfall',
+  group: 'Water',
   blurb: 'A full minute of downpour across the whole canvas, with real rain on the soundtrack and lightning cracking overhead every so often.',
   space: 'screen',
   flash: '',
@@ -717,6 +747,7 @@ const TRAIL = 2;
 const fireworks: RelaxEffect = {
   id: 'fireworks',
   label: 'Fireworks',
+  group: 'Sky',
   blurb: 'Shells climb from your cursor trailing sparks, hang for a beat, then burst into the sky.',
   space: 'world',
   flash: 'rgba(255, 214, 10, 0.4)',
@@ -848,6 +879,7 @@ function galaxyOrbit(p: Particle, growthLo: number, growthHi: number, sweepLo: n
 const galaxy: RelaxEffect = {
   id: 'galaxy',
   label: 'Galaxy Swirl',
+  group: 'Sky',
   blurb: 'A whole spiral galaxy winds out of your cursor — a molten core, arms of blue-white and gold stars laced with glowing gas, turning in deep space.',
   space: 'world',
   flash: 'rgba(150, 130, 255, 0.4)',
@@ -1000,6 +1032,7 @@ const POPPED = 1;
 const bubblewrap: RelaxEffect = {
   id: 'bubblewrap',
   label: 'Bubble Wrap',
+  group: 'Play',
   blurb: 'A whole sheet of it. Work your way across and pop every blister — each one snaps. Click the canvas again for a fresh sheet.',
   space: 'screen',
   flash: '',
@@ -1103,6 +1136,7 @@ const rodX = (w: number, index: number) =>
 const chimes: RelaxEffect = {
   id: 'chimes',
   label: 'Wind Chimes',
+  group: 'Stillness',
   blurb: 'A rack of chimes hangs over the canvas. Sweep your cursor through them and they swing and ring — every note is in key.',
   space: 'screen',
   flash: '',
@@ -1195,6 +1229,7 @@ const chimes: RelaxEffect = {
 const ripples: RelaxEffect = {
   id: 'ripples',
   label: 'Zen Ripples',
+  group: 'Water',
   blurb: 'Touch the water. Rings spread out and chime — every note is in key, so keep tapping and it stays music.',
   space: 'world',
   flash: '',
@@ -1261,6 +1296,7 @@ const GLINT = 3;   // sun on the water further out
 const ocean: RelaxEffect = {
   id: 'ocean',
   label: 'Ocean Shore',
+  group: 'Water',
   blurb: 'Stand at the waterline. Sheets of water race up the sand, hiss into foam, and drag back out under the next one. A full minute of it, over real surf.',
   space: 'screen',
   flash: '',
@@ -1470,6 +1506,7 @@ const DOME = 1;
 const handpan: RelaxEffect = {
   id: 'handpan',
   label: 'Handpan',
+  group: 'Stillness',
   blurb: 'A real instrument, tuned so it cannot sound wrong. Tap the tone fields — every note is in key, so play as fast or as slow as you like.',
   space: 'screen',
   flash: '',
@@ -1564,6 +1601,7 @@ const handpan: RelaxEffect = {
 const snow: RelaxEffect = {
   id: 'snow',
   label: 'Snowfall',
+  group: 'Sky',
   blurb: 'Everything goes quiet. Snow drifts down across the whole canvas for a minute, with a soft wind behind it.',
   space: 'screen',
   flash: '',
@@ -1626,6 +1664,7 @@ const GLOW = 1;
 const fireflies: RelaxEffect = {
   id: 'fireflies',
   label: 'Fireflies',
+  group: 'Garden',
   blurb: 'Dusk in a field. They wander, they pulse, they blink out. Catch one and it flares and rings.',
   space: 'world',
   flash: '',
@@ -1714,6 +1753,7 @@ const LANTERN_COLORS = ['#FFB65C', '#FF8E53', '#FFD08A', '#FF7043'];
 const lanterns: RelaxEffect = {
   id: 'lanterns',
   label: 'Sky Lanterns',
+  group: 'Firelight',
   blurb: 'Let them go. Paper lanterns lift off, sway on the warm air and shrink away into the dark.',
   space: 'world',
   flash: 'rgba(255, 182, 92, 0.35)',
@@ -1832,6 +1872,7 @@ function gateRoofSvg(): string {
 const gate: RelaxEffect = {
   id: 'gate',
   label: 'Gate of Stillness',
+  group: 'Stillness',
   blurb: 'A hall of characters beneath a golden roof. Run the cursor through them — they scatter, they settle, and every one you touch plucks a koto string.',
   space: 'screen',
   flash: '',
@@ -1986,6 +2027,7 @@ const gate: RelaxEffect = {
 const breathing: RelaxEffect = {
   id: 'breathing',
   label: 'Breathing Space',
+  group: 'Stillness',
   blurb: 'A centering box breathing guide. Breathe in as the glowing ring expands, hold at the peak, and breathe out as it contracts.',
   space: 'screen',
   flash: 'rgba(230, 240, 255, 0.15)',
@@ -2096,6 +2138,7 @@ const AURORA_HUES = [150, 165, 185, 275, 300];
 const aurora: RelaxEffect = {
   id: 'aurora',
   label: 'Aurora',
+  group: 'Sky',
   blurb: 'Curtains of light over a dark sky. They fold, drift and dissolve, and there is nothing to do but watch them.',
   space: 'screen',
   flash: '',
@@ -2169,13 +2212,996 @@ const aurora: RelaxEffect = {
 
 /* -------------------------------------------------------------------------- */
 
+
+/** koi's second species — the ring a scatter of food leaves on the surface. */
+const RIPPLE = 1;
+/** The pane the beads sit on, built once per shower. */
+let glassPane: HTMLElement | null = null;
+
+/* ============================== the second shelf ==========================
+   Ten effects added 2026-08-21. The brief for all of them was the same: it has
+   to be worth doing a second time. That rules out anything that is only a
+   burst — the ones that earn their place either have something in them that
+   behaves (koi, candles, stones), or they do the one thing your eye cannot stop
+   watching (ink unfurling, a bead finally letting go of a window).
+
+   Every one obeys the three rules at the top of this file. Where an effect
+   needs to remember something between particles it keeps a module-level scrap
+   of state, the way bubblewrap keeps its sheet.
+   ========================================================================= */
+
+/* ------------------------------------------------------------------- koi -- */
+/**
+ * The only creatures in the catalogue with an opinion.
+ *
+ * Koi wander on a lazy sine until you drop food, and then every fish in the
+ * pond turns and comes for it — which is the entire pleasure of feeding fish,
+ * and the reason this is worth clicking twice. They steer rather than snap:
+ * heading is chased toward the target a few hundredths of a radian per frame,
+ * so a fish arrives in a long curve like something with a body.
+ */
+let koiFood: { x: number; y: number; until: number } | null = null;
+/** Where the pond is. Without an edge the fish simply leave, which they did. */
+let koiHome: { x: number; y: number } | null = null;
+const KOI_POND = 760;
+
+const koi: RelaxEffect = {
+  id: 'koi',
+  label: 'Koi Pond',
+  group: 'Water',
+  blurb: 'Fish the size of your hand, going nowhere in particular. Click the water to scatter food — every one of them turns and comes.',
+  space: 'world',
+  flash: '',
+  burstMs: 60_000,
+  openingPop: 6,
+  spawnEveryMs: 2600,
+  spawnPerTick: 1,
+  maxParticles: 30,
+  onStart(x, y) {
+    startAmbience('ocean');
+    koiHome = { x, y };
+  },
+  onStop() {
+    stopAmbience('ocean');
+    koiFood = null;
+    koiHome = null;
+  },
+  onBurst(x, y, api) {
+    koiFood = { x, y, until: performance.now() + 5600 };
+    playPlop();
+    api.spawn(x, y, 3, RIPPLE);
+  },
+  create(x, y, now, api, kind = 0) {
+    if (kind === RIPPLE) {
+      const el = document.createElement('div');
+      const size = 44;
+      const ring = api.isDark
+        ? 'border:2px solid rgba(170,220,255,0.55);'
+        : 'border:2px solid rgba(60,130,180,0.5);';
+      baseStyle(el, size, `border-radius:50%;${ring}`);
+      const p = particle(el, x, y, size, rand(1500, 2200), now);
+      p.a = rand(0, 0.3);
+      p.b = rand(3, 6);
+      return p;
+    }
+
+    const el = document.createElement('img');
+    const size = rand(48, 92);
+    el.src = pick(RELAX_KOI);
+    el.draggable = false;
+    /* Fish sit UNDER the surface, so they are never quite in focus and never
+       quite at full strength. That one line of separation is what stops them
+       reading as stickers dropped on the board. */
+    baseStyle(el, size, 'object-fit:contain;filter:saturate(0.86) blur(0.35px);');
+
+    const p = particle(el, x + rand(-420, 420), y + rand(-300, 300), size, 600_000, now);
+    p.a = rand(0, Math.PI * 2);       // heading
+    p.c = rand(0.42, 0.86);           // cruise speed
+    p.b = rand(0.0016, 0.0042);       // how fast it wanders off course
+    p.d = rand(0, Math.PI * 2);       // wander phase
+    p.maxScale = rand(0.9, 1.1);
+    return p;
+  },
+  step(p, t, now) {
+    if (p.kind === RIPPLE) {
+      const local = (t - p.a) / (1 - p.a);
+      if (local <= 0) { p.el.style.opacity = '0'; return; }
+      const eased = 1 - Math.pow(1 - local, 2.4);
+      p.el.style.transform =
+        `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${0.3 + eased * p.b})`;
+      p.el.style.opacity = String((1 - local) * 0.55);
+      return;
+    }
+
+    /* Wandering: a slow sine on the heading. Turning toward food overrides it,
+       and the turn is RATE-LIMITED — a fish that snapped instantly to the new
+       bearing would read as a cursor, not an animal. */
+    let turn = Math.sin(now * p.b + p.d) * 0.03;
+    let speed = p.c;
+
+    /* Two things can override the wander, and the order matters: food first,
+       then the edge of the pond. Without the edge the fish just leave — which
+       is exactly what they did the first time, and a pond you have to keep
+       re-stocking is not restful. */
+    let target: { x: number; y: number } | null = null;
+    let chasing = false;
+    if (koiFood && now < koiFood.until) {
+      target = koiFood;
+      chasing = true;
+    } else if (koiHome) {
+      const out = Math.hypot(p.x - koiHome.x, p.y - koiHome.y);
+      if (out > KOI_POND) target = koiHome;
+    }
+
+    if (target) {
+      /* Each fish aims at its own point on a ring around the food rather than
+         at the food itself. Aimed at one point they arrive and stack into a
+         single clot of fish, which looks like a bug and not like feeding. */
+      const spread = chasing ? 74 : 0;
+      const dx = target.x + Math.cos(p.d * 7.3) * spread - p.x;
+      const dy = target.y + Math.sin(p.d * 7.3) * spread - p.y;
+      const want = Math.atan2(dy, dx);
+      let diff = want - p.a;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      const near = Math.hypot(dx, dy);
+      // Steer, never snap: a fish that turned instantly would read as a cursor.
+      turn = Math.max(-0.05, Math.min(0.05, diff * 0.045));
+      // Crowd the food, then mill about in it rather than piling on one point.
+      if (chasing) speed = near > 60 ? p.c * 2.1 : p.c * 0.6;
+    }
+
+    p.a += turn;
+    p.x += Math.cos(p.a) * speed;
+    p.y += Math.sin(p.a) * speed;
+
+    // The tail beat: a small roll, faster when the fish is hurrying.
+    const beat = Math.sin(now * 0.006 + p.d) * (speed > p.c ? 7 : 4);
+    const fade = Math.min(1, (now - p.born) / 1400);
+
+    p.el.style.transform =
+      `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) ` +
+      `rotate(${(p.a * 180) / Math.PI + 90 + beat}deg) scale(${p.maxScale})`;
+    p.el.style.opacity = String(fade * 0.92);
+  },
+};
+
+/* ------------------------------------------------------------------- ink -- */
+/**
+ * A drop of ink let into still water.
+ *
+ * The whole thing is one gesture and it is over in four seconds, but it is the
+ * hardest to look away from in the set. Three species: the head, which falls
+ * and blooms; the tendrils, which are thrown outward and curl as they slow; and
+ * the veil, a wide soft stain that arrives last and holds the shape together.
+ *
+ * On dark paper real ink would be invisible, so the same physics carries a
+ * luminous pigment instead and blends on screen rather than multiply.
+ */
+const INK_DARK = ['#63e8ff', '#7aa2ff', '#c58bff', '#5affc8'];
+const INK_LIGHT = ['#1b2a6b', '#2d1550', '#0b3a52', '#3a0f2e'];
+
+const ink: RelaxEffect = {
+  id: 'ink',
+  label: 'Ink in Water',
+  group: 'Water',
+  blurb: 'One drop, and then four seconds you will not look away from. It unfurls, throws out threads, and settles into a stain.',
+  space: 'world',
+  flash: '',
+  burstMs: 0,
+  openingPop: 1,
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: 420,
+  onBurst(x, y, api) {
+    playPlop();
+    api.spawn(x, y, 14, 1);   // tendrils
+    api.spawn(x, y, 3, 2);    // veil
+  },
+  create(x, y, now, api, kind = 0) {
+    const tint = pick(api.isDark ? INK_DARK : INK_LIGHT);
+    const blend = api.isDark ? 'mix-blend-mode:screen;' : 'mix-blend-mode:multiply;';
+    const el = document.createElement('div');
+
+    if (kind === 1) {
+      // A thread: long, soft, and thrown outward on its own bearing.
+      const size = rand(30, 62);
+      baseStyle(
+        el, size,
+        `${blend}border-radius:50%;filter:blur(${rand(3, 7).toFixed(1)}px);` +
+          `background:radial-gradient(closest-side ellipse, ${tint} 0 40%, transparent 100%);`
+      );
+      const p = particle(el, x, y, size, rand(2600, 4200), now);
+      p.a = rand(0, Math.PI * 2);
+      p.c = rand(0.9, 2.6);          // how far it is thrown
+      p.b = rand(-0.5, 0.5);         // the curl
+      p.d = rand(2.4, 5.6);          // how much it stretches as it goes
+      p.tint = tint;
+      p.kind = 1;
+      return p;
+    }
+
+    if (kind === 2) {
+      // The stain. Arrives late, spreads wide, never fully leaves.
+      const size = rand(150, 240);
+      baseStyle(
+        el, size,
+        `${blend}border-radius:50%;filter:blur(${rand(14, 26).toFixed(0)}px);opacity:0;` +
+          `background:radial-gradient(closest-side circle, ${tint} 0 46%, transparent 100%);`
+      );
+      const p = particle(el, x + rand(-30, 30), y + rand(-30, 30), size, rand(4200, 5600), now);
+      p.a = rand(0.16, 0.34);
+      p.b = rand(1.5, 2.4);
+      p.kind = 2;
+      return p;
+    }
+
+    // The head of the drop.
+    const size = rand(54, 80);
+    baseStyle(
+      el, size,
+      `${blend}border-radius:50%;filter:blur(6px);` +
+        `background:radial-gradient(closest-side circle, ${tint} 0 52%, transparent 100%);`
+    );
+    const p = particle(el, x, y, size, 3600, now);
+    p.b = rand(2.6, 3.6);
+    return p;
+  },
+  step(p, t) {
+    if (p.kind === 1) {
+      // Ease-out along a curving bearing, stretching as it slows — that stretch
+      // is the difference between a thread of ink and a flying dot.
+      const e = 1 - Math.pow(1 - t, 2.6);
+      const ang = p.a + p.b * e;
+      const dist = e * p.c * 120;
+      const stretch = 1 + e * p.d;
+      p.el.style.transform =
+        `translate3d(${p.x - p.size / 2 + Math.cos(ang) * dist}px, ${p.y - p.size / 2 + Math.sin(ang) * dist}px, 0) ` +
+        `rotate(${(ang * 180) / Math.PI}deg) scale(${stretch}, ${1 + e * 0.5})`;
+      p.el.style.opacity = String(Math.min(1, t * 6) * (1 - t) * 0.7);
+      return;
+    }
+
+    if (p.kind === 2) {
+      const local = Math.max(0, (t - p.a) / (1 - p.a));
+      const e = 1 - Math.pow(1 - local, 2);
+      p.el.style.transform =
+        `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${0.4 + e * p.b})`;
+      p.el.style.opacity = String(Math.min(1, local * 3) * (1 - local) * 0.42);
+      return;
+    }
+
+    const e = 1 - Math.pow(1 - t, 2.2);
+    p.el.style.transform =
+      `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${0.3 + e * p.b})`;
+    p.el.style.opacity = String(Math.min(1, t * 8) * (1 - t) * 0.85);
+  },
+};
+
+/* ------------------------------------------------------------------ soap -- */
+/**
+ * Bubbles you have to chase.
+ *
+ * Bubblewrap is a grid that waits for you; this is the opposite — they rise,
+ * they wobble, and if you dawdle they are gone off the top of the screen. The
+ * iridescence is a conic gradient rather than a colour, because a soap film
+ * shifts hue around its circumference and a flat tint reads as a marble.
+ */
+const soap: RelaxEffect = {
+  id: 'soap',
+  label: 'Soap Bubbles',
+  group: 'Play',
+  blurb: 'They rise on their own and they do not wait. Catch one and it bursts into mist.',
+  space: 'screen',
+  flash: '',
+  burstMs: 60_000,
+  openingPop: 7,
+  spawnEveryMs: 620,
+  spawnPerTick: 1,
+  maxParticles: 46,
+  interactive: true,
+  onPop(p, api) {
+    playSnap();
+    api.spawn(p.x, p.y, 9, 1);
+  },
+  create(x, y, now, api, kind = 0) {
+    const el = document.createElement('div');
+
+    if (kind === 1) {
+      // The mist a bubble leaves. Small, fast, and gone.
+      const size = rand(4, 9);
+      baseStyle(el, size, 'border-radius:50%;background:rgba(255,255,255,0.75);');
+      const p = particle(el, x, y, size, rand(380, 720), now);
+      const a = rand(0, Math.PI * 2);
+      p.vx = Math.cos(a) * rand(1.4, 4.2);
+      p.vy = Math.sin(a) * rand(1.4, 4.2);
+      p.kind = 1;
+      return p;
+    }
+
+    const size = rand(34, 84);
+    baseStyle(
+      el, size,
+      'border-radius:50%;cursor:pointer;' +
+        'background:' +
+        // the film: hue running right round the rim
+        'conic-gradient(from 210deg, rgba(255,120,190,0.55), rgba(120,220,255,0.55) 25%, ' +
+        'rgba(180,255,190,0.5) 45%, rgba(255,230,130,0.55) 65%, rgba(200,150,255,0.55) 85%, rgba(255,120,190,0.55)),' +
+        // the shell: bright rim, empty middle
+        'radial-gradient(circle at 50% 50%, transparent 46%, rgba(255,255,255,0.55) 74%, rgba(255,255,255,0.12) 100%);' +
+        'box-shadow:inset -6px -8px 18px rgba(120,180,255,0.34), inset 6px 8px 16px rgba(255,255,255,0.5),' +
+        ' 0 0 22px rgba(180,220,255,0.4);'
+    );
+    // The highlight — one small hot spot, up and to the left, as on every
+    // photograph of a bubble ever taken.
+    const spec = document.createElement('i');
+    spec.style.cssText =
+      'position:absolute;left:22%;top:16%;width:22%;height:16%;border-radius:50%;' +
+      'background:radial-gradient(circle, rgba(255,255,255,0.95), transparent 70%);';
+    el.appendChild(spec);
+
+    const { h } = api.viewport;
+    /* The opening handful start already spread up the screen, so the effect
+       has something in it the instant you click rather than forty seconds
+       later when the first one has finally climbed into frame. */
+    const seeded = Math.random() < 0.45;
+    const p = particle(
+      el, x + rand(-300, 300),
+      seeded ? rand(h * 0.12, h * 0.94) : h + rand(20, 160),
+      size, rand(11_000, 19_000), now
+    );
+    p.vy = -rand(0.28, 0.62);
+    p.a = rand(0, Math.PI * 2);   // wobble phase
+    p.b = rand(0.0009, 0.0021);   // wobble rate
+    p.c = rand(16, 46);           // wobble width
+    return p;
+  },
+  step(p, t, now) {
+    if (p.kind === 1) {
+      p.x += p.vx; p.y += p.vy;
+      p.vx *= 0.93; p.vy *= 0.93;
+      p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) scale(${1 - t})`;
+      p.el.style.opacity = String((1 - t) * 0.8);
+      return;
+    }
+
+    p.y += p.vy;
+    const sway = Math.sin(now * p.b + p.a) * p.c;
+    // A real bubble is never quite a circle — the film breathes.
+    const wob = 1 + Math.sin(now * p.b * 3.1 + p.a) * 0.045;
+    p.el.style.transform =
+      `translate3d(${p.x + sway - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${wob}, ${2 - wob})`;
+    p.el.style.opacity = String(Math.min(1, t * 12) * Math.min(1, (1 - t) * 5));
+  },
+};
+
+/* ------------------------------------------------------------- glass rain -- */
+/**
+ * Rain on a window, which is the good half of rain.
+ *
+ * The satisfaction is entirely in the WAIT: a bead sits, swells, sits some
+ * more, and then all at once lets go and runs, leaving a wet track that dries
+ * behind it. Nothing here falls at a constant rate, because nothing on a real
+ * pane does.
+ */
+const glassrain: RelaxEffect = {
+  id: 'glassrain',
+  label: 'Rain on Glass',
+  group: 'Water',
+  blurb: 'Beads gather on the pane, hang there — and then one lets go and runs the whole way down.',
+  space: 'screen',
+  flash: '',
+  burstMs: 60_000,
+  openingPop: 60,
+  spawnEveryMs: 200,
+  spawnPerTick: 4,
+  maxParticles: 260,
+  onStart(_x, _y, api) {
+    startRain();
+    /* The pane itself: a cold wash and a breath of condensation, so the beads
+       are sitting ON something. Built once, in onStart, so a second click during
+       a shower doesn't stack a second window. */
+    if (!glassPane) {
+      glassPane = document.createElement('div');
+      glassPane.style.cssText =
+        'position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity 1.2s ease;' +
+        (api.isDark
+          ? 'background:radial-gradient(120% 90% at 50% 0%, rgba(120,170,220,0.16), transparent 70%),' +
+            'linear-gradient(180deg, rgba(10,20,34,0.34), rgba(6,12,22,0.5));'
+          : 'background:radial-gradient(120% 90% at 50% 0%, rgba(150,190,225,0.22), transparent 70%),' +
+            'linear-gradient(180deg, rgba(60,90,125,0.16), rgba(40,64,95,0.26));');
+      api.screen.appendChild(glassPane);
+      requestAnimationFrame(() => { if (glassPane) glassPane.style.opacity = '1'; });
+    }
+  },
+  onStop() {
+    stopRain();
+    const pane = glassPane;
+    glassPane = null;
+    if (pane) {
+      pane.style.opacity = '0';
+      window.setTimeout(() => pane.remove(), 1300);
+    }
+  },
+  create(x, y, now, api) {
+    const el = document.createElement('div');
+    // Most beads just sit. One in six is a runner — and the runners are the
+    // big ones, because on real glass it is weight that breaks the surface hold.
+    const runner = Math.random() < 0.17;
+    const size = runner ? rand(9, 16) : rand(3, 8);
+    baseStyle(
+      el, size,
+      'border-radius:50% 50% 54% 54% / 46% 46% 58% 58%;' +
+        'background:radial-gradient(circle at 34% 28%, rgba(255,255,255,0.85), rgba(190,225,255,0.35) 42%,' +
+        ' rgba(120,170,215,0.22) 78%);' +
+        'box-shadow:inset -1px -2px 3px rgba(60,110,160,0.4), inset 1px 1px 2px rgba(255,255,255,0.7),' +
+        ' 0 1px 3px rgba(0,0,0,0.18);'
+    );
+
+    const { w, h } = api.viewport;
+    const p = particle(el, rand(0, w), rand(0, h * 0.92), size, runner ? rand(4200, 7000) : rand(6000, 12_000), now);
+    p.kind = runner ? 1 : 0;
+    p.a = runner ? rand(0.12, 0.5) : 0;  // how long it hangs before it goes
+    p.b = rand(0, Math.PI * 2);           // the waver of the track
+    p.c = rand(0.9, 1.8);                 // how fast it runs once it goes
+    return p;
+  },
+  step(p, t) {
+    if (p.kind === 0) {
+      // A sitting bead only swells, very slightly.
+      const grow = 1 + Math.min(1, t * 2.2) * 0.22;
+      p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) scale(${grow})`;
+      p.el.style.opacity = String(Math.min(1, t * 8) * Math.min(1, (1 - t) * 4));
+      return;
+    }
+
+    if (t < p.a) {
+      // Still holding on. This pause is the whole effect.
+      p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) scale(${1 + t * 0.5})`;
+      p.el.style.opacity = String(Math.min(1, t * 8));
+      return;
+    }
+
+    // Gone. Accelerating, wavering, stretched by its own speed.
+    const run = (t - p.a) / (1 - p.a);
+    const drop = run * run * p.c * 900;
+    const waver = Math.sin(run * 9 + p.b) * 7;
+    p.el.style.transform =
+      `translate3d(${p.x + waver}px, ${p.y + drop}px, 0) scale(${1 - run * 0.3}, ${1 + run * 1.5})`;
+    p.el.style.opacity = String(Math.min(1, (1 - run) * 2.4));
+  },
+};
+
+/* ------------------------------------------------------------- dandelion -- */
+/**
+ * A clock, and the one thing anybody has ever done with one.
+ *
+ * The head is Icons8 artwork; the seeds are CSS, because a parachute is a disc
+ * and a hair and it would be silly to fetch sixty images to say that. They do
+ * not fly straight — each one holds a lateral drift and a slow spin, so the
+ * puff spreads into a drifting field instead of a cone.
+ */
+const dandelion: RelaxEffect = {
+  id: 'dandelion',
+  label: 'Dandelion',
+  group: 'Garden',
+  blurb: 'Blow the clock. Sixty seeds lift off and take their time about leaving.',
+  space: 'world',
+  flash: '',
+  burstMs: 0,
+  openingPop: 1,
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: 340,
+  onBurst(x, y, api) {
+    playWhoosh();
+    api.spawn(x, y, 46, 1);
+  },
+  create(x, y, now, api, kind = 0) {
+    if (kind === 1) {
+      const el = document.createElement('div');
+      const size = rand(9, 16);
+      /* A pappus: a soft crown of hairs with a seed under it. White is right on
+         dark paper and invisible on cream, so the light theme gets a warm grey
+         crown with a dark core — the seed you can actually see against paper. */
+      baseStyle(
+        el, size,
+        api.isDark
+          ? 'background:radial-gradient(circle at 50% 34%, rgba(255,255,255,0.92) 0 16%,' +
+            ' rgba(255,255,255,0.30) 34%, transparent 62%);'
+          : 'background:radial-gradient(circle at 50% 34%, rgba(126,118,96,0.9) 0 15%,' +
+            ' rgba(150,142,118,0.42) 34%, transparent 64%);'
+      );
+      const hair = document.createElement('i');
+      hair.style.cssText =
+        'position:absolute;left:49%;top:52%;width:2%;height:44%;' +
+        (api.isDark
+          ? 'background:linear-gradient(180deg, rgba(255,255,255,0.5), rgba(120,110,84,0.85));'
+          : 'background:linear-gradient(180deg, rgba(120,112,90,0.7), rgba(70,62,44,0.95));');
+      el.appendChild(hair);
+
+      const p = particle(el, x + rand(-14, 14), y + rand(-14, 14), size, rand(5200, 9000), now);
+      const a = rand(-Math.PI * 0.9, -Math.PI * 0.1);
+      p.vx = Math.cos(a) * rand(0.6, 2.4) + rand(0.2, 1.1);
+      p.vy = Math.sin(a) * rand(0.5, 1.8);
+      p.a = rand(0, Math.PI * 2);
+      p.b = rand(0.0007, 0.0018);
+      p.spin = rand(-0.4, 0.4);
+      p.kind = 1;
+      return p;
+    }
+
+    // The head, left standing where you clicked.
+    const el = document.createElement('img');
+    const size = rand(52, 74);
+    el.src = pick(RELAX_SEEDHEAD);
+    el.draggable = false;
+    baseStyle(el, size, 'object-fit:contain;');
+    const p = particle(el, x, y, size, 2600, now);
+    return p;
+  },
+  step(p, t, now) {
+    if (p.kind === 1) {
+      // Air is not still: the drift wanders, and the seed rocks about its hair.
+      p.vy += Math.sin(now * p.b + p.a) * 0.006 - 0.0016;
+      p.x += p.vx + Math.sin(now * p.b * 1.7 + p.a) * 0.5;
+      p.y += p.vy;
+      p.rot += p.spin;
+      p.el.style.transform =
+        `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) rotate(${p.rot}deg)`;
+      p.el.style.opacity = String(Math.min(1, t * 8) * Math.min(1, (1 - t) * 3));
+      return;
+    }
+
+    // The head sags as it empties.
+    const e = 1 - Math.pow(1 - t, 3);
+    p.el.style.transform =
+      `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${1 - e * 0.4}) rotate(${e * 8}deg)`;
+    p.el.style.opacity = String(Math.min(1, t * 10) * (1 - e));
+  },
+};
+
+/* ------------------------------------------------------------ kaleidoscope -- */
+/**
+ * Symmetry, which the eye will accept for a very long time.
+ *
+ * Twelve shards on one ring, each a mirror of the last, all turning together
+ * and breathing in and out. Because every shard shares one phase, the figure
+ * stays a figure — drift the phases apart and it degrades into confetti within
+ * about two seconds.
+ */
+const KALEIDO_HUES = [[196, 90], [280, 78], [330, 80], [42, 92], [160, 80]];
+
+/* One ring's shared parameters. These MUST be rolled once per burst and read by
+   every shard: rolling them inside create gives each shard its own radius and
+   its own spin, and twelve shards that disagree are not a kaleidoscope, they
+   are confetti — which is precisely what the first version looked like. */
+let kaleidoRing = { r: 140, spin: 0.0005, breath: 0.0012, hue: 196, sat: 90, size: 100 };
+
+const kaleido: RelaxEffect = {
+  id: 'kaleido',
+  label: 'Kaleidoscope',
+  group: 'Play',
+  blurb: 'Twelve mirrors of the same shard, turning together. Click again to fold another ring into it.',
+  space: 'world',
+  flash: '',
+  burstMs: 0,
+  openingPop: 12,
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: 240,
+  onBurst() {
+    const [hue, sat] = pick(KALEIDO_HUES);
+    kaleidoRing = {
+      r: rand(96, 190),
+      spin: rand(0.00028, 0.00075) * (Math.random() < 0.5 ? -1 : 1),
+      breath: rand(0.0009, 0.0016),
+      hue, sat,
+      size: rand(78, 128),
+    };
+    playChime();
+  },
+  create(x, y, now, api, _kind, _tint, index = 0) {
+    const el = document.createElement('div');
+    const size = kaleidoRing.size;
+    const { hue, sat } = kaleidoRing;
+    const light = api.isDark ? 62 : 46;
+    baseStyle(
+      el, size,
+      `${api.isDark ? 'mix-blend-mode:screen;' : 'mix-blend-mode:multiply;'}` +
+        'border-radius:82% 18% 82% 18% / 18% 82% 18% 82%;' +
+        `background:radial-gradient(closest-side ellipse at 30% 30%, hsla(${hue},${sat}%,${light + 16}%,0.85),` +
+        ` hsla(${hue + 26},${sat}%,${light}%,0.34) 62%, transparent 100%);` +
+        'filter:blur(0.6px);'
+    );
+
+    /* Every shard in one ring shares a phase and a radius and differs only by
+       its slot on the circle. That shared phase IS the symmetry. */
+    const p = particle(el, x, y, size, 6400, now);
+    p.a = (index / 12) * Math.PI * 2;   // its slot on the ring
+    p.b = kaleidoRing.r;                // shared radius
+    p.c = kaleidoRing.spin;             // shared spin
+    p.d = kaleidoRing.breath;           // shared breath
+    return p;
+  },
+  step(p, t, now) {
+    const spin = now * p.c;
+    const breath = 1 + Math.sin(now * p.d) * 0.28;
+    const ang = p.a + spin;
+    const r = p.b * breath * (0.3 + (1 - Math.pow(1 - Math.min(1, t * 3), 2)) * 0.7);
+    p.el.style.transform =
+      `translate3d(${p.x - p.size / 2 + Math.cos(ang) * r}px, ${p.y - p.size / 2 + Math.sin(ang) * r}px, 0) ` +
+      `rotate(${(ang * 180) / Math.PI + 90}deg) scale(${breath})`;
+    p.el.style.opacity = String(Math.min(1, t * 5) * Math.min(1, (1 - t) * 3.4) * 0.8);
+  },
+};
+
+/* ---------------------------------------------------------------- stones -- */
+/**
+ * Balancing stones, which is a thing people do on beaches for no reason at all.
+ *
+ * Each click adds a stone to the nearest cairn, or starts a new one. They land
+ * with a settle — over-shoot, squash, recover — and the whole stack sways very
+ * slightly afterwards, more the taller it gets, so a tall cairn always looks a
+ * little like it is about to go. Click a stone to knock it off.
+ */
+interface Cairn { x: number; y: number; n: number }
+let cairns: Cairn[] = [];
+
+const stones: RelaxEffect = {
+  id: 'stones',
+  label: 'Zen Stones',
+  group: 'Stillness',
+  blurb: 'Stack them one at a time. The taller it gets the more it sways — and a stone you click falls off.',
+  space: 'world',
+  flash: '',
+  burstMs: 0,
+  openingPop: 1,
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: 90,
+  interactive: true,
+  onStop() {
+    cairns = [];
+  },
+  onPop(p) {
+    playSnap();
+    // The cairn it belonged to is one shorter now, so the next stone lands in
+    // the gap rather than out in mid-air.
+    const c = cairns.find((k) => Math.abs(k.x - p.a) < 1);
+    if (c) c.n = Math.max(0, c.n - 1);
+  },
+  onBurst() {
+    playBoom();
+  },
+  create(x, y, now, api) {
+    let c = cairns.find((k) => Math.hypot(k.x - x, k.y - y) < 150);
+    if (!c) { c = { x, y, n: 0 }; cairns.push(c); }
+
+    /* Stones get smaller and flatter as the stack rises, which is both what
+       actually happens and what makes a stack read as a stack rather than a
+       column of identical pebbles. */
+    const level = c.n;
+    const w = Math.max(34, 118 - level * 11) * rand(0.92, 1.08);
+    const h = w * rand(0.42, 0.62);
+
+    const el = document.createElement('div');
+    const face = api.isDark
+      ? 'radial-gradient(closest-side ellipse at 36% 26%, #8c96a2, #4e5661 58%, #262b33 100%)'
+      : 'radial-gradient(closest-side ellipse at 36% 26%, #b9bcc0, #7e848d 58%, #454b55 100%)';
+    baseStyle(
+      el, w,
+      `height:${h}px;cursor:pointer;border-radius:50%;background:${face};` +
+        'box-shadow:0 8px 14px -6px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,255,255,0.22),' +
+        ' inset 0 -6px 10px rgba(0,0,0,0.32);'
+    );
+
+    // Stacked upward from the base, each stone sitting on the one below.
+    const restY = c.y - level * (h * 0.86);
+    const p = particle(el, c.x + rand(-5, 5), restY, w, 600_000, now);
+    p.b = h;
+    p.a = c.x;              // which cairn, for onPop
+    p.c = level;            // how high — drives the sway
+    p.d = rand(-7, 7);      // this stone's own lie
+    c.n = level + 1;
+    return p;
+  },
+  step(p, _t, now) {
+    const age = now - p.born;
+    // Settle: fall the last few px, overshoot, squash, recover.
+    const s = Math.min(1, age / 520);
+    const e = 1 - Math.pow(1 - s, 3);
+    const drop = (1 - e) * -34;
+    const squash = 1 + Math.sin(s * Math.PI) * 0.14 * (1 - s);
+
+    // Sway, and the higher the stone the more of it — the top of a tall cairn
+    // is never quite still.
+    const swayAmp = Math.min(9, p.c * 1.1);
+    const sway = Math.sin(now * 0.0011 + p.c * 0.7) * swayAmp * s;
+    const lean = Math.sin(now * 0.0011 + p.c * 0.7) * (p.c * 0.28) * s;
+
+    p.el.style.transform =
+      `translate3d(${p.x - p.size / 2 + sway}px, ${p.y - p.b / 2 + drop}px, 0) ` +
+      `rotate(${p.d * 0.25 + lean}deg) scale(${2 - squash}, ${squash})`;
+    p.el.style.opacity = String(Math.min(1, age / 200));
+  },
+};
+
+/* ---------------------------------------------------------------- embers -- */
+/**
+ * A fire that has burned down, which is the best part of a fire.
+ *
+ * No flames — flames are busy. This is the bed of coals afterwards: a low glow
+ * across the bottom of the screen that pulses on its own slow schedule, and
+ * embers that lift off it, cool from white to red as they climb, and go out.
+ * An ember dies by COOLING, not by fading, which is why the colour is animated
+ * through the opacity of a second layer rather than the particle's own.
+ */
+let emberBed: HTMLElement | null = null;
+
+const embers: RelaxEffect = {
+  id: 'embers',
+  label: 'Embers',
+  group: 'Firelight',
+  blurb: 'The fire has burned down to coals. They breathe, they throw off sparks, and the sparks go out on the way up.',
+  space: 'screen',
+  flash: '',
+  burstMs: 60_000,
+  openingPop: 26,
+  spawnEveryMs: 130,
+  spawnPerTick: 2,
+  maxParticles: 220,
+  onStart(_x, _y, api) {
+    if (!emberBed) {
+      emberBed = document.createElement('div');
+      emberBed.style.cssText =
+        'position:absolute;left:0;right:0;bottom:0;height:46%;pointer-events:none;opacity:0;' +
+        'transition:opacity 1.6s ease;' +
+        (api.isDark
+          ? 'mix-blend-mode:screen;' +
+            'background:radial-gradient(120% 100% at 50% 100%, rgba(255,146,42,0.5), rgba(210,60,10,0.22) 42%, transparent 76%);'
+          : 'mix-blend-mode:multiply;' +
+            'background:radial-gradient(120% 100% at 50% 100%, rgba(255,138,40,0.85), rgba(206,74,18,0.42) 44%, transparent 78%);') +
+        'animation:relaxEmberBreath 6.5s ease-in-out infinite alternate;';
+      api.screen.appendChild(emberBed);
+      requestAnimationFrame(() => { if (emberBed) emberBed.style.opacity = '1'; });
+    }
+  },
+  onStop() {
+    const bed = emberBed;
+    emberBed = null;
+    if (bed) {
+      bed.style.opacity = '0';
+      window.setTimeout(() => bed.remove(), 1700);
+    }
+  },
+  create(x, y, now, api) {
+    const el = document.createElement('div');
+    const size = rand(4, 10);
+    /* Screen blend is how a spark reads against a dark room — and it is also
+       why the whole effect vanished on cream paper, because screen has nothing
+       to add to white. Light paper gets an opaque coal with a soft halo drawn
+       under it instead. */
+    baseStyle(
+      el, size,
+      api.isDark
+        ? 'border-radius:50%;mix-blend-mode:screen;' +
+          'background:radial-gradient(circle, #fffbe8 0 30%, #ffc064 56%, #e8500c 100%);' +
+          'box-shadow:0 0 16px 5px rgba(255,160,70,0.9), 0 0 34px 10px rgba(255,110,30,0.45);'
+        : 'border-radius:50%;' +
+          'background:radial-gradient(circle, #fff2c8 0 22%, #ff8c1a 48%, #c2320a 100%);' +
+          'box-shadow:0 0 12px 4px rgba(226,96,20,0.55), 0 0 26px 9px rgba(180,60,10,0.28);'
+    );
+    const { w, h } = api.viewport;
+    const p = particle(el, rand(w * 0.06, w * 0.94), h + rand(0, 30), size, rand(2600, 6200), now);
+    p.vy = -rand(0.5, 1.7);
+    p.a = rand(0, Math.PI * 2);
+    p.b = rand(0.0011, 0.0029);
+    p.c = rand(12, 44);          // how far it wanders sideways
+    return p;
+  },
+  step(p, t, now) {
+    // Rising air slows as it cools, so an ember decelerates on the way up.
+    p.y += p.vy * (1 - t * 0.55);
+    const sway = Math.sin(now * p.b + p.a) * p.c * t;
+    // The wink: an ember is not a steady light.
+    const wink = 0.68 + Math.sin(now * 0.011 + p.a) * 0.32;
+    p.el.style.transform =
+      `translate3d(${p.x + sway}px, ${p.y}px, 0) scale(${1 - t * 0.5})`;
+    p.el.style.opacity = String(Math.min(1, t * 9) * Math.pow(1 - t, 1.3) * wink);
+  },
+};
+
+/* ------------------------------------------------------------- jellyfish -- */
+/**
+ * The slowest thing here, on purpose.
+ *
+ * A jellyfish swims by pulsing and then coasting, and the coast is longer than
+ * the pulse — so the motion is a sawtooth, not a sine. Getting that asymmetry
+ * right is the whole difference between a jellyfish and a floating balloon.
+ * The art is drawn hanging, so these only ever scale: rotate one and it is
+ * upside down and it stops being a jellyfish.
+ */
+const jellyfish: RelaxEffect = {
+  id: 'jellyfish',
+  label: 'Jellyfish',
+  group: 'Water',
+  blurb: 'Nothing to do here. They pulse, they coast, they go up. Watching is the whole activity.',
+  space: 'world',
+  flash: '',
+  burstMs: 60_000,
+  openingPop: 4,
+  spawnEveryMs: 3400,
+  spawnPerTick: 1,
+  maxParticles: 18,
+  onStart() {
+    startAmbience('ocean');
+  },
+  onStop() {
+    stopAmbience('ocean');
+  },
+  onBurst() {
+    playChime();
+  },
+  create(x, y, now) {
+    const el = document.createElement('img');
+    const size = rand(46, 96);
+    el.src = pick(RELAX_DRIFT);
+    el.draggable = false;
+    baseStyle(el, size, 'object-fit:contain;filter:saturate(0.62) blur(0.7px);');
+
+    const p = particle(el, x + rand(-360, 360), y + rand(60, 340), size, rand(26_000, 44_000), now);
+    p.a = rand(0, Math.PI * 2);    // pulse phase
+    p.b = rand(0.0012, 0.0022);    // pulse rate
+    p.c = rand(0.16, 0.4);         // how much of the pulse becomes lift
+    p.d = rand(0.00035, 0.0009);   // lateral wander
+    return p;
+  },
+  step(p, t, now) {
+    /* The pulse: a fast squeeze and a long coast. `pow(sin, 6)` spends most of
+       its cycle near zero and spikes briefly — which is exactly the shape of a
+       jellyfish's bell, and nothing like a sine. */
+    const raw = Math.sin(now * p.b + p.a);
+    const pulse = Math.pow(Math.max(0, raw), 6);
+
+    // Thrust arrives with the squeeze; the animal keeps gliding afterwards.
+    p.y -= (0.24 + pulse * 1.9) * p.c * 2.2;
+    p.x += Math.sin(now * p.d + p.a) * 0.42;
+
+    const squeeze = 1 - pulse * 0.22;
+    p.el.style.transform =
+      `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${2 - squeeze}, ${squeeze})`;
+    p.el.style.opacity = String(Math.min(1, t * 14) * Math.min(1, (1 - t) * 6) * 0.62);
+  },
+};
+
+/* --------------------------------------------------------------- candles -- */
+/**
+ * Lighting candles, and then putting them out.
+ *
+ * Both halves matter. Clicking empty canvas sets one and lights it; clicking a
+ * lit candle snuffs it, and it stands there smoking. `consumeOnPop: false`
+ * keeps the node alive through that change of state — this is the only effect
+ * in the catalogue where a click transforms a particle instead of ending it.
+ */
+const LIT = 0;
+const SNUFFED = 3;
+
+const candles: RelaxEffect = {
+  id: 'candles',
+  label: 'Candlelight',
+  group: 'Firelight',
+  blurb: 'Set a candle anywhere and it takes. Click a burning one and it goes out, with the little curl of smoke you were hoping for.',
+  space: 'world',
+  flash: '',
+  burstMs: 0,
+  openingPop: 1,
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: 60,
+  interactive: true,
+  consumeOnPop: false,
+  onBurst() {
+    playBell(pick(PENTATONIC));
+  },
+  onPop(p, api) {
+    if (p.kind === SNUFFED) return;
+    p.kind = SNUFFED;
+    p.d = performance.now();
+    playWhoosh();
+    const flame = p.el.querySelector('.relax-flame') as HTMLElement | null;
+    if (flame) flame.style.opacity = '0';
+    const halo = p.el.querySelector('.relax-halo') as HTMLElement | null;
+    if (halo) halo.style.opacity = '0';
+    api.spawn(p.x, p.y - p.b * 0.52, 7, 1);
+  },
+  create(x, y, now, api, kind = 0) {
+    if (kind === 1) {
+      // Smoke: it should be barely there, and it should widen as it climbs.
+      const el = document.createElement('div');
+      const size = rand(12, 26);
+      baseStyle(
+        el, size,
+        'border-radius:50%;filter:blur(5px);' +
+          `background:radial-gradient(circle, ${api.isDark ? 'rgba(226,230,238,0.5)' : 'rgba(90,96,110,0.42)'}, transparent 70%);`
+      );
+      const p = particle(el, x + rand(-4, 4), y, size, rand(1600, 3000), now);
+      p.vy = -rand(0.35, 0.9);
+      p.a = rand(0, Math.PI * 2);
+      p.b = rand(0.0016, 0.0034);
+      p.kind = 1;
+      return p;
+    }
+
+    const el = document.createElement('div');
+    const h = rand(52, 96);
+    const w = h * rand(0.2, 0.28);
+    baseStyle(el, w, `height:${h}px;cursor:pointer;overflow:visible;`);
+
+    // The candle body, its lip, and the wick.
+    const body = document.createElement('i');
+    body.style.cssText =
+      'position:absolute;left:0;right:0;bottom:0;top:14%;border-radius:14% 14% 22% 22%;' +
+      'background:linear-gradient(90deg, #b9ab90 0 12%, #f4ead2 34%, #fff8ea 50%, #e2d5b8 74%, #a89a80 100%);' +
+      'box-shadow:inset 0 3px 0 rgba(255,255,255,0.7), 0 6px 10px -4px rgba(0,0,0,0.5);';
+    el.appendChild(body);
+
+    const halo = document.createElement('i');
+    halo.className = 'relax-halo';
+    halo.style.cssText =
+      'position:absolute;left:-260%;right:-260%;top:-190%;bottom:-40%;border-radius:50%;pointer-events:none;' +
+      'transition:opacity 0.5s ease;mix-blend-mode:screen;' +
+      'background:radial-gradient(circle, rgba(255,182,88,0.42), rgba(255,150,50,0.14) 44%, transparent 72%);';
+    el.appendChild(halo);
+
+    const flame = document.createElement('i');
+    flame.className = 'relax-flame';
+    flame.style.cssText =
+      'position:absolute;left:50%;bottom:100%;width:52%;height:34%;margin-left:-26%;pointer-events:none;' +
+      'border-radius:50% 50% 44% 44% / 74% 74% 26% 26%;transition:opacity 0.28s ease;' +
+      'background:radial-gradient(circle at 50% 74%, #fff6d2 0 26%, #ffc247 52%, #ff7a10 78%, transparent 96%);' +
+      'box-shadow:0 0 16px 5px rgba(255,168,60,0.6);' +
+      `animation:relaxFlame ${rand(0.62, 1.05).toFixed(2)}s ease-in-out infinite alternate;`;
+    el.appendChild(flame);
+
+    const p = particle(el, x, y, w, 600_000, now);
+    p.b = h;
+    p.kind = LIT;
+    p.a = rand(0, Math.PI * 2);
+    return p;
+  },
+  step(p, _t, now) {
+    if (p.kind === 1) {
+      const t = (now - p.born) / p.life;
+      p.y += p.vy;
+      const drift = Math.sin(now * p.b + p.a) * 14 * t;
+      p.el.style.transform =
+        `translate3d(${p.x + drift - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${0.5 + t * 2.2})`;
+      p.el.style.opacity = String(Math.min(1, t * 5) * (1 - t) * 0.5);
+      return;
+    }
+
+    const age = now - p.born;
+    const rise = 1 - Math.pow(1 - Math.min(1, age / 420), 3);
+    p.el.style.transform =
+      `translate3d(${p.x - p.size / 2}px, ${p.y - p.b}px, 0) scale(${0.6 + rise * 0.4})`;
+    p.el.style.opacity = String(Math.min(1, age / 260));
+  },
+};
+
 export const RELAX_EFFECTS: Record<RelaxEffectId, RelaxEffect> = {
   flowers, blooming, petalfall, rain, fireworks, galaxy, bubblewrap, chimes,
   ripples, ocean, handpan, snow, fireflies, lanterns, gate, breathing, aurora,
+  koi, ink, soap, glassrain, dandelion, kaleido, stones, embers, jellyfish, candles,
 };
 
 export const RELAX_EFFECT_LIST: RelaxEffect[] = [
-  gate, ocean, aurora, breathing, handpan, chimes,
-  blooming, flowers, petalfall, fireworks, lanterns, fireflies, galaxy,
-  ripples, bubblewrap, rain, snow,
+  /* Ordered by group, so the picker can render them in shelves without having
+     to sort at render time. */
+  ocean, ripples, rain, koi, ink, glassrain, jellyfish,
+  blooming, flowers, petalfall, fireflies, dandelion,
+  aurora, galaxy, snow, fireworks,
+  lanterns, embers, candles,
+  bubblewrap, soap, kaleido,
+  gate, breathing, handpan, chimes, stones,
 ];
