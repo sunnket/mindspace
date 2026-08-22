@@ -497,6 +497,54 @@ html, body {
 }
 
 
+
+/* The 2026-08-22 additions share two glyphs rather than carrying thirty-six of
+   their own. The distinction that matters to the hand is not WHICH effect it is
+   — the picker already told you that — but whether the canvas is something to
+   sit in front of or something to touch: an aperture for the places, and a
+   target for the things that answer back. */
+.canvas-container.mode-relax.relax-mountains,
+.canvas-container.mode-relax.relax-campfire,
+.canvas-container.mode-relax.relax-snowfield,
+.canvas-container.mode-relax.relax-desert,
+.canvas-container.mode-relax.relax-bamboo,
+.canvas-container.mode-relax.relax-rainwindow,
+.canvas-container.mode-relax.relax-lanternriver,
+.canvas-container.mode-relax.relax-waterfall,
+.canvas-container.mode-relax.relax-nebula,
+.canvas-container.mode-relax.relax-autumn,
+.canvas-container.mode-relax.relax-harbour,
+.canvas-container.mode-relax.relax-thunderhead,
+.canvas-container.mode-relax.relax-cavepool,
+.canvas-container.mode-relax.relax-aurorafield,
+.canvas-container.mode-relax.relax-sunbeam,
+.canvas-container.mode-relax.relax-tidepool,
+.canvas-container.mode-relax.relax-mossforest,
+.canvas-container.mode-relax.relax-hotspring {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24'><g fill='none' stroke='%23000' stroke-opacity='0.35' stroke-width='4.5'><circle cx='12' cy='12' r='7.4'/><circle cx='12' cy='12' r='1.6'/></g><g fill='none' stroke='%23fff' stroke-width='1.8'><circle cx='12' cy='12' r='7.4'/><circle cx='12' cy='12' r='1.6'/></g></svg>") 15 15, pointer;
+}
+
+.canvas-container.mode-relax.relax-dominoes,
+.canvas-container.mode-relax.relax-newton,
+.canvas-container.mode-relax.relax-pendulum,
+.canvas-container.mode-relax.relax-plasma,
+.canvas-container.mode-relax.relax-pinart,
+.canvas-container.mode-relax.relax-spirograph,
+.canvas-container.mode-relax.relax-skipstone,
+.canvas-container.mode-relax.relax-bubbleblow,
+.canvas-container.mode-relax.relax-mushrooms,
+.canvas-container.mode-relax.relax-frost,
+.canvas-container.mode-relax.relax-balloons,
+.canvas-container.mode-relax.relax-kites,
+.canvas-container.mode-relax.relax-sparkler,
+.canvas-container.mode-relax.relax-flare,
+.canvas-container.mode-relax.relax-zenrake,
+.canvas-container.mode-relax.relax-singingbowl,
+.canvas-container.mode-relax.relax-hourglass,
+.canvas-container.mode-relax.relax-snowglobe {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24'><g fill='none' stroke='%23000' stroke-opacity='0.35' stroke-width='4.5' stroke-linecap='round'><circle cx='12' cy='12' r='3'/><path d='M12 3.4v2.6M12 18v2.6M3.4 12h2.6M18 12h2.6'/></g><g fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round'><circle cx='12' cy='12' r='3'/><path d='M12 3.4v2.6M12 18v2.6M3.4 12h2.6M18 12h2.6'/></g></svg>") 15 15, pointer;
+}
+
 /* Stress Reliefer — the immersions.
    Twenty effects that build a PLACE in onStart rather than spawning one. All of
    the slow motion lives here rather than in the RAF loop, because a sky that
@@ -705,6 +753,43 @@ html, body {
   63%      { opacity: 0.7; }
   64.4%    { opacity: 0; }
   100%     { opacity: 0; }
+}
+/* An aurora does not slide across the sky, it BREATHES along its own length:
+   the curtain brightens in one place, dims in another, and the whole sheet
+   leans. Two rates, neither a multiple of the other. */
+@keyframes relaxAuroraA {
+  from { transform: translate3d(-4%, 0, 0) skewX(-4deg) scaleY(0.92); opacity: 0.7; }
+  to   { transform: translate3d(5%, 0, 0) skewX(6deg) scaleY(1.1); opacity: 1; }
+}
+@keyframes relaxAuroraB {
+  from { transform: translate3d(4%, 0, 0) skewX(5deg) scaleY(1.08); opacity: 1; }
+  to   { transform: translate3d(-6%, 0, 0) skewX(-3deg) scaleY(0.9); opacity: 0.6; }
+}
+/* Anemones open and close on the swell. */
+@keyframes relaxAnemone {
+  from { transform: scale(0.98); }
+  to   { transform: scale(1.03); }
+}
+/* An afternoon moving across a room, over about three of them. */
+@keyframes relaxSunbeamCrawl {
+  from { transform: translate3d(-7%, 0, 0) skewX(-2deg); }
+  to   { transform: translate3d(9%, 0, 0) skewX(3deg); }
+}
+/* A balloon string trails; it does not hang straight down. */
+@keyframes relaxBalloonString {
+  from { transform: rotate(-11deg); }
+  to   { transform: rotate(9deg); }
+}
+/* The bows on a kite tail lag one after another, which is why each one gets
+   its own delay rather than all of them sharing a single sway. */
+@keyframes relaxKiteTail {
+  from { transform: rotate(-24deg); }
+  to   { transform: rotate(20deg); }
+}
+/* A flare's parachute breathes as it comes down. */
+@keyframes relaxChute {
+  from { transform: scaleX(0.9) rotate(-4deg); }
+  to   { transform: scaleX(1.06) rotate(5deg); }
 }
 @keyframes relaxGrain {
   0%   { transform: translate3d(0, 0, 0); }

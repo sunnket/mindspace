@@ -435,5 +435,258 @@ export default function RelaxIcon({ id, size = 18 }: { id: RelaxEffectId; size?:
           <path d="M3 21h18"/><path d="M8 17c0-2 1.6-2.6 1.6-4.4S8 9.4 8 7.4M13 17c0-2.4 1.8-3 1.8-5S13 8.4 13 6.4M18 17c0-1.8 1.2-2.4 1.2-4" opacity="0.9"/>
         </svg>
       );
+ 
+    /* ---- the 2026-08-22 additions ---- */
+    case 'mountains':
+      return (
+        <svg {...common}>
+          <path d="M2 19l6-9 4 5.4 3-4 7 7.6z"/><path d="M8 10l2.6 3.6" opacity="0.5"/>
+        </svg>
+      );
+
+    case 'campfire':
+      return (
+        <svg {...common}>
+          <path d="M12 3c2.4 3 3.6 5 3.6 6.8a3.6 3.6 0 0 1-7.2 0C8.4 8 9.6 6 12 3Z"/><path d="M4 20l16-4M4 16l16 4" opacity="0.7"/>
+        </svg>
+      );
+
+    case 'snowfield':
+      return (
+        <svg {...common}>
+          <path d="M2 20l6-6 4 3 4-5 6 8z"/><path d="M12 3v6M9.4 4.6l5.2 2.8M14.6 4.6L9.4 7.4" opacity="0.8"/>
+        </svg>
+      );
+
+    case 'desert':
+      return (
+        <svg {...common}>
+          <path d="M2 18c4-4 7-4 10 0s6 4 10 0v4H2z"/><circle cx="16" cy="8" r="3" opacity="0.8"/>
+        </svg>
+      );
+
+    case 'bamboo':
+      return (
+        <svg {...common}>
+          <path d="M7 2v20M12 2v20M17 2v20"/><path d="M5.6 8h2.8M10.6 12h2.8M15.6 6h2.8M5.6 16h2.8M15.6 15h2.8" opacity="0.75"/>
+        </svg>
+      );
+
+    case 'rainwindow':
+      return (
+        <svg {...common}>
+          <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 9v3M12 7v4M16 10v3" opacity="0.8"/><circle cx="8" cy="15" r="1.2"/><circle cx="15" cy="17" r="1"/>
+        </svg>
+      );
+
+    case 'lanternriver':
+      return (
+        <svg {...common}>
+          <rect x="9" y="4" width="6" height="8" rx="1.4"/><path d="M12 4V2" opacity="0.7"/><path d="M2 17c3-2 5 2 8 0s5-2 8 0 4 0 4 0" opacity="0.8"/><path d="M2 21c3-2 5 2 8 0s5-2 8 0" opacity="0.5"/>
+        </svg>
+      );
+
+    case 'waterfall':
+      return (
+        <svg {...common}>
+          <path d="M6 2v14M9.4 2v13M12 2v15M14.6 2v13M18 2v14"/><path d="M3 19c3-2 5 2 9 0s6 2 9 0" opacity="0.8"/>
+        </svg>
+      );
+
+    case 'nebula':
+      return (
+        <svg {...common}>
+          <path d="M12 4a8 8 0 1 0 8 8c-2 2-5 1-6-1s-2-3-2-7Z"/><circle cx="17" cy="6" r="0.9" fill="currentColor" stroke="none"/><circle cx="6" cy="17" r="0.7" fill="currentColor" stroke="none"/>
+        </svg>
+      );
+
+    case 'autumn':
+      return (
+        <svg {...common}>
+          <path d="M12 21C6 17 4 12 6 6c6-2 11 0 13 6-2 5-4 7-7 9Z"/><path d="M12 21 8 9" opacity="0.7"/>
+        </svg>
+      );
+
+    case 'harbour':
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="6" r="1.6"/><circle cx="15" cy="7" r="1.2"/><path d="M7 12v7M15 12v6" opacity="0.6"/><path d="M2 11h20" opacity="0.8"/>
+        </svg>
+      );
+
+    case 'thunderhead':
+      return (
+        <svg {...common}>
+          <path d="M5 13a4 4 0 0 1 1.6-6.6A5 5 0 0 1 16 6a3.6 3.6 0 0 1 2 6.8"/><path d="M12 12l-2.4 4H12l-1.6 4"/>
+        </svg>
+      );
+
+    case 'cavepool':
+      return (
+        <svg {...common}>
+          <path d="M2 4h20M10 4l-3 12M14 4l3 12" opacity="0.9"/><path d="M3 18c3-2 5 2 9 0s6 2 9 0" opacity="0.8"/>
+        </svg>
+      );
+
+    case 'aurorafield':
+      return (
+        <svg {...common}>
+          <path d="M3 4c2 5 4 7 3 12M9 3c2 6 3 8 2 13M15 4c2 5 3 8 2 12M21 5c1 5 1 7 0 11" opacity="0.9"/><path d="M2 21h20" opacity="0.6"/>
+        </svg>
+      );
+
+    case 'sunbeam':
+      return (
+        <svg {...common}>
+          <rect x="3" y="3" width="8" height="18" rx="1" opacity="0.8"/><path d="M11 5l9 4-4 12-6-4z" opacity="0.9"/>
+        </svg>
+      );
+
+    case 'tidepool':
+      return (
+        <svg {...common}>
+          <ellipse cx="12" cy="13" rx="9" ry="7"/><circle cx="10" cy="13" r="2"/><path d="M10 11v-2M8.4 12l-2-1M11.6 12l2-1M10 15v2" opacity="0.7"/>
+        </svg>
+      );
+
+    case 'mossforest':
+      return (
+        <svg {...common}>
+          <path d="M4 20v-5M8 20v-8M12 20v-6M16 20v-9M20 20v-5"/><circle cx="8" cy="11.4" r="1"/><circle cx="16" cy="10.4" r="1"/><path d="M2 20h20" opacity="0.6"/>
+        </svg>
+      );
+
+    case 'hotspring':
+      return (
+        <svg {...common}>
+          <path d="M3 16c3-2 5 2 9 0s6 2 9 0" /><path d="M3 20c3-2 5 2 9 0s6 2 9 0" opacity="0.6"/><path d="M8 11c0-2 1.6-2.4 1.6-4S8 4.4 8 3M15 11c0-2 1.6-2.4 1.6-4S15 4.4 15 3" opacity="0.8"/>
+        </svg>
+      );
+
+    case 'dominoes':
+      return (
+        <svg {...common}>
+          <rect x="3" y="6" width="4" height="13" rx="1" transform="rotate(-14 5 12)"/><rect x="10" y="6" width="4" height="13" rx="1"/><rect x="17" y="6" width="4" height="13" rx="1" opacity="0.7"/>
+        </svg>
+      );
+
+    case 'newton':
+      return (
+        <svg {...common}>
+          <path d="M4 4h16"/><path d="M7 4v9M12 4v9M17 4v9" opacity="0.7"/><circle cx="7" cy="16" r="2.6"/><circle cx="12" cy="16" r="2.6"/><circle cx="17" cy="16" r="2.6"/>
+        </svg>
+      );
+
+    case 'pendulum':
+      return (
+        <svg {...common}>
+          <path d="M3 4h18"/><path d="M6 4l2 10M12 4v11M18 4l-2 9" opacity="0.7"/><circle cx="8" cy="16" r="1.8"/><circle cx="12" cy="17" r="1.8"/><circle cx="16" cy="15" r="1.8"/>
+        </svg>
+      );
+
+    case 'plasma':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/><path d="M13.6 10.4 18 7M10.6 10.6 6.4 7.6M12 14v4.4M14 13.6l3.6 3" opacity="0.8"/>
+        </svg>
+      );
+
+    case 'pinart':
+      return (
+        <svg {...common}>
+          <circle cx="6" cy="6" r="1.2"/><circle cx="12" cy="6" r="1.2"/><circle cx="18" cy="6" r="1.2"/><circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="2.4"/><circle cx="18" cy="12" r="1.2"/><circle cx="6" cy="18" r="1.2"/><circle cx="12" cy="18" r="1.2"/><circle cx="18" cy="18" r="1.2"/>
+        </svg>
+      );
+
+    case 'spirograph':
+      return (
+        <svg {...common}>
+          <path d="M12 3c5 3 8 6 6 10s-7 4-10 1-3-8 1-10 8 1 8 6-4 8-8 7"/>
+        </svg>
+      );
+
+    case 'skipstone':
+      return (
+        <svg {...common}>
+          <path d="M2 16c2-5 4-5 6 0s4 4 6-1 4-4 6 1" opacity="0.9"/><path d="M2 19h20" opacity="0.7"/><ellipse cx="18" cy="14" rx="2.4" ry="1.2"/>
+        </svg>
+      );
+
+    case 'bubbleblow':
+      return (
+        <svg {...common}>
+          <circle cx="9" cy="14" r="5"/><circle cx="17" cy="8" r="3.4"/><circle cx="6" cy="6" r="2"/><path d="M6.6 11.6a3.4 3.4 0 0 1 2-2" opacity="0.7"/>
+        </svg>
+      );
+
+    case 'mushrooms':
+      return (
+        <svg {...common}>
+          <path d="M4 11a8 5.4 0 0 1 16 0z"/><path d="M10 11v6.4a2 2 0 0 0 4 0V11"/><circle cx="9" cy="8.6" r="1" opacity="0.8"/><circle cx="15" cy="8" r="0.8" opacity="0.8"/>
+        </svg>
+      );
+
+    case 'frost':
+      return (
+        <svg {...common}>
+          <path d="M12 2v20M3.4 7l17.2 10M20.6 7 3.4 17"/><path d="M9 4.6 12 6l3-1.4M9 19.4 12 18l3 1.4" opacity="0.75"/>
+        </svg>
+      );
+
+    case 'balloons':
+      return (
+        <svg {...common}>
+          <path d="M12 15c3.4 0 6-2.8 6-6.4S15.4 2 12 2 6 4.8 6 8.6 8.6 15 12 15Z"/><path d="M12 15v2"/><path d="M12 17c-2 2 2 3 0 5" opacity="0.8"/>
+        </svg>
+      );
+
+    case 'kites':
+      return (
+        <svg {...common}>
+          <path d="M12 2 20 9l-8 8-8-8z"/><path d="M4 9h16M12 2v15" opacity="0.6"/><path d="M12 17c-2 1.6 2 2.6 0 4.4" opacity="0.8"/>
+        </svg>
+      );
+
+    case 'sparkler':
+      return (
+        <svg {...common}>
+          <path d="M4 20 12 12" /><circle cx="14" cy="10" r="2.4"/><path d="M14 4v2.6M14 13.4V16M8.6 10H6M22 10h-2.6M17.8 6.2 16 8M10.2 13.8 12 12" opacity="0.8"/>
+        </svg>
+      );
+
+    case 'flare':
+      return (
+        <svg {...common}>
+          <path d="M3 21C5 10 10 4 20 3" opacity="0.7"/><circle cx="19" cy="4.4" r="2.4"/><path d="M16.4 2.4h5.2" opacity="0.8"/>
+        </svg>
+      );
+
+    case 'zenrake':
+      return (
+        <svg {...common}>
+          <path d="M2 7c4-2 6 2 10 0s6-2 10 0M2 12c4-2 6 2 10 0s6-2 10 0M2 17c4-2 6 2 10 0s6-2 10 0"/>
+        </svg>
+      );
+
+    case 'singingbowl':
+      return (
+        <svg {...common}>
+          <path d="M5 11h14a7 7 0 0 1-14 0Z"/><path d="M3 8.4c1.6-1.6 3-2.4 3-2.4M21 8.4c-1.6-1.6-3-2.4-3-2.4" opacity="0.7"/><path d="M7 20h10" opacity="0.6"/>
+        </svg>
+      );
+
+    case 'hourglass':
+      return (
+        <svg {...common}>
+          <path d="M6 3h12M6 21h12"/><path d="M7 3c0 5 5 7 5 9s-5 4-5 9M17 3c0 5-5 7-5 9s5 4 5 9"/><path d="M10.6 14.6h2.8" opacity="0.7"/>
+        </svg>
+      );
+
+    case 'snowglobe':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="10" r="8"/><path d="M6 19h12l-1 3H7z"/><path d="M12 6l3 6H9z" opacity="0.8"/>
+        </svg>
+      );
   }
 }
