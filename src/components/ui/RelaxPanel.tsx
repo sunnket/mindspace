@@ -27,6 +27,7 @@ import RelaxIcon from './RelaxIcons';
 
 /** A tint per shelf, so the panel reads as six places rather than one list. */
 const SHELF_TINT: Record<string, string> = {
+  Immersion: '212, 70%, 64%',
   Water: '182, 76%, 52%',
   Garden: '120, 52%, 48%',
   Sky: '265, 78%, 66%',
@@ -77,7 +78,7 @@ export default function RelaxPanel({ onClose }: { onClose: () => void }) {
 
       <div
         className="flex flex-col gap-2 overflow-y-auto pr-0.5"
-        style={{ maxHeight: 'min(58vh, 460px)', scrollbarWidth: 'thin' }}
+        style={{ maxHeight: 'min(64vh, 520px)', scrollbarWidth: 'thin' }}
       >
         {RELAX_GROUPS.map((group) => {
           const items = RELAX_EFFECT_LIST.filter((fx) => fx.group === group);

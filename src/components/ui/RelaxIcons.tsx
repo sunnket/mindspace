@@ -295,5 +295,145 @@ export default function RelaxIcon({ id, size = 18 }: { id: RelaxEffectId; size?:
           <path d="M16.4 11.4c.7-.8.3-1.6-.3-2.2" opacity="0.5" />
         </svg>
       );
+
+    case 'stargaze':
+      return (
+        <svg {...common}>
+          <path d="M3 16.6c4.4-2.2 8.2-3 12-3s5.6.4 6.8.8"/><circle cx="7.4" cy="7.6" r="0.9"/><circle cx="13" cy="5.4" r="1.1"/><circle cx="18" cy="9" r="0.9"/><circle cx="10.4" cy="11" r="0.7"/>
+        </svg>
+      );
+
+    case 'moonrise':
+      return (
+        <svg {...common}>
+          <path d="M3 20h18"/><path d="M16.6 4.4a6.6 6.6 0 1 0 3 8.8 5.2 5.2 0 0 1-3-8.8Z"/>
+        </svg>
+      );
+
+    case 'meteors':
+      return (
+        <svg {...common}>
+          <path d="M4 12 9.6 6.4M9 17l4.4-4.4M14.6 19.6 18 16.2"/><circle cx="10.4" cy="5.6" r="1"/><circle cx="14.6" cy="11.4" r="0.9"/><circle cx="19" cy="15.4" r="0.8"/>
+        </svg>
+      );
+
+    case 'duskwash':
+      return (
+        <svg {...common}>
+          <path d="M3 15h18"/><path d="M7.2 15a4.8 4.8 0 0 1 9.6 0"/><path d="M12 4.4v2.2M5.6 7.2l1.6 1.6M18.4 7.2l-1.6 1.6"/><path d="M3 19h18" opacity="0.5"/>
+        </svg>
+      );
+
+    case 'clouds':
+      return (
+        <svg {...common}>
+          <path d="M6 15.4h9.4a3.2 3.2 0 0 0 .3-6.4 4.8 4.8 0 0 0-9-1.2A3.6 3.6 0 0 0 6 15.4Z"/><path d="M3 19.4h12" opacity="0.6"/>
+        </svg>
+      );
+
+    case 'fogbank':
+      return (
+        <svg {...common}>
+          <path d="M3.4 8.4h17.2M5.4 12h13.2M3.4 15.6h17.2M6.6 19.2h11"/>
+        </svg>
+      );
+
+    case 'tide':
+      return (
+        <svg {...common}>
+          <path d="M3 9.4h18"/><path d="M3 14c2-1.6 4-1.6 6 0s4 1.6 6 0 4-1.6 6 0"/><path d="M3 18.4c2-1.6 4-1.6 6 0s4 1.6 6 0 4-1.6 6 0" opacity="0.6"/>
+        </svg>
+      );
+
+    case 'deepwater':
+      return (
+        <svg {...common}>
+          <path d="M3 5.4c2.2-1.6 4.4-1.6 6.6 0s4.4 1.6 6.6 0 3.6-1.2 4.8-.4"/><path d="M8.6 21V9.4M15 21v-8"/><circle cx="11.8" cy="15" r="0.9" opacity="0.7"/>
+        </svg>
+      );
+
+    case 'bioluminescence':
+      return (
+        <svg {...common}>
+          <path d="M3 16c2-1.6 4-1.6 6 0s4 1.6 6 0 4-1.6 6 0"/><circle cx="7" cy="11" r="1.1"/><circle cx="12.6" cy="8.4" r="0.9"/><circle cx="17.4" cy="11.6" r="1"/><circle cx="10" cy="6.6" r="0.7" opacity="0.7"/>
+        </svg>
+      );
+
+    case 'godrays':
+      return (
+        <svg {...common}>
+          <path d="M4 3h16"/><path d="M7.4 3 4.6 21M11.4 3l-1.2 18M15.4 3l1.6 18M19 3l3 18" opacity="0.85"/>
+        </svg>
+      );
+
+    case 'shoji':
+      return (
+        <svg {...common}>
+          <rect x="3.6" y="3.6" width="16.8" height="16.8" rx="1"/><path d="M12 3.6v16.8M3.6 12h16.8"/><path d="M17.6 6.6c-1.6 1.4-2.6 3-3 4.6" opacity="0.6"/>
+        </svg>
+      );
+
+    case 'wheat':
+      return (
+        <svg {...common}>
+          <path d="M3 21h18"/><path d="M6.4 21c-.6-4 0-7.4 1.6-10.6M11.2 21c-.4-4.4.4-8 2.2-11.4M16.4 21c-.2-3.8.8-7 2.6-9.8"/>
+        </svg>
+      );
+
+    case 'blossomstorm':
+      return (
+        <svg {...common}>
+          <path d="M5.4 4.6 7 6.6M11 3.4l1 2.4M17.6 5.2l-1.4 2M4.4 12.6l2.2.8M13.6 11.6l2 1.2M8 18.4l1.6 1.6M18 17l-1.4 1.8"/><circle cx="9.4" cy="9.6" r="1.4"/><circle cx="15" cy="16" r="1.2"/>
+        </svg>
+      );
+
+    case 'wisteria':
+      return (
+        <svg {...common}>
+          <path d="M3 4.6h18"/><path d="M7 4.6v11M12 4.6v14.4M17 4.6v9.6" opacity="0.55"/><circle cx="7" cy="9" r="1.5"/><circle cx="12" cy="11.4" r="1.7"/><circle cx="17" cy="8.4" r="1.4"/><circle cx="12" cy="16.4" r="1.2"/>
+        </svg>
+      );
+
+    case 'sandgarden':
+      return (
+        <svg {...common}>
+          <ellipse cx="12" cy="12" rx="9" ry="5.4"/><ellipse cx="12" cy="12" rx="5.6" ry="3.2" opacity="0.7"/><ellipse cx="12" cy="12" rx="2" ry="1.2"/>
+        </svg>
+      );
+
+    case 'citynight':
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="9" r="3.2"/><circle cx="16.4" cy="7.4" r="2"/><circle cx="14" cy="15.6" r="3.8" opacity="0.6"/><circle cx="5.6" cy="17.4" r="1.6" opacity="0.7"/>
+        </svg>
+      );
+
+    case 'silk':
+      return (
+        <svg {...common}>
+          <path d="M2.4 8c4-3.2 7.6 3.2 11.6 0s5.6-2 7.6-.8"/><path d="M2.4 13c4-3.2 7.6 3.2 11.6 0s5.6-2 7.6-.8" opacity="0.7"/><path d="M2.4 18c4-3.2 7.6 3.2 11.6 0s5.6-2 7.6-.8" opacity="0.45"/>
+        </svg>
+      );
+
+    case 'lavalamp':
+      return (
+        <svg {...common}>
+          <path d="M8.4 3h7.2l1.4 18H7z"/><ellipse cx="12" cy="15.4" rx="2.8" ry="2"/><ellipse cx="11.2" cy="9.4" rx="1.8" ry="1.4" opacity="0.7"/>
+        </svg>
+      );
+
+    case 'prism':
+      return (
+        <svg {...common}>
+          <path d="M11 3 3.4 19h15.2z"/><path d="M13.6 11h8M13.6 13.6h8" opacity="0.7"/><path d="M13.6 16.2h8" opacity="0.45"/>
+        </svg>
+      );
+
+    case 'steamroom':
+      return (
+        <svg {...common}>
+          <path d="M3 21h18"/><path d="M8 17c0-2 1.6-2.6 1.6-4.4S8 9.4 8 7.4M13 17c0-2.4 1.8-3 1.8-5S13 8.4 13 6.4M18 17c0-1.8 1.2-2.4 1.2-4" opacity="0.9"/>
+        </svg>
+      );
   }
 }
