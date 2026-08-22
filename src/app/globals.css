@@ -552,6 +552,168 @@ html, body {
   to   { transform: rotate(1.8deg); }
 }
 /* Two whole minutes to cross the sky, which is roughly how it feels. */
+/* Film grain. It JUMPS — grain that slides is dirt on the lens. steps(1) on
+   each keyframe means the tile is somewhere new every frame-and-a-bit and never
+   travels; the layer is oversized so the jump never pulls in an edge. */
+/* The moon climbs, but only a little: two minutes of sitting is not two hours
+   of sky, and a moon that crosses the frame is a moon you watch instead of a
+   moon you sit under. */
+@keyframes relaxMoonLift {
+  from { transform: translate3d(0, 5%, 0); }
+  to   { transform: translate3d(0, -4%, 0); }
+}
+/* The water batch. A tide is not a loop of a wave crossing the frame — it is
+   one sheet running up the sand and draining back, and the wet line it leaves
+   lags behind it by a second or two. That lag is the whole illusion. */
+@keyframes relaxTideRun {
+  0%   { transform: translate3d(0, 34%, 0) scaleY(0.7); opacity: 0.25; }
+  38%  { transform: translate3d(0, -6%, 0) scaleY(1.06); opacity: 0.9; }
+  52%  { transform: translate3d(0, -2%, 0) scaleY(1); opacity: 0.75; }
+  100% { transform: translate3d(0, 34%, 0) scaleY(0.7); opacity: 0.25; }
+}
+@keyframes relaxTideWet {
+  0%   { opacity: 0.15; }
+  46%  { opacity: 0.85; }
+  100% { opacity: 0.15; }
+}
+/* Something big, crossing very slowly and only once in a while. */
+@keyframes relaxDeepPass {
+  0%   { transform: translate3d(-46%, 6%, 0) scale(0.8); opacity: 0; }
+  12%  { opacity: 0.5; }
+  74%  { opacity: 0.42; }
+  100% { transform: translate3d(52%, -4%, 0) scale(1.1); opacity: 0; }
+}
+/* Fog banks: two rates, both far too slow to catch, neither a whole number
+   multiple of the other. */
+@keyframes relaxFogA {
+  from { transform: translate3d(-4%, 0, 0); }
+  to   { transform: translate3d(4%, 0, 0); }
+}
+@keyframes relaxFogB {
+  from { transform: translate3d(5%, 0, 0); }
+  to   { transform: translate3d(-5%, 0, 0); }
+}
+/* Sea fire: the surf runs up, lights, and goes out — and the sand keeps the
+   glow for a moment after the water has gone back. */
+@keyframes relaxSurf {
+  0%   { transform: translate3d(0, 26%, 0); opacity: 0.15; }
+  30%  { transform: translate3d(0, -4%, 0); opacity: 1; }
+  46%  { transform: translate3d(0, 2%, 0); opacity: 0.8; }
+  100% { transform: translate3d(0, 26%, 0); opacity: 0.15; }
+}
+@keyframes relaxSurfWet {
+  0%   { opacity: 0.2; }
+  40%  { opacity: 1; }
+  70%  { opacity: 0.6; }
+  100% { opacity: 0.2; }
+}
+/* Light through a window crosses a room over an afternoon: the spectra move
+   the whole width of the wall, and they take their time about it. */
+@keyframes relaxPrismCrawl {
+  from { transform: translate3d(-9%, -4%, 0) rotate(-2deg) scale(1); }
+  to   { transform: translate3d(11%, 7%, 0) rotate(3deg) scale(1.14); }
+}
+/* Cloth. Two sheets at rates that never agree, and a sheen that travels across
+   the folds rather than sitting on them — satin is defined by the highlight
+   MOVING when the cloth does. */
+@keyframes relaxSilkA {
+  from { transform: translate3d(-4%, 0, 0) scaleX(1) skewX(-2deg); }
+  to   { transform: translate3d(4%, 2%, 0) scaleX(1.12) skewX(3deg); }
+}
+@keyframes relaxSilkB {
+  from { transform: translate3d(3%, 1%, 0) scaleX(1.08) skewX(2deg); }
+  to   { transform: translate3d(-5%, -2%, 0) scaleX(0.96) skewX(-3deg); }
+}
+@keyframes relaxSilkSheen {
+  from { transform: translate3d(-34%, 0, 0); }
+  to   { transform: translate3d(34%, 0, 0); }
+}
+/* Wax is a bag of liquid: it stretches as it climbs and squashes when it stops.
+   The blob's own border-radius does that, so the loop only has to move it. */
+@keyframes relaxWaxWobble {
+  0%   { border-radius: 50% 50% 50% 50% / 54% 54% 46% 46%; transform: scale(1, 1.04); }
+  35%  { border-radius: 46% 54% 52% 48% / 62% 66% 34% 38%; transform: scale(0.9, 1.16); }
+  70%  { border-radius: 54% 46% 48% 52% / 40% 38% 62% 60%; transform: scale(1.14, 0.88); }
+  100% { border-radius: 50% 50% 50% 50% / 54% 54% 46% 46%; transform: scale(1, 1.04); }
+}
+/* The far bands of a field move as a sheet; only the near stalks are worth
+   moving one at a time. Two rates so the sheet never pulses in step. */
+@keyframes relaxWheatFar {
+  from { transform: skewX(-1.1deg); }
+  to   { transform: skewX(1.4deg); }
+}
+@keyframes relaxWheatMid {
+  from { transform: skewX(1.6deg) translateX(-0.4%); }
+  to   { transform: skewX(-2deg) translateX(0.5%); }
+}
+/* Racemes hang from a beam, so they swing about the top, not the middle. */
+@keyframes relaxWisteriaA {
+  from { transform: rotate(-0.9deg); }
+  to   { transform: rotate(1.1deg); }
+}
+@keyframes relaxWisteriaB {
+  from { transform: rotate(1.3deg) translateX(0.4%); }
+  to   { transform: rotate(-1deg) translateX(-0.5%); }
+}
+/* A fire pulses, and everything it lights pulses with it. */
+@keyframes relaxFireLight {
+  0%   { opacity: 0.72; transform: scale(0.97); }
+  28%  { opacity: 1; transform: scale(1.04); }
+  55%  { opacity: 0.82; transform: scale(0.99); }
+  78%  { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 0.86; transform: scale(1); }
+}
+/* A grove creaks: the near culms move more than the far ones, and they all
+   bend about the ground rather than sliding. */
+@keyframes relaxGroveA {
+  from { transform: skewX(-0.7deg); }
+  to   { transform: skewX(0.9deg); }
+}
+@keyframes relaxGroveB {
+  from { transform: skewX(1.2deg); }
+  to   { transform: skewX(-1deg); }
+}
+/* Water going over an edge: the threads run, the sheet does not. */
+@keyframes relaxFallRun {
+  from { background-position: 0 0; }
+  to   { background-position: 0 100%; }
+}
+/* Gas clouds drift over centuries; two minutes of it is almost nothing. */
+@keyframes relaxNebulaA {
+  from { transform: translate3d(-1.5%, 1%, 0) scale(1); }
+  to   { transform: translate3d(2%, -1.5%, 0) scale(1.08); }
+}
+@keyframes relaxNebulaB {
+  from { transform: translate3d(2%, -1%, 0) scale(1.06); }
+  to   { transform: translate3d(-2%, 1.5%, 0) scale(0.98); }
+}
+/* Sheet lightning, forty miles off: two or three flickers close together and
+   then nothing at all for a long time. steps(1) so it snaps rather than fades —
+   lightning that ramps is a light bulb on a dimmer. */
+@keyframes relaxLightning {
+  0%, 3%   { opacity: 0; }
+  3.4%     { opacity: 0.85; }
+  4%       { opacity: 0.1; }
+  4.6%     { opacity: 1; }
+  6%       { opacity: 0; }
+  22%      { opacity: 0; }
+  22.6%    { opacity: 0.6; }
+  23.4%    { opacity: 0; }
+  61%      { opacity: 0; }
+  61.5%    { opacity: 0.9; }
+  62.4%    { opacity: 0.2; }
+  63%      { opacity: 0.7; }
+  64.4%    { opacity: 0; }
+  100%     { opacity: 0; }
+}
+@keyframes relaxGrain {
+  0%   { transform: translate3d(0, 0, 0); }
+  20%  { transform: translate3d(-3%, 1.5%, 0); }
+  40%  { transform: translate3d(2%, -2.5%, 0); }
+  60%  { transform: translate3d(-1.5%, -1%, 0); }
+  80%  { transform: translate3d(2.5%, 2%, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
 @keyframes relaxMoonClimb {
   from { transform: translate3d(-26%, 46%, 0); }
   to   { transform: translate3d(22%, -30%, 0); }

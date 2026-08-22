@@ -92,7 +92,19 @@ export type RelaxEffectId =
   | 'bioluminescence'
   | 'steamroom'
   | 'prism'
-  | 'wisteria';
+  | 'wisteria'
+  | 'mountains'
+  | 'campfire'
+  | 'snowfield'
+  | 'desert'
+  | 'bamboo'
+  | 'rainwindow'
+  | 'lanternriver'
+  | 'waterfall'
+  | 'nebula'
+  | 'autumn'
+  | 'harbour'
+  | 'thunderhead';
 
 export interface Particle {
   el: HTMLElement;
@@ -4294,13 +4306,199 @@ function mote(x: number, y: number, now: number, css: string, size: number, life
   return particle(el, x, y, size, life, now);
 }
 
+/* ========================== the cinematic kit =============================
+   Rebuilt 2026-08-22. Every immersion below used to be two or three blurred
+   gradients stacked on each other, and they all read the same way: an
+   out-of-focus photograph of nothing. A gradient has no EDGE, so nothing in
+   the frame was ever a thing — no horizon, no ridge, no branch, no surface.
+   Blur was doing the work that composition should have been doing.
+
+   What a shot actually needs, and what everything below this line now gets:
+
+    1. SOMETHING WITH AN EDGE. A silhouette — a ridge, a skyline, a stand of
+       grass — drawn as an inline SVG background. It costs one rasterisation
+       and parallaxes with a transform like any other layer.
+    2. DEPTH IN BANDS. Three or four planes, each drifting at its own rate,
+       with haze BETWEEN them. Distance in a photograph is mostly contrast
+       loss, not size.
+    3. ONE LIGHT SOURCE, and everything in the frame agreeing about where it
+       is — the glow, the rim on the silhouette, the direction of the shadow.
+    4. THE FILM ITSELF: grain, a grade, and a vignette, over the top of
+       everything. This is the whole difference between "a CSS gradient" and
+       "a frame of something", and it is three layers.
+   ========================================================================= */
+
+/** One inline SVG, as a background layer. `preserveAspectRatio:none` so a shape
+ *  authored in its own comfortable coordinates stretches to whatever cell it
+ *  lands in. */
+function svgLayer(vw: number, vh: number, body: string) {
+  /* Write plain `#rrggbb` in the body. Pre-encoding it as `%23` gets encoded
+     AGAIN here into `%2523`, which silently invalidates every fill, gradient
+     and filter reference — and an invalid fill falls back to black, so the
+     silhouettes still looked right and nothing else did. */
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${vw} ${vh}' preserveAspectRatio='none'>${body}</svg>`;
+  return (
+    `background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}");` +
+    'background-size:100% 100%;background-repeat:no-repeat;'
+  );
+}
+
+/**
+ * A ridge line, by midpoint displacement.
+ *
+ * The standard way to get a skyline that looks eroded instead of drawn: split
+ * every segment, kick the middle by a random amount, halve the amount, repeat.
+ * `rough` is how violent the first kick is — 0.06 is distant hills, 0.3 is the
+ * Alps. Returns a closed path filled down to the bottom of the box.
+ */
+function ridgePath(w: number, h: number, top: number, rough: number, steps = 6) {
+  let pts: [number, number][] = [
+    [0, top + rand(-h * 0.03, h * 0.03)],
+    [w, top + rand(-h * 0.03, h * 0.03)],
+  ];
+  let amp = h * rough;
+  for (let s = 0; s < steps; s++) {
+    const next: [number, number][] = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      next.push(pts[i]);
+      next.push([
+        (pts[i][0] + pts[i + 1][0]) / 2,
+        (pts[i][1] + pts[i + 1][1]) / 2 + rand(-amp, amp),
+      ]);
+    }
+    next.push(pts[pts.length - 1]);
+    pts = next;
+    amp *= 0.52;
+  }
+  return (
+    `M0,${h} L` +
+    pts.map(([x, y]) => `${x.toFixed(1)},${Math.max(0, Math.min(h, y)).toFixed(1)}`).join(' ') +
+    ` L${w},${h} Z`
+  );
+}
+
+/**
+ * One range of hills, as a layer.
+ *
+ * The trick is that every range is anchored to the BOTTOM of the frame and
+ * differs only in how tall its box is: the far ones are tall boxes with their
+ * crest high up, the near ones are short boxes with their crest low down, and
+ * each one drawn later covers the feet of the one behind it. Float the boxes
+ * instead — bottom:20%, bottom:12% — and the near ranges hang in mid-air with
+ * a straight edge along the bottom, which is exactly what the first attempt at
+ * this looked like.
+ */
+function ridgeLayer(
+  add: (css: string, fade?: number) => HTMLElement,
+  heightPct: number, crest: number, rough: number, fill: string, extra = ''
+) {
+  const w = 1400;
+  const h = 400;
+  return add(
+    `top:auto;bottom:0;height:${heightPct.toFixed(1)}%;` +
+    svgLayer(w, h, `<path d='${ridgePath(w, h, h * crest, rough)}' fill='${fill}'/>`) + extra
+  );
+}
+
+/**
+ * A branch, grown rather than drawn.
+ *
+ * Recursive: each limb spawns one or two thinner limbs at a diverging angle,
+ * shortening as it goes. Straight lines were what the old shoji had, and a
+ * straight brown bar across a paper screen reads as a crack in the screen.
+ */
+function branchPath(
+  x: number, y: number, ang: number, len: number, wide: number, depth: number,
+  out: string[], buds?: { x: number; y: number; r: number }[]
+) {
+  if (depth <= 0 || len < 3) {
+    if (buds && Math.random() < 0.8) buds.push({ x, y, r: rand(1, 2.6) });
+    return;
+  }
+  // A limb bows; only dead wood is straight.
+  const bow = rand(-0.3, 0.3);
+  const mx = x + Math.cos(ang + bow) * len * 0.5;
+  const my = y + Math.sin(ang + bow) * len * 0.5;
+  const ex = x + Math.cos(ang) * len;
+  const ey = y + Math.sin(ang) * len;
+  out.push(
+    `<path d='M${x.toFixed(1)},${y.toFixed(1)} Q${mx.toFixed(1)},${my.toFixed(1)} ${ex.toFixed(1)},${ey.toFixed(1)}'` +
+    ` stroke-width='${wide.toFixed(2)}' fill='none' stroke-linecap='round'/>`
+  );
+  const forks = Math.random() < 0.72 ? 2 : 1;
+  for (let i = 0; i < forks; i++) {
+    branchPath(
+      ex, ey,
+      ang + (i === 0 ? rand(-0.62, -0.12) : rand(0.12, 0.62)),
+      len * rand(0.6, 0.82), wide * 0.66, depth - 1, out, buds
+    );
+  }
+}
+
+/**
+ * Film grain: one tile of monochrome turbulence, JUMPED rather than slid.
+ *
+ * Grain that slides is dirt on the lens; grain that jumps a few pixels every
+ * other frame is film. `overlay` against a mid-grey noise leaves the midtones
+ * alone and only pushes the extremes, which is what a real emulsion does.
+ */
+const GRAIN_TILE =
+  "<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'>" +
+  "<filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/>" +
+  "<feColorMatrix type='saturate' values='0'/></filter>" +
+  "<rect width='220' height='220' filter='url(#g)'/></svg>";
+
+function grain(a = 0.15) {
+  return (
+    'inset:-8%;pointer-events:none;' +
+    `background-image:url("data:image/svg+xml,${encodeURIComponent(GRAIN_TILE)}");` +
+    'background-size:220px 220px;background-repeat:repeat;' +
+    `opacity:${a};mix-blend-mode:overlay;will-change:transform;` +
+    'animation:relaxGrain 0.56s steps(1) infinite;'
+  );
+}
+
+/** The grade: cool in the shadows, warm in the highlights, or whatever the
+ *  scene wants. `soft-light` is the blend a colourist reaches for because it
+ *  tints without flattening — `overlay` at this strength would crush it. */
+function grade(shadow: string, highlight: string, a = 0.5) {
+  return (
+    `background:linear-gradient(163deg, ${highlight} 0%, transparent 46%, transparent 58%, ${shadow} 100%);` +
+    `mix-blend-mode:soft-light;opacity:${a};`
+  );
+}
+
+/** The vignette. Every lens has one and every frame is read through it. */
+function vignette(a = 0.5, at = '50% 46%') {
+  return `background:radial-gradient(122% 104% at ${at}, transparent 40%, rgba(0,0,0,${a}) 100%);`;
+}
+
+/** Atmospheric perspective: the wash of sky that gets between you and a thing
+ *  that is far away. Sits ON TOP of the layer it is pushing back. */
+function haze(rgb: string, a: number, from = 40) {
+  return `background:linear-gradient(180deg, rgba(${rgb},0) 0%, rgba(${rgb},${a}) ${from}%, rgba(${rgb},${a * 1.25}) 100%);`;
+}
+
+/** The finish, in the order it has to go on: grade, vignette, grain. Called
+ *  last by every immersion so the whole set shares one look. */
+function filmPass(
+  add: (css: string, fade?: number) => HTMLElement,
+  shadow: string, highlight: string, vig = 0.5, gr = 0.15, gradeA = 0.5
+) {
+  add(grade(shadow, highlight, gradeA));
+  add(vignette(vig));
+  add(grain(gr));
+}
+
 /* ---------------------------------------------------------------- stargaze */
+
 
 const stargaze: RelaxEffect = {
   id: 'stargaze',
   label: 'Stargazing',
   group: 'Immersion',
-  blurb: 'Lie back. The whole sky, turning at the speed it actually turns, and something falls through it every so often.',
+  blurb: 'Flat on your back in a field, the Milky Way overhead, and the treeline black all the way round.',
   space: 'screen',
   flash: '',
   burstMs: SIT,
@@ -4310,37 +4508,70 @@ const stargaze: RelaxEffect = {
   maxParticles: 14,
   onStart(_x, _y, api) {
     raise('stargaze', api, (add) => {
-      add(
-        api.isDark
-          ? 'background:radial-gradient(140% 110% at 50% 0%, #131a3e 0%, #080c22 44%, #02030a 100%);'
-          : 'background:radial-gradient(140% 110% at 50% 0%, #1b2450 0%, #0c1230 46%, #04060f 100%);'
-      );
-      // The band. It leans, and it turns — a sky that holds still is a poster.
-      add(
-        'background:linear-gradient(101deg, transparent 30%, rgba(186,196,255,0.16) 44%,' +
-          ' rgba(232,226,255,0.26) 50%, rgba(178,192,255,0.14) 57%, transparent 71%);' +
-          'filter:blur(22px);animation:relaxSkyTurn 240s linear infinite;'
-      );
-      add(RELAX_STARFIELD + 'animation:relaxSkyTurn 240s linear infinite;');
-      add('background:radial-gradient(120% 100% at 50% 52%, transparent 44%, rgba(0,0,0,0.55) 100%);');
+      /* A night sky is not one colour. It is darkest overhead and holds a
+         little light all the way to the horizon, however far you are from a
+         town — and the horizon is where the eye checks whether it believes you. */
+      add('background:radial-gradient(128% 108% at 50% 4%, #16204a 0%, #0a1030 34%, #05081c 62%, #020410 100%),' +
+        'linear-gradient(0deg, rgba(60,80,140,0.4) 0%, transparent 34%);');
+
+      /* The galaxy: a band, its dust lane, and the bulge — three shapes, not
+         one blurred stripe. It leans, because it is never level. */
+      add('background:' +
+        'radial-gradient(closest-side ellipse at 63% 33%, rgba(255,240,216,0.4), rgba(190,180,220,0.12) 54%, transparent 78%),' +
+        'linear-gradient(104deg, transparent 28%, rgba(178,192,255,0.14) 38%, rgba(238,234,255,0.34) 48%,' +
+        ' rgba(196,204,255,0.16) 58%, transparent 70%);' +
+        'background-size:52% 40%, 100% 100%;background-position:63% 33%, 0 0;background-repeat:no-repeat;' +
+        'filter:blur(11px);animation:relaxSkyTurn 300s linear infinite;');
+      // The rift — the dark dust IN the band is what makes it read as a galaxy.
+      add('background:linear-gradient(102deg, transparent 40%, rgba(4,6,18,0.62) 48%, rgba(4,6,18,0.3) 53%, transparent 60%);' +
+        'filter:blur(9px);animation:relaxSkyTurn 300s linear infinite;');
+
+      add(RELAX_STARFIELD + 'animation:relaxSkyTurn 300s linear infinite;');
+      // A second field, finer and turning with it, so the sky has two depths.
+      add('background:radial-gradient(circle, rgba(214,226,255,0.55) 0 0.6px, transparent 0.9px) 23px 11px/37px 41px;' +
+        'opacity:0.7;animation:relaxSkyTurn 300s linear infinite;');
+
+      /* The treeline. Black, ragged, and across the bottom of the frame: the
+         one edge that tells you you are lying in a field and not staring at a
+         screensaver. */
+      const w = 1200, h = 300;
+      const trees: string[] = [];
+      for (let i = 0; i < 60; i++) {
+        const x = (i / 60) * w + rand(-11, 11);
+        const hh = rand(80, 200) * (i % 6 === 0 ? 1.45 : 1);
+        const ww = hh * rand(0.3, 0.46);
+        /* A fir is a stack of skirts, not a triangle — three tiers with the
+           gaps between them is the whole silhouette, and at this size that is
+           all you need. Narrow spikes read as grass. */
+        const tiers: string[] = [];
+        for (let k = 0; k < 3; k++) {
+          const ty = h - hh * (0.12 + k * 0.3);
+          const tw = ww * (1 - k * 0.26);
+          tiers.push(`${x - tw / 2},${ty} ${x},${ty - hh * 0.42} ${x + tw / 2},${ty}`);
+        }
+        trees.push(`<polygon points='${tiers.join(' ')}' fill='#000'/>`);
+      }
+      add('top:auto;bottom:0;height:30%;' +
+        svgLayer(w, h, `<rect y='${(h * 0.86).toFixed(0)}' width='${w}' height='${(h * 0.14).toFixed(0)}' fill='#000'/>` + trees.join('')));
+
+      filmPass(add, '#0a1436', '#2a3a6e', 0.56, 0.17, 0.42);
     });
     startAmbience('drone');
   },
   onStop() { lower('stargaze'); stopAmbience('drone'); },
   create(x, y, now, api) {
-    // A meteor: a hairline that is mostly tail.
     const el = document.createElement('div');
     const len = rand(90, 260);
     baseStyle(
       el, len,
-      'height:2px;border-radius:2px;' +
-        'background:linear-gradient(90deg, transparent, rgba(214,230,255,0.9), #fff);' +
-        'box-shadow:0 0 12px rgba(190,215,255,0.9);'
+      'height:1.5px;border-radius:2px;' +
+        'background:linear-gradient(90deg, transparent, rgba(214,230,255,0.85), #fff);' +
+        'box-shadow:0 0 10px rgba(190,215,255,0.8);'
     );
     const { w, h } = api.viewport;
     const p = particle(el, rand(w * 0.1, w * 0.95), rand(0, h * 0.5), len, rand(900, 1700), now);
-    p.a = rand(0.36, 0.72);              // its angle down the sky
-    p.c = rand(420, 900);                // how far it gets
+    p.a = rand(0.36, 0.72);
+    p.c = rand(420, 900);
     return p;
   },
   step(p, t) {
@@ -4354,6 +4585,7 @@ const stargaze: RelaxEffect = {
 
 /* -------------------------------------------------------------------- tide */
 
+
 const tide: RelaxEffect = {
   id: 'tide',
   label: 'Slow Tide',
@@ -4363,30 +4595,81 @@ const tide: RelaxEffect = {
   flash: '',
   burstMs: SIT,
   openingPop: 10,
-  spawnEveryMs: 1800,
+  spawnEveryMs: 1500,
   spawnPerTick: 1,
-  maxParticles: 26,
+  maxParticles: 30,
   onStart(_x, _y, api) {
     raise('tide', api, (add) => {
-      add(api.isDark
-        ? 'background:linear-gradient(180deg,#1a2740 0%,#2b3a54 34%,#3d4f66 52%,#12202e 53%,#050b12 100%);'
-        : 'background:linear-gradient(180deg,#a8c2d8 0%,#cdd8dc 32%,#e6d8c0 50%,#3f5f74 51%,#16303f 100%);');
-      // The sun or moon sitting on the line, and its path on the water.
-      add('background:radial-gradient(38% 26% at 50% 50%, rgba(255,214,164,0.5), transparent 70%),' +
-        'linear-gradient(180deg, transparent 51%, rgba(255,206,150,0.16) 54%, transparent 88%);' +
-        'mix-blend-mode:screen;animation:relaxImmBreath 19s ease-in-out infinite alternate;');
-      /* Three bands of water, each crawling at its own rate. One band is a
-         gradient; three at different speeds is a sea. */
-      add('top:52%;bottom:0;left:-14%;right:-14%;' +
-        'background:repeating-linear-gradient(178deg, rgba(255,255,255,0.07) 0 2px, transparent 2px 26px);' +
-        'animation:relaxCrawlA 34s linear infinite;');
-      add('top:60%;bottom:0;left:-14%;right:-14%;' +
-        'background:repeating-linear-gradient(182deg, rgba(255,255,255,0.06) 0 2px, transparent 2px 38px);' +
-        'animation:relaxCrawlB 52s linear infinite;');
-      add('top:70%;bottom:0;left:-14%;right:-14%;' +
-        'background:repeating-linear-gradient(177deg, rgba(255,255,255,0.05) 0 3px, transparent 3px 54px);' +
-        'animation:relaxCrawlA 78s linear infinite;');
-      add('background:radial-gradient(120% 100% at 50% 46%, transparent 46%, rgba(0,0,0,0.5) 100%);');
+      const dark = api.isDark;
+      // Full-bleed first: every scene has to reach all four edges, or the film
+      // pass grades and grains the gap and it shows up as a band of noise.
+      add(dark ? 'background:#070d18;' : 'background:#1f3549;');
+      // Sky. The horizon is the brightest part of it, always.
+      add(dark
+        ? 'background:linear-gradient(180deg,#0a1430 0%,#16244a 26%,#2c3c62 44%,#4a4a68 51%);' +
+          'bottom:49%;'
+        : 'background:linear-gradient(180deg,#5f86b4 0%,#9fb6cd 26%,#d5cdbe 44%,#efd9b4 51%);' +
+          'bottom:49%;');
+      // The sun sitting on the line, and its glow eating the horizon.
+      add(`bottom:44%;height:34%;top:auto;mix-blend-mode:screen;` +
+        `background:radial-gradient(46% 100% at 56% 100%, rgba(255,${dark ? '214,170' : '232,186'},0.55), transparent 74%);` +
+        'animation:relaxImmBreath 24s ease-in-out infinite alternate;');
+
+      // A headland, far off to one side. One edge is enough to place the sea.
+      const hw = 1200, hh = 160;
+      add('top:auto;bottom:49%;height:9%;opacity:0.9;' +
+        svgLayer(hw, hh, `<path d='M0,${hh} L0,${hh * 0.7} Q${hw * 0.1},${hh * 0.3} ${hw * 0.22},${hh * 0.52}` +
+          ` Q${hw * 0.3},${hh * 0.72} ${hw * 0.38},${hh} Z' fill='${dark ? '#050a18' : '#3c4655'}'/>`));
+
+      /* The sea. Bands of swell that get taller and further apart as they come
+         toward you — that spacing IS the perspective, and it is why the old
+         evenly-striped version read as a barcode. */
+      add(`top:51%;background:linear-gradient(180deg, ${dark ? '#22314e' : '#5d7f9c'} 0%,` +
+        ` ${dark ? '#16223a' : '#42627e'} 32%, ${dark ? '#0c1526' : '#2d4a63'} 72%, ${dark ? '#070d18' : '#1f3549'} 100%);`);
+      const swell: string[] = [];
+      for (let i = 0; i < 44; i++) {
+        const t = i / 44;
+        const yy = Math.pow(t, 1.9) * 100;
+        /* Each crest is broken into a few dashes rather than one rule across
+           the frame: an unbroken line at this spacing is a barcode, and the sea
+           has never once drawn a straight line all the way to both edges. */
+        let x = -6;
+        while (x < 104) {
+          const seg = rand(6, 30) * (0.4 + t);
+          swell.push(`<rect x='${x.toFixed(1)}' y='${yy.toFixed(2)}' width='${seg.toFixed(1)}' height='${(0.15 + t * 0.8).toFixed(2)}'` +
+            ` rx='${(0.1 + t * 0.4).toFixed(2)}' fill='#ffffff' opacity='${(0.04 + t * 0.1 + rand(-0.02, 0.03)).toFixed(3)}'/>`);
+          x += seg + rand(2, 14);
+        }
+      }
+      add('top:51%;mix-blend-mode:screen;filter:blur(1.1px);opacity:0.8;' +
+        'animation:relaxCrawlA 44s linear infinite;' + svgLayer(100, 100, swell.join('')));
+      // The glitter path under the sun.
+      const glit: string[] = [];
+      for (let i = 0; i < 260; i++) {
+        const t = Math.pow(Math.random(), 0.7);
+        glit.push(`<ellipse cx='${(56 + rand(-4 - t * 26, 4 + t * 26)).toFixed(1)}' cy='${(t * 100).toFixed(1)}'` +
+          ` rx='${rand(0.5, 2.4).toFixed(2)}' ry='${rand(0.1, 0.4).toFixed(2)}' fill='#fff2d8'` +
+          ` opacity='${(0.55 - t * 0.3).toFixed(2)}'/>`);
+      }
+      add('top:51%;mix-blend-mode:screen;animation:relaxKoiWind 7s linear infinite;' + svgLayer(100, 100, glit.join('')));
+
+      /* The tide itself: the whole point. One wave sheet that runs UP the sand
+         and drains back over eleven seconds, with the wet line it leaves
+         lagging behind it. */
+      add(`top:auto;bottom:0;height:26%;background:linear-gradient(180deg, ${dark ? '#2a2a30' : '#b9a288'} 0%,` +
+        ` ${dark ? '#1c1c22' : '#a08d76'} 100%);`);
+      add('top:auto;bottom:0;height:26%;background:linear-gradient(180deg, rgba(255,255,255,0.16) 0%, transparent 40%);' +
+        'animation:relaxTideWet 11s ease-in-out infinite;');
+      add('top:auto;bottom:0;height:30%;transform-origin:50% 100%;' +
+        svgLayer(200, 60,
+          "<path d='M0,60 L0,30 Q18,18 40,27 Q62,36 86,24 Q108,14 132,26 Q158,38 178,25 Q192,17 200,24 L200,60 Z'" +
+          " fill='#ffffff' opacity='0.5'/>" +
+          // The lace at the leading edge: foam is holes, not a solid sheet.
+          "<path d='M0,30 Q18,18 40,27 Q62,36 86,24 Q108,14 132,26 Q158,38 178,25 Q192,17 200,24'" +
+          " stroke='#ffffff' stroke-width='2.6' fill='none' opacity='0.95'/>") +
+        'animation:relaxTideRun 11s ease-in-out infinite;');
+
+      filmPass(add, dark ? '#0a1226' : '#20344c', dark ? '#4a5a80' : '#ffe6bc', 0.5, 0.15, 0.46);
     });
     startAmbience('ocean');
   },
@@ -4395,133 +4678,199 @@ const tide: RelaxEffect = {
     const { w, h } = api.viewport;
     const size = rand(60, 190);
     const p = mote(
-      rand(-40, w + 40), rand(h * 0.54, h * 0.98), now,
-      'border-radius:50%;filter:blur(14px);' +
+      rand(-40, w + 40), rand(h * 0.56, h * 0.8), now,
+      'border-radius:50%;filter:blur(12px);' +
         'background:radial-gradient(closest-side ellipse, rgba(255,255,255,0.5), transparent 72%);',
       size, rand(9000, 17_000)
     );
-    p.el.style.height = `${size * 0.24}px`;
+    p.el.style.height = `${size * 0.2}px`;
     p.b = rand(-0.24, 0.24);
     return p;
   },
   step(p, t) {
-    // Foam swells, slides, and is gone — never a hard edge anywhere.
     const e = Math.sin(t * Math.PI);
     p.el.style.transform = `translate3d(${p.x + t * p.b * 200}px, ${p.y}px, 0) scale(${0.6 + e * 0.7}, ${0.5 + e})`;
-    p.el.style.opacity = String(e * 0.5);
+    p.el.style.opacity = String(e * 0.45);
   },
 };
 
 /* ------------------------------------------------------------------ clouds */
 
+
 const clouds: RelaxEffect = {
   id: 'clouds',
-  label: 'Cloud Drift',
+  label: 'Cloudwatching',
   group: 'Immersion',
-  blurb: 'Nothing but weather going past. Big ones near, small ones far, none of them in a hurry.',
+  blurb: 'Looking straight up on a summer afternoon. They come over slowly, and they never come over twice.',
   space: 'screen',
   flash: '',
   burstMs: SIT,
-  openingPop: 9,
-  spawnEveryMs: 5200,
+  openingPop: 4,
+  spawnEveryMs: 13_000,
   spawnPerTick: 1,
-  maxParticles: 20,
+  maxParticles: 9,
   onStart(_x, _y, api) {
     raise('clouds', api, (add) => {
+      /* Straight up, the sky is deepest overhead and pales toward every
+         horizon — the gradient runs OUTWARD, not down. That one change is most
+         of the difference between lying in a field and looking at a wall. */
       add(api.isDark
-        ? 'background:linear-gradient(180deg,#101a30 0%,#1c2b46 46%,#2a3c58 100%);'
-        : 'background:linear-gradient(180deg,#6ea8d8 0%,#a8cbe4 44%,#d8e6ee 100%);');
-      add('background:radial-gradient(90% 70% at 50% 110%, rgba(255,240,214,0.28), transparent 70%);' +
-        'mix-blend-mode:screen;');
+        ? 'background:radial-gradient(120% 108% at 50% 46%, #1a2c52 0%, #24406c 44%, #3d5c86 78%, #56728f 100%);'
+        : 'background:radial-gradient(120% 108% at 50% 46%, #2f74c4 0%, #62a3dd 46%, #a8cbe9 80%, #d3e2ee 100%);');
+      // Sun, out of frame, but its light is not.
+      add('background:radial-gradient(46% 40% at 22% 16%, rgba(255,246,214,0.5), transparent 72%);mix-blend-mode:screen;' +
+        'animation:relaxImmBreath 26s ease-in-out infinite alternate;');
+      // The high cirrus, way above the cumulus, barely moving.
+      /* Cirrus: torn streaks at one angle, all of different lengths. A
+         repeating-linear-gradient here was corduroy — evenly spaced identical
+         lines are the one thing the sky never does. */
+      const wisps: string[] = [];
+      for (let i = 0; i < 26; i++) {
+        const y0 = rand(0, 100);
+        const x0 = rand(-10, 80);
+        const l = rand(14, 52);
+        wisps.push(`<path d='M${x0.toFixed(1)},${y0.toFixed(1)} q${(l / 2).toFixed(1)},${rand(-4, 4).toFixed(1)} ${l.toFixed(1)},${rand(-7, 3).toFixed(1)}'` +
+          ` stroke='#ffffff' stroke-width='${rand(0.4, 1.8).toFixed(2)}' fill='none' stroke-linecap='round'` +
+          ` opacity='${rand(0.1, 0.42).toFixed(2)}'/>`);
+      }
+      add('opacity:0.42;filter:blur(2.6px);animation:relaxCrawlB 220s linear infinite;' +
+        svgLayer(100, 100, wisps.join('')));
+      filmPass(add, '#20406a', '#fff2cd', 0.4, 0.13, 0.4);
     });
     startAmbience('wind');
   },
   onStop() { lower('clouds'); stopAmbience('wind'); },
   create(x, y, now, api) {
     const { w, h } = api.viewport;
-    /* Depth is carried by three things at once: size, blur and speed. Any one
-       of them alone and the sky reads as a flat sheet of stickers. */
-    const near = Math.random();
-    const size = rand(160, 520) * (0.5 + near);
+    /* A cumulus is a stack of lobes with a FLAT bottom and a cauliflower top,
+       lit from one side. Five lobes with soft inner stops read as cloud; three
+       leaves a stair-step silhouette, and one is a smudge. */
+    const cw = rand(w * 0.3, w * 0.78);
     const el = document.createElement('div');
-    baseStyle(
-      el, size,
-      `height:${size * rand(0.34, 0.5)}px;filter:blur(${(16 + (1 - near) * 26).toFixed(0)}px);` +
-        'background:' +
-        'radial-gradient(closest-side ellipse, rgba(255,255,255,0.7) 0 14%, rgba(255,255,255,0.26) 52%, transparent 98%)  8% 70%/42% 66% no-repeat,' +
-        'radial-gradient(closest-side ellipse, rgba(255,255,255,0.78) 0 16%, rgba(255,255,255,0.3) 54%, transparent 98%) 30% 46%/48% 88% no-repeat,' +
-        'radial-gradient(closest-side ellipse, rgba(255,255,255,0.82) 0 16%, rgba(255,255,255,0.32) 54%, transparent 98%) 52% 32%/54% 100% no-repeat,' +
-        'radial-gradient(closest-side ellipse, rgba(255,255,255,0.74) 0 15%, rgba(255,255,255,0.28) 54%, transparent 98%) 74% 54%/46% 82% no-repeat,' +
-        'radial-gradient(closest-side ellipse, rgba(255,255,255,0.66) 0 14%, rgba(255,255,255,0.24) 52%, transparent 98%) 92% 74%/38% 60% no-repeat;'
-    );
-    const p = particle(el, -size, rand(-h * 0.1, h * 0.72), size, rand(40_000, 96_000) / (0.4 + near), now);
-    p.c = w + size * 2;
-    p.maxScale = 0.34 + near * 0.5;
+    /* All of the geometry keeps well inside the box: an ellipse that runs off
+       its own viewBox is sliced square, and the blur is clipped by the filter
+       region as well, which is why every cloud used to have a rectangle cut
+       through it. The flat base and the cauliflower top are the whole read. */
+    const lobes: string[] = [];
+    const n = 5 + ((Math.random() * 3) | 0);
+    for (let i = 0; i < n; i++) {
+      const k = i / (n - 1);
+      const lx = 18 + k * 64 + rand(-4, 4);
+      const ly = 44 - Math.sin(k * Math.PI) * rand(9, 20);
+      const r = rand(10, 15);
+      lobes.push(`<ellipse cx='${lx.toFixed(1)}' cy='${ly.toFixed(1)}' rx='${r.toFixed(1)}' ry='${(r * rand(0.74, 1)).toFixed(1)}'/>`);
+    }
+    const body =
+      /* ONE gradient for the whole cloud, in user space, running top to
+         bottom. Two mistakes are baked out of this: with the default
+         objectBoundingBox every lobe got its own light and dark side, so a
+         small lobe on a big one showed as a grey bruise — and a separate
+         "shaded underside" rectangle just read as a grey bar lying across the
+         cloud. A cumulus is white on top and flat grey underneath, and that is
+         one gradient over one silhouette. */
+      "<defs><linearGradient id='c' gradientUnits='userSpaceOnUse' x1='0' y1='16' x2='0' y2='58'>" +
+      "<stop offset='0%' stop-color='#ffffff'/><stop offset='42%' stop-color='#f4f7fb'/>" +
+      "<stop offset='78%' stop-color='#cbd8e7'/><stop offset='100%' stop-color='#a3b6cc'/></linearGradient>" +
+      "<filter id='s' x='-30%' y='-30%' width='160%' height='160%'><feGaussianBlur stdDeviation='1.1'/></filter></defs>" +
+      `<g filter='url(#s)' fill='url(#c)'>${lobes.join('')}` +
+      // The body, up behind the lobes so the arch of them is never hollow.
+      "<rect x='17' y='36' width='66' height='20' rx='9'/></g>";
+    baseStyle(el, cw, svgLayer(100, 70, body) + `height:${(cw * 0.7).toFixed(0)}px;`);
+    const p = particle(el, -cw, rand(-h * 0.15, h * 0.85), cw, rand(58_000, 104_000), now);
+    p.c = w + cw * 2;
+    // Distance: the far ones are smaller, paler and higher.
+    p.maxScale = rand(0.5, 1.1);
+    p.b = rand(-0.04, 0.04);
+    p.d = 0.42 + p.maxScale * 0.5;
     return p;
   },
   step(p, t) {
-    p.el.style.transform = `translate3d(${p.x + t * p.c}px, ${p.y}px, 0)`;
-    p.el.style.opacity = String(Math.min(1, t * 8) * Math.min(1, (1 - t) * 8) * p.maxScale);
+    p.el.style.transform =
+      `translate3d(${p.x + t * p.c}px, ${p.y + t * p.b * 200}px, 0) scale(${p.maxScale})`;
+    p.el.style.opacity = String(Math.min(1, t * 8) * Math.min(1, (1 - t) * 8) * p.d);
   },
 };
 
 /* ---------------------------------------------------------------- duskwash */
 
+
 const duskwash: RelaxEffect = {
   id: 'duskwash',
-  label: 'Dusk to Dark',
+  label: 'Last Light',
   group: 'Immersion',
-  blurb: 'The light going, over two whole minutes. Slow enough that you will not catch it happening.',
+  blurb: 'The twenty minutes after the sun goes. The colour keeps changing and the birds go over.',
   space: 'screen',
   flash: '',
   burstMs: SIT,
-  openingPop: 40,
-  spawnEveryMs: 3400,
-  spawnPerTick: 2,
-  maxParticles: 120,
+  openingPop: 5,
+  spawnEveryMs: 9000,
+  spawnPerTick: 1,
+  maxParticles: 22,
   onStart(_x, _y, api) {
     raise('duskwash', api, (add) => {
-      /* One layer per hour of the evening, each fading up in turn. Animating a
-         gradient's stops is a paint per frame; cross-fading whole layers is
-         three composited opacities, and it looks identical. */
-      add('background:linear-gradient(180deg,#2b3f6e 0%,#7d6f92 34%,#e0a074 62%,#f4c98e 80%,#8a6a54 100%);');
-      add('background:linear-gradient(180deg,#1a2450 0%,#4a3a6a 36%,#a85a5e 64%,#d08a66 82%,#4a3038 100%);' +
-        'animation:relaxDusk1 120s ease-in forwards;');
-      add('background:linear-gradient(180deg,#080d24 0%,#161a3c 40%,#3a2440 70%,#4a2c34 88%,#140c16 100%);' +
-        'animation:relaxDusk2 120s ease-in forwards;');
-      add('background:radial-gradient(120% 100% at 50% 60%, transparent 42%, rgba(0,0,0,0.5) 100%);');
+      // Day, still hanging on at the top.
+      add('background:linear-gradient(180deg, #2a4a7c 0%, #6d7fa6 28%, #c99a76 58%, #e8a765 72%, #f0b96b 84%, #cf8352 100%);');
+      /* Dusk arrives as a whole layer crossfading over that one, rather than
+         as animated gradient stops: same picture, one composited opacity
+         instead of a full repaint every frame. Two crossfades, staggered. */
+      add('background:linear-gradient(180deg, #101c40 0%, #353a68 26%, #8a5a70 52%, #c4675c 70%, #d97a4e 86%, #7c3c30 100%);' +
+        'animation:relaxDusk1 76s ease-in-out forwards;');
+      add('background:linear-gradient(180deg, #060a20 0%, #14183c 30%, #3d2b48 52%, #6b3448 72%, #8a3f36 88%, #3a1a18 100%);' +
+        'animation:relaxDusk2 76s ease-in-out forwards;');
+
+      /* Cloud BARS. At this hour the sky is banded, and those bars catching
+         the last orange from underneath are the whole reason anyone stops to
+         look at a sunset. */
+      const bars: string[] = [];
+      for (let i = 0; i < 9; i++) {
+        const yy = 30 + i * rand(7, 13);
+        const x0 = rand(-20, 40);
+        bars.push(`<rect x='${x0}' y='${yy.toFixed(1)}' width='${rand(60, 140).toFixed(0)}' height='${rand(1.4, 5).toFixed(1)}'` +
+          ` rx='2' fill='#000' opacity='${rand(0.16, 0.44).toFixed(2)}'/>`);
+      }
+      add('top:34%;height:38%;filter:blur(1.4px);' + svgLayer(200, 140, bars.join('')));
+      add('top:34%;height:38%;mix-blend-mode:screen;opacity:0.85;filter:blur(1.6px);' +
+        svgLayer(200, 140, bars.join('').replace(/#000/g, '#ffc182')) + 'background-position:0 3px;');
+
+      // The land: flat, black, and low, so the sky gets the whole frame.
+      const w = 1200, h = 200;
+      add('top:auto;bottom:0;height:15%;' +
+        svgLayer(w, h, `<path d='${ridgePath(w, h, h * 0.5, 0.12)}' fill='#120b14'/>`));
+      filmPass(add, '#1a1030', '#ffc27a', 0.46, 0.16, 0.5);
     });
+    startAmbience('wind');
   },
-  onStop() { lower('duskwash'); },
+  onStop() { lower('duskwash'); stopAmbience('wind'); },
   create(x, y, now, api) {
+    // Birds going home: a V of three, a long way off.
     const { w, h } = api.viewport;
-    const s = rand(1.2, 2.8);
-    const p = mote(
-      rand(0, w), rand(0, h * 0.62), now,
-      `height:${s}px;border-radius:50%;background:#fff;box-shadow:0 0 6px rgba(206,220,255,0.9);`,
-      s, rand(50_000, 110_000)
-    );
+    const size = rand(9, 20);
+    const el = document.createElement('div');
+    baseStyle(el, size,
+      `height:${(size * 0.4).toFixed(1)}px;` +
+      svgLayer(20, 8, "<path d='M1,6 Q5,1 9.5,5.5 Q14,1 19,6' stroke='#140c12' stroke-width='1.4' fill='none'/>"));
+    const p = particle(el, rand(-40, w * 0.3), rand(h * 0.16, h * 0.5), size, rand(26_000, 44_000), now);
+    p.c = w + 120;
     p.a = rand(0, Math.PI * 2);
-    p.b = rand(0.0006, 0.0018);
+    p.b = rand(0.0009, 0.0018);
     return p;
   },
   step(p, t, now) {
-    /* Stars arrive as the sky goes: they hold at nothing for the first third of
-       their life, then come up. Nobody sees a star at seven o'clock. */
-    const arrive = Math.max(0, (t - 0.28) / 0.4);
-    const tw = 0.55 + Math.sin(now * p.b + p.a) * 0.45;
-    p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
-    p.el.style.opacity = String(Math.min(1, arrive) * Math.min(1, (1 - t) * 6) * tw);
+    // A bird a mile off does not flap so much as bob.
+    const bob = Math.sin(now * p.b + p.a) * 9;
+    p.el.style.transform = `translate3d(${p.x + t * p.c}px, ${p.y + bob - t * 30}px, 0)`;
+    p.el.style.opacity = String(Math.min(1, t * 10) * Math.min(1, (1 - t) * 10) * 0.7);
   },
 };
 
 /* --------------------------------------------------------------- deepwater */
 
+
 const deepwater: RelaxEffect = {
   id: 'deepwater',
   label: 'Deep Water',
   group: 'Immersion',
-  blurb: 'Under the surface, looking up. Light moving on the ceiling, and everything a long way away.',
+  blurb: 'Ten metres down, looking up. Light moving on the ceiling, something big going by, and everything a long way away.',
   space: 'screen',
   flash: '',
   burstMs: SIT,
@@ -4531,19 +4880,42 @@ const deepwater: RelaxEffect = {
   maxParticles: 150,
   onStart(_x, _y, api) {
     raise('deepwater', api, (add) => {
-      add('background:linear-gradient(180deg,#1d7c9e 0%,#0d5170 24%,#062c44 58%,#02141f 88%,#010a10 100%);');
-      // Caustics: two nets of light at different scales, sliding against each
-      // other. One net alone reads as a pattern; two read as water.
-      add('top:0;height:56%;mix-blend-mode:screen;opacity:0.55;filter:blur(5px);' +
-        'background:repeating-radial-gradient(circle at 30% 0%, rgba(190,244,255,0.34) 0 3px, transparent 3px 40px),' +
-        'repeating-radial-gradient(circle at 74% 0%, rgba(160,230,255,0.28) 0 2px, transparent 2px 54px);' +
-        'animation:relaxCaustics 17s ease-in-out infinite alternate;');
-      add('mix-blend-mode:screen;opacity:0.4;' +
-        'background:linear-gradient(174deg, rgba(190,240,255,0.34) 0 3%, transparent 22%) 14% 0/9% 100% no-repeat,' +
-        'linear-gradient(186deg, rgba(190,240,255,0.28) 0 3%, transparent 26%) 42% 0/7% 100% no-repeat,' +
-        'linear-gradient(178deg, rgba(190,240,255,0.3) 0 3%, transparent 24%) 76% 0/11% 100% no-repeat;' +
-        'filter:blur(10px);animation:relaxShaftSway 21s ease-in-out infinite alternate;');
-      add('background:radial-gradient(120% 100% at 50% 8%, transparent 34%, rgba(0,8,16,0.7) 100%);');
+      add('background:linear-gradient(180deg,#2a93b4 0%,#12688c 16%,#0a4667 38%,#052a42 64%,#01121d 88%,#000508 100%);');
+
+      /* The ceiling. Under water the surface is not a line, it is a lens: a
+         mesh of moving light with the bright side facing you. The old version
+         used repeating-radial-gradient here, which draws a bullseye — the same
+         mistake the koi pond made, and it is just as obvious. */
+      const g = 'radial-gradient(closest-side ellipse, #000 0 40%, rgba(0,0,0,0.5) 72%, transparent 100%)';
+      koiCausticNet(add(`top:0;height:34%;-webkit-mask-image:${g};mask-image:${g};`), '', -14, 0.3, 1.1, 1,
+        'relaxKoiCausA 26s ease-in-out infinite', 1.5, 0.6);
+      koiCausticNet(add('top:0;height:26%;opacity:0.7;'), '', 26, 0.2, 1.9, 4,
+        'relaxKoiCausB 37s ease-in-out infinite', 0.8, 1.3);
+      add('top:0;height:22%;mix-blend-mode:screen;opacity:0.5;' +
+        'background:linear-gradient(180deg, rgba(196,240,255,0.5), transparent 100%);');
+
+      /* Shafts. They come from ONE place — the sun through the surface — so
+         they converge, and each one is a soft-edged wedge rather than a bar. */
+      const beams: string[] = [];
+      for (let i = 0; i < 7; i++) {
+        const top = rand(6, 88);
+        const spread = rand(1.4, 5);
+        beams.push(`<path d='M${top.toFixed(1)},0 L${(top + spread).toFixed(1)},0` +
+          ` L${(top + spread * 4 + rand(6, 22)).toFixed(1)},100 L${(top + rand(2, 14)).toFixed(1)},100 Z'` +
+          ` fill='#bfeeff' opacity='${rand(0.05, 0.15).toFixed(3)}'/>`);
+      }
+      add('mix-blend-mode:screen;filter:blur(7px);animation:relaxShaftSway 23s ease-in-out infinite alternate;' +
+        svgLayer(100, 100, beams.join('')));
+
+      // Something big, a long way off, that never quite comes into focus.
+      add('top:34%;height:26%;opacity:0.5;filter:blur(2.4px);animation:relaxDeepPass 96s linear infinite;' +
+        svgLayer(300, 120,
+          "<path d='M20,66 Q70,34 150,44 Q210,52 258,64 Q214,74 150,84 Q70,92 20,66 Z' fill='#02202f'/>" +
+          "<path d='M258,64 L292,42 L286,66 L292,88 Z' fill='#02202f'/>" +
+          "<path d='M120,48 L140,18 L162,48 Z' fill='#02202f'/>"));
+
+      add('background:radial-gradient(122% 100% at 50% 4%, transparent 30%, rgba(0,6,14,0.78) 100%);');
+      filmPass(add, '#021624', '#4fb4d8', 0.34, 0.16, 0.44);
     });
     startAmbience('ocean');
   },
@@ -4553,8 +4925,8 @@ const deepwater: RelaxEffect = {
     const s = rand(2, 7);
     const p = mote(
       rand(0, w), h + rand(0, 60), now,
-      `height:${s}px;border-radius:50%;background:rgba(214,244,255,0.6);` +
-        'box-shadow:0 0 6px rgba(180,230,255,0.5);',
+      `height:${s}px;border-radius:50%;background:rgba(214,244,255,0.55);` +
+        'box-shadow:0 0 6px rgba(180,230,255,0.45);',
       s, rand(14_000, 30_000)
     );
     p.a = rand(0, Math.PI * 2);
@@ -4573,286 +4945,469 @@ const deepwater: RelaxEffect = {
 
 /* ----------------------------------------------------------------- godrays */
 
+
 const godrays: RelaxEffect = {
   id: 'godrays',
   label: 'Cathedral Light',
   group: 'Immersion',
-  blurb: 'Three shafts through a high window, and every speck of dust in them.',
+  blurb: 'Three shafts through a high window, the pools they put on the floor, and every speck of dust in them.',
   space: 'screen',
   flash: '',
   burstMs: SIT,
-  openingPop: 70,
-  spawnEveryMs: 620,
+  openingPop: 60,
+  spawnEveryMs: 900,
   spawnPerTick: 2,
-  maxParticles: 200,
+  maxParticles: 160,
   onStart(_x, _y, api) {
     raise('godrays', api, (add) => {
-      add(api.isDark
-        ? 'background:radial-gradient(120% 100% at 50% 0%, #2b2a26 0%, #14130f 46%, #070605 100%);'
-        : 'background:radial-gradient(120% 100% at 50% 0%, #3e3a30 0%, #201d18 48%, #0b0a08 100%);');
-      add('mix-blend-mode:screen;opacity:0.5;filter:blur(16px);' +
-        'background:linear-gradient(168deg, rgba(255,238,196,0.5) 0 6%, transparent 62%) 12% 0/22% 100% no-repeat,' +
-        'linear-gradient(180deg, rgba(255,242,206,0.55) 0 6%, transparent 66%) 46% 0/26% 100% no-repeat,' +
-        'linear-gradient(192deg, rgba(255,236,192,0.45) 0 6%, transparent 60%) 82% 0/20% 100% no-repeat;' +
-        'animation:relaxImmBreath 27s ease-in-out infinite alternate;');
-      add('background:radial-gradient(110% 90% at 50% 20%, transparent 40%, rgba(0,0,0,0.62) 100%);');
+      add('background:linear-gradient(180deg,#14100c 0%,#1c1712 34%,#191410 66%,#0c0a08 100%);');
+
+      /* The windows the light is coming from. They are the source, so they are
+         the brightest thing in frame and everything else agrees with them. */
+      const win: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const x = 16 + i * 30;
+        win.push(`<path d='M${x},34 L${x},14 Q${x + 6},2 ${x + 12},14 L${x + 12},34 Z' fill='#ffe9c0'/>`);
+        // Tracery: a lancet is never one pane.
+        win.push(`<path d='M${x + 6},34 L${x + 6},6' stroke='#4a3a28' stroke-width='0.9'/>`);
+        for (let k = 1; k < 4; k++) {
+          win.push(`<path d='M${x},${14 + k * 5} L${x + 12},${14 + k * 5}' stroke='#4a3a28' stroke-width='0.7'/>`);
+        }
+      }
+      add('bottom:56%;filter:blur(0.6px);' + svgLayer(100, 40, win.join('')));
+      add('bottom:52%;mix-blend-mode:screen;filter:blur(14px);opacity:0.8;' +
+        svgLayer(100, 40, win.join('').replace(/#4a3a28/g, '#ffe9c0')));
+
+      /* The shafts. Volumetric light is brightest where it leaves the window
+         and dies out as it crosses the room, so each wedge is a gradient along
+         its own length rather than a flat wash — and they all lean the same
+         way, because there is one sun. */
+      const beams: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const x = 16 + i * 30;
+        beams.push(`<path d='M${x},18 L${x + 12},18 L${x + 44},100 L${x + 20},100 Z' fill='url(#b)'/>`);
+      }
+      add('mix-blend-mode:screen;filter:blur(6px);animation:relaxShaftSway 28s ease-in-out infinite alternate;' +
+        svgLayer(100, 100,
+          "<defs><linearGradient id='b' x1='0' y1='0' x2='0' y2='1'>" +
+          "<stop offset='0%' stop-color='#ffdfa8' stop-opacity='0.5'/>" +
+          "<stop offset='46%' stop-color='#ffd79a' stop-opacity='0.22'/>" +
+          "<stop offset='100%' stop-color='#ffcf8c' stop-opacity='0.03'/></linearGradient></defs>" +
+          beams.join('')));
+
+      /* Where they land. The pool on the floor is what tells you the shafts are
+         real light and not three painted stripes. */
+      add('top:auto;bottom:0;height:26%;mix-blend-mode:screen;filter:blur(9px);' +
+        svgLayer(100, 100,
+          "<ellipse cx='40' cy='62' rx='16' ry='7' fill='#ffdca2' opacity='0.55'/>" +
+          "<ellipse cx='70' cy='70' rx='17' ry='7.5' fill='#ffdca2' opacity='0.5'/>" +
+          "<ellipse cx='99' cy='78' rx='18' ry='8' fill='#ffdca2' opacity='0.42'/>") +
+        'animation:relaxShaftSway 28s ease-in-out infinite alternate;');
+
+      // Columns, and the floor they stand on.
+      add('top:auto;bottom:0;height:100%;opacity:0.9;' +
+        svgLayer(100, 100,
+          "<rect x='0' y='0' width='7' height='100' fill='#0a0806'/>" +
+          "<rect x='93' y='0' width='7' height='100' fill='#0a0806'/>" +
+          "<rect x='0' y='88' width='100' height='12' fill='#100c09'/>"));
+      filmPass(add, '#0b0906', '#ffd9a0', 0.6, 0.18, 0.5);
     });
+    startAmbience('drone');
   },
-  onStop() { lower('godrays'); },
+  onStop() { lower('godrays'); stopAmbience('drone'); },
   create(x, y, now, api) {
     const { w, h } = api.viewport;
-    const s = rand(1.6, 4.4);
+    const d = rand(1.5, 4.5);
+    /* Dust is everywhere in the room but you can only SEE it in the light, so
+       every mote is born in a shaft and carries how bright that makes it. */
+    const lane = (Math.random() * 3) | 0;
+    const px = w * (0.2 + lane * 0.3) + rand(-w * 0.05, w * 0.05);
     const p = mote(
-      rand(0, w), rand(0, h), now,
-      `height:${s}px;border-radius:50%;background:rgba(255,244,214,0.9);`,
-      s, rand(11_000, 22_000)
+      px, rand(h * 0.1, h * 0.95), now,
+      'border-radius:50%;background:rgba(255,236,204,0.9);box-shadow:0 0 5px rgba(255,224,170,0.8);',
+      d, rand(9000, 20_000)
     );
     p.a = rand(0, Math.PI * 2);
-    p.b = rand(0.00025, 0.0008);
-    p.vy = rand(-0.14, 0.1);
+    p.b = rand(0.00025, 0.0009);
     p.c = rand(20, 70);
+    p.vy = rand(-0.16, 0.1);
+    p.d = 0.34 + Math.random() * 0.5;
     return p;
   },
   step(p, t, now) {
-    // Dust does not fall; it hangs, and the room's own air moves it around.
     p.y += p.vy;
-    const drift = Math.sin(now * p.b + p.a) * p.c;
-    const bob = Math.cos(now * p.b * 1.4 + p.a) * 14;
-    p.el.style.transform = `translate3d(${p.x + drift}px, ${p.y + bob}px, 0)`;
-    p.el.style.opacity = String(Math.min(1, t * 6) * Math.min(1, (1 - t) * 4) * 0.55);
+    // Dust does not fall so much as wander; it is lighter than the air moves.
+    const sway = Math.sin(now * p.b + p.a) * p.c;
+    const lift = Math.cos(now * p.b * 0.7 + p.a) * 14;
+    p.el.style.transform = `translate3d(${p.x + sway + t * 40}px, ${p.y + lift}px, 0)`;
+    p.el.style.opacity = String(Math.min(1, t * 6) * Math.min(1, (1 - t) * 5) * p.d);
   },
 };
 
 /* ------------------------------------------------------------------- shoji */
 
+
 const shoji: RelaxEffect = {
   id: 'shoji',
-  label: 'Paper Screens',
+  label: 'Paper Screen',
   group: 'Immersion',
-  blurb: 'Warm light through rice paper, and the shadow of one branch moving on it.',
+  blurb: 'Morning through a paper screen, and the shadow of the tree outside moving on it.',
   space: 'screen',
   flash: '',
   burstMs: SIT,
-  openingPop: 24,
-  spawnEveryMs: 1500,
+  openingPop: 4,
+  spawnEveryMs: 11_000,
   spawnPerTick: 1,
-  maxParticles: 60,
+  maxParticles: 10,
   onStart(_x, _y, api) {
     raise('shoji', api, (add) => {
-      add('background:linear-gradient(172deg,#f2e6cc 0%,#e2d2b0 46%,#c2ac86 100%);');
-      // The lattice. Wide panes, a heavier frame, and the light behind it.
-      add('background:' +
-        'repeating-linear-gradient(90deg, rgba(96,74,48,0.42) 0 4px, transparent 4px 132px),' +
-        'repeating-linear-gradient(180deg, rgba(96,74,48,0.42) 0 4px, transparent 4px 118px);');
-      add('background:radial-gradient(70% 60% at 50% 42%, rgba(255,232,180,0.5), transparent 74%);' +
-        'mix-blend-mode:screen;animation:relaxImmBreath 23s ease-in-out infinite alternate;');
-      // The branch, in silhouette, on the far side of the paper.
-      add('opacity:0.28;filter:blur(4px);transform-origin:88% 8%;' +
-        'background:' +
-        // the bough, thinning as it goes — two strokes at slightly different angles
-        'linear-gradient(203deg, transparent 46.4%, rgba(46,36,24,0.9) 46.4% 49.4%, transparent 49.4%),' +
-        'linear-gradient(214deg, transparent 47.6%, rgba(46,36,24,0.7) 47.6% 49%, transparent 49%),' +
-        // and the blossom hanging off it
-        'radial-gradient(closest-side circle, #2e2418 0 62%, transparent 100%) 70% 22%/4.4% 7% no-repeat,' +
-        'radial-gradient(closest-side circle, #2e2418 0 62%, transparent 100%) 62% 33%/3.6% 5.6% no-repeat,' +
-        'radial-gradient(closest-side circle, #2e2418 0 62%, transparent 100%) 55% 41%/4.8% 7.4% no-repeat,' +
-        'radial-gradient(closest-side circle, #2e2418 0 62%, transparent 100%) 47% 52%/3.8% 6% no-repeat,' +
-        'radial-gradient(closest-side circle, #2e2418 0 62%, transparent 100%) 39% 61%/4.6% 7.2% no-repeat,' +
-        'radial-gradient(closest-side circle, #2e2418 0 62%, transparent 100%) 31% 70%/3.4% 5.4% no-repeat,' +
-        'radial-gradient(closest-side circle, #2e2418 0 62%, transparent 100%) 76% 14%/3.2% 5% no-repeat;' +
-        'animation:relaxBranchSway 14s ease-in-out infinite alternate;');
-      add('background:radial-gradient(120% 100% at 50% 46%, transparent 48%, rgba(60,44,24,0.36) 100%);');
+      const dark = api.isDark;
+      // The paper, lit from behind. Warm in the middle, cooler at the edges.
+      add(dark
+        ? 'background:radial-gradient(120% 100% at 50% 42%, #3a352c 0%, #2b2721 52%, #1d1a16 100%);'
+        : 'background:radial-gradient(120% 100% at 50% 42%, #fdf6e4 0%, #f2e8d0 54%, #ddd0b2 100%);');
+      // Paper is made of fibres and you can see them when it is backlit.
+      const fib: string[] = [];
+      for (let i = 0; i < 90; i++) {
+        fib.push(`<path d='M${rand(0, 100).toFixed(1)},${rand(0, 100).toFixed(1)} l${rand(-9, 9).toFixed(1)},${rand(-3, 3).toFixed(1)}'` +
+          ` stroke='${dark ? '#5c5446' : '#c9b894'}' stroke-width='${rand(0.1, 0.35).toFixed(2)}' opacity='${rand(0.2, 0.6).toFixed(2)}'/>`);
+      }
+      add('opacity:0.6;' + svgLayer(100, 100, fib.join('')));
+
+      /* The tree outside. Grown, not drawn: a straight brown bar across a paper
+         screen reads as a crack in the screen, which is exactly what the old
+         one looked like. Two passes — a soft far shadow and a sharper near one,
+         because a shadow on paper is sharpest where the branch is closest. */
+      const limbs: string[] = [];
+      const buds: { x: number; y: number; r: number }[] = [];
+      branchPath(-6, 104, -1.06, 34, 3.4, 5, limbs, buds);
+      branchPath(-6, 104, -0.72, 26, 2.6, 4, limbs, buds);
+      const ink = dark ? '#0f0d0b' : '#6b5c45';
+      const tree = `<g stroke='${ink}'>${limbs.join('')}</g>` +
+        buds.map((b) => `<circle cx='${b.x.toFixed(1)}' cy='${b.y.toFixed(1)}' r='${b.r.toFixed(1)}' fill='${ink}'/>`).join('');
+      add(`opacity:${dark ? 0.5 : 0.3};filter:blur(3.4px);transform-origin:0% 100%;` +
+        svgLayer(100, 110, tree) + 'animation:relaxBranchSway 17s ease-in-out infinite alternate;');
+      add(`opacity:${dark ? 0.72 : 0.46};filter:blur(1.1px);transform-origin:0% 100%;` +
+        svgLayer(100, 110, tree) + 'background-position:-2% 1%;' +
+        'animation:relaxBranchSway 17s ease-in-out infinite alternate reverse;');
+
+      /* The kumiko: the wooden lattice the paper is stretched over. It is in
+         FRONT of everything, so the branch shadow passes behind it. */
+      const grid: string[] = [];
+      for (let i = 1; i < 4; i++) grid.push(`<rect x='${i * 25 - 0.35}' y='0' width='0.7' height='100' fill='${dark ? '#100e0c' : '#7a6244'}'/>`);
+      for (let i = 1; i < 5; i++) grid.push(`<rect x='0' y='${i * 20 - 0.35}' width='100' height='0.7' fill='${dark ? '#100e0c' : '#7a6244'}'/>`);
+      grid.push(`<rect x='0' y='0' width='100' height='2.4' fill='${dark ? '#0c0a08' : '#5f4b32'}'/>`);
+      grid.push(`<rect x='0' y='97.6' width='100' height='2.4' fill='${dark ? '#0c0a08' : '#5f4b32'}'/>`);
+      add('opacity:0.9;' + svgLayer(100, 100, grid.join('')));
+
+      // The tatami below, and the light spilling onto it.
+      add(`top:auto;bottom:0;height:14%;background:linear-gradient(180deg, ${dark ? '#16130f' : '#c3b184'} 0%, ${dark ? '#0c0a08' : '#9d8c62'} 100%);`);
+      add('top:auto;bottom:0;height:14%;background:repeating-linear-gradient(90deg, rgba(0,0,0,0.12) 0 1px, transparent 1px 9px);');
+      filmPass(add, dark ? '#171410' : '#8a7a58', dark ? '#4a4438' : '#fff6e0', 0.36, 0.14, 0.4);
     });
+    startAmbience('wind');
   },
-  onStop() { lower('shoji'); },
+  onStop() { lower('shoji'); stopAmbience('wind'); },
   create(x, y, now, api) {
+    // A bird goes past outside, as a shadow, and is gone.
     const { w, h } = api.viewport;
-    const s = rand(1.6, 4);
-    const p = mote(
-      rand(0, w), rand(0, h), now,
-      `height:${s}px;border-radius:50%;background:rgba(120,96,58,0.5);`,
-      s, rand(9000, 18_000)
-    );
+    const size = rand(20, 46);
+    const el = document.createElement('div');
+    baseStyle(el, size,
+      `height:${(size * 0.42).toFixed(1)}px;opacity:0;filter:blur(2.2px);` +
+      svgLayer(20, 8, `<path d='M1,6 Q5,1 9.5,5.5 Q14,1 19,6' stroke='${api.isDark ? '#0d0b09' : '#6b5c45'}' stroke-width='1.8' fill='none'/>`));
+    const p = particle(el, rand(-60, 0), rand(h * 0.12, h * 0.62), size, rand(3400, 6000), now);
+    p.c = w + 140;
     p.a = rand(0, Math.PI * 2);
-    p.b = rand(0.0003, 0.0009);
-    p.vy = rand(-0.06, 0.12);
     return p;
   },
   step(p, t, now) {
-    p.y += p.vy;
-    p.el.style.transform = `translate3d(${p.x + Math.sin(now * p.b + p.a) * 34}px, ${p.y}px, 0)`;
-    p.el.style.opacity = String(Math.min(1, t * 6) * Math.min(1, (1 - t) * 4) * 0.5);
+    const bob = Math.sin(now * 0.004 + p.a) * 12;
+    p.el.style.transform = `translate3d(${p.x + t * p.c}px, ${p.y + bob}px, 0)`;
+    p.el.style.opacity = String(Math.min(1, t * 8) * Math.min(1, (1 - t) * 8) * 0.5);
   },
 };
 
 /* ------------------------------------------------------------------- wheat */
 
+
 const wheat: RelaxEffect = {
   id: 'wheat',
   label: 'Wind in the Field',
   group: 'Immersion',
-  blurb: 'A whole field, and the wind crossing it in waves you can watch arrive.',
+  blurb: 'A whole field of it, and the wind crossing in waves you can watch arrive from the far side.',
   space: 'screen',
   flash: '',
   burstMs: SIT,
-  openingPop: 190,
-  spawnEveryMs: 0,
-  spawnPerTick: 0,
-  maxParticles: 200,
+  openingPop: 64,
+  spawnEveryMs: 5000,
+  spawnPerTick: 1,
+  maxParticles: 80,
   onStart(_x, _y, api) {
     raise('wheat', api, (add) => {
-      add(api.isDark
-        ? 'background:linear-gradient(180deg,#2a2f46 0%,#4a4257 34%,#6a5a4a 60%,#3a3020 100%);'
-        : 'background:linear-gradient(180deg,#8fb3d4 0%,#d8cfa8 40%,#c9ab68 62%,#8a6c34 100%);');
-      add('background:radial-gradient(60% 40% at 62% 40%, rgba(255,216,150,0.5), transparent 72%);' +
-        'mix-blend-mode:screen;animation:relaxImmBreath 21s ease-in-out infinite alternate;');
-      add('background:radial-gradient(130% 100% at 50% 46%, transparent 46%, rgba(30,20,8,0.5) 100%);');
+      const dark = api.isDark;
+      add(dark ? 'background:#241d24;' : 'background:#8a7444;');
+      add(dark
+        ? 'background:linear-gradient(180deg,#101a35 0%,#22243f 28%,#3d3348 44%,#4a3a38 52%);bottom:46%;'
+        : 'background:linear-gradient(180deg,#5d8dc0 0%,#9fb9d2 26%,#dcc9a4 44%,#f0d9a8 52%);bottom:46%;');
+      // Low sun, and the haze it puts along the horizon.
+      add(`bottom:44%;top:auto;height:30%;mix-blend-mode:screen;` +
+        `background:radial-gradient(38% 100% at 66% 100%, rgba(255,${dark ? '196,140' : '236,176'},0.62), transparent 76%);` +
+        'animation:relaxImmBreath 23s ease-in-out infinite alternate;');
+      // A treeline, a field's width away.
+      const tw = 1200, th = 120;
+      const tl: string[] = [];
+      for (let i = 0; i < 70; i++) {
+        const x = (i / 70) * tw + rand(-12, 12);
+        const hh = rand(28, 76);
+        tl.push(`<ellipse cx='${x.toFixed(0)}' cy='${(th - hh * 0.4).toFixed(0)}' rx='${rand(14, 34).toFixed(0)}' ry='${(hh * 0.6).toFixed(0)}'/>`);
+      }
+      add(`top:auto;bottom:46%;height:7%;opacity:${dark ? 0.9 : 0.7};` +
+        svgLayer(tw, th, `<g fill='${dark ? '#0d1420' : '#5b6a5a'}'>${tl.join('')}</g>` +
+          `<rect y='${th - 10}' width='${tw}' height='10' fill='${dark ? '#0d1420' : '#5b6a5a'}'/>`));
+
+      /* The field, in three bands. The far two are ONE svg each with a sway on
+         it — six hundred stalks as six hundred particles is a waste of a main
+         thread, and at that distance they move as a sheet anyway. Only the near
+         band gets real stalks, because that is the band you can see move. */
+      const band = (n: number, hgt: number, wide: number, fill: string, ear: string) => {
+        const out: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const x = (i / n) * 104 - 2 + rand(-0.6, 0.6);
+          const hh = rand(hgt * 0.66, hgt);
+          const lean = rand(-4, 4);
+          out.push(`<path d='M${x.toFixed(2)},100 q${(lean * 0.4).toFixed(2)},${(-hh * 0.6).toFixed(1)} ${lean.toFixed(2)},${(-hh).toFixed(1)}'` +
+            ` stroke='${fill}' stroke-width='${wide.toFixed(2)}' fill='none'/>`);
+          // The ear. A field of bare stems is a field of wire.
+          out.push(`<ellipse cx='${(x + lean).toFixed(2)}' cy='${(100 - hh).toFixed(1)}' rx='${(wide * 1.5).toFixed(2)}'` +
+            ` ry='${(hh * 0.1).toFixed(2)}' fill='${ear}' transform='rotate(${(lean * 1.4).toFixed(1)} ${(x + lean).toFixed(2)} ${(100 - hh).toFixed(1)})'/>`);
+        }
+        return out.join('');
+      };
+      const far = dark ? '#3a3550' : '#c7a86a';
+      const mid = dark ? '#2b2740' : '#a8874c';
+      add(`top:auto;bottom:0;height:30%;opacity:0.85;transform-origin:50% 100%;` +
+        svgLayer(100, 100, band(150, 60, 0.28, far, far)) + 'animation:relaxWheatFar 13s ease-in-out infinite alternate;');
+      add(`top:auto;bottom:0;height:42%;opacity:0.95;transform-origin:50% 100%;` +
+        svgLayer(100, 100, band(90, 74, 0.45, mid, mid)) + 'animation:relaxWheatMid 9s ease-in-out infinite alternate;');
+      // Haze between the bands: distance is contrast loss before it is anything else.
+      add(`top:auto;bottom:24%;height:24%;` +
+        haze(dark ? '40,44,70' : '236,214,168', dark ? 0.34 : 0.44, 10));
+      filmPass(add, dark ? '#171a2e' : '#5a4a2c', dark ? '#5a4a48' : '#ffe6b0', 0.46, 0.16, 0.46);
     });
     startAmbience('wind');
   },
   onStop() { lower('wheat'); stopAmbience('wind'); },
   create(x, y, now, api, _kind, _tint, index = 0) {
     const { w, h } = api.viewport;
-    /* One stalk per particle. The wave is carried by each stalk's PHASE being a
-       function of its x — which is what makes the gust visibly travel across
-       the field instead of the whole field twitching at once. */
-    const px = (index / 190) * w + rand(-14, 14);
+    const dark = api.isDark;
+    /* The near band. Each stalk's phase comes from its own x, which is what
+       makes a gust visibly ARRIVE from one side rather than the whole field
+       twitching at once. */
+    const px = (index / 64) * (w + 60) - 30 + rand(-16, 16);
     const depth = Math.random();
-    const hh = h * (0.2 + depth * 0.34);
+    const hh = h * (0.26 + depth * 0.3);
     const el = document.createElement('div');
-    baseStyle(
-      el, rand(2, 4),
-      `height:${hh}px;transform-origin:bottom center;border-radius:2px;` +
-        `background:linear-gradient(180deg, rgba(240,214,150,${0.35 + depth * 0.5}), rgba(120,92,40,${0.5 + depth * 0.4}));`
-    );
-    const p = particle(el, px, h + 4, 3, SIT + 8000, now);
-    p.a = px * 0.012;                 // phase from position — this is the wave
+    const wide = 1.6 + depth * 2.2;
+    baseStyle(el, wide, `height:${hh.toFixed(0)}px;transform-origin:bottom center;`);
+    const stem = document.createElement('div');
+    stem.style.cssText =
+      `position:absolute;inset:0;border-radius:${wide}px;` +
+      `background:linear-gradient(180deg, ${dark ? 'rgba(120,110,140,0.9)' : 'rgba(226,196,132,0.95)'},` +
+      ` ${dark ? 'rgba(40,36,58,0.95)' : 'rgba(140,108,52,0.95)'});`;
+    el.appendChild(stem);
+    // The ear: fat, drooping, and the reason it reads as wheat and not grass.
+    const ear = document.createElement('div');
+    const ew = wide * 2;
+    ear.style.cssText =
+      `position:absolute;left:50%;top:${(-hh * 0.02).toFixed(1)}px;width:${ew.toFixed(1)}px;height:${(hh * 0.13).toFixed(1)}px;` +
+      `margin-left:${(-ew / 2).toFixed(1)}px;border-radius:50% 50% 46% 46%/70% 70% 30% 30%;` +
+      `background:linear-gradient(180deg, ${dark ? '#6a6288' : '#f0d79a'}, ${dark ? '#332e4c' : '#b98f45'});` +
+      'transform:rotate(6deg);';
+    el.appendChild(ear);
+    const p = particle(el, px, h + 4, wide, SIT + 8000, now);
+    p.a = px * 0.011;
     p.b = hh;
-    p.c = 3.4 + depth * 5;            // how far this one bends
-    p.maxScale = 0.4 + depth * 0.6;
+    p.c = 4 + depth * 6;
+    p.maxScale = 0.55 + depth * 0.45;
     return p;
   },
   step(p, _t, now) {
-    const gust = Math.sin(now * 0.0009 - p.a) * 0.6 + Math.sin(now * 0.00042 - p.a * 0.6) * 0.4;
-    p.el.style.transform =
-      `translate3d(${p.x}px, ${p.y - p.b}px, 0) rotate(${gust * p.c}deg)`;
+    // Two gusts at different speeds, so the field never pulses in step.
+    const gust = Math.sin(now * 0.0009 - p.a) * 0.62 + Math.sin(now * 0.00041 - p.a * 0.6) * 0.38;
+    p.el.style.transform = `translate3d(${p.x}px, ${p.y - p.b}px, 0) rotate(${(gust * p.c).toFixed(2)}deg)`;
     p.el.style.opacity = String(p.maxScale);
   },
 };
 
 /* ---------------------------------------------------------------- lavalamp */
 
+
 const lavalamp: RelaxEffect = {
   id: 'lavalamp',
   label: 'Lava Lamp',
   group: 'Immersion',
-  blurb: 'Big soft shapes going up, thinking about it, and coming back down. That is the entire show.',
+  blurb: 'One glass, one hot plate, and forty years of the same slow argument between wax and water.',
   space: 'screen',
   flash: '',
   burstMs: SIT,
   openingPop: 9,
-  spawnEveryMs: 5600,
+  spawnEveryMs: 5200,
   spawnPerTick: 1,
-  maxParticles: 16,
+  maxParticles: 15,
   onStart(_x, _y, api) {
     raise('lavalamp', api, (add) => {
-      add(api.isDark
-        ? 'background:linear-gradient(180deg,#1a0b2e 0%,#2c1046 44%,#160a24 100%);'
-        : 'background:linear-gradient(180deg,#2a1240 0%,#3e1a56 44%,#1c0c2c 100%);');
-      add('background:radial-gradient(64% 30% at 50% 108%, rgba(255,140,60,0.34), transparent 70%);' +
-        'mix-blend-mode:screen;animation:relaxImmBreath 11s ease-in-out infinite alternate;');
-      add('background:radial-gradient(120% 100% at 50% 50%, transparent 40%, rgba(0,0,0,0.55) 100%);');
+      // The room behind it is nearly black; the lamp is the only light in it.
+      add('background:radial-gradient(60% 70% at 50% 62%, #2a1030 0%, #150818 46%, #060309 100%);');
+      // The glass: a tall vessel, lit from the base, with the wall of the tube
+      // catching the light down both sides.
+      add('background:radial-gradient(30% 62% at 50% 56%, rgba(255,120,180,0.24), transparent 74%);' +
+        'mix-blend-mode:screen;animation:relaxImmBreath 15s ease-in-out infinite alternate;');
+      /* The glass. Dark INSIDE — a lava lamp is a black column with hot wax
+         in it, and if the tube glows the wax has nothing to be brighter than.
+         The two vertical highlights are the tube wall catching the room. */
+      add('left:31%;right:31%;top:6%;bottom:8%;border-radius:44% 44% 12% 12%/16% 16% 6% 6%;' +
+        'background:linear-gradient(180deg, rgba(10,4,12,0.72) 0%, rgba(24,6,20,0.5) 60%, rgba(60,10,40,0.34) 100%);' +
+        'box-shadow:inset 0 0 50px rgba(0,0,0,0.6);');
+      add('left:33%;width:2.5%;top:9%;bottom:12%;right:auto;border-radius:50%;' +
+        'background:linear-gradient(180deg, rgba(255,220,240,0.22), rgba(255,190,220,0.04));filter:blur(2px);');
+      add('left:auto;right:33.5%;width:1.4%;top:12%;bottom:16%;border-radius:50%;' +
+        'background:linear-gradient(180deg, rgba(255,220,240,0.14), rgba(255,190,220,0.02));filter:blur(2px);');
+      // The hot plate at the bottom: the brightest thing, and the reason any of
+      // it moves at all.
+      add('left:26%;right:26%;top:auto;bottom:2%;height:12%;mix-blend-mode:screen;filter:blur(10px);' +
+        'background:radial-gradient(60% 100% at 50% 100%, rgba(255,180,90,0.85), rgba(255,90,140,0.3) 46%, transparent 78%);' +
+        'animation:relaxImmBreath 9s ease-in-out infinite alternate;');
+      add('left:24%;right:24%;top:auto;bottom:0;height:5%;background:linear-gradient(180deg,#2a1218,#0a0508);' +
+        'border-radius:4px 4px 8px 8px;');
+      filmPass(add, '#12060f', '#ff9ac0', 0.5, 0.16, 0.46);
     });
+    startAmbience('drone');
   },
-  onStop() { lower('lavalamp'); },
+  onStop() { lower('lavalamp'); stopAmbience('drone'); },
   create(x, y, now, api) {
     const { w, h } = api.viewport;
-    const size = rand(120, 300);
-    const hue = rand(-14, 26);
+    const d = rand(h * 0.06, h * 0.19);
     const el = document.createElement('div');
-    baseStyle(
-      el, size,
-      `border-radius:50%;filter:blur(${rand(10, 22).toFixed(0)}px);mix-blend-mode:screen;` +
-        `background:radial-gradient(closest-side circle, hsla(${18 + hue},95%,66%,0.95) 0 42%,` +
-        ` hsla(${2 + hue},92%,50%,0.5) 72%, transparent 100%);`
-    );
-    const p = particle(el, rand(w * 0.08, w * 0.92), h + size * 0.4, size, rand(34_000, 62_000), now);
-    p.c = h + size;
+    baseStyle(el, d, '');
+    /* A wax blob is a bag of liquid: it stretches as it climbs and squashes
+       when it stops. That squash is a CSS animation on a CHILD, never on the
+       node the loop is positioning — an animation on `transform` beats the
+       inline transform outright, and every blob ends up stacked in the corner
+       of the frame wearing nothing but its own wobble. */
+    const wax = document.createElement('div');
+    wax.style.cssText =
+      'position:absolute;inset:0;border-radius:50%;filter:blur(0.6px);' +
+      'background:radial-gradient(circle at 36% 30%, #ffe6b4 0 10%, #ff9a5a 34%, #f23f7a 68%, #a3125e 100%);' +
+      `box-shadow:0 0 ${(d * 0.55).toFixed(0)}px rgba(255,90,140,0.55);` +
+      `animation:relaxWaxWobble ${rand(7, 13).toFixed(1)}s ease-in-out infinite alternate;`;
+    el.appendChild(wax);
+    const p = particle(el, w * 0.5 + rand(-w * 0.07, w * 0.07), h * rand(0.74, 0.9), d, rand(34_000, 62_000), now);
     p.a = rand(0, Math.PI * 2);
-    p.b = rand(0.00016, 0.00042);
+    p.b = rand(0.00004, 0.00011);
+    p.c = h * rand(0.34, 0.62);
     return p;
   },
   step(p, t, now) {
-    /* Up, hesitate, down. `sin(t*PI)` is the shape — it leaves the bottom, rests
-       at the top of its arc, and returns, which is what wax actually does. */
-    const rise = Math.sin(t * Math.PI) * p.c * 0.86;
-    const sway = Math.sin(now * p.b + p.a) * 40;
-    const squash = 1 + Math.sin(now * p.b * 2.2 + p.a) * 0.09;
+    /* Up on the heat, hang at the top while it cools, then back down. A sine
+       does that on its own, and the wax has been doing it for forty years. */
+    const climb = -Math.cos(now * p.b + p.a) * 0.5 + 0.5;
+    const sway = Math.sin(now * p.b * 2.3 + p.a) * 14;
     p.el.style.transform =
-      `translate3d(${p.x - p.size / 2 + sway}px, ${p.y - p.size / 2 - rise}px, 0) scale(${squash}, ${2 - squash})`;
-    p.el.style.opacity = String(Math.min(1, t * 7) * Math.min(1, (1 - t) * 7) * 0.85);
+      `translate3d(${p.x + sway - p.size / 2}px, ${p.y - climb * p.c - p.size / 2}px, 0)`;
+    p.el.style.opacity = String(Math.min(1, t * 12) * Math.min(1, (1 - t) * 12) * 0.92);
   },
 };
 
 /* ------------------------------------------------------------ blossomstorm */
 
+
 const blossomstorm: RelaxEffect = {
   id: 'blossomstorm',
   label: 'Blossom Storm',
   group: 'Immersion',
-  blurb: 'The whole screen going under in petals, three depths of them, for two minutes.',
+  blurb: 'The week the cherry goes over, and a gust takes half of it at once.',
   space: 'screen',
   flash: '',
   burstMs: SIT,
-  openingPop: 90,
-  spawnEveryMs: 190,
-  spawnPerTick: 3,
-  maxParticles: 300,
+  openingPop: 60,
+  spawnEveryMs: 260,
+  spawnPerTick: 2,
+  maxParticles: 190,
   onStart(_x, _y, api) {
     raise('blossomstorm', api, (add) => {
-      add(api.isDark
-        ? 'background:linear-gradient(180deg,#3a1c34 0%,#5e2a44 40%,#2a1424 100%);'
-        : 'background:linear-gradient(180deg,#f6cdd8 0%,#dda2b6 40%,#8a5a72 100%);');
-      add('background:radial-gradient(80% 50% at 50% 0%, rgba(255,224,236,0.5), transparent 72%);' +
-        'mix-blend-mode:screen;');
-      add('background:radial-gradient(120% 100% at 50% 46%, transparent 46%, rgba(40,10,28,0.45) 100%);');
+      const dark = api.isDark;
+      add(dark
+        ? 'background:linear-gradient(180deg,#2a1830 0%,#42203c 34%,#5a2b42 62%,#3a1c2c 100%);'
+        : 'background:linear-gradient(180deg,#cfe0ea 0%,#e8d6dd 38%,#f2dbdd 66%,#dcc3c6 100%);');
+      add(`background:radial-gradient(40% 34% at 24% 18%, rgba(255,${dark ? '190,220' : '246,226'},0.5), transparent 74%);` +
+        'mix-blend-mode:screen;animation:relaxImmBreath 27s ease-in-out infinite alternate;');
+
+      /* The tree it is all coming off. One heavy limb across the top corner,
+         loaded with blossom — the storm needs a source or it is just confetti. */
+      const limbs: string[] = [];
+      const buds: { x: number; y: number; r: number }[] = [];
+      branchPath(-8, 6, 0.42, 30, 4.4, 5, limbs, buds);
+      branchPath(-8, 6, 0.08, 24, 3.2, 5, limbs, buds);
+      const bark = dark ? '#20141c' : '#5c4038';
+      add('top:0;height:64%;transform-origin:0% 0%;animation:relaxBranchSway 21s ease-in-out infinite alternate;' +
+        svgLayer(100, 100,
+          `<g stroke='${bark}' fill='none'>${limbs.join('')}</g>` +
+          buds.map((b) => `<circle cx='${b.x.toFixed(1)}' cy='${b.y.toFixed(1)}' r='${(b.r * 0.9).toFixed(2)}'` +
+            ` fill='${dark ? '#e88fb4' : '#f7c9d8'}' opacity='${rand(0.55, 0.95).toFixed(2)}'/>`).join('') +
+          // A blossom is a cluster of small flowers, never one big ball.
+          buds.map((b) => Array.from({ length: 7 }, () =>
+            `<circle cx='${(b.x + rand(-3.4, 3.4)).toFixed(1)}' cy='${(b.y + rand(-3.4, 3.4)).toFixed(1)}'` +
+            ` r='${rand(0.5, 1.3).toFixed(2)}' fill='${dark ? '#ffb7d0' : '#ffe4ec'}'` +
+            ` opacity='${rand(0.4, 0.95).toFixed(2)}'/>`).join('')).join('')));
+
+      // Drifts of fallen petals along the bottom.
+      const drift: string[] = [];
+      for (let i = 0; i < 160; i++) {
+        drift.push(`<ellipse cx='${rand(0, 100).toFixed(1)}' cy='${(100 - Math.pow(Math.random(), 2) * 18).toFixed(1)}'` +
+          ` rx='${rand(0.4, 1.3).toFixed(2)}' ry='${rand(0.2, 0.6).toFixed(2)}' fill='${dark ? '#e79bbc' : '#fbdde6'}'` +
+          ` opacity='${rand(0.3, 0.9).toFixed(2)}'/>`);
+      }
+      add('top:auto;bottom:0;height:26%;' + svgLayer(100, 100, drift.join('')));
+      filmPass(add, dark ? '#2a1226' : '#7a5a66', dark ? '#6a3050' : '#fff0f4', 0.44, 0.15, 0.44);
     });
     startAmbience('wind');
   },
   onStop() { lower('blossomstorm'); stopAmbience('wind'); },
   create(x, y, now, api) {
-    const { w } = api.viewport;
-    const depth = Math.random();
-    const size = 9 + depth * 16;
+    const { w, h } = api.viewport;
+    const d = rand(7, 17);
     const el = document.createElement('div');
-    baseStyle(
-      el, size,
-      `height:${size * 0.72}px;border-radius:76% 24% 70% 30% / 34% 70% 30% 66%;` +
-        `filter:blur(${(0.5 + (1 - depth) * 2.4).toFixed(1)}px);` +
-        'background:radial-gradient(circle at 26% 24%, #ffeef4 0 10%, #f7c4d8 44%, #e087ab 88%);'
-    );
-    const p = particle(el, rand(-60, w + 60), rand(-140, -20), size, rand(9000, 17_000) / (0.5 + depth), now);
+    const dark = api.isDark;
+    baseStyle(el, d,
+      `height:${(d * 0.86).toFixed(1)}px;border-radius:56% 44% 52% 48%/70% 66% 34% 30%;` +
+      `background:linear-gradient(150deg, ${dark ? '#ffd0e2' : '#ffffff'} 0%, ${dark ? '#f19cc0' : '#fcd8e4'} 52%, ${dark ? '#c76d98' : '#f3b9cd'} 100%);` +
+      'box-shadow:0 1px 2px rgba(120,60,90,0.16);');
+    const p = particle(el, rand(-w * 0.15, w * 0.5), rand(-h * 0.2, h * 0.5), d, rand(7000, 13_000), now);
     p.a = rand(0, Math.PI * 2);
-    p.b = rand(0.0009, 0.0022);
-    p.c = rand(60, 180);
-    p.maxScale = 0.3 + depth * 0.7;
+    p.b = rand(0.0016, 0.0042);
+    p.c = rand(0.9, 2.4);          // how fast the gust carries it
+    p.d = rand(-1, 1);
+    p.maxScale = rand(0.7, 1.15);
     return p;
   },
-  step(p, t, now, api) {
-    const fall = t * (api.viewport.h + 220);
-    const sway = Math.sin(now * p.b + p.a) * p.c;
-    /* Rock, don't tumble. Swept fully edge-on a petal is a two-pixel line for
-       several frames, which reads as a white card flipping rather than a petal
-       turning — the same trap the bloom effects document. */
-    const rock = Math.sin(now * p.b * 0.9 + p.a) * 62;
-    const spin = (now * p.b * 34 + p.a * 40) % 360;
+  step(p, t, now) {
+    /* A petal is a wing: it is carried sideways much faster than it falls, and
+       it ROCKS rather than somersaults. Full 3D tumbling turns them edge-on and
+       they read as white cards flipping. */
+    const gust = 1 + Math.sin(now * 0.00034) * 0.5;
+    const sway = Math.sin(now * p.b + p.a) * 60;
+    const px = p.x + t * 900 * p.c * gust + sway;
+    const py = p.y + t * 300 * p.c + Math.cos(now * p.b * 0.8 + p.a) * 20;
+    const rock = Math.sin(now * p.b * 1.7 + p.a) * 62;
     p.el.style.transform =
-      `translate3d(${p.x + sway}px, ${p.y + fall}px, 0) rotate(${spin}deg) rotate3d(1, 0.4, 0, ${rock}deg)`;
-    p.el.style.opacity = String(Math.min(1, t * 10) * Math.min(1, (1 - t) * 6) * p.maxScale);
+      `translate3d(${px}px, ${py}px, 0) rotate(${(rock * 0.4 + p.d * 30).toFixed(1)}deg) rotate3d(1,0.4,0,${rock.toFixed(1)}deg) scale(${p.maxScale})`;
+    p.el.style.opacity = String(Math.min(1, t * 8) * Math.min(1, (1 - t) * 5));
   },
 };
 
 /* ----------------------------------------------------------------- fogbank */
+
 
 const fogbank: RelaxEffect = {
   id: 'fogbank',
@@ -4862,296 +5417,529 @@ const fogbank: RelaxEffect = {
   space: 'screen',
   flash: '',
   burstMs: SIT,
-  openingPop: 10,
-  spawnEveryMs: 3800,
+  openingPop: 12,
+  spawnEveryMs: 2600,
   spawnPerTick: 1,
-  maxParticles: 22,
+  maxParticles: 30,
   onStart(_x, _y, api) {
     raise('fogbank', api, (add) => {
-      add(api.isDark
-        ? 'background:linear-gradient(180deg,#2c3238 0%,#3e464e 46%,#20262c 100%);'
-        : 'background:linear-gradient(180deg,#b8c2c8 0%,#98a4ac 48%,#67727a 100%);');
-      add('background:repeating-linear-gradient(184deg, rgba(255,255,255,0.05) 0 40px, transparent 40px 130px);' +
-        'filter:blur(20px);animation:relaxCrawlA 70s linear infinite;');
-      add('background:radial-gradient(120% 100% at 50% 50%, transparent 40%, rgba(30,36,40,0.5) 100%);');
+      const dark = api.isDark;
+      add(dark
+        ? 'background:linear-gradient(180deg,#141821 0%,#1d222c 46%,#252a33 78%,#1a1e25 100%);'
+        : 'background:linear-gradient(180deg,#b9bfc6 0%,#c9cdd2 44%,#d5d7d8 76%,#bcbfc2 100%);');
+      // The sun, or a streetlamp: fog always has one thing burning in it.
+      add(`background:radial-gradient(30% 26% at 62% 34%, rgba(255,${dark ? '226,180' : '250,226'},${dark ? 0.2 : 0.5}), transparent 70%);` +
+        'mix-blend-mode:screen;animation:relaxImmBreath 30s ease-in-out infinite alternate;');
+
+      /* Fog is measured in what it takes away. Three stands of trees at three
+         distances, each one paler and softer than the one behind — that
+         contrast loss IS the fog, far more than any amount of grey wash. */
+      const stand = (n: number, hgt: number, wide: number, fill: string) => {
+        const out: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const x = rand(0, 100);
+          const hh = rand(hgt * 0.6, hgt);
+          out.push(`<rect x='${x.toFixed(1)}' y='${(100 - hh).toFixed(1)}' width='${wide.toFixed(2)}' height='${hh.toFixed(1)}' fill='${fill}'/>`);
+          // A bare crown, because a bare trunk is a fencepost.
+          for (let k = 0; k < 4; k++) {
+            const yy = 100 - hh + rand(0, hh * 0.5);
+            out.push(`<path d='M${x.toFixed(1)},${yy.toFixed(1)} l${rand(-7, 7).toFixed(1)},${rand(-9, -2).toFixed(1)}'` +
+              ` stroke='${fill}' stroke-width='${(wide * 0.5).toFixed(2)}' fill='none'/>`);
+          }
+        }
+        return out.join('');
+      };
+      const ink = dark ? '#0d1016' : '#6d7278';
+      add(`top:auto;bottom:0;height:46%;opacity:${dark ? 0.34 : 0.3};filter:blur(2.2px);` +
+        svgLayer(100, 100, stand(14, 52, 0.5, ink)) + 'animation:relaxFogA 190s linear infinite;');
+      add(`top:auto;bottom:0;height:58%;opacity:${dark ? 0.55 : 0.5};filter:blur(1.2px);` +
+        svgLayer(100, 100, stand(9, 74, 0.9, ink)) + 'animation:relaxFogB 130s linear infinite;');
+      add(`top:auto;bottom:0;height:82%;opacity:${dark ? 0.85 : 0.78};` +
+        svgLayer(100, 100, stand(4, 100, 1.7, ink)) + 'animation:relaxFogA 84s linear infinite;');
+
+      // The banks themselves, crossing at their own speeds.
+      const wash = dark ? '190,198,210' : '255,255,255';
+      add(`background:radial-gradient(60% 34% at 20% 62%, rgba(${wash},0.5), transparent 72%),` +
+        `radial-gradient(70% 30% at 78% 74%, rgba(${wash},0.42), transparent 74%);` +
+        'animation:relaxFogB 96s linear infinite;');
+      add(`background:radial-gradient(90% 40% at 50% 86%, rgba(${wash},0.6), transparent 76%);` +
+        'animation:relaxFogA 62s linear infinite;');
+      filmPass(add, dark ? '#0e1319' : '#8e969e', dark ? '#3a424e' : '#ffffff', 0.42, 0.18, 0.4);
     });
     startAmbience('wind');
   },
   onStop() { lower('fogbank'); stopAmbience('wind'); },
   create(x, y, now, api) {
     const { w, h } = api.viewport;
-    const size = rand(320, 780);
-    const el = document.createElement('div');
-    baseStyle(
-      el, size,
-      `height:${size * rand(0.2, 0.36)}px;border-radius:50%;filter:blur(${rand(28, 52).toFixed(0)}px);` +
-        'background:radial-gradient(closest-side ellipse, rgba(246,250,252,0.95), transparent 70%);'
-    );
-    const p = particle(el, -size, rand(h * 0.1, h * 0.94), size, rand(38_000, 78_000), now);
-    p.c = w + size * 2;
-    p.maxScale = rand(0.42, 0.9);
-    return p;
-  },
-  step(p, t) {
-    p.el.style.transform = `translate3d(${p.x + t * p.c}px, ${p.y - p.size / 2}px, 0)`;
-    p.el.style.opacity = String(Math.min(1, t * 6) * Math.min(1, (1 - t) * 6) * p.maxScale);
-  },
-};
-
-/* ---------------------------------------------------------------- citynight */
-
-const citynight: RelaxEffect = {
-  id: 'citynight',
-  label: 'City at Night',
-  group: 'Immersion',
-  blurb: 'Somebody else’s window, seen out of focus. A whole city doing its evening without you.',
-  space: 'screen',
-  flash: '',
-  burstMs: SIT,
-  openingPop: 34,
-  spawnEveryMs: 1500,
-  spawnPerTick: 1,
-  maxParticles: 70,
-  onStart(_x, _y, api) {
-    raise('citynight', api, (add) => {
-      add('background:linear-gradient(180deg,#0a1024 0%,#141c34 42%,#241c30 74%,#0d0a14 100%);');
-      add('bottom:0;top:auto;height:34%;' +
-        'background:linear-gradient(180deg, transparent, rgba(255,170,90,0.18) 60%, rgba(255,140,60,0.26));' +
-        'mix-blend-mode:screen;filter:blur(14px);');
-      add('background:radial-gradient(120% 100% at 50% 40%, transparent 38%, rgba(0,0,0,0.6) 100%);');
-    });
-  },
-  onStop() { lower('citynight'); },
-  create(x, y, now, api) {
-    const { w, h } = api.viewport;
-    /* Bokeh: the size and the blur go UP together as the light gets further out
-       of focus, and the opacity goes down. Get that backwards and it reads as a
-       balloon rather than a light. */
-    const blurAmt = rand(3, 22);
-    const size = 12 + blurAmt * 2.6;
-    const tint = pick(['255,196,120', '255,236,190', '150,200,255', '255,150,120', '190,255,220']);
+    const size = rand(w * 0.3, w * 0.8);
     const p = mote(
-      rand(-40, w + 40), rand(h * 0.1, h * 0.98), now,
-      `height:${size}px;border-radius:50%;filter:blur(${blurAmt.toFixed(0)}px);mix-blend-mode:screen;` +
-        `background:radial-gradient(circle, rgba(${tint},0.95) 0 42%, rgba(${tint},0.24) 72%, transparent 100%);`,
-      size, rand(16_000, 34_000)
+      -size, rand(h * 0.2, h), now,
+      'border-radius:50%;filter:blur(26px);' +
+        `background:radial-gradient(closest-side ellipse, rgba(${api.isDark ? '176,186,200' : '255,255,255'},0.4), transparent 72%);`,
+      size, rand(40_000, 78_000)
     );
-    p.a = rand(0, Math.PI * 2);
-    p.b = rand(0.00018, 0.0006);
-    p.maxScale = 0.9 - blurAmt * 0.028;
-    return p;
-  },
-  step(p, t, now) {
-    const dx = Math.sin(now * p.b + p.a) * 40;
-    const dy = Math.cos(now * p.b * 0.7 + p.a) * 26;
-    p.el.style.transform = `translate3d(${p.x + dx - p.size / 2}px, ${p.y + dy - p.size / 2}px, 0)`;
-    p.el.style.opacity = String(Math.min(1, t * 5) * Math.min(1, (1 - t) * 5) * p.maxScale);
-  },
-};
-
-/* ---------------------------------------------------------------- meteors */
-
-const meteors: RelaxEffect = {
-  id: 'meteors',
-  label: 'Meteor Shower',
-  group: 'Immersion',
-  blurb: 'Wait, and then several at once, and then wait again. That is how they actually come.',
-  space: 'screen',
-  flash: '',
-  burstMs: SIT,
-  openingPop: 6,
-  spawnEveryMs: 460,
-  spawnPerTick: 1,
-  maxParticles: 40,
-  onStart(_x, _y, api) {
-    raise('meteors', api, (add) => {
-      add('background:radial-gradient(140% 110% at 70% 0%, #10162e 0%, #070b1c 46%, #02030a 100%);');
-      add(RELAX_STARFIELD);
-      add('background:radial-gradient(120% 100% at 50% 46%, transparent 44%, rgba(0,0,0,0.5) 100%);');
-    });
-    startAmbience('drone');
-  },
-  onStop() { lower('meteors'); stopAmbience('drone'); },
-  create(x, y, now, api) {
-    const { w, h } = api.viewport;
-    const len = rand(180, 520);
-    const el = document.createElement('div');
-    baseStyle(
-      el, len,
-      'height:3px;border-radius:3px;mix-blend-mode:screen;' +
-        'background:linear-gradient(90deg, transparent, rgba(190,214,255,0.6) 40%, rgba(236,244,255,0.98) 86%, #fff);' +
-        'box-shadow:0 0 20px 3px rgba(190,215,255,0.95), 0 0 44px 8px rgba(140,180,255,0.5);'
-    );
-    /* They come from one radiant, the way a real shower does — a sky of streaks
-       all going different ways reads as a screensaver. */
-    const p = particle(el, rand(w * 0.5, w * 1.15), rand(-h * 0.25, h * 0.4), len, rand(1300, 2400), now);
-    p.a = rand(2.5, 2.85);
-    p.c = rand(500, 1100);
-    return p;
-  },
-  step(p, t) {
-    const e = 1 - Math.pow(1 - t, 1.5);
-    const d = e * p.c;
-    p.el.style.transform =
-      `translate3d(${p.x + Math.cos(p.a) * d}px, ${p.y - Math.sin(p.a) * d * -1}px, 0) rotate(${(p.a * 180) / Math.PI}deg)`;
-    p.el.style.opacity = String(Math.min(1, t * 6) * Math.pow(1 - t, 0.8));
-  },
-};
-
-/* -------------------------------------------------------------------- silk */
-
-const silk: RelaxEffect = {
-  id: 'silk',
-  label: 'Silk',
-  group: 'Immersion',
-  blurb: 'Long ribbons of colour, crossing and folding. Nothing means anything and that is the point.',
-  space: 'screen',
-  flash: '',
-  burstMs: SIT,
-  openingPop: 7,
-  spawnEveryMs: 3200,
-  spawnPerTick: 1,
-  maxParticles: 18,
-  onStart(_x, _y, api) {
-    raise('silk', api, (add) => {
-      add(api.isDark
-        ? 'background:linear-gradient(150deg,#0e1024 0%,#1a1234 50%,#080a18 100%);'
-        : 'background:linear-gradient(150deg,#151a34 0%,#241a44 50%,#0c0e1e 100%);');
-      add('background:radial-gradient(120% 100% at 50% 50%, transparent 42%, rgba(0,0,0,0.5) 100%);');
-    });
-  },
-  onStop() { lower('silk'); },
-  create(x, y, now, api) {
-    const { w, h } = api.viewport;
-    const hue = rand(0, 360);
-    const len = rand(w * 0.7, w * 1.5);
-    const el = document.createElement('div');
-    baseStyle(
-      el, len,
-      `height:${rand(50, 150).toFixed(0)}px;border-radius:50%;mix-blend-mode:screen;` +
-        `filter:blur(${rand(16, 38).toFixed(0)}px);` +
-        `background:linear-gradient(90deg, transparent, hsla(${hue},88%,62%,0.55) 30%,` +
-        ` hsla(${(hue + 48) % 360},88%,66%,0.6) 55%, hsla(${(hue + 96) % 360},88%,60%,0.4) 78%, transparent);`
-    );
-    const p = particle(el, -len * 0.4, rand(h * 0.05, h * 0.95), len, rand(26_000, 48_000), now);
-    p.c = w + len;
-    p.a = rand(0, Math.PI * 2);
-    p.b = rand(0.00022, 0.00058);
-    return p;
-  },
-  step(p, t, now) {
-    // The fold: a ribbon twists as it travels, so it thins and fattens.
-    const twist = 0.35 + Math.abs(Math.sin(now * p.b + p.a)) * 0.9;
-    const lift = Math.sin(now * p.b * 1.3 + p.a) * 60;
-    p.el.style.transform =
-      `translate3d(${p.x + t * p.c * 0.6}px, ${p.y + lift}px, 0) rotate(${Math.sin(now * p.b + p.a) * 9}deg) scaleY(${twist})`;
-    p.el.style.opacity = String(Math.min(1, t * 5) * Math.min(1, (1 - t) * 5) * 0.7);
-  },
-};
-
-/* -------------------------------------------------------------- sandgarden */
-
-const sandgarden: RelaxEffect = {
-  id: 'sandgarden',
-  label: 'Raked Sand',
-  group: 'Immersion',
-  blurb: 'Rings raked round a stone, breathing in and out. Somebody spent an hour on this and then left.',
-  space: 'screen',
-  flash: '',
-  burstMs: SIT,
-  openingPop: 14,
-  spawnEveryMs: 0,
-  spawnPerTick: 0,
-  maxParticles: 20,
-  onStart(_x, _y, api) {
-    raise('sandgarden', api, (add) => {
-      add(api.isDark
-        ? 'background:radial-gradient(120% 100% at 50% 40%, #4a4438 0%, #2c2820 52%, #16140f 100%);'
-        : 'background:radial-gradient(120% 100% at 50% 40%, #ded3b8 0%, #c2b492 52%, #97886a 100%);');
-      add('background:radial-gradient(rgba(0,0,0,0.10) 0.6px, transparent 0.8px);background-size:4px 4px;');
-      add('background:radial-gradient(120% 100% at 50% 44%, transparent 42%, rgba(20,16,8,0.45) 100%);');
-    });
-  },
-  onStop() { lower('sandgarden'); },
-  create(x, y, now, api, _kind, _tint, index = 0) {
-    const { w, h } = api.viewport;
-    const el = document.createElement('div');
-    const size = 120;
-    baseStyle(
-      el, size,
-      `height:${size * 0.6}px;border-radius:50%;` +
-        (api.isDark
-          ? 'border:3px solid rgba(226,214,184,0.24);box-shadow:0 2px 0 rgba(0,0,0,0.28);'
-          : 'border:3px solid rgba(255,252,242,0.7);box-shadow:0 2px 0 rgba(120,104,72,0.3);')
-    );
-    const p = particle(el, w / 2, h * 0.5, size, SIT + 8000, now);
-    /* The ring's NUMBER is what makes it a ring and not a hoop. Rolling a random
-       radius here gave sixteen rings all the same size sitting on top of each
-       other, which is one thick oval. */
-    p.b = index;
-    p.a = 1 + rand(-0.03, 0.03);
-    return p;
-  },
-  step(p, _t, now, api) {
-    /* Every ring shares one breath and differs only by its index, which is what
-       makes the garden read as one figure rather than sixteen hoops. */
-    const idx = p.b;
-    const breathe = 1 + Math.sin(now * 0.00028 + idx * 0.8) * 0.045;
-    const { w, h } = api.viewport;
-    const scale = (0.24 + idx * 0.42) * p.a * breathe;
-    p.el.style.transform =
-      `translate3d(${w / 2 - p.size / 2}px, ${h * 0.5 - p.size * 0.3}px, 0) scale(${scale})`;
-    p.el.style.opacity = '1';
-  },
-};
-
-/* ---------------------------------------------------------------- moonrise */
-
-const moonrise: RelaxEffect = {
-  id: 'moonrise',
-  label: 'Moonrise',
-  group: 'Immersion',
-  blurb: 'One moon, climbing the whole two minutes, with cloud crossing it now and then.',
-  space: 'screen',
-  flash: '',
-  burstMs: SIT,
-  openingPop: 5,
-  spawnEveryMs: 7000,
-  spawnPerTick: 1,
-  maxParticles: 12,
-  onStart(_x, _y, api) {
-    raise('moonrise', api, (add) => {
-      add('background:linear-gradient(180deg,#050a1c 0%,#0d1630 44%,#1a2440 72%,#070c1a 100%);');
-      add(RELAX_STARFIELD);
-      // The moon itself, climbing. One long transform over the whole sitting.
-      add('background:radial-gradient(circle at 50% 50%, #f6f2e2 0 3.6%, rgba(238,232,210,0.9) 4.4%,' +
-        ' rgba(214,222,236,0.28) 7%, transparent 16%);' +
-        'mix-blend-mode:screen;animation:relaxMoonClimb 120s linear forwards;');
-      add('background:radial-gradient(120% 100% at 50% 50%, transparent 42%, rgba(0,0,0,0.55) 100%);');
-    });
-    startAmbience('drone');
-  },
-  onStop() { lower('moonrise'); stopAmbience('drone'); },
-  create(x, y, now, api) {
-    const { w, h } = api.viewport;
-    const size = rand(300, 700);
-    const el = document.createElement('div');
-    baseStyle(
-      el, size,
-      `height:${size * rand(0.14, 0.24)}px;border-radius:50%;filter:blur(${rand(18, 34).toFixed(0)}px);` +
-        'background:radial-gradient(closest-side ellipse, rgba(190,206,232,0.5), transparent 74%);'
-    );
-    const p = particle(el, -size, rand(h * 0.08, h * 0.7), size, rand(30_000, 60_000), now);
+    p.el.style.height = `${size * rand(0.2, 0.4)}px`;
     p.c = w + size * 2;
     return p;
   },
   step(p, t) {
     p.el.style.transform = `translate3d(${p.x + t * p.c}px, ${p.y}px, 0)`;
-    p.el.style.opacity = String(Math.min(1, t * 6) * Math.min(1, (1 - t) * 6) * 0.5);
+    p.el.style.opacity = String(Math.min(1, t * 6) * Math.min(1, (1 - t) * 6) * 0.7);
+  },
+};
+
+/* ---------------------------------------------------------------- citynight */
+
+
+const citynight: RelaxEffect = {
+  id: 'citynight',
+  label: 'City at Night',
+  group: 'Immersion',
+  blurb: 'A high window, the grid going on for miles, and rain on the glass in front of it.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 26,
+  spawnEveryMs: 1400,
+  spawnPerTick: 1,
+  maxParticles: 60,
+  onStart(_x, _y, api) {
+    raise('citynight', api, (add) => {
+      add('background:linear-gradient(180deg,#0a0f1e 0%,#141a30 34%,#2a2440 58%,#3a2c3e 74%,#241c28 100%);');
+      // The sodium haze a city puts on its own sky.
+      add('background:radial-gradient(70% 40% at 50% 92%, rgba(255,168,90,0.34), transparent 74%);mix-blend-mode:screen;');
+
+      /* The skyline: three ranks of towers, each further back, each paler.
+         Windows are the point — a block silhouette with no windows in it is a
+         mountain, and the old version had no silhouette at all. */
+      const rank = (n: number, maxH: number, fill: string, lit: number, alpha: number) => {
+        const out: string[] = [];
+        let x = -4;
+        while (x < 104) {
+          const bw = rand(4, 13);
+          const bh = rand(maxH * 0.35, maxH);
+          out.push(`<rect x='${x.toFixed(1)}' y='${(100 - bh).toFixed(1)}' width='${(bw - 0.6).toFixed(1)}' height='${bh.toFixed(1)}' fill='${fill}'/>`);
+          // Aerials, water tanks — the things that stop a skyline being a bar chart.
+          if (Math.random() < 0.3) {
+            out.push(`<rect x='${(x + bw * 0.4).toFixed(1)}' y='${(100 - bh - rand(2, 7)).toFixed(1)}' width='0.5' height='7' fill='${fill}'/>`);
+          }
+          for (let wy = 100 - bh + 1.5; wy < 99; wy += 2.6) {
+            for (let wx = x + 0.8; wx < x + bw - 1.4; wx += 2.2) {
+              if (Math.random() > lit) continue;
+              out.push(`<rect x='${wx.toFixed(1)}' y='${wy.toFixed(1)}' width='1' height='1.3'` +
+                ` fill='${pick(['#ffd9a0', '#ffe9c4', '#cfe0ff', '#ffc98a'])}' opacity='${(alpha * rand(0.4, 1)).toFixed(2)}'/>`);
+            }
+          }
+          x += bw;
+        }
+        return out.join('');
+      };
+      add('top:auto;bottom:0;height:52%;opacity:0.5;filter:blur(1.2px);' + svgLayer(100, 100, rank(1, 60, '#141a2e', 0.3, 0.5)));
+      add('top:auto;bottom:0;height:64%;opacity:0.8;filter:blur(0.5px);' + svgLayer(100, 100, rank(1, 78, '#0d1120', 0.34, 0.75)));
+      add('top:auto;bottom:0;height:82%;' + svgLayer(100, 100, rank(1, 100, '#05070e', 0.26, 1)));
+      // Haze between the ranks.
+      add('top:auto;bottom:0;height:60%;' + haze('40,52,86', 0.28, 20));
+      filmPass(add, '#080c18', '#ffb070', 0.52, 0.17, 0.46);
+    });
+    startAmbience('drone');
+  },
+  onStop() { lower('citynight'); stopAmbience('drone'); },
+  create(x, y, now, api) {
+    /* Bokeh: the rain on the glass you are standing behind, with the city
+       thrown out of focus in it. A disc with a bright RIM, because that is what
+       a defocused point of light actually looks like. */
+    const { w, h } = api.viewport;
+    const d = rand(18, 72);
+    const c = pick(['255,196,120', '255,224,170', '190,214,255', '255,150,110', '160,255,220']);
+    const p = mote(
+      rand(0, w), rand(h * 0.2, h), now,
+      `border-radius:50%;mix-blend-mode:screen;` +
+        `background:radial-gradient(circle, rgba(${c},0.26) 0 58%, rgba(${c},0.6) 78%, rgba(${c},0.72) 92%, transparent 100%);`,
+      d, rand(9000, 18_000)
+    );
+    p.a = rand(0, Math.PI * 2);
+    p.b = rand(0.0002, 0.0006);
+    return p;
+  },
+  step(p, t, now) {
+    const e = Math.sin(t * Math.PI);
+    const dx = Math.sin(now * p.b + p.a) * 20;
+    const dy = Math.cos(now * p.b * 0.7 + p.a) * 14;
+    p.el.style.transform = `translate3d(${p.x + dx}px, ${p.y + dy}px, 0) scale(${0.8 + e * 0.35})`;
+    p.el.style.opacity = String(e * 0.7);
+  },
+};
+
+/* ---------------------------------------------------------------- meteors */
+
+
+const meteors: RelaxEffect = {
+  id: 'meteors',
+  label: 'Meteor Shower',
+  group: 'Immersion',
+  blurb: 'The peak of a shower: they come in ones and threes out of one point in the sky, and some of them flare.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 3,
+  spawnEveryMs: 900,
+  spawnPerTick: 1,
+  maxParticles: 40,
+  onStart(_x, _y, api) {
+    raise('meteors', api, (add) => {
+      add('background:radial-gradient(120% 110% at 74% 8%, #101c40 0%, #070d24 44%, #020408 100%);');
+      add(RELAX_STARFIELD);
+      add('background:radial-gradient(circle, rgba(200,214,255,0.45) 0 0.5px, transparent 0.8px) 19px 7px/29px 33px;opacity:0.6;');
+      // A thin band of galaxy, low and off to one side, so the sky has a grain.
+      add('background:linear-gradient(118deg, transparent 30%, rgba(184,196,255,0.1) 44%, rgba(214,220,255,0.15) 50%,' +
+        ' rgba(184,196,255,0.09) 57%, transparent 70%);filter:blur(13px);');
+      // The horizon, and the ground light under it.
+      const w = 1200, h = 260;
+      add('top:auto;bottom:0;height:22%;' +
+        svgLayer(w, h, `<path d='${ridgePath(w, h, h * 0.44, 0.16)}' fill='#030509'/>`));
+      add('top:auto;bottom:0;height:26%;background:linear-gradient(0deg, rgba(70,90,150,0.28), transparent 70%);');
+      filmPass(add, '#050a1e', '#38508c', 0.5, 0.18, 0.4);
+    });
+    startAmbience('drone');
+  },
+  onStop() { lower('meteors'); stopAmbience('drone'); },
+  create(x, y, now, api, kind = 0) {
+    const { w, h } = api.viewport;
+    /* Every meteor in a shower comes out of one point — the radiant — and the
+       further from it a streak starts the longer it looks. Random directions
+       is what made the old one read as scratches on the print. */
+    const rx = w * 0.74;
+    const ry = h * 0.08;
+
+    if (kind === 1) {
+      // The flare: a fireball's terminal burst.
+      const d = rand(26, 60);
+      const el = document.createElement('div');
+      baseStyle(el, d, 'border-radius:50%;mix-blend-mode:screen;' +
+        'background:radial-gradient(circle, rgba(255,250,235,0.9) 0 18%, rgba(180,205,255,0.4) 44%, transparent 72%);');
+      return particle(el, x, y, d, rand(500, 900), now);
+    }
+
+    const ang = Math.atan2(rand(h * 0.2, h * 1.1) - ry, rand(-w * 0.4, w * 0.5));
+    const from = rand(0.12, 0.55);
+    const px = rx + Math.cos(ang) * w * from;
+    const py = ry + Math.sin(ang) * w * from;
+    const len = rand(70, 300) * (from + 0.5);
+    const el = document.createElement('div');
+    baseStyle(el, len,
+      'height:2px;border-radius:2px;transform-origin:100% 50%;' +
+      'background:linear-gradient(90deg, transparent 0%, rgba(150,190,255,0.5) 46%, rgba(235,245,255,0.95) 88%, #fff 100%);' +
+      'box-shadow:0 0 14px rgba(180,210,255,0.85);');
+    const p = particle(el, px, py, len, rand(700, 1500), now);
+    p.a = ang;
+    p.c = rand(320, 760);
+    p.b = Math.random() < 0.16 ? 1 : 0;    // does this one flare out?
+    return p;
+  },
+  step(p, t, now, api) {
+    if (p.kind !== 0) {
+      const e = 1 - Math.pow(1 - t, 2);
+      p.el.style.transform = `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${0.2 + e * 1.9})`;
+      p.el.style.opacity = String(Math.pow(1 - t, 1.5));
+      return;
+    }
+    const e = 1 - Math.pow(1 - t, 1.5);
+    const d = e * p.c;
+    const nx = p.x + Math.cos(p.a) * d;
+    const ny = p.y + Math.sin(p.a) * d;
+    p.el.style.transform = `translate3d(${nx}px, ${ny}px, 0) rotate(${(p.a * 180) / Math.PI}deg)`;
+    // They brighten as they burn and go out all at once, not by fading evenly.
+    p.el.style.opacity = String(Math.min(1, t * 6) * Math.pow(1 - t, 0.55));
+    if (p.b && t > 0.86) {
+      p.b = 0;
+      api.spawn(nx, ny, 1, 1);
+    }
+  },
+};
+
+/* -------------------------------------------------------------------- silk */
+
+
+const silk: RelaxEffect = {
+  id: 'silk',
+  label: 'Silk',
+  group: 'Immersion',
+  blurb: 'Yards of it moving in a slow draught, with the sheen running along the folds.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 5,
+  spawnEveryMs: 3600,
+  spawnPerTick: 1,
+  maxParticles: 14,
+  onStart(_x, _y, api) {
+    raise('silk', api, (add) => {
+      const dark = api.isDark;
+      add(dark
+        ? 'background:linear-gradient(152deg,#2a1636 0%,#3d1c46 34%,#241540 68%,#120a20 100%);'
+        : 'background:linear-gradient(152deg,#f0c8d8 0%,#dba8c8 34%,#b9a0d8 68%,#8f8ac8 100%);');
+
+      /* Folds. A fold is a pair of edges — a lit face and a shaded one — and
+         the pair is what makes cloth read as cloth instead of as a gradient.
+         Three sheets at three depths, each drifting at its own rate. */
+      const sheet = (n: number, amp: number, seed: number) => {
+        const out: string[] = [
+          "<defs><linearGradient id='f" + seed + "' x1='0' y1='0' x2='1' y2='0'>" +
+          "<stop offset='0%' stop-color='#000' stop-opacity='0.5'/>" +
+          "<stop offset='26%' stop-color='#fff' stop-opacity='0'/>" +
+          "<stop offset='50%' stop-color='#fff' stop-opacity='0.5'/>" +
+          "<stop offset='74%' stop-color='#fff' stop-opacity='0'/>" +
+          "<stop offset='100%' stop-color='#000' stop-opacity='0.5'/></linearGradient></defs>",
+        ];
+        for (let i = 0; i < n; i++) {
+          const w2 = 116 / n;
+          const x0 = (i / n) * 116 - 8;
+          const ph = rand(0, Math.PI * 2);
+          const per = rand(50, 120);
+          // Each edge of the fold wanders down the cloth on its own sine, so
+          // the fold pinches and swells the way hanging fabric does.
+          const edge = (off: number) => {
+            const pts: string[] = [];
+            for (let y = -12; y <= 112; y += 8) {
+              pts.push(`${(x0 + off + Math.sin((y / per) * Math.PI * 2 + ph) * amp).toFixed(1)},${y}`);
+            }
+            return pts;
+          };
+          const l = edge(0);
+          const r = edge(w2 * rand(0.7, 1.1)).reverse();
+          out.push(`<polygon points='${l.concat(r).join(' ')}' fill='url(#f${seed})' opacity='${rand(0.5, 1).toFixed(2)}'/>`);
+        }
+        return out.join('');
+      };
+      add('opacity:0.4;filter:blur(8px);' + svgLayer(100, 100, sheet(5, 7, 1)) +
+        'animation:relaxSilkA 46s ease-in-out infinite alternate;');
+      add('opacity:0.5;filter:blur(2.6px);' + svgLayer(100, 100, sheet(8, 5, 2)) +
+        'animation:relaxSilkB 33s ease-in-out infinite alternate;');
+      add('opacity:0.32;filter:blur(1.2px);' + svgLayer(100, 100, sheet(13, 3, 3)) +
+        'animation:relaxSilkB 58s ease-in-out infinite alternate reverse;');
+
+      /* The sheen: one bright band travelling across the folds. Satin is
+         defined by the fact that the highlight MOVES when the cloth does. */
+      add('mix-blend-mode:screen;opacity:0.4;filter:blur(26px);' +
+        'background:linear-gradient(96deg, transparent 30%, rgba(255,255,255,0.6) 50%, transparent 68%);' +
+        'animation:relaxSilkSheen 27s ease-in-out infinite alternate;');
+      filmPass(add, dark ? '#180f28' : '#7a5a86', dark ? '#5a3a70' : '#fff0f6', 0.4, 0.13, 0.44);
+    });
+    startAmbience('drone');
+  },
+  onStop() { lower('silk'); stopAmbience('drone'); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    const size = rand(w * 0.4, w * 0.9);
+    const p = mote(
+      rand(-w * 0.2, w * 0.6), rand(-h * 0.1, h * 0.9), now,
+      'border-radius:50%;filter:blur(30px);mix-blend-mode:screen;' +
+        'background:radial-gradient(closest-side ellipse, rgba(255,240,250,0.34), transparent 74%);',
+      size, rand(16_000, 30_000)
+    );
+    p.el.style.height = `${size * rand(0.3, 0.6)}px`;
+    p.b = rand(-0.3, 0.3);
+    return p;
+  },
+  step(p, t) {
+    const e = Math.sin(t * Math.PI);
+    p.el.style.transform = `translate3d(${p.x + t * p.b * 260}px, ${p.y - t * 60}px, 0) scale(${0.7 + e * 0.5})`;
+    p.el.style.opacity = String(e * 0.5);
+  },
+};
+
+/* -------------------------------------------------------------- sandgarden */
+
+
+const sandgarden: RelaxEffect = {
+  id: 'sandgarden',
+  label: 'Sand Garden',
+  group: 'Immersion',
+  blurb: 'Raked gravel, five stones, and nothing else happening at all.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 5,
+  spawnEveryMs: 9000,
+  spawnPerTick: 1,
+  maxParticles: 14,
+  onStart(_x, _y, api) {
+    raise('sandgarden', api, (add) => {
+      const dark = api.isDark;
+      add(dark
+        ? 'background:linear-gradient(178deg,#2a2620 0%,#221f1a 40%,#1a1714 100%);'
+        : 'background:linear-gradient(178deg,#d8cdb4 0%,#cdc0a4 40%,#bdb094 100%);');
+
+      /* The rake. Parallel courses across the whole garden, and rings only
+         AROUND each stone — which is how a karesansui is actually raked. The
+         old one drew one set of rings from the middle of the frame, which is a
+         dartboard, and the eye never once read it as gravel. */
+      const line = dark ? '#4a4438' : '#f2ead4';
+      const shade = dark ? '#100e0b' : '#9d9078';
+      const stones: [number, number, number][] = [
+        [26, 42, 9], [62, 34, 6], [74, 62, 11], [40, 74, 5], [16, 66, 4],
+      ];
+      const rake: string[] = [];
+      for (let y = 2; y < 100; y += 2.4) {
+        // A course bends around every stone it passes near, and rejoins after.
+        const pts: string[] = [];
+        for (let x = -2; x <= 102; x += 2) {
+          let yy = y;
+          for (const [sx, sy, sr] of stones) {
+            const dx = x - sx;
+            const dy = y - sy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < sr * 2.6) yy += ((sr * 2.6 - d) / (sr * 2.6)) * Math.sign(dy || 1) * sr * 1.5;
+          }
+          pts.push(`${x},${yy.toFixed(2)}`);
+        }
+        rake.push(`<polyline points='${pts.join(' ')}' fill='none' stroke='${line}' stroke-width='0.55' opacity='0.55'/>`);
+        rake.push(`<polyline points='${pts.join(' ')}' fill='none' stroke='${shade}' stroke-width='0.5' opacity='0.34'` +
+          ` transform='translate(0,0.75)'/>`);
+      }
+      add(svgLayer(100, 100, rake.join('')));
+
+      // The stones, and the shadows that make them sit ON the gravel.
+      const rock: string[] = [];
+      for (const [sx, sy, sr] of stones) {
+        rock.push(`<ellipse cx='${sx + sr * 0.24}' cy='${sy + sr * 0.34}' rx='${sr * 1.15}' ry='${sr * 0.5}'` +
+          ` fill='${dark ? '#000' : '#6e6350'}' opacity='0.42'/>`);
+        rock.push(`<path d='M${sx - sr},${sy + sr * 0.4} Q${sx - sr * 0.9},${sy - sr * 0.8} ${sx},${sy - sr}` +
+          ` Q${sx + sr * 0.95},${sy - sr * 0.6} ${sx + sr},${sy + sr * 0.35}` +
+          ` Q${sx},${sy + sr * 0.8} ${sx - sr},${sy + sr * 0.4} Z' fill='url(#st)'/>`);
+        // Moss on the shaded side, which is the only colour in the whole frame.
+        rock.push(`<ellipse cx='${sx - sr * 0.3}' cy='${sy + sr * 0.1}' rx='${sr * 0.5}' ry='${sr * 0.3}'` +
+          ` fill='${dark ? '#28331f' : '#6d7f4a'}' opacity='0.5'/>`);
+      }
+      add(svgLayer(100, 100,
+        "<defs><linearGradient id='st' x1='0' y1='0' x2='0.4' y2='1'>" +
+        `<stop offset='0%' stop-color='${dark ? '#5a5449' : '#a89c88'}'/>` +
+        `<stop offset='100%' stop-color='${dark ? '#1c1a16' : '#5c5445'}'/></linearGradient></defs>` +
+        rock.join('')));
+
+      // A wall along the back, and the low sun coming over it.
+      add(`top:0;height:14%;background:linear-gradient(180deg, ${dark ? '#171410' : '#8d7d62'} 0%, ${dark ? '#221e18' : '#a2916f'} 74%, rgba(0,0,0,0.34) 100%);`);
+      add(`background:radial-gradient(70% 50% at 76% 8%, rgba(255,${dark ? '210,150' : '244,200'},0.3), transparent 72%);mix-blend-mode:screen;`);
+      filmPass(add, dark ? '#181510' : '#5c5240', dark ? '#4a4234' : '#fff6dc', 0.5, 0.19, 0.44);
+    });
+    startAmbience('wind');
+  },
+  onStop() { lower('sandgarden'); stopAmbience('wind'); },
+  create(x, y, now, api) {
+    // One leaf, blown in from somewhere else. Nothing else happens here.
+    const { w, h } = api.viewport;
+    const d = rand(8, 16);
+    const el = document.createElement('div');
+    baseStyle(el, d,
+      `height:${(d * 0.55).toFixed(1)}px;border-radius:50% 8% 50% 8%;` +
+      `background:linear-gradient(120deg, ${api.isDark ? '#6a5230' : '#b98b3e'}, ${api.isDark ? '#3a2c18' : '#7d5a24'});`);
+    const p = particle(el, rand(-40, w * 0.3), rand(h * 0.2, h * 0.8), d, rand(16_000, 30_000), now);
+    p.a = rand(0, Math.PI * 2);
+    p.b = rand(0.0006, 0.0016);
+    p.c = w * rand(0.5, 1.3);
+    return p;
+  },
+  step(p, t, now) {
+    const e = Math.sin(t * Math.PI);
+    const tumble = Math.sin(now * p.b + p.a) * 40;
+    p.el.style.transform =
+      `translate3d(${p.x + t * p.c}px, ${p.y + Math.sin(now * p.b * 0.7 + p.a) * 26}px, 0) rotate(${tumble.toFixed(1)}deg)`;
+    p.el.style.opacity = String(e * 0.85);
+  },
+};
+
+/* ---------------------------------------------------------------- moonrise */
+
+
+const moonrise: RelaxEffect = {
+  id: 'moonrise',
+  label: 'Moonrise',
+  group: 'Immersion',
+  blurb: 'A full moon coming up out of the hills, with its road laid across the water.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 8,
+  spawnEveryMs: 3400,
+  spawnPerTick: 1,
+  maxParticles: 20,
+  onStart(_x, _y, api) {
+    raise('moonrise', api, (add) => {
+      add('background:linear-gradient(180deg, #050a1e 0%, #0b1636 30%, #16264e 52%, #1d2f56 58%,' +
+        ' #0d1730 60%, #070d1e 82%, #03060f 100%);');
+
+      /* The moon, and the sky it lights. A full moon is not a white disc: it
+         is a disc with a huge soft corona around it that washes the sky out
+         for a third of the frame, and THAT is what says "moon". */
+      /* The corona: a full moon washes a third of the sky out around itself,
+         and that wash is what says "moon" long before the disc does. */
+      add('background:radial-gradient(circle at 50% 34%, rgba(226,236,255,0.34) 0%, rgba(150,180,240,0.13) 22%, transparent 56%);' +
+        'mix-blend-mode:screen;animation:relaxMoonLift 240s ease-out infinite alternate;');
+      /* The disc, with its maria. A plain white circle reads as a dead pixel;
+         the grey patches are the only reason it reads as the moon. */
+      add('top:26%;left:44%;width:12%;height:0;padding-bottom:12%;border-radius:50%;bottom:auto;right:auto;' +
+        'background:radial-gradient(circle at 38% 32%, #fffdf4 0%, #f3f0e2 52%, #ddd8c6 82%, #b9b4a4 100%),' +
+        ' radial-gradient(closest-side circle at 62% 38%, rgba(120,124,140,0.34) 0 40%, transparent 100%),' +
+        ' radial-gradient(closest-side circle at 40% 62%, rgba(110,116,136,0.3) 0 34%, transparent 100%),' +
+        ' radial-gradient(closest-side circle at 66% 66%, rgba(126,130,146,0.24) 0 28%, transparent 100%);' +
+        'background-size:100% 100%, 46% 46%, 38% 38%, 30% 30%;' +
+        'background-position:0 0, 58% 34%, 34% 62%, 64% 68%;background-repeat:no-repeat;' +
+        'box-shadow:0 0 46px 12px rgba(216,230,255,0.5);' +
+        'animation:relaxMoonLift 240s ease-out infinite alternate;');
+      add(RELAX_STARFIELD + 'opacity:0.42;');
+
+      // The far shore, dead flat and dead black.
+      const w = 1200, h = 220;
+      add(`top:auto;bottom:40%;height:16%;` +
+        svgLayer(w, h, `<path d='${ridgePath(w, h, h * 0.62, 0.1)}' fill='#040814'/>`));
+
+      /* The water, and the moon's road on it. The road is not a beam — it is
+         a column of separate broken highlights that gets wider as it comes
+         toward you, because each wavelet is its own little mirror. */
+      add('top:60%;bottom:0;background:linear-gradient(180deg, #0a1430 0%, #060d22 40%, #030713 100%);');
+      const road: string[] = [];
+      for (let i = 0; i < 420; i++) {
+        const t = Math.pow(i / 420, 0.8);
+        const yy = 2 + t * 198;
+        // The column widens toward you because each wavelet nearer the shore
+        // subtends more of the sky; every glint is its own little mirror.
+        const spread = 5 + t * t * 130;
+        const cx = 300 + rand(-spread, spread);
+        road.push(`<ellipse cx='${cx.toFixed(1)}' cy='${yy.toFixed(1)}' rx='${rand(3, 10 + t * 26).toFixed(1)}'` +
+          ` ry='${rand(0.5, 1.5).toFixed(1)}' fill='#e6efff' opacity='${(0.66 - t * 0.3).toFixed(2)}'/>`);
+      }
+      add('top:60%;bottom:0;mix-blend-mode:screen;animation:relaxKoiWind 9s linear infinite;' +
+        svgLayer(600, 200, road.join('')));
+      add('top:60%;bottom:0;background:repeating-linear-gradient(178deg, rgba(190,214,255,0.05) 0 1px, transparent 1px 7px);' +
+        'animation:relaxKoiWind 13s linear infinite;');
+
+      filmPass(add, '#060b22', '#4a5c92', 0.54, 0.15, 0.44);
+    });
+    startAmbience('ocean');
+  },
+  onStop() { lower('moonrise'); stopAmbience('ocean'); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    const size = rand(40, 130);
+    const p = mote(
+      rand(-40, w + 40), rand(h * 0.62, h),
+      now,
+      'border-radius:50%;background:radial-gradient(closest-side ellipse, rgba(220,235,255,0.4), transparent 74%);',
+      size, rand(8000, 15_000)
+    );
+    p.el.style.height = `${size * 0.16}px`;
+    p.b = rand(-0.16, 0.16);
+    return p;
+  },
+  step(p, t) {
+    const e = Math.sin(t * Math.PI);
+    p.el.style.transform = `translate3d(${p.x + t * p.b * 180}px, ${p.y}px, 0) scale(${0.7 + e * 0.5}, 1)`;
+    p.el.style.opacity = String(e * 0.5);
   },
 };
 
 /* --------------------------------------------------------- bioluminescence */
+
 
 const bioluminescence: RelaxEffect = {
   id: 'bioluminescence',
@@ -5161,228 +5949,1315 @@ const bioluminescence: RelaxEffect = {
   space: 'screen',
   flash: '',
   burstMs: SIT,
-  openingPop: 80,
-  spawnEveryMs: 200,
-  spawnPerTick: 4,
-  maxParticles: 300,
+  openingPop: 20,
+  spawnEveryMs: 900,
+  spawnPerTick: 2,
+  maxParticles: 120,
   onStart(_x, _y, api) {
     raise('bioluminescence', api, (add) => {
-      add('background:linear-gradient(180deg,#040a16 0%,#071426 44%,#0a1c30 68%,#04101c 100%);');
-      add('top:56%;bottom:0;' +
-        'background:repeating-linear-gradient(179deg, rgba(80,190,230,0.09) 0 2px, transparent 2px 30px);' +
-        'animation:relaxCrawlA 44s linear infinite;');
-      add('background:radial-gradient(120% 100% at 50% 46%, transparent 44%, rgba(0,4,10,0.6) 100%);');
+      add('background:linear-gradient(180deg,#03060f 0%,#061224 34%,#04101f 52%,#050a12 74%,#0a0c10 100%);');
+      add(RELAX_STARFIELD + 'bottom:52%;opacity:0.4;');
+      // The sea, black, with the horizon barely there.
+      add('top:48%;background:linear-gradient(180deg,#040a16 0%,#03070f 40%,#060709 100%);');
+      add('top:47.6%;height:0.4%;background:linear-gradient(90deg, transparent, rgba(120,190,255,0.22), transparent);');
+
+      /* The break line: where the wave turns over is where it lights up, and
+         it lights up in PATCHES. A continuous glowing stripe is a neon sign. */
+      const surf: string[] = [];
+      for (let i = 0; i < 26; i++) {
+        const x = rand(-6, 100);
+        const wdt = rand(4, 22);
+        surf.push(`<rect x='${x.toFixed(1)}' y='${rand(18, 58).toFixed(1)}' width='${wdt.toFixed(1)}' height='${rand(2, 7).toFixed(1)}'` +
+          ` rx='2.5' fill='#5ce6ff' opacity='${rand(0.55, 1).toFixed(2)}'/>`);
+      }
+      add('top:50%;height:34%;mix-blend-mode:screen;filter:blur(3px);' + svgLayer(100, 100, surf.join('')) +
+        'animation:relaxSurf 13s ease-in-out infinite;');
+      // The bloom around it. Bioluminescence is mostly the glow, not the line.
+      add('top:46%;height:42%;mix-blend-mode:screen;filter:blur(20px);opacity:0.9;' + svgLayer(100, 100, surf.join('')) +
+        'animation:relaxSurf 13s ease-in-out infinite;');
+      // Wet sand, holding the light for a second after the water goes back.
+      add('top:auto;bottom:0;height:24%;background:linear-gradient(180deg, rgba(40,140,190,0.55) 0%, rgba(10,14,20,0.92) 100%);' +
+        'animation:relaxSurfWet 13s ease-in-out infinite;');
+      filmPass(add, '#020610', '#2a86b8', 0.52, 0.17, 0.44);
     });
     startAmbience('ocean');
   },
   onStop() { lower('bioluminescence'); stopAmbience('ocean'); },
   create(x, y, now, api) {
     const { w, h } = api.viewport;
-    /* Plankton light in PATCHES — the whole shoreline flaring evenly would look
-       like a strip light. Each spawn picks a wandering centre and clusters near
-       it, so the glow travels along the surf. */
-    const cx = (Math.sin(now * 0.00016) * 0.5 + 0.5) * w;
-    const px = cx + rand(-w * 0.3, w * 0.3);
-    const s = rand(4, 13);
+    const d = rand(2, 8);
     const p = mote(
-      px, rand(h * 0.56, h * 0.99), now,
-      `height:${s}px;border-radius:50%;mix-blend-mode:screen;` +
-        'background:radial-gradient(circle, #eafeff 0 30%, #5cd6ff 58%, rgba(40,150,220,0.3) 100%);' +
-        'box-shadow:0 0 18px 6px rgba(90,214,255,0.95), 0 0 40px 12px rgba(50,160,230,0.45);',
-      s, rand(1800, 4200)
+      rand(-20, w + 20), rand(h * 0.56, h * 0.86), now,
+      'border-radius:50%;mix-blend-mode:screen;' +
+        'background:radial-gradient(circle, rgba(220,250,255,0.95) 0 22%, rgba(60,200,255,0.6) 46%, transparent 74%);' +
+        'box-shadow:0 0 10px rgba(60,200,255,0.6);',
+      d, rand(1600, 4200)
     );
     p.a = rand(0, Math.PI * 2);
+    p.b = rand(0.001, 0.004);
     return p;
   },
   step(p, t, now) {
-    const drift = Math.sin(now * 0.0009 + p.a) * 12;
-    p.el.style.transform = `translate3d(${p.x + drift}px, ${p.y}px, 0) scale(${0.5 + Math.sin(t * Math.PI) * 0.8})`;
-    p.el.style.opacity = String(Math.sin(t * Math.PI) * 0.85);
+    // Plankton flare and fade; they do not travel.
+    const e = Math.sin(t * Math.PI);
+    const drift = Math.sin(now * p.b + p.a) * 8;
+    p.el.style.transform = `translate3d(${p.x + drift}px, ${p.y}px, 0) scale(${0.4 + e * 1.4})`;
+    p.el.style.opacity = String(e * 0.95);
   },
 };
 
 /* --------------------------------------------------------------- steamroom */
 
+
 const steamroom: RelaxEffect = {
   id: 'steamroom',
   label: 'Steam',
   group: 'Immersion',
-  blurb: 'Warm, wet air rolling past. You cannot see very far and you do not need to.',
+  blurb: 'A stone bath in the dark, one lamp, and warm wet air rolling off the water.',
   space: 'screen',
   flash: '',
   burstMs: SIT,
   openingPop: 14,
-  spawnEveryMs: 1400,
+  spawnEveryMs: 900,
   spawnPerTick: 1,
-  maxParticles: 34,
+  maxParticles: 46,
   onStart(_x, _y, api) {
     raise('steamroom', api, (add) => {
-      add(api.isDark
-        ? 'background:linear-gradient(180deg,#2e2a2c 0%,#3e3634 46%,#221e1e 100%);'
-        : 'background:linear-gradient(180deg,#d8cfc8 0%,#bfb2a8 48%,#8e8078 100%);');
-      add('background:radial-gradient(60% 44% at 34% 22%, rgba(255,226,190,0.4), transparent 70%);' +
+      add('background:linear-gradient(180deg,#0d0a08 0%,#151009 34%,#1b140d 52%,#100c08 72%,#070504 100%);');
+      // One lamp, low and warm, and the wall it is standing against.
+      add('background:radial-gradient(26% 22% at 74% 30%, rgba(255,192,110,0.42), rgba(255,150,60,0.1) 48%, transparent 76%);' +
         'mix-blend-mode:screen;animation:relaxImmBreath 17s ease-in-out infinite alternate;');
-      add('background:radial-gradient(120% 100% at 50% 50%, transparent 34%, rgba(30,24,22,0.5) 100%);');
+      // Stone: courses of block, lit from that lamp.
+      /* Wet stone in the dark, not brickwork in daylight. Courses of uneven
+         blocks at low contrast, and the only reason you can see any of them is
+         the lamp — so the whole layer is masked down to where the lamp reaches. */
+      const stones: string[] = [];
+      for (let r = 0; r < 8; r++) {
+        let x = -rand(2, 10);
+        while (x < 100) {
+          const bw = rand(8, 19);
+          stones.push(`<rect x='${x.toFixed(1)}' y='${(r * 8 + rand(-0.4, 0.4)).toFixed(1)}' width='${(bw - 0.8).toFixed(1)}' height='7.2' rx='1.2'` +
+            ` fill='#8a6a4c' opacity='${rand(0.06, 0.2).toFixed(2)}'/>`);
+          x += bw;
+        }
+      }
+      const lampMask = 'radial-gradient(50% 46% at 74% 32%, #000 0%, rgba(0,0,0,0.35) 52%, transparent 82%)';
+      add(`bottom:44%;opacity:0.9;-webkit-mask-image:${lampMask};mask-image:${lampMask};` +
+        svgLayer(100, 64, stones.join('')));
+
+      /* The water, and the lamp coming back off it. A bath at night is mostly
+         the reflection — a dark surface with one long broken highlight down it. */
+      add('top:56%;background:linear-gradient(180deg,#2a201a 0%,#1a1310 40%,#0e0a08 100%);');
+      const refl: string[] = [];
+      for (let i = 0; i < 120; i++) {
+        const t = Math.random();
+        refl.push(`<ellipse cx='${(74 + rand(-3 - t * 16, 3 + t * 16)).toFixed(1)}' cy='${(t * 100).toFixed(1)}'` +
+          ` rx='${rand(1.5, 9).toFixed(1)}' ry='${rand(0.3, 0.9).toFixed(2)}' fill='#ffb765'` +
+          ` opacity='${(0.5 - t * 0.3).toFixed(2)}'/>`);
+      }
+      add('top:56%;mix-blend-mode:screen;animation:relaxKoiWind 6s linear infinite;' + svgLayer(100, 100, refl.join('')));
+      filmPass(add, '#140d08', '#ffbe72', 0.56, 0.17, 0.5);
     });
+    startAmbience('drone');
   },
-  onStop() { lower('steamroom'); },
+  onStop() { lower('steamroom'); stopAmbience('drone'); },
   create(x, y, now, api) {
     const { w, h } = api.viewport;
-    const size = rand(220, 560);
-    const el = document.createElement('div');
-    baseStyle(
-      el, size,
-      `border-radius:50%;filter:blur(${rand(16, 34).toFixed(0)}px);` +
-        'background:radial-gradient(closest-side circle at 38% 34%, rgba(255,252,248,0.95) 0 18%,' +
-        ' rgba(255,248,242,0.42) 46%, rgba(210,196,186,0.18) 70%, transparent 84%);'
+    const size = rand(w * 0.18, w * 0.5);
+    const p = mote(
+      rand(-w * 0.1, w * 1.1), h * rand(0.5, 0.62), now,
+      'border-radius:50%;filter:blur(20px);' +
+        'background:radial-gradient(closest-side ellipse, rgba(255,232,206,0.16), rgba(255,220,186,0.05) 56%, transparent 78%);',
+      size, rand(11_000, 20_000)
     );
-    const p = particle(el, rand(-80, w + 80), h + size * 0.3, size, rand(16_000, 32_000), now);
-    p.a = rand(0, Math.PI * 2);
-    p.b = rand(0.00024, 0.0007);
-    p.c = h + size;
-    p.maxScale = rand(0.18, 0.42);
+    p.el.style.height = `${size * rand(0.5, 0.9)}px`;
+    p.b = rand(-0.5, 0.5);
+    p.c = rand(0.4, 1.1);
     return p;
   },
-  step(p, t, now) {
-    const rise = t * p.c * 0.9;
-    const roll = Math.sin(now * p.b + p.a) * 70;
+  step(p, t) {
+    // Steam rises, spreads, and thins — it never just drifts sideways.
+    const rise = Math.pow(t, 0.85);
     p.el.style.transform =
-      `translate3d(${p.x - p.size / 2 + roll}px, ${p.y - p.size / 2 - rise}px, 0) scale(${0.6 + t * 0.9})`;
-    p.el.style.opacity = String(Math.min(1, t * 5) * Math.min(1, (1 - t) * 3) * p.maxScale);
+      `translate3d(${p.x + t * p.b * 140}px, ${p.y - rise * 340 * p.c}px, 0) scale(${0.4 + rise * 1.5})`;
+    p.el.style.opacity = String(Math.min(1, t * 5) * Math.pow(1 - t, 1.2) * 0.7);
   },
 };
 
 /* ------------------------------------------------------------------- prism */
 
+
 const prism: RelaxEffect = {
   id: 'prism',
   label: 'Prism',
   group: 'Immersion',
-  blurb: 'White light taken apart very slowly, and the spectrum walking across the wall.',
+  blurb: 'A cut-glass thing in a window, and the spectra it throws around the room all afternoon.',
   space: 'screen',
   flash: '',
   burstMs: SIT,
-  openingPop: 6,
-  spawnEveryMs: 4400,
+  openingPop: 9,
+  spawnEveryMs: 2600,
   spawnPerTick: 1,
-  maxParticles: 14,
+  maxParticles: 26,
   onStart(_x, _y, api) {
     raise('prism', api, (add) => {
-      add(api.isDark
-        ? 'background:linear-gradient(160deg,#16161c 0%,#0d0d12 60%,#070709 100%);'
-        : 'background:linear-gradient(160deg,#e6e2da 0%,#cac4ba 58%,#9e988e 100%);');
-      add('background:radial-gradient(120% 100% at 30% 10%, rgba(255,255,255,0.16), transparent 62%);');
-      add('background:radial-gradient(120% 100% at 50% 46%, transparent 46%, rgba(0,0,0,0.4) 100%);');
+      const dark = api.isDark;
+      // A plain wall. Everything interesting in this one is thrown onto it.
+      add(dark
+        ? 'background:linear-gradient(168deg,#1a1a20 0%,#141419 46%,#0e0e12 100%);'
+        : 'background:linear-gradient(168deg,#efe7db 0%,#e2d9cc 46%,#cfc5b6 100%);');
+      // Plaster: a wall with no texture is a swatch.
+      const pl: string[] = [];
+      for (let i = 0; i < 70; i++) {
+        pl.push(`<ellipse cx='${rand(0, 100).toFixed(1)}' cy='${rand(0, 100).toFixed(1)}' rx='${rand(2, 12).toFixed(1)}'` +
+          ` ry='${rand(2, 9).toFixed(1)}' fill='${dark ? '#ffffff' : '#000000'}' opacity='${rand(0.008, 0.03).toFixed(3)}'/>`);
+      }
+      add(svgLayer(100, 100, pl.join('')));
+
+      // The window itself, throwing a hard-edged patch of daylight.
+      add('mix-blend-mode:screen;opacity:0.26;filter:blur(20px);' +
+        svgLayer(100, 100,
+          "<path d='M6,10 L38,2 L52,58 L18,72 Z' fill='#ffeccc' opacity='0.3'/>" +
+          "<path d='M22,6 L24,66' stroke='#000' stroke-width='3.4' opacity='0.55'/>" +
+          "<path d='M10,34 L48,26' stroke='#000' stroke-width='3.4' opacity='0.55'/>") +
+        'animation:relaxPrismCrawl 150s ease-in-out infinite alternate;');
+
+      /* The spectra. A refracted band is ordered — red through violet, always
+         in that order and always in that direction — and it is soft at both
+         ends and brightest in the middle where the glass is thickest. */
+      const bow = (x: number, y: number, w2: number, h2: number, rot: number, a: number) =>
+        `<g transform='translate(${x},${y}) rotate(${rot})'>` +
+        `<rect x='0' y='0' width='${w2}' height='${h2}' rx='${(h2 / 2).toFixed(1)}' fill='url(#sp)' opacity='${a}'/></g>`;
+      const spectra =
+        "<defs><linearGradient id='sp' x1='0' y1='0' x2='1' y2='0'>" +
+        "<stop offset='0%' stop-color='#ff2d2d' stop-opacity='0'/>" +
+        "<stop offset='16%' stop-color='#ff4a2a'/><stop offset='32%' stop-color='#ffd24a'/>" +
+        "<stop offset='48%' stop-color='#5cff8a'/><stop offset='66%' stop-color='#3fd0ff'/>" +
+        "<stop offset='84%' stop-color='#8a5cff'/><stop offset='100%' stop-color='#c04aff' stop-opacity='0'/>" +
+        "</linearGradient></defs>" +
+        bow(38, 44, 46, 7, 12, 0.85) + bow(30, 62, 34, 5, -8, 0.6) +
+        bow(56, 26, 28, 4, 26, 0.5) + bow(20, 78, 40, 6, 4, 0.45);
+      add('mix-blend-mode:screen;filter:blur(5px);animation:relaxPrismCrawl 150s ease-in-out infinite alternate;' +
+        svgLayer(100, 100, spectra));
+      add('mix-blend-mode:screen;filter:blur(22px);opacity:0.6;animation:relaxPrismCrawl 150s ease-in-out infinite alternate;' +
+        svgLayer(100, 100, spectra));
+      filmPass(add, dark ? '#101018' : '#6a6070', dark ? '#3a3a4a' : '#fff4e4', 0.44, 0.15, 0.4);
     });
+    startAmbience('drone');
   },
-  onStop() { lower('prism'); },
+  onStop() { lower('prism'); stopAmbience('drone'); },
   create(x, y, now, api) {
+    // The little sharp glints the facets throw, wandering as the sun moves.
     const { w, h } = api.viewport;
-    const len = rand(h * 0.5, h * 1.1);
-    const el = document.createElement('div');
-    baseStyle(
-      el, rand(70, 190),
-      `height:${len.toFixed(0)}px;filter:blur(${rand(8, 20).toFixed(0)}px);` +
-        (api.isDark ? 'mix-blend-mode:screen;' : 'mix-blend-mode:multiply;') +
-        'background:linear-gradient(90deg, transparent, rgba(255,60,60,0.5) 12%, rgba(255,190,50,0.5) 28%,' +
-        ' rgba(120,230,90,0.5) 44%, rgba(70,190,255,0.5) 62%, rgba(140,90,255,0.5) 80%, transparent);'
+    const d = rand(4, 16);
+    const hue = pick(['#ff6a4a', '#ffd24a', '#6cff9a', '#4fd4ff', '#9a6cff']);
+    const p = mote(
+      rand(w * 0.1, w * 0.9), rand(h * 0.15, h * 0.85), now,
+      `border-radius:50%;mix-blend-mode:screen;background:radial-gradient(circle, #fff 0 14%, ${hue} 40%, transparent 72%);` +
+        `box-shadow:0 0 14px ${hue};`,
+      d, rand(4000, 9000)
     );
-    const p = particle(el, rand(-100, w), rand(-h * 0.2, h * 0.3), len, rand(20_000, 38_000), now);
-    p.a = rand(-26, 26);
-    p.c = rand(160, 460);
+    p.a = rand(0, Math.PI * 2);
+    p.b = rand(0.0004, 0.0012);
     return p;
   },
-  step(p, t) {
-    // A spectrum walks; it does not fly. Two minutes and it has crossed a wall.
-    p.el.style.transform =
-      `translate3d(${p.x + t * p.c}px, ${p.y}px, 0) rotate(${p.a}deg)`;
-    p.el.style.opacity = String(Math.min(1, t * 5) * Math.min(1, (1 - t) * 5) * 0.6);
+  step(p, t, now) {
+    const e = Math.sin(t * Math.PI);
+    const dx = Math.sin(now * p.b + p.a) * 26;
+    const dy = Math.cos(now * p.b * 0.8 + p.a) * 18;
+    p.el.style.transform = `translate3d(${p.x + dx}px, ${p.y + dy}px, 0) scale(${0.5 + e})`;
+    p.el.style.opacity = String(e * 0.8);
   },
 };
 
 /* ---------------------------------------------------------------- wisteria */
 
+
 const wisteria: RelaxEffect = {
   id: 'wisteria',
   label: 'Wisteria',
   group: 'Immersion',
-  blurb: 'Racemes hanging the whole width of the screen, moving when the air does, dropping the odd flower.',
+  blurb: 'Standing under a loaded pergola in May, with the light coming through it.',
   space: 'screen',
   flash: '',
   burstMs: SIT,
-  openingPop: 26,
-  spawnEveryMs: 900,
+  openingPop: 24,
+  spawnEveryMs: 1100,
   spawnPerTick: 1,
-  maxParticles: 90,
+  maxParticles: 60,
   onStart(_x, _y, api) {
     raise('wisteria', api, (add) => {
-      add(api.isDark
-        ? 'background:linear-gradient(180deg,#241a3a 0%,#38285a 42%,#1a1230 100%);'
-        : 'background:linear-gradient(180deg,#c9bce0 0%,#a894cc 40%,#6a5a90 100%);');
-      add('background:radial-gradient(80% 40% at 50% 4%, rgba(255,244,220,0.4), transparent 70%);' +
-        'mix-blend-mode:screen;');
-      // The canopy the racemes hang from.
-      add('top:0;height:20%;bottom:auto;filter:blur(9px);opacity:0.85;' +
-        'background:radial-gradient(closest-side ellipse, #2a3a1e 0 72%, transparent 100%) 10% 40%/28% 130% no-repeat,' +
-        'radial-gradient(closest-side ellipse, #1e2c16 0 72%, transparent 100%) 42% 60%/32% 150% no-repeat,' +
-        'radial-gradient(closest-side ellipse, #2a3a1e 0 72%, transparent 100%) 76% 44%/30% 140% no-repeat;');
-      add('background:radial-gradient(120% 100% at 50% 40%, transparent 46%, rgba(20,10,34,0.5) 100%);');
+      const dark = api.isDark;
+      // The light beyond the pergola, which is what you are actually looking at.
+      add(dark
+        ? 'background:radial-gradient(90% 70% at 50% 84%, #4a3a6a 0%, #2a2148 44%, #150f28 100%);'
+        : 'background:radial-gradient(90% 70% at 50% 84%, #f6ecd6 0%, #d8d0e4 44%, #a89cc8 100%);');
+      // The beams of the pergola, across the top.
+      const beam = dark ? '#181026' : '#6b5340';
+      add('top:0;height:24%;' + svgLayer(100, 24,
+        `<rect y='0' width='100' height='4.5' fill='${beam}'/>` +
+        [0, 1, 2, 3, 4, 5].map((i) => `<rect x='${i * 18 + 3}' y='0' width='3' height='14' fill='${beam}' opacity='0.9'/>`).join('')));
+
+      /* The racemes. Each is a hanging cone of small blossoms, densest at the
+         top and finishing in a point — and they hang at different lengths, or
+         it reads as a fringe on a lampshade. */
+      const race = (n: number, seed: number) => {
+        const out: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const x = (i / n) * 106 - 3 + rand(-2, 2);
+          const len = rand(24, 66);
+          const flo: string[] = [];
+          for (let k = 0; k < 46; k++) {
+            const t = k / 46;
+            const yy = 4 + t * len;
+            const spread = (1 - t * 0.82) * 3.4;
+            flo.push(`<circle cx='${(x + rand(-spread, spread)).toFixed(1)}' cy='${yy.toFixed(1)}'` +
+              ` r='${(rand(0.6, 1.5) * (1 - t * 0.4)).toFixed(2)}' fill='${pick(dark ? ['#a98fe0', '#8c6fd0', '#c9b4f0'] : ['#b9a3e8', '#9a80d8', '#d8caf6'])}'` +
+              ` opacity='${rand(0.5, 1).toFixed(2)}'/>`);
+          }
+          out.push(`<g>${flo.join('')}</g>`);
+        }
+        return out.join('');
+      };
+      add('top:0;height:76%;transform-origin:50% 0%;opacity:0.75;filter:blur(1.6px);' +
+        svgLayer(100, 76, race(26, 1)) + 'animation:relaxWisteriaA 15s ease-in-out infinite alternate;');
+      add('top:0;height:88%;transform-origin:50% 0%;' +
+        svgLayer(100, 88, race(18, 2)) + 'animation:relaxWisteriaB 11s ease-in-out infinite alternate;');
+      // Leaves, in among them.
+      const lv: string[] = [];
+      for (let i = 0; i < 60; i++) {
+        lv.push(`<ellipse cx='${rand(0, 100).toFixed(1)}' cy='${rand(2, 30).toFixed(1)}' rx='${rand(1.4, 3.4).toFixed(1)}'` +
+          ` ry='${rand(0.7, 1.6).toFixed(1)}' fill='${dark ? '#2c4a30' : '#4d7a44'}' opacity='${rand(0.4, 0.9).toFixed(2)}'` +
+          ` transform='rotate(${rand(-40, 40).toFixed(0)} ${rand(0, 100).toFixed(1)} ${rand(2, 30).toFixed(1)})'/>`);
+      }
+      add('top:0;height:40%;' + svgLayer(100, 40, lv.join('')) + 'animation:relaxWisteriaB 11s ease-in-out infinite alternate;');
+      filmPass(add, dark ? '#1a1030' : '#6a5a80', dark ? '#5a4a80' : '#fff4e0', 0.42, 0.14, 0.44);
     });
     startAmbience('wind');
   },
   onStop() { lower('wisteria'); stopAmbience('wind'); },
-  create(x, y, now, api, _kind, _tint, index = 0) {
+  create(x, y, now, api) {
     const { w, h } = api.viewport;
-    if (index < 0) { /* keeps index in the signature for the racemes below */ }
+    const d = rand(4, 9);
+    const p = mote(
+      rand(0, w), rand(-h * 0.1, h * 0.3), now,
+      `border-radius:60% 40% 50% 50%/70% 60% 40% 30%;` +
+        `background:linear-gradient(150deg, ${api.isDark ? '#c9b4f0' : '#d8caf6'}, ${api.isDark ? '#8c6fd0' : '#9a80d8'});`,
+      d, rand(9000, 16_000)
+    );
+    p.a = rand(0, Math.PI * 2);
+    p.b = rand(0.0009, 0.0022);
+    p.c = rand(60, 200);
+    return p;
+  },
+  step(p, t, now) {
+    const sway = Math.sin(now * p.b + p.a) * 34;
+    p.el.style.transform =
+      `translate3d(${p.x + sway}px, ${p.y + t * p.c + t * t * 300}px, 0) rotate(${(sway * 2).toFixed(1)}deg)`;
+    p.el.style.opacity = String(Math.min(1, t * 6) * Math.min(1, (1 - t) * 4) * 0.9);
+  },
+};
 
-    // Two species: the hanging racemes, and the flowers that let go of them.
-    if (Math.random() < 0.22 || index >= 26) {
-      const s = rand(7, 13);
+
+/* ------------------------------------------------------------- mountains -- */
+/**
+ * The reason this one is first among the new immersions: it is the cleanest
+ * demonstration of the only rule that matters up here. Distance is CONTRAST
+ * LOSS. Five ridges, each one paler and bluer and softer than the one in front,
+ * and the eye reads miles into a flat screen without being told anything else.
+ */
+const mountains: RelaxEffect = {
+  id: 'mountains',
+  label: 'Blue Ridges',
+  group: 'Immersion',
+  blurb: 'Range behind range, going pale with distance, and the mist still lying in the valleys.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 7,
+  spawnEveryMs: 5200,
+  spawnPerTick: 1,
+  maxParticles: 20,
+  onStart(_x, _y, api) {
+    raise('mountains', api, (add) => {
+      const dark = api.isDark;
+      add(dark
+        ? 'background:linear-gradient(180deg,#0d1730 0%,#1d2a4a 34%,#38405e 62%,#5a5468 84%,#6a5c62 100%);'
+        : 'background:linear-gradient(180deg,#5f8ec4 0%,#9dbcd8 34%,#c9d6e0 62%,#e2dfd8 84%,#efe4d2 100%);');
+      add(`background:radial-gradient(16% 13% at 74% 20%, rgba(255,${dark ? '214,176' : '250,228'},0.62), transparent 70%);` +
+        'mix-blend-mode:screen;animation:relaxImmBreath 34s ease-in-out infinite alternate;');
+
+      /* Five ranges. Each is its own midpoint-displaced ridge, gets its own
+         haze on top of it, and sits a little lower in the frame than the last. */
+      const rock = dark ? [88, 96, 122] : [96, 114, 140];
+      for (let i = 0; i < 5; i++) {
+        const k = i / 4;
+        // Far ranges are pale and blue; near ones are dark and have edges.
+        const shade = dark
+          ? `rgb(${(rock[0] * (0.5 - k * 0.34)) | 0},${(rock[1] * (0.54 - k * 0.36)) | 0},${(rock[2] * (0.66 - k * 0.44)) | 0})`
+          : `rgb(${(rock[0] * (1.5 - k * 0.9)) | 0},${(rock[1] * (1.4 - k * 0.85)) | 0},${(rock[2] * (1.3 - k * 0.75)) | 0})`;
+        ridgeLayer(add, 54 - i * 9, 0.36 - k * 0.12, 0.1 + k * 0.22, shade);
+        // The haze that puts it behind the one in front of it.
+        if (i < 4) {
+          add(`top:auto;bottom:0;height:${(54 - i * 9).toFixed(0)}%;` +
+            haze(dark ? '40,56,92' : '188,208,228', 0.42 - i * 0.08, 0));
+        }
+      }
+      // Mist, lying in the folds rather than covering them.
+      /* Mist LIES IN the folds — it pools where the ground is low and shows
+         nothing where a ridge stands above it. A band across the whole frame is
+         a strip of gauze taped to the lens. */
+      const pool: string[] = [];
+      for (let i = 0; i < 9; i++) {
+        pool.push(`<ellipse cx='${rand(-10, 110).toFixed(1)}' cy='${rand(30, 80).toFixed(1)}' rx='${rand(14, 44).toFixed(1)}'` +
+          ` ry='${rand(3, 11).toFixed(1)}' fill='${dark ? '#9aacd0' : '#ffffff'}' opacity='${rand(0.16, 0.42).toFixed(2)}'/>`);
+      }
+      add('top:auto;bottom:6%;height:30%;filter:blur(11px);' + svgLayer(100, 100, pool.join('')) +
+        'animation:relaxFogA 120s linear infinite;');
+      filmPass(add, dark ? '#101a34' : '#4a5a78', dark ? '#4a5a86' : '#fff0d8', 0.44, 0.15, 0.46);
+    });
+    startAmbience('wind');
+  },
+  onStop() { lower('mountains'); stopAmbience('wind'); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    const size = rand(w * 0.2, w * 0.6);
+    const p = mote(
+      rand(-size, w), rand(h * 0.5, h * 0.86), now,
+      'border-radius:50%;filter:blur(18px);' +
+        `background:radial-gradient(closest-side ellipse, rgba(${api.isDark ? '160,180,220' : '255,255,255'},0.5), transparent 74%);`,
+      size, rand(30_000, 60_000)
+    );
+    p.el.style.height = `${size * rand(0.1, 0.2)}px`;
+    p.c = rand(-90, 90);
+    return p;
+  },
+  step(p, t) {
+    const e = Math.sin(t * Math.PI);
+    p.el.style.transform = `translate3d(${p.x + t * p.c}px, ${p.y - t * 20}px, 0) scale(${0.8 + e * 0.4}, 1)`;
+    p.el.style.opacity = String(e * 0.6);
+  },
+};
+
+/* -------------------------------------------------------------- campfire -- */
+const campfire: RelaxEffect = {
+  id: 'campfire',
+  label: 'Campfire',
+  group: 'Immersion',
+  blurb: 'One fire, three logs, and the dark pressing in at the edge of the light.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 34,
+  spawnEveryMs: 150,
+  spawnPerTick: 1,
+  maxParticles: 120,
+  onStart(_x, _y, api) {
+    raise('campfire', api, (add) => {
+      add('background:radial-gradient(60% 50% at 50% 76%, #2e1a0e 0%, #1a0f08 40%, #0a0705 74%, #030202 100%);');
+      /* The light the fire is throwing. It pulses, and everything in the frame
+         pulses WITH it — that agreement is what makes it read as one fire
+         rather than an orange gradient with a flame drawn on it. */
+      add('background:radial-gradient(62% 52% at 50% 72%, rgba(255,172,80,0.55), rgba(255,110,40,0.2) 44%, transparent 76%);' +
+        'mix-blend-mode:screen;animation:relaxFireLight 3.1s ease-in-out infinite alternate;');
+      // The ground it is standing on, lit from the middle out.
+      add('top:auto;bottom:0;height:34%;background:radial-gradient(50% 100% at 50% 0%, rgba(120,70,34,0.5), transparent 76%),' +
+        'linear-gradient(180deg,#1a120c 0%,#0a0705 100%);');
+      // Logs. Three, crossed, in silhouette against their own fire.
+      add('top:auto;bottom:20%;height:20%;' + svgLayer(100, 30,
+        "<g fill='#170f09'>" +
+        "<rect x='26' y='16' width='48' height='7' rx='3.5' transform='rotate(-7 50 19)'/>" +
+        "<rect x='30' y='13' width='42' height='6' rx='3' transform='rotate(9 50 16)'/>" +
+        "<rect x='38' y='9' width='30' height='5' rx='2.5' transform='rotate(-15 50 12)'/></g>" +
+        "<g fill='#3a2415' opacity='0.7'>" +
+        "<rect x='27' y='16' width='46' height='2' rx='1' transform='rotate(-7 50 19)'/></g>"));
+      // The bed of coals under it all.
+      add('top:auto;bottom:22%;height:5%;left:36%;right:36%;mix-blend-mode:screen;filter:blur(5px);' +
+        'background:radial-gradient(closest-side ellipse, rgba(255,190,90,0.9), rgba(255,90,30,0.4) 60%, transparent 100%);' +
+        'animation:relaxEmberBreath 2.4s ease-in-out infinite alternate;');
+      filmPass(add, '#0a0503', '#ffb060', 0.6, 0.19, 0.5);
+    });
+    startAmbience('drone');
+  },
+  onStop() { lower('campfire'); stopAmbience('drone'); },
+  create(x, y, now, api, kind = 0, _tint, index = 0) {
+    const { w, h } = api.viewport;
+    if (kind === 1 || index < 12) {
+      // A tongue of flame: tall, narrow, and gone in half a second.
+      const fw = rand(w * 0.035, w * 0.09);
       const el = document.createElement('div');
-      baseStyle(
-        el, s,
-        `height:${s * 0.85}px;border-radius:70% 30% 66% 34% / 34% 70% 30% 66%;` +
-          'background:radial-gradient(circle at 30% 28%, #f0e6ff 0 14%, #c9a8ee 52%, #8e63c4 94%);'
-      );
-      const p = particle(el, rand(0, w), rand(h * 0.06, h * 0.3), s, rand(7000, 13_000), now);
+      baseStyle(el, fw,
+        'mix-blend-mode:screen;' +
+        'border-radius:50% 50% 42% 42%/76% 76% 24% 24%;filter:blur(3px);' +
+        'background:radial-gradient(ellipse at 50% 84%, rgba(255,248,214,0.95) 0 18%, rgba(255,196,80,0.9) 42%,' +
+        ' rgba(255,110,30,0.7) 72%, transparent 100%);');
+      const fh = fw * rand(3, 5.4);
+      el.style.height = `${fh.toFixed(0)}px`;
+      const p = particle(el, w * 0.5 + rand(-w * 0.08, w * 0.08), h * 0.72, fw, rand(700, 1500), now);
       p.kind = 1;
-      p.a = rand(0, Math.PI * 2);
-      p.b = rand(0.0011, 0.0026);
+      p.a = rand(-1, 1);
+      p.b = fh;
       return p;
     }
-
-    const len = h * rand(0.24, 0.52);
-    const el = document.createElement('div');
-    baseStyle(
-      el, rand(22, 40),
-      `height:${len.toFixed(0)}px;transform-origin:top center;border-radius:0 0 50% 50%;` +
-        'background:' +
-        'radial-gradient(closest-side circle, rgba(216,196,246,0.95) 0 46%, transparent 100%) 30% 6%/46% 9% no-repeat,' +
-        'radial-gradient(closest-side circle, rgba(196,168,236,0.95) 0 46%, transparent 100%) 66% 16%/44% 8% no-repeat,' +
-        'radial-gradient(closest-side circle, rgba(178,148,224,0.95) 0 46%, transparent 100%) 34% 28%/42% 8% no-repeat,' +
-        'radial-gradient(closest-side circle, rgba(160,130,214,0.9) 0 46%, transparent 100%) 62% 40%/40% 7% no-repeat,' +
-        'radial-gradient(closest-side circle, rgba(146,116,202,0.9) 0 46%, transparent 100%) 38% 54%/36% 7% no-repeat,' +
-        'radial-gradient(closest-side circle, rgba(132,104,190,0.85) 0 46%, transparent 100%) 56% 68%/32% 6% no-repeat,' +
-        'radial-gradient(closest-side circle, rgba(120,94,178,0.8) 0 46%, transparent 100%) 44% 82%/26% 5% no-repeat;' +
-        `filter:blur(${rand(0.2, 1.4).toFixed(1)}px);`
+    const d = rand(1.5, 4);
+    const p = mote(
+      w * 0.5 + rand(-w * 0.07, w * 0.07), h * 0.71, now,
+      'border-radius:50%;mix-blend-mode:screen;background:radial-gradient(circle, #fff2c4 0 30%, #ff9a30 70%, transparent 100%);' +
+        'box-shadow:0 0 6px rgba(255,150,50,0.9);',
+      d, rand(1800, 4200)
     );
-    const p = particle(el, (index / 26) * w + rand(-20, 20), rand(-10, h * 0.1), len, SIT + 8000, now);
-    p.kind = 0;
-    p.a = p.x * 0.01;
-    p.c = 2.4 + Math.random() * 3.4;
+    p.a = rand(0, Math.PI * 2);
+    p.b = rand(0.002, 0.006);
+    p.c = rand(0.7, 1.8);
     return p;
   },
   step(p, t, now, api) {
     if (p.kind === 1) {
-      const fall = t * (api.viewport.h * 0.9);
+      // A flame leans and narrows as it goes up; it never just scales.
+      const e = t;
       p.el.style.transform =
-        `translate3d(${p.x + Math.sin(now * p.b + p.a) * 46}px, ${p.y + fall}px, 0) rotate(${now * p.b * 40 % 360}deg)`;
-      p.el.style.opacity = String(Math.min(1, t * 8) * Math.min(1, (1 - t) * 4) * 0.9);
+        `translate3d(${p.x + p.a * e * 26 - p.size / 2}px, ${p.y - p.b - e * 70}px, 0)` +
+        ` scale(${(1 - e * 0.4).toFixed(2)}, ${(0.6 + e * 0.7).toFixed(2)})`;
+      p.el.style.opacity = String(Math.min(1, t * 4) * Math.pow(1 - t, 0.8) * 0.9);
+      if (t > 0.94 && !p.d) { p.d = 1; api.spawn(0, 0, 1, 1); }
       return;
     }
-    const sway = Math.sin(now * 0.00072 - p.a) * 0.7 + Math.sin(now * 0.00031 - p.a * 0.7) * 0.3;
-    p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) rotate(${sway * p.c}deg)`;
-    p.el.style.opacity = '0.92';
+    /* An ember rises fast, slows as it cools, and wanders more the higher it
+       gets — the wander widening is the whole tell that it is hot air and not a
+       spark on a string. */
+    const rise = Math.pow(t, 0.62);
+    const wander = Math.sin(now * p.b + p.a) * (10 + rise * 60);
+    p.el.style.transform =
+      `translate3d(${p.x + wander}px, ${p.y - rise * 340 * p.c}px, 0) scale(${(1 - t * 0.5).toFixed(2)})`;
+    p.el.style.opacity = String(Math.min(1, t * 8) * Math.pow(1 - t, 1.4));
+    if (t > 0.985 && Math.random() < 0.5) api.spawn(0, 0, 1, 1);
+  },
+};
+
+/* ------------------------------------------------------------- snowfield -- */
+const snowfield: RelaxEffect = {
+  id: 'snowfield',
+  label: 'Snowfield',
+  group: 'Immersion',
+  blurb: 'Late afternoon, nobody about, and it has been coming down since lunchtime.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 90,
+  spawnEveryMs: 220,
+  spawnPerTick: 2,
+  maxParticles: 200,
+  onStart(_x, _y, api) {
+    raise('snowfield', api, (add) => {
+      const dark = api.isDark;
+      add(dark ? 'background:#2a3048;' : 'background:#c2c6d2;');
+      add(dark
+        ? 'background:linear-gradient(180deg,#141c34 0%,#28304c 34%,#3e4258 54%,#4a4a5c 62%);bottom:38%;'
+        : 'background:linear-gradient(180deg,#8fa4c0 0%,#b6c0d0 34%,#d2d2d8 54%,#dcd6d4 62%);bottom:38%;');
+      // Low winter sun, no warmth in it at all.
+      add(`bottom:36%;top:auto;height:26%;mix-blend-mode:screen;` +
+        `background:radial-gradient(30% 100% at 30% 100%, rgba(255,${dark ? '206,180' : '240,222'},0.42), transparent 74%);`);
+      // A treeline, snow on it, going grey with the distance and the falling snow.
+      const tw = 1200, th = 240;
+      const trees: string[] = [];
+      for (let i = 0; i < 54; i++) {
+        const x = (i / 54) * tw + rand(-10, 10);
+        const hh = rand(70, 190);
+        const ww = hh * rand(0.26, 0.4);
+        trees.push(`<polygon points='${x - ww / 2},${th} ${x},${th - hh} ${x + ww / 2},${th}' fill='${dark ? '#0e1420' : '#4a5560'}'/>`);
+        trees.push(`<polygon points='${x - ww * 0.3},${th - hh * 0.3} ${x},${th - hh * 0.86} ${x + ww * 0.3},${th - hh * 0.3}'` +
+          ` fill='${dark ? '#2c3648' : '#c6ccd4'}' opacity='0.55'/>`);
+      }
+      add(`top:auto;bottom:38%;height:20%;opacity:${dark ? 0.95 : 0.8};` + svgLayer(tw, th, trees.join('')));
+      add('top:auto;bottom:38%;height:20%;' + haze(dark ? '60,68,92' : '210,216,224', 0.34, 0));
+
+      /* The ground. Snow is not white — it is the sky's colour, slightly
+         darker, and it holds long blue shadows wherever it is not flat. */
+      add(`top:auto;bottom:0;height:40%;background:linear-gradient(180deg, ${dark ? '#3e4660' : '#d8dae2'} 0%,` +
+        ` ${dark ? '#2a3048' : '#c2c6d2'} 40%, ${dark ? '#1c2036' : '#aab0c0'} 100%);`);
+      const drift: string[] = [];
+      for (let i = 0; i < 22; i++) {
+        const cx = rand(-10, 110);
+        const cy = rand(10, 100);
+        drift.push(`<ellipse cx='${cx.toFixed(1)}' cy='${cy.toFixed(1)}' rx='${rand(12, 44).toFixed(1)}' ry='${rand(2, 8).toFixed(1)}'` +
+          ` fill='${dark ? '#4e5674' : '#ffffff'}' opacity='${rand(0.1, 0.3).toFixed(2)}'/>`);
+        drift.push(`<ellipse cx='${(cx + 3).toFixed(1)}' cy='${(cy + 3).toFixed(1)}' rx='${rand(10, 38).toFixed(1)}' ry='${rand(1.6, 6).toFixed(1)}'` +
+          ` fill='${dark ? '#141a2e' : '#93a0bc'}' opacity='${rand(0.1, 0.26).toFixed(2)}'/>`);
+      }
+      add('top:auto;bottom:0;height:40%;' + svgLayer(100, 100, drift.join('')));
+      filmPass(add, dark ? '#141a30' : '#6a7a96', dark ? '#5a6486' : '#ffffff', 0.4, 0.16, 0.4);
+    });
+    startAmbience('wind');
+  },
+  onStop() { lower('snowfield'); stopAmbience('wind'); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    /* Three depths, and the near ones are BLURRED — snow close to the lens is
+       out of focus, and without that the whole fall sits on one plane. */
+    const depth = Math.random();
+    const d = 2 + depth * 9;
+    const p = mote(
+      rand(-30, w + 30), rand(-h * 0.2, h * 0.1), now,
+      `border-radius:50%;background:rgba(255,255,255,${(0.5 + depth * 0.45).toFixed(2)});` +
+        (depth > 0.66 ? 'filter:blur(2.4px);' : depth > 0.33 ? 'filter:blur(0.7px);' : ''),
+      d, rand(9000, 20_000) * (1.2 - depth * 0.6)
+    );
+    p.a = rand(0, Math.PI * 2);
+    p.b = rand(0.0006, 0.0018);
+    p.c = h * (0.7 + depth * 0.7);
+    p.d = rand(20, 90) * (0.3 + depth);
+    return p;
+  },
+  step(p, t, now) {
+    const sway = Math.sin(now * p.b + p.a) * p.d;
+    p.el.style.transform = `translate3d(${p.x + sway}px, ${p.y + t * p.c}px, 0)`;
+    p.el.style.opacity = String(Math.min(1, t * 8) * Math.min(1, (1 - t) * 6));
+  },
+};
+
+/* ---------------------------------------------------------------- desert -- */
+const desert: RelaxEffect = {
+  id: 'desert',
+  label: 'Dunes',
+  group: 'Immersion',
+  blurb: 'Sand to the horizon, wind combing the ridges, and the light going long and gold.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 20,
+  spawnEveryMs: 500,
+  spawnPerTick: 2,
+  maxParticles: 90,
+  onStart(_x, _y, api) {
+    raise('desert', api, (add) => {
+      const dark = api.isDark;
+      add(dark ? 'background:#3a2418;' : 'background:#c89a62;');
+      add(dark
+        ? 'background:linear-gradient(180deg,#1a1630 0%,#3a2a44 28%,#6a4442 44%,#8a5a3e 52%);bottom:48%;'
+        : 'background:linear-gradient(180deg,#4b86c4 0%,#9fb8cc 26%,#e0c396 44%,#f2cf94 52%);bottom:48%;');
+      add(`bottom:46%;top:auto;height:26%;mix-blend-mode:screen;` +
+        `background:radial-gradient(26% 100% at 72% 100%, rgba(255,${dark ? '170,110' : '236,180'},0.7), transparent 72%);` +
+        'animation:relaxImmBreath 26s ease-in-out infinite alternate;');
+
+      /* Dunes. A dune has a long windward face and a short, dark slip face, and
+         getting that asymmetry right is the whole difference between sand and
+         a row of hills. Four ranks, each with its own shadow side. */
+      for (let i = 0; i < 5; i++) {
+        const k = i / 4;
+        /* Backlit: the sun is ON the horizon, so the nearer a dune is the
+           DARKER it gets, which is the opposite of a hazy landscape and is most
+           of why a desert at sunset looks like one. Each crest keeps a rim of
+           light along the top of it. */
+        const lit = dark
+          ? `rgb(${(126 - k * 80) | 0},${(80 - k * 52) | 0},${(60 - k * 40) | 0})`
+          : `rgb(${(248 - k * 130) | 0},${(210 - k * 122) | 0},${(156 - k * 104) | 0})`;
+        const hp = 46 - i * 9;
+        ridgeLayer(add, hp, 0.34 - k * 0.1, 0.05 + k * 0.05, lit);
+        ridgeLayer(add, hp, 0.34 - k * 0.1, 0.05 + k * 0.05, dark ? '#ff9a5a' : '#fff0c0',
+          `mix-blend-mode:screen;opacity:${(0.45 - k * 0.3).toFixed(2)};background-position:0 -0.5%;`);
+      }
+      // Wind combing the sand: fine ripples, following the ground rather than the frame.
+      add('top:auto;bottom:0;height:34%;opacity:0.16;filter:blur(0.6px);' +
+        'background:repeating-linear-gradient(171deg, rgba(255,255,255,0.14) 0 1px, transparent 1px 9px);' +
+        'animation:relaxKoiWind 26s linear infinite;');
+      filmPass(add, dark ? '#241426' : '#7a4a2c', dark ? '#8a5a3e' : '#ffe0a4', 0.46, 0.18, 0.5);
+    });
+    startAmbience('wind');
+  },
+  onStop() { lower('desert'); stopAmbience('wind'); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    const d = rand(1, 3.4);
+    const p = mote(
+      rand(-40, w * 0.2), rand(h * 0.5, h), now,
+      `border-radius:50%;background:rgba(${api.isDark ? '210,170,130' : '255,240,206'},0.7);`,
+      d, rand(2600, 6000)
+    );
+    p.a = rand(0, Math.PI * 2);
+    p.b = rand(0.004, 0.012);
+    p.c = rand(300, 900);
+    return p;
+  },
+  step(p, t, now) {
+    // Blown sand runs almost flat and hops; it does not float.
+    const hop = Math.abs(Math.sin(now * p.b + p.a)) * 14;
+    p.el.style.transform = `translate3d(${p.x + t * p.c}px, ${p.y - hop}px, 0)`;
+    p.el.style.opacity = String(Math.min(1, t * 6) * Math.min(1, (1 - t) * 3) * 0.7);
+  },
+};
+
+/* ---------------------------------------------------------------- bamboo -- */
+const bamboo: RelaxEffect = {
+  id: 'bamboo',
+  label: 'Bamboo Grove',
+  group: 'Immersion',
+  blurb: 'Green light, culms going up out of frame, and the whole grove creaking gently.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 8,
+  spawnEveryMs: 2600,
+  spawnPerTick: 1,
+  maxParticles: 26,
+  onStart(_x, _y, api) {
+    raise('bamboo', api, (add) => {
+      const dark = api.isDark;
+      add(dark
+        ? 'background:linear-gradient(180deg,#0e1a12 0%,#16281a 42%,#0c1a10 100%);'
+        : 'background:linear-gradient(180deg,#cfe6c0 0%,#a8cf96 42%,#6d9e62 100%);');
+      /* Everything in a grove is lit green from above, because the light has
+         been through a hundred feet of leaves before it reaches you. */
+      add(`background:radial-gradient(60% 50% at 44% 0%, rgba(${dark ? '120,220,140' : '236,255,196'},0.42), transparent 74%);` +
+        'mix-blend-mode:screen;animation:relaxImmBreath 21s ease-in-out infinite alternate;');
+
+      const culms = (n: number, wide: number, fill: string, node: string, seed: number) => {
+        const out: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const x = (i / n) * 108 - 4 + rand(-2.4, 2.4);
+          const lean = rand(-2.2, 2.2);
+          out.push(`<path d='M${x.toFixed(1)},104 Q${(x + lean).toFixed(1)},50 ${(x + lean * 2).toFixed(1)},-4'` +
+            ` stroke='${fill}' stroke-width='${wide.toFixed(2)}' fill='none'/>`);
+          // Nodes: the rings are what make it bamboo and not a green pipe.
+          for (let k = 0; k < 9; k++) {
+            const yy = 100 - k * rand(9, 14);
+            const xx = x + lean * ((104 - yy) / 108) * 2;
+            out.push(`<rect x='${(xx - wide * 0.7).toFixed(1)}' y='${yy.toFixed(1)}' width='${(wide * 1.4).toFixed(1)}' height='${(wide * 0.28).toFixed(2)}'` +
+              ` fill='${node}' opacity='0.8'/>`);
+          }
+          // A branch or two, high up.
+          if (seed && Math.random() < 0.6) {
+            out.push(`<path d='M${(x + lean * 1.6).toFixed(1)},${rand(10, 40).toFixed(1)} l${rand(-14, 14).toFixed(1)},${rand(-8, 4).toFixed(1)}'` +
+              ` stroke='${fill}' stroke-width='${(wide * 0.3).toFixed(2)}' fill='none'/>`);
+          }
+        }
+        return out.join('');
+      };
+      add(`opacity:${dark ? 0.5 : 0.42};filter:blur(2.6px);transform-origin:50% 100%;` +
+        svgLayer(100, 100, culms(22, 0.8, dark ? '#2c4a30' : '#8fb87e', dark ? '#1c3220' : '#7aa46a', 0)) +
+        'animation:relaxGroveA 19s ease-in-out infinite alternate;');
+      add(`opacity:${dark ? 0.8 : 0.72};filter:blur(0.8px);transform-origin:50% 100%;` +
+        svgLayer(100, 100, culms(13, 1.5, dark ? '#3e6a3c' : '#6f9e5c', dark ? '#26421f' : '#587e46', 1)) +
+        'animation:relaxGroveB 14s ease-in-out infinite alternate;');
+      add(`transform-origin:50% 100%;` +
+        svgLayer(100, 100, culms(7, 2.8, dark ? '#54804a' : '#4f7a3c', dark ? '#2c4a26' : '#3d6030', 1)) +
+        'animation:relaxGroveA 11s ease-in-out infinite alternate;');
+      // Shafts coming down between them.
+      add('mix-blend-mode:screen;filter:blur(8px);opacity:0.5;' +
+        'background:linear-gradient(184deg, rgba(220,255,190,0.34) 0 3%, transparent 26%) 22% 0/12% 100% no-repeat,' +
+        'linear-gradient(176deg, rgba(220,255,190,0.28) 0 3%, transparent 30%) 62% 0/9% 100% no-repeat;' +
+        'animation:relaxShaftSway 25s ease-in-out infinite alternate;');
+      filmPass(add, dark ? '#0a1a10' : '#2c4a26', dark ? '#3e6a3c' : '#f0ffcc', 0.46, 0.16, 0.44);
+    });
+    startAmbience('wind');
+  },
+  onStop() { lower('bamboo'); stopAmbience('wind'); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    const d = rand(10, 22);
+    const dark = api.isDark;
+    const p = mote(
+      rand(0, w), rand(-h * 0.2, h * 0.2), now,
+      `height:${(d * 0.3).toFixed(1)}px;border-radius:50% 6% 50% 6%;` +
+        `background:linear-gradient(120deg, ${dark ? '#6a9a5a' : '#8fbe72'}, ${dark ? '#2c4a26' : '#4f7a3c'});`,
+      d, rand(12_000, 22_000)
+    );
+    p.a = rand(0, Math.PI * 2);
+    p.b = rand(0.0009, 0.0024);
+    p.c = h * rand(0.7, 1.2);
+    return p;
+  },
+  step(p, t, now) {
+    // A bamboo leaf falls flat and slides sideways, like a paper dart.
+    const sway = Math.sin(now * p.b + p.a) * 70;
+    p.el.style.transform =
+      `translate3d(${p.x + sway}px, ${p.y + t * p.c}px, 0) rotate(${(Math.sin(now * p.b * 1.4 + p.a) * 40).toFixed(1)}deg)`;
+    p.el.style.opacity = String(Math.min(1, t * 6) * Math.min(1, (1 - t) * 4) * 0.9);
+  },
+};
+
+/* ----------------------------------------------------------- rainwindow -- */
+const rainwindow: RelaxEffect = {
+  id: 'rainwindow',
+  label: 'Rain on Glass',
+  group: 'Immersion',
+  blurb: 'Inside, warm, with the world outside gone soft behind the water on the pane.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 70,
+  spawnEveryMs: 220,
+  spawnPerTick: 2,
+  maxParticles: 190,
+  onStart(_x, _y, api) {
+    raise('rainwindow', api, (add) => {
+      const dark = api.isDark;
+      /* Everything beyond the glass is out of focus, so it can be built out of
+         soft shapes with no edges at all — which is the one time in this whole
+         file that a blurred gradient is the correct answer. */
+      add(dark
+        ? 'background:linear-gradient(180deg,#0e1424 0%,#161e33 46%,#1d2438 74%,#141a28 100%);'
+        : 'background:linear-gradient(180deg,#8fa2b8 0%,#a9b6c4 46%,#b8bfc6 74%,#9aa3ad 100%);');
+      const blobs: string[] = [];
+      for (let i = 0; i < 22; i++) {
+        const c = pick(dark ? ['#ffb45a', '#ff8a4a', '#7aa8ff', '#ffd88a'] : ['#e8d0a8', '#cfd8e4', '#b8c8d8', '#f0e0c0']);
+        blobs.push(`<ellipse cx='${rand(0, 100).toFixed(1)}' cy='${rand(30, 100).toFixed(1)}'` +
+          ` rx='${rand(2, 9).toFixed(1)}' ry='${rand(2, 8).toFixed(1)}' fill='${c}' opacity='${rand(0.2, 0.7).toFixed(2)}'/>`);
+      }
+      add(`filter:blur(${dark ? 14 : 10}px);opacity:${dark ? 0.9 : 0.6};` + svgLayer(100, 100, blobs.join('')));
+      // The window frame, in the near dark.
+      add('background:linear-gradient(90deg, rgba(0,0,0,0.55) 0 3%, transparent 8%, transparent 92%, rgba(0,0,0,0.55) 97%),' +
+        'linear-gradient(180deg, rgba(0,0,0,0.5) 0 3%, transparent 9%, transparent 88%, rgba(0,0,0,0.62) 96%);');
+      // The sheet of water the whole pane is under.
+      add('background:linear-gradient(180deg, rgba(190,214,255,0.06) 0%, rgba(190,214,255,0.12) 100%);');
+      filmPass(add, dark ? '#0c1220' : '#5a6470', dark ? '#3a4a6a' : '#e8eef4', 0.5, 0.16, 0.42);
+    });
+    startRain();
+  },
+  onStop() { lower('rainwindow'); stopRain(); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    /* A drop on glass is a LENS: bright at the top where it catches the sky and
+       dark at the bottom where it is looking at the ground, with a hard rim.
+       Get that inversion the wrong way round and it reads as a bubble. */
+    const d = rand(3, 15);
+    const el = document.createElement('div');
+    baseStyle(el, d,
+      `height:${(d * rand(1, 1.35)).toFixed(1)}px;border-radius:50% 50% 52% 52%/44% 44% 56% 56%;` +
+      'background:radial-gradient(ellipse at 38% 26%, rgba(255,255,255,0.62) 0 12%, rgba(220,235,255,0.24) 34%,' +
+      ' rgba(10,16,28,0.3) 72%, rgba(255,255,255,0.34) 100%);' +
+      'box-shadow:inset 0 -1px 2px rgba(255,255,255,0.4), 0 1px 2px rgba(0,0,0,0.3);');
+    const p = particle(el, rand(0, w), rand(0, h), d, rand(9000, 24_000), now);
+    p.a = 0;                              // how far it has run
+    p.b = d > 9 ? rand(0.2, 0.9) : 0;     // only the heavy ones ever run
+    p.c = rand(0, 1);
+    return p;
+  },
+  step(p, t, now, api) {
+    /* Most drops sit. A big one hangs until it is heavy enough and then goes
+       all at once, accelerating, and the sitting-still is what makes the
+       running read as sudden. */
+    if (p.b > 0 && t > p.c * 0.4) {
+      p.a += p.b * (1 + p.a * 0.02);
+      if (Math.random() < 0.04 && p.a > 12) api.spawn(p.x + rand(-2, 2), p.y + p.a - rand(4, 20), 1);
+    }
+    p.el.style.transform = `translate3d(${p.x}px, ${p.y + p.a}px, 0)`;
+    p.el.style.opacity = String(Math.min(1, t * 6) * Math.min(1, (1 - t) * 5) * 0.95);
+  },
+};
+
+
+/* ---------------------------------------------------------- lanternriver -- */
+const lanternriver: RelaxEffect = {
+  id: 'lanternriver',
+  label: 'Lantern River',
+  group: 'Immersion',
+  blurb: 'Paper lanterns let go upstream, coming down past you one at a time.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 7,
+  spawnEveryMs: 4200,
+  spawnPerTick: 1,
+  maxParticles: 22,
+  onStart(_x, _y, api) {
+    raise('lanternriver', api, (add) => {
+      add('background:#05070c;');
+      add('background:linear-gradient(180deg,#080c16 0%,#0d131f 34%,#121826 46%,#080c14 52%,#05080e 100%);');
+      // The far bank: a black mass with a few windows in it.
+      const bank: string[] = [];
+      for (let i = 0; i < 30; i++) {
+        bank.push(`<rect x='${rand(0, 100).toFixed(1)}' y='${rand(2, 16).toFixed(1)}' width='${rand(0.4, 1.2).toFixed(2)}'` +
+          ` height='${rand(0.6, 1.6).toFixed(2)}' fill='#ffcf8a' opacity='${rand(0.3, 0.9).toFixed(2)}'/>`);
+      }
+      add('top:auto;bottom:48%;height:20%;' +
+        svgLayer(100, 24, `<path d='${ridgePath(100, 24, 15, 0.14)}' fill='#04060a'/>` + bank.join('')));
+      // The water. Black, and everything on it is a reflection.
+      add('top:52%;background:linear-gradient(180deg,#070b12 0%,#04070c 60%,#020407 100%);');
+      add('top:52%;background:repeating-linear-gradient(177deg, rgba(150,180,255,0.05) 0 1px, transparent 1px 8px);' +
+        'animation:relaxKoiWind 11s linear infinite;');
+      filmPass(add, '#04060c', '#ffb060', 0.56, 0.16, 0.46);
+    });
+    startAmbience('ocean');
+  },
+  onStop() { lower('lanternriver'); stopAmbience('ocean'); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    /* One lantern is a paper box, its own glow, and — the part that sells it —
+       a long broken reflection under it on the water. */
+    const d = rand(8, 26);
+    const el = document.createElement('div');
+    baseStyle(el, d, `height:${(d * 2.4).toFixed(0)}px;`);
+    const glow = document.createElement('div');
+    glow.style.cssText =
+      `position:absolute;left:${(-d * 1.4).toFixed(0)}px;top:${(-d * 1.2).toFixed(0)}px;` +
+      `width:${(d * 3.8).toFixed(0)}px;height:${(d * 3.8).toFixed(0)}px;border-radius:50%;mix-blend-mode:screen;` +
+      'background:radial-gradient(circle, rgba(255,186,96,0.5) 0 14%, rgba(255,140,50,0.2) 38%, transparent 72%);';
+    const body = document.createElement('div');
+    body.style.cssText =
+      `position:absolute;left:0;top:0;width:${d}px;height:${(d * 1.15).toFixed(0)}px;border-radius:12% 12% 8% 8%;` +
+      'background:linear-gradient(180deg, #ffd79a 0%, #ffab52 46%, #d9752a 100%);' +
+      'box-shadow:0 0 12px rgba(255,170,80,0.7), inset 0 -2px 4px rgba(140,60,10,0.5);';
+    const refl = document.createElement('div');
+    /* The reflection sits directly under the lantern, is longer than it, and
+       fades out downward — a solid block of light under a lantern reads as a
+       second lantern hanging upside down. */
+    refl.style.cssText =
+      `position:absolute;left:${(d * 0.12).toFixed(0)}px;top:${(d * 1.2).toFixed(0)}px;` +
+      `width:${(d * 0.76).toFixed(0)}px;height:${(d * 2.2).toFixed(0)}px;mix-blend-mode:screen;` +
+      'background:repeating-linear-gradient(180deg, rgba(255,170,80,0.42) 0 1.5px, transparent 1.5px 4px);' +
+      '-webkit-mask-image:linear-gradient(180deg, #000 0%, transparent 100%);' +
+      'mask-image:linear-gradient(180deg, #000 0%, transparent 100%);filter:blur(1.2px);opacity:0.8;';
+    el.appendChild(glow);
+    el.appendChild(body);
+    el.appendChild(refl);
+    const near = Math.random();
+    const p = particle(el, rand(-w * 0.1, w * 1.1), h * (0.54 + near * 0.4), d, rand(40_000, 78_000), now);
+    p.a = rand(0, Math.PI * 2);
+    p.b = rand(0.0004, 0.0011);
+    p.c = rand(-1, 1) * w * 0.4;
+    p.maxScale = 0.45 + near * 0.75;
+    return p;
+  },
+  step(p, t, now) {
+    // A lantern on a river turns slowly as it goes, and rocks as it turns.
+    const rock = Math.sin(now * p.b + p.a) * 5;
+    p.el.style.transform =
+      `translate3d(${p.x + t * p.c}px, ${p.y + Math.sin(now * p.b * 1.6 + p.a) * 4}px, 0)` +
+      ` rotate(${rock.toFixed(2)}deg) scale(${p.maxScale.toFixed(2)})`;
+    p.el.style.opacity = String(Math.min(1, t * 10) * Math.min(1, (1 - t) * 10) * (0.45 + p.maxScale * 0.45));
+  },
+};
+
+/* -------------------------------------------------------------- waterfall -- */
+const waterfall: RelaxEffect = {
+  id: 'waterfall',
+  label: 'Waterfall',
+  group: 'Immersion',
+  blurb: 'A long drop into a green pool, and the spray hanging in the air at the bottom of it.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 40,
+  spawnEveryMs: 200,
+  spawnPerTick: 2,
+  maxParticles: 150,
+  onStart(_x, _y, api) {
+    raise('waterfall', api, (add) => {
+      const dark = api.isDark;
+      add(dark ? 'background:#08120e;' : 'background:#1a3226;');
+      // Wet rock, dark and vertical, on both sides of the drop.
+      add(dark
+        ? 'background:linear-gradient(180deg,#12201a 0%,#0e1a16 46%,#0a1410 100%);'
+        : 'background:linear-gradient(180deg,#2e4436 0%,#24382c 46%,#1a2a20 100%);');
+      const rockFace = (x0: number, wide: number, fill: string) => {
+        const out: string[] = [];
+        for (let i = 0; i < 14; i++) {
+          const x = x0 + rand(0, wide);
+          out.push(`<path d='M${x.toFixed(1)},0 l${rand(-3, 3).toFixed(1)},${rand(20, 60).toFixed(1)}` +
+            ` l${rand(-3, 3).toFixed(1)},${rand(20, 50).toFixed(1)}' stroke='${fill}' stroke-width='${rand(0.6, 3).toFixed(1)}'` +
+            ` fill='none' opacity='${rand(0.2, 0.6).toFixed(2)}'/>`);
+        }
+        return out.join('');
+      };
+      add(svgLayer(100, 100,
+        `<rect x='0' y='0' width='34' height='100' fill='${dark ? '#0a1310' : '#1e2e24'}'/>` +
+        `<rect x='66' y='0' width='34' height='100' fill='${dark ? '#0a1310' : '#1e2e24'}'/>` +
+        rockFace(0, 34, dark ? '#1c2c24' : '#3a5442') + rockFace(66, 34, dark ? '#1c2c24' : '#3a5442')));
+      // Moss on the wet edges, because everything beside a waterfall is green.
+      add(`background:radial-gradient(20% 60% at 32% 60%, rgba(${dark ? '40,90,50' : '90,150,80'},0.5), transparent 74%),` +
+        `radial-gradient(20% 60% at 68% 50%, rgba(${dark ? '40,90,50' : '90,150,80'},0.44), transparent 74%);`);
+
+      /* The fall itself. Water going over an edge is not a white bar: it is a
+         hundred separate threads that break up as they go down, so the top is
+         glassy and the bottom is all foam. */
+      const threads: string[] = [];
+      for (let i = 0; i < 70; i++) {
+        const x = 34 + rand(0, 32);
+        const start = rand(0, 30);
+        threads.push(`<rect x='${x.toFixed(2)}' y='${start.toFixed(1)}' width='${rand(0.3, 1.8).toFixed(2)}'` +
+          ` height='${rand(30, 90).toFixed(0)}' rx='0.4' fill='#ffffff' opacity='${rand(0.16, 0.5).toFixed(2)}'/>`);
+      }
+      /* Feathered at both sides and thinning downward: water spreads and
+         breaks up as it falls, so the sheet is solid at the lip and nearly all
+         spray by the time it lands. */
+      const feather = 'linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%)';
+      add('left:30%;right:30%;' +
+        `-webkit-mask-image:${feather};mask-image:${feather};` +
+        'background:linear-gradient(180deg, rgba(226,246,255,0.75) 0%, rgba(255,255,255,0.55) 30%,' +
+        ' rgba(255,255,255,0.32) 66%, rgba(255,255,255,0.12) 100%);');
+      add('left:30%;right:30%;mix-blend-mode:screen;' +
+        `-webkit-mask-image:${feather};mask-image:${feather};` +
+        svgLayer(40, 100, threads.join('')) + 'background-size:100% 50%;animation:relaxFallRun 0.8s linear infinite;');
+      add('left:28%;right:28%;filter:blur(4px);opacity:0.6;mix-blend-mode:screen;' +
+        `-webkit-mask-image:${feather};mask-image:${feather};` +
+        svgLayer(44, 100, threads.join('')) + 'background-size:100% 34%;animation:relaxFallRun 1.3s linear infinite;');
+      // The lip. Water bends over an edge before it falls off it.
+      add('left:28%;right:28%;top:0;height:9%;' +
+        'background:linear-gradient(180deg, rgba(10,20,16,0.8) 0%, rgba(180,220,230,0.5) 60%, transparent 100%);' +
+        'border-radius:0 0 40% 40%/0 0 100% 100%;');
+      // The pool, and the boil where the fall lands in it.
+      add(`top:auto;bottom:0;height:22%;background:linear-gradient(180deg, ${dark ? '#16403a' : '#2e6a5c'} 0%, ${dark ? '#0a201e' : '#194038'} 100%);`);
+      add('top:auto;bottom:0;height:30%;left:22%;right:22%;filter:blur(12px);' +
+        'background:radial-gradient(closest-side ellipse at 50% 14%, rgba(255,255,255,0.8), rgba(220,250,255,0.3) 46%, transparent 76%);' +
+        'animation:relaxImmBreath 4.6s ease-in-out infinite alternate;');
+      // The wash running out from where it lands, as broken lines, not rings.
+      const wash: string[] = [];
+      for (let i = 0; i < 16; i++) {
+        const t = i / 16;
+        wash.push(`<rect x='${rand(2, 70).toFixed(1)}' y='${(8 + t * 88).toFixed(1)}' width='${rand(18, 46).toFixed(1)}'` +
+          ` height='${rand(0.8, 2.4).toFixed(2)}' rx='1.2' fill='#ffffff' opacity='${(0.3 - t * 0.2).toFixed(2)}'/>`);
+      }
+      add('top:auto;bottom:0;height:22%;mix-blend-mode:screen;filter:blur(1.4px);' + svgLayer(100, 100, wash.join('')) +
+        'animation:relaxKoiWind 3.4s linear infinite;');
+      filmPass(add, dark ? '#08160f' : '#16301f', dark ? '#4a7a68' : '#e8fff4', 0.5, 0.16, 0.42);
+    });
+    startAmbience('ocean');
+  },
+  onStop() { lower('waterfall'); stopAmbience('ocean'); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    // Spray: it comes off the bottom, goes UP, and hangs there.
+    const d = rand(10, 60);
+    const p = mote(
+      w * 0.5 + rand(-w * 0.24, w * 0.24), h * rand(0.74, 0.9), now,
+      'border-radius:50%;mix-blend-mode:screen;filter:blur(7px);' +
+        'background:radial-gradient(closest-side ellipse, rgba(255,255,255,0.5), transparent 74%);',
+      d, rand(2600, 6000)
+    );
+    p.b = rand(-0.5, 0.5);
+    p.c = rand(0.5, 1.6);
+    return p;
+  },
+  step(p, t) {
+    const rise = Math.pow(t, 0.7);
+    p.el.style.transform =
+      `translate3d(${p.x + t * p.b * 120}px, ${p.y - rise * 180 * p.c}px, 0) scale(${0.5 + rise * 1.6})`;
+    p.el.style.opacity = String(Math.min(1, t * 5) * Math.pow(1 - t, 1.3) * 0.6);
+  },
+};
+
+/* ------------------------------------------------------------------ nebula -- */
+const nebula: RelaxEffect = {
+  id: 'nebula',
+  label: 'Nebula',
+  group: 'Immersion',
+  blurb: 'A long exposure of somewhere very far away: gas, dust, and a great many stars behind it.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 26,
+  spawnEveryMs: 2200,
+  spawnPerTick: 1,
+  maxParticles: 60,
+  onStart(_x, _y, api) {
+    raise('nebula', api, (add) => {
+      add('background:radial-gradient(120% 110% at 40% 40%, #0b0a1e 0%, #05040e 50%, #010104 100%);');
+      add(RELAX_STARFIELD + 'opacity:0.8;animation:relaxSkyTurn 460s linear infinite;');
+
+      /* Emission nebula: hydrogen glows red, oxygen glows blue-green, and the
+         DUST in front of them glows not at all — it just blocks. Three
+         luminous clouds and one dark lane is the whole recipe. */
+      /* Gas is not a shape, it is a CLOUD OF SHAPES with holes between them.
+         Twenty small overlapping ellipses along a wandering spine give the
+         ragged filaments a nebula actually has; three big ones give a lozenge,
+         which is what the first pass of this looked like. */
+      const gas = (n: number, cx: number, cy: number, spread: number, cols: string[], a: number) => {
+        const out: string[] = [];
+        let px = cx;
+        let py = cy;
+        for (let i = 0; i < n; i++) {
+          px += rand(-spread, spread);
+          py += rand(-spread * 0.6, spread * 0.6);
+          out.push(`<ellipse cx='${px.toFixed(1)}' cy='${py.toFixed(1)}' rx='${rand(4, 15).toFixed(1)}'` +
+            ` ry='${rand(3, 10).toFixed(1)}' fill='${pick(cols)}' opacity='${(a * rand(0.4, 1)).toFixed(2)}'` +
+            ` transform='rotate(${rand(-60, 60).toFixed(0)} ${px.toFixed(1)} ${py.toFixed(1)})'/>`);
+        }
+        return out.join('');
+      };
+      add('mix-blend-mode:screen;filter:blur(14px);animation:relaxNebulaA 180s ease-in-out infinite alternate;' +
+        svgLayer(100, 100, gas(30, 46, 46, 13, ['#d8365c', '#ff6a4a', '#b83a7a'], 0.3)));
+      add('mix-blend-mode:screen;filter:blur(9px);animation:relaxNebulaB 240s ease-in-out infinite alternate;' +
+        svgLayer(100, 100, gas(22, 56, 44, 11, ['#2ad0ff', '#5affc8', '#4a7aff'], 0.22)));
+      add('mix-blend-mode:screen;filter:blur(4px);opacity:0.5;' +
+        svgLayer(100, 100, gas(34, 50, 48, 14, ['#ff9a7a', '#ffd2b0', '#c8a0ff'], 0.12)));
+      // The bright core the whole thing is lit from.
+      add('mix-blend-mode:screen;filter:blur(16px);' +
+        'background:radial-gradient(5% 4.5% at 47% 46%, rgba(255,244,226,0.55), rgba(255,190,160,0.16) 44%, transparent 76%);' +
+        'animation:relaxImmBreath 26s ease-in-out infinite alternate;');
+      // The dust lane. Nothing shines through it, which is what makes it read.
+      // The dust in FRONT of it, which glows not at all and only ever blocks.
+      add('filter:blur(9px);opacity:0.9;' +
+        svgLayer(100, 100,
+          "<path d='M4,64 Q22,56 34,61 Q46,66 58,60 Q72,53 86,58 Q94,61 100,56 L100,72 Q88,76 74,71" +
+          " Q58,65 44,72 Q30,79 14,74 Q8,72 4,74 Z' fill='#03030a'/>" +
+          "<ellipse cx='30' cy='38' rx='9' ry='5' fill='#03030a' opacity='0.7' transform='rotate(-24 30 38)'/>" +
+          "<ellipse cx='70' cy='66' rx='11' ry='4' fill='#03030a' opacity='0.6' transform='rotate(18 70 66)'/>"));
+      filmPass(add, '#05040f', '#4a2a5a', 0.5, 0.2, 0.44);
+    });
+    startAmbience('drone');
+  },
+  onStop() { lower('nebula'); stopAmbience('drone'); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    const d = rand(1.5, 5);
+    const col = pick(['255,240,220', '190,214,255', '255,200,170', '220,230,255']);
+    const p = mote(
+      rand(0, w), rand(0, h), now,
+      `border-radius:50%;mix-blend-mode:screen;background:radial-gradient(circle, rgba(${col},1) 0 26%, transparent 74%);` +
+        `box-shadow:0 0 ${rand(4, 12).toFixed(0)}px rgba(${col},0.8);`,
+      d, rand(6000, 16_000)
+    );
+    return p;
+  },
+  step(p, t) {
+    // Stars do not move. They come up out of the exposure and go back into it.
+    const e = Math.sin(t * Math.PI);
+    p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) scale(${0.6 + e * 0.7})`;
+    p.el.style.opacity = String(e * 0.9);
+  },
+};
+
+/* ------------------------------------------------------------------ autumn -- */
+const autumn: RelaxEffect = {
+  id: 'autumn',
+  label: 'Falling Leaves',
+  group: 'Immersion',
+  blurb: 'A beech wood in the third week of October, quietly taking itself apart.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 40,
+  spawnEveryMs: 420,
+  spawnPerTick: 1,
+  maxParticles: 110,
+  onStart(_x, _y, api) {
+    raise('autumn', api, (add) => {
+      const dark = api.isDark;
+      add(dark ? 'background:#140d09;' : 'background:#8a6a3a;');
+      add(dark
+        ? 'background:linear-gradient(180deg,#241608 0%,#3a2410 40%,#241708 74%,#140c06 100%);'
+        : 'background:linear-gradient(180deg,#e8c176 0%,#d99a4e 40%,#a86a34 74%,#6b431f 100%);');
+      // Light coming through the canopy from up and behind.
+      add(`background:radial-gradient(40% 34% at 62% 12%, rgba(255,${dark ? '190,110' : '244,200'},0.55), transparent 74%);` +
+        'mix-blend-mode:screen;animation:relaxImmBreath 24s ease-in-out infinite alternate;');
+
+      /* Trunks. Beeches are tall, straight and pale, and they get closer
+         together the further away they are — which is the only perspective cue
+         a wood needs. */
+      const wood = (n: number, wide: number, fill: string) => {
+        const out: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const x = rand(0, 100);
+          const lean = rand(-1.4, 1.4);
+          out.push(`<path d='M${x.toFixed(1)},100 Q${(x + lean).toFixed(1)},50 ${(x + lean * 2.4).toFixed(1)},-6'` +
+            ` stroke='${fill}' stroke-width='${wide.toFixed(2)}' fill='none'/>`);
+          for (let k = 0; k < 3; k++) {
+            const yy = rand(6, 46);
+            out.push(`<path d='M${(x + lean * 1.6).toFixed(1)},${yy.toFixed(1)} l${rand(-16, 16).toFixed(1)},${rand(-12, -2).toFixed(1)}'` +
+              ` stroke='${fill}' stroke-width='${(wide * 0.34).toFixed(2)}' fill='none'/>`);
+          }
+        }
+        return out.join('');
+      };
+      add(`opacity:${dark ? 0.4 : 0.34};filter:blur(2.4px);` + svgLayer(100, 100, wood(16, 0.7, dark ? '#3e2c1c' : '#c9a878')));
+      add(`opacity:${dark ? 0.7 : 0.6};filter:blur(0.9px);` + svgLayer(100, 100, wood(8, 1.5, dark ? '#2c1e12' : '#9c7c52')));
+      add(svgLayer(100, 100, wood(4, 3.2, dark ? '#1c130b' : '#6b5232')));
+      // The leaf litter, already thick on the ground.
+      const litter: string[] = [];
+      for (let i = 0; i < 220; i++) {
+        litter.push(`<ellipse cx='${rand(0, 100).toFixed(1)}' cy='${(100 - Math.pow(Math.random(), 1.6) * 30).toFixed(1)}'` +
+          ` rx='${rand(0.6, 2).toFixed(2)}' ry='${rand(0.3, 0.9).toFixed(2)}'` +
+          ` fill='${pick(dark ? ['#6a3a16', '#8a4a1e', '#a35c22', '#4a2a12'] : ['#c9762c', '#e09a3e', '#a85a24', '#8a4a1e'])}'` +
+          ` opacity='${rand(0.4, 1).toFixed(2)}' transform='rotate(${rand(0, 180).toFixed(0)} ${rand(0, 100).toFixed(1)} 90)'/>`);
+      }
+      add('top:auto;bottom:0;height:34%;' + svgLayer(100, 100, litter.join('')));
+      filmPass(add, dark ? '#1a1008' : '#5a3a18', dark ? '#7a4a1e' : '#ffe0a0', 0.5, 0.17, 0.5);
+    });
+    startAmbience('wind');
+  },
+  onStop() { lower('autumn'); stopAmbience('wind'); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    const d = rand(9, 22);
+    const dark = api.isDark;
+    const el = document.createElement('div');
+    const col = pick(dark ? ['#b9631e', '#d98a2e', '#8a4a1e', '#c97a2a'] : ['#e8952e', '#f0b64a', '#c96a24', '#d98a2e']);
+    baseStyle(el, d,
+      `height:${(d * 0.8).toFixed(1)}px;` +
+      svgLayer(20, 16,
+        `<path d='M10,15 Q1,10 3,4 Q9,1 10,0 Q11,1 17,4 Q19,10 10,15 Z' fill='${col}'/>` +
+        `<path d='M10,15 L10,3' stroke='#00000044' stroke-width='0.6'/>`));
+    const p = particle(el, rand(-40, w + 40), rand(-h * 0.3, 0), d, rand(9000, 17_000), now);
+    p.a = rand(0, Math.PI * 2);
+    p.b = rand(0.0012, 0.0032);
+    p.c = h * rand(0.9, 1.5);
+    p.d = rand(-1, 1);
+    return p;
+  },
+  step(p, t, now) {
+    /* A leaf does not fall, it SLIPS: it slides sideways along its own plane,
+       stalls, tips over and slides the other way. One sine on the x and a
+       matching one on the rotation is nearly the whole thing. */
+    const swing = Math.sin(now * p.b + p.a);
+    p.el.style.transform =
+      `translate3d(${p.x + swing * 90 + p.d * t * 120}px, ${p.y + t * p.c}px, 0)` +
+      ` rotate(${(swing * 70).toFixed(1)}deg) rotate3d(1,0.6,0,${(swing * 80).toFixed(1)}deg)`;
+    p.el.style.opacity = String(Math.min(1, t * 8) * Math.min(1, (1 - t) * 8));
+  },
+};
+
+/* ----------------------------------------------------------------- harbour -- */
+const harbour: RelaxEffect = {
+  id: 'harbour',
+  label: 'Harbour Lights',
+  group: 'Immersion',
+  blurb: 'The far side of the water at midnight, and every light on it written twice.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 16,
+  spawnEveryMs: 3400,
+  spawnPerTick: 1,
+  maxParticles: 34,
+  onStart(_x, _y, api) {
+    raise('harbour', api, (add) => {
+      add('background:#04060c;');
+      add('background:linear-gradient(180deg,#070c18 0%,#0d1426 32%,#141d33 46%,#0a1120 50%,#04070e 100%);');
+      add(RELAX_STARFIELD + 'bottom:54%;opacity:0.3;');
+
+      /* The far shore: a low black line with a row of lights along it. The
+         REFLECTION is the point of the whole scene, so every light gets one —
+         directly below it, broken into dashes, and longer than the light is. */
+      const lights: { x: number; c: string }[] = [];
+      for (let i = 0; i < 46; i++) {
+        lights.push({ x: rand(0, 100), c: pick(['#ffcf8a', '#ffe6b8', '#a8d0ff', '#ff9a6a', '#d8ffe0']) });
+      }
+      add('top:auto;bottom:50%;height:14%;' +
+        svgLayer(100, 16,
+          `<path d='${ridgePath(100, 16, 11, 0.1)}' fill='#03050a'/>` +
+          lights.map((l) => `<circle cx='${l.x.toFixed(1)}' cy='${rand(9, 12.5).toFixed(1)}' r='${rand(0.22, 0.6).toFixed(2)}'` +
+            ` fill='${l.c}'/>`).join('')));
+      add('top:auto;bottom:50%;height:14%;mix-blend-mode:screen;filter:blur(3px);opacity:0.8;' +
+        svgLayer(100, 16, lights.map((l) => `<circle cx='${l.x.toFixed(1)}' cy='11' r='${rand(0.8, 2).toFixed(2)}' fill='${l.c}'/>`).join('')));
+
+      add('top:50%;background:linear-gradient(180deg,#0a1020 0%,#060a14 50%,#03050a 100%);');
+      const refl: string[] = [];
+      for (const l of lights) {
+        const len = rand(18, 70);
+        for (let k = 0; k < 26; k++) {
+          const t = k / 26;
+          refl.push(`<rect x='${(l.x - rand(0.4, 1.6) * (0.4 + t)).toFixed(2)}' y='${(t * len).toFixed(1)}'` +
+            ` width='${(rand(0.5, 2.2) * (0.4 + t)).toFixed(2)}' height='${rand(0.3, 1).toFixed(2)}' rx='0.3'` +
+            ` fill='${l.c}' opacity='${((1 - t) * rand(0.2, 0.8)).toFixed(2)}'/>`);
+        }
+      }
+      add('top:50%;mix-blend-mode:screen;filter:blur(0.8px);' + svgLayer(100, 100, refl.join('')) +
+        'animation:relaxKoiWind 5s linear infinite;');
+      filmPass(add, '#04060e', '#ffb878', 0.54, 0.16, 0.46);
+    });
+    startAmbience('ocean');
+  },
+  onStop() { lower('harbour'); stopAmbience('ocean'); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    const d = rand(30, 90);
+    const c = pick(['255,196,120', '190,214,255', '255,150,110']);
+    const p = mote(
+      rand(0, w), rand(h * 0.54, h), now,
+      `border-radius:50%;mix-blend-mode:screen;filter:blur(12px);` +
+        `background:radial-gradient(closest-side ellipse, rgba(${c},0.34), transparent 74%);`,
+      d, rand(6000, 13_000)
+    );
+    p.el.style.height = `${d * 0.16}px`;
+    return p;
+  },
+  step(p, t) {
+    const e = Math.sin(t * Math.PI);
+    p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) scale(${0.6 + e * 0.8}, 1)`;
+    p.el.style.opacity = String(e * 0.5);
+  },
+};
+
+/* -------------------------------------------------------------- thunderhead -- */
+const thunderhead: RelaxEffect = {
+  id: 'thunderhead',
+  label: 'Distant Storm',
+  group: 'Immersion',
+  blurb: 'A storm forty miles off over the plain. All the light, none of the noise.',
+  space: 'screen',
+  flash: '',
+  burstMs: SIT,
+  openingPop: 4,
+  spawnEveryMs: 2600,
+  spawnPerTick: 1,
+  maxParticles: 14,
+  onStart(_x, _y, api) {
+    raise('thunderhead', api, (add) => {
+      add('background:#070a14;');
+      add('background:linear-gradient(180deg,#0d1424 0%,#182036 34%,#2a2c3e 56%,#1a1c28 74%,#0a0c14 100%);');
+
+      /* An anvil. A storm cell that far away is one enormous shape with a flat
+         top where it hit the tropopause and spread — and it is only ever
+         visible because it is lit from inside. */
+      /* A cumulonimbus is a tower of boiling lobes with a flat sheared top
+         where it hit the tropopause and spread sideways. Two smooth curves gave
+         a grey pillow with a rectangle in it. */
+      const lobes: string[] = [];
+      for (let i = 0; i < 26; i++) {
+        const t = i / 26;
+        const cx = 50 + Math.sin(t * 5) * 14 + rand(-7, 7);
+        const cy = 56 - t * 34 + rand(-3, 3);
+        lobes.push(`<ellipse cx='${cx.toFixed(1)}' cy='${cy.toFixed(1)}' rx='${rand(5, 13).toFixed(1)}'` +
+          ` ry='${rand(4, 9).toFixed(1)}'/>`);
+      }
+      // The anvil: it spreads flat and thin, and it is the tell for the whole cell.
+      const anvil =
+        `<g fill='#0e1422'>${lobes.join('')}` +
+        "<ellipse cx='52' cy='18' rx='40' ry='4'/><ellipse cx='64' cy='15.5' rx='28' ry='2.6'/></g>";
+      add('top:4%;height:60%;filter:blur(4px);opacity:0.95;' + svgLayer(100, 60, anvil));
+      // One pale rim along the top, where what is left of the daylight catches it.
+      add('top:4%;height:60%;filter:blur(7px);opacity:0.22;mix-blend-mode:screen;' +
+        svgLayer(100, 60, anvil.replace('#0e1422', '#6a7c9e')) + 'background-position:0 -0.5%;');
+      add('top:4%;height:60%;filter:blur(2px);opacity:0.34;' +
+        svgLayer(100, 60, anvil.replace('#0e1422', '#1e2740')) + 'background-position:1% -2%;');
+      // Lit from inside: the flash is a patch in the belly, not the whole cloud.
+      add('top:22%;height:36%;left:22%;right:34%;filter:blur(18px);mix-blend-mode:screen;opacity:0;' +
+        'background:radial-gradient(closest-side ellipse, rgba(190,214,255,0.95), rgba(120,160,240,0.3) 54%, transparent 100%);' +
+        'animation:relaxLightning 9s steps(1) infinite;');
+      add('top:10%;height:52%;filter:blur(26px);mix-blend-mode:screen;opacity:0;' +
+        svgLayer(100, 60, anvil.replace('#0e1422', '#5a80d8')) +
+        'animation:relaxLightning 9s steps(1) infinite;animation-delay:0.06s;');
+      // Rain, hanging under it in a slanted curtain.
+      const curtain = 'radial-gradient(closest-side ellipse at 50% 20%, #000 0%, rgba(0,0,0,0.6) 60%, transparent 100%)';
+      add('top:42%;height:30%;left:20%;right:24%;opacity:0.26;filter:blur(2.4px);' +
+        `-webkit-mask-image:${curtain};mask-image:${curtain};` +
+        'background:repeating-linear-gradient(100deg, rgba(150,180,220,0.3) 0 1px, transparent 1px 6px);');
+      // The plain it is standing on.
+      add('top:auto;bottom:0;height:26%;' +
+        svgLayer(1400, 200, `<path d='${ridgePath(1400, 200, 150, 0.06)}' fill='#05070e'/>`));
+      add('top:auto;bottom:0;height:30%;background:linear-gradient(0deg, rgba(30,40,70,0.42), transparent 70%);');
+      filmPass(add, '#080c16', '#4a5a86', 0.54, 0.17, 0.44);
+    });
+    startAmbience('wind');
+  },
+  onStop() { lower('thunderhead'); stopAmbience('wind'); },
+  create(x, y, now, api) {
+    const { w, h } = api.viewport;
+    const size = rand(w * 0.2, w * 0.6);
+    const p = mote(
+      rand(-size * 0.4, w), rand(h * 0.5, h * 0.8), now,
+      'border-radius:50%;filter:blur(20px);' +
+        'background:radial-gradient(closest-side ellipse, rgba(120,140,180,0.34), transparent 74%);',
+      size, rand(24_000, 44_000)
+    );
+    p.el.style.height = `${size * 0.16}px`;
+    p.c = rand(-60, 120);
+    return p;
+  },
+  step(p, t) {
+    const e = Math.sin(t * Math.PI);
+    p.el.style.transform = `translate3d(${p.x + t * p.c}px, ${p.y}px, 0) scale(${0.7 + e * 0.5}, 1)`;
+    p.el.style.opacity = String(e * 0.5);
   },
 };
 
@@ -5392,6 +7267,8 @@ export const RELAX_EFFECTS: Record<RelaxEffectId, RelaxEffect> = {
   koi, ink, soap, glassrain, dandelion, kaleido, stones, embers, jellyfish, candles,
   stargaze, tide, clouds, duskwash, deepwater, godrays, shoji, wheat, lavalamp, blossomstorm,
   fogbank, citynight, meteors, silk, sandgarden, moonrise, bioluminescence, steamroom, prism, wisteria,
+  mountains, campfire, snowfield, desert, bamboo, rainwindow,
+  lanternriver, waterfall, nebula, autumn, harbour, thunderhead,
 };
 
 export const RELAX_EFFECT_LIST: RelaxEffect[] = [
@@ -5400,6 +7277,8 @@ export const RELAX_EFFECT_LIST: RelaxEffect[] = [
   stargaze, moonrise, meteors, duskwash, clouds, fogbank, tide, deepwater,
   bioluminescence, godrays, shoji, wheat, blossomstorm, wisteria, sandgarden,
   citynight, silk, lavalamp, prism, steamroom,
+  mountains, snowfield, desert, bamboo, campfire, rainwindow,
+  nebula, thunderhead, autumn, waterfall, harbour, lanternriver,
   ocean, ripples, rain, koi, ink, glassrain, jellyfish,
   blooming, flowers, petalfall, fireflies, dandelion,
   aurora, galaxy, snow, fireworks,
