@@ -1,5 +1,5 @@
 /**
- * Artwork for the Stress Reliefer's pond and drift effects.
+ * Artwork for the Stress Reliefer's drift and seed effects.
  *
  * Pulled from the Icons8 catalogue (icons8.com) the same way the bloom library
  * was — MCP search only to learn each icon's true `commonName`, then
@@ -12,21 +12,11 @@
  * app's credits.
  */
 
-/** Seen from above, so a koi may bank and turn in the plane of the water —
- *  but never tip, which would read as the sprite being squashed. */
-export const RELAX_KOI: readonly string[] = [
-  '/relax/koi/clown-fish--color.png',
-  '/relax/koi/clown-fish--deco-color.png',
-  '/relax/koi/clown-fish--fluent.png',
-  '/relax/koi/clown-fish--papercut.png',
-  '/relax/koi/clown-fish--pieces.png',
-  '/relax/koi/clown-fish--plasticine.png',
-  '/relax/koi/koi-fish--color.png',
-  '/relax/koi/koi-fish--fluent.png',
-  '/relax/koi/koi-fish--papercut.png',
-  '/relax/koi/koi-fish--pieces.png',
-  '/relax/koi/tropical-fish--emoji.png',
-];
+/* The pond used to be eleven stock fish from this library, sliding over the
+   canvas on a sine. They are gone: a koi is now built out of a chain of
+   ellipses with a stroke running down it (see `koiBody` in relaxEffects), which
+   can bend, bank and lag through a turn — none of which a PNG can do, and all
+   of which is what a fish IS. Nothing here is fish any more. */
 
 /** Bells and fronds. A jellyfish is drawn hanging, so it only ever scales —
  *  a rotation would turn it upside down and it would stop being a jellyfish. */

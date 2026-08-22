@@ -573,6 +573,77 @@ html, body {
   to   { opacity: 1;    transform: scaleY(1.06); }
 }
 
+/* Stress Reliefer — the koi pond.
+   The water is CSS and only CSS: two nets of caustics on the floor, a third
+   finer one on the surface, the sky lying on top of it and a sheet of wind
+   lines crawling across. All of it is a transform on a composited layer, so a
+   pond nobody is feeding costs the main thread exactly nothing — the RAF loop
+   is reserved for the twelve animals, which are the only things in it that
+   have to think. Every cycle is a prime-ish length against its neighbours so
+   the nets never lock into step and start reading as one moving sheet.
+   Layers are oversized (inset: -16%) precisely so they can drift without ever
+   showing an edge. */
+@keyframes relaxKoiCausA {
+  0%   { transform: translate3d(-2.2%, -1.2%, 0) scale(1.06); }
+  50%  { transform: translate3d(3.1%, 2.4%, 0)   scale(1.15); }
+  100% { transform: translate3d(-2.2%, -1.2%, 0) scale(1.06); }
+}
+@keyframes relaxKoiCausB {
+  0%   { transform: translate3d(2.6%, 1.4%, 0)   scale(1.13); }
+  50%  { transform: translate3d(-3.4%, -2.1%, 0) scale(1.04); }
+  100% { transform: translate3d(2.6%, 1.4%, 0)   scale(1.13); }
+}
+/* The surface glitter breathes as well as drifts — a cloud going over. */
+@keyframes relaxKoiShimmer {
+  from { opacity: 0.45; }
+  to   { opacity: 1; }
+}
+/* Wind on the water. The lines repeat every 11px along the gradient's axis, so
+   the loop travels exactly one period and there is no seam at the wrap. */
+@keyframes relaxKoiWind {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, 11px, 0); }
+}
+/* Sky and silt: slow enough that you cannot catch either of them moving. */
+@keyframes relaxKoiSky {
+  0%   { transform: translate3d(-1.5%, 1%, 0) scale(1.02); }
+  50%  { transform: translate3d(2.5%, -1.5%, 0) scale(1.09); }
+  100% { transform: translate3d(-1.5%, 1%, 0) scale(1.02); }
+}
+@keyframes relaxKoiDrift {
+  0%   { transform: translate3d(0, 0, 0); }
+  50%  { transform: translate3d(2.4%, -1.8%, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+/* A pad rides the ripples; it does not swim. Almost nothing, very slowly. */
+@keyframes relaxKoiPad {
+  from { transform: translate3d(-3px, 2px, 0) rotate(-1.3deg); }
+  to   { transform: translate3d(3px, -2px, 0) rotate(1.6deg); }
+}
+@keyframes relaxKoiLotus {
+  from { transform: rotate(-2deg) scale(0.985); }
+  to   { transform: rotate(2.4deg) scale(1.015); }
+}
+/* The fish's own moving parts. These hang off segments that are already being
+   swept by the spine, so each one only has to add its own flutter — a pectoral
+   fin sculling, a caudal fan opening and closing, a barbel trailing. */
+@keyframes relaxKoiFinL {
+  from { transform: rotate(-30deg); }
+  to   { transform: rotate(-4deg); }
+}
+@keyframes relaxKoiFinR {
+  from { transform: rotate(30deg); }
+  to   { transform: rotate(4deg); }
+}
+@keyframes relaxKoiTail {
+  from { transform: rotate(-5deg) scaleY(0.86); }
+  to   { transform: rotate(5deg)  scaleY(1.1); }
+}
+@keyframes relaxKoiBarbel {
+  from { transform: rotate(-16deg); }
+  to   { transform: rotate(-3deg); }
+}
+
 /* Stress Reliefer — the Blooming Garden unfurl.
    These run on the plant's CHILDREN (stem, leaves, head) rather than in the RAF
    loop, so a bed of thirty plants opening at once costs the main thread nothing;

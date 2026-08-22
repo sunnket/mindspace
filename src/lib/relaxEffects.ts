@@ -22,7 +22,7 @@
  */
 
 import { BLOOM_FLOWERS, BLOOM_LEAVES } from './bloomAssets';
-import { RELAX_DRIFT, RELAX_KOI, RELAX_SEEDHEAD } from './relaxAssets';
+import { RELAX_DRIFT, RELAX_SEEDHEAD } from './relaxAssets';
 import {
   HIRAJOSHI,
   PENTATONIC,
@@ -2234,8 +2234,6 @@ const aurora: RelaxEffect = {
 /* -------------------------------------------------------------------------- */
 
 
-/** koi's second species — the ring a scatter of food leaves on the surface. */
-const RIPPLE = 1;
 /** The pane the beads sit on, built once per shower. */
 let glassPane: HTMLElement | null = null;
 
@@ -2253,137 +2251,1136 @@ let glassPane: HTMLElement | null = null;
 
 /* ------------------------------------------------------------------- koi -- */
 /**
- * The only creatures in the catalogue with an opinion.
+ * A pond. Not fish on a board — water, with fish in it.
  *
- * Koi wander on a lazy sine until you drop food, and then every fish in the
- * pond turns and comes for it — which is the entire pleasure of feeding fish,
- * and the reason this is worth clicking twice. They steer rather than snap:
- * heading is chased toward the target a few hundredths of a radian per frame,
- * so a fish arrives in a long curve like something with a body.
+ * The first version was eleven stock fish sliding over the canvas on a sine,
+ * and it read exactly like that: no water, no depth, no body. This one builds
+ * the water first and then puts nothing in it that a pond does not have.
+ *
+ * THE WATER is five stacked layers with the fish threaded BETWEEN them, and
+ * that threading is the whole trick — a fish near the floor sits behind two
+ * washes of murk and a ceiling of caustics, a fish near the surface sits in
+ * front of them, and that difference is what depth IS. None of it is per-frame:
+ * the caustics, the wind lines and the sky reflection are CSS animations on
+ * composited layers, so an empty pond costs the main thread nothing at all.
+ *
+ * THE KOI are built, not drawn. Each is a chain of eight ellipses with a
+ * travelling wave running down it — amplitude growing toward the tail, which is
+ * the carangiform stroke a carp actually swims — so the body bends because it
+ * is swimming, and lags through a turn because the tail is following the head
+ * rather than being told where to point. Fins, eyes and barbels hang off the
+ * segments as children and come along for the ride for free. Twelve fish is
+ * about 130 transform writes a frame and nothing else.
+ *
+ * THE BEHAVIOUR is a small steering model: inertia, a slow wander, separation
+ * from neighbours, and a bank they follow rather than bounce off. Food is a
+ * real object — it falls from above the surface, splashes, sinks at its own
+ * rate, and is EATEN, which is the thing the old version never did: the fish
+ * used to converge on a coordinate and then mill there forever.
  */
-let koiFood: { x: number; y: number; until: number } | null = null;
-/** Where the pond is. Without an edge the fish simply leave, which they did. */
-let koiHome: { x: number; y: number } | null = null;
-const KOI_POND = 760;
+
+const KOI_TAU = Math.PI * 2;
+const POND_W = 1580;
+const POND_H = 1080;
+
+/* The species. There is deliberately no kind 0: the engine spawns kind 0 for
+   `openingPop` and for every emitter tick, and a pond wants neither — every
+   node this effect owns is asked for by name, from onStart or onBurst. */
+const K_BED = 1;
+const K_MURK = 2;
+const K_FISH = 3;
+const K_FOOD = 4;
+const K_RING = 5;
+const K_SURFACE = 6;
+const K_RIM = 7;
+const K_DROP = 8;
+const K_BUBBLE = 9;
+
+/**
+ * Paint order, and the only reason any of this reads as water.
+ *
+ * The fish are not children of the pond; they are siblings of it at a z-index
+ * chosen by how deep they are, so the murk and the caustics can come BETWEEN
+ * them. DOM order can't express that — the fish that is deepest changes every
+ * few seconds.
+ */
+const Z_BED = 10;
+const Z_DEEP = 12;      // and 14, 16 for the two shallower bands
+const Z_MURK = 13;      // and 15
+const Z_SURFACE = 17;
+const Z_RIPPLE = 18;
+const Z_RIM = 19;
+
+interface KoiPond {
+  x: number;
+  y: number;
+  dark: boolean;
+}
+
+let pond: KoiPond | null = null;
+/** The bed node, kept only so a second visit can tell a live pond from a ghost. */
+let pondBed: HTMLElement | null = null;
+/** When the water started draining. Every node reads it and fades together. */
+let pondEnd = 0;
+/** Every fish in the water — they need each other for separation. */
+const school: Particle[] = [];
+/** Every pellet still worth swimming for. */
+const crumbs: Particle[] = [];
+/** One clock for the whole pond, so fish don't sprint on a 120Hz display. */
+let koiK = 1;
+let koiLast = 0;
+let lastGulp = 0;
+
+function koiWater(dark: boolean) {
+  return dark
+    ? {
+        deep: '#03121a', mid: '#08262e', shallow: '#124342', bank: '#1b5245',
+        murk: '3,18,26', silt: 'rgba(120,180,170,0.10)',
+        stone: ['#3a4148', '#323940', '#464c51', '#2c3639', '#4a5055', '#3f3a34', '#514b42', '#2a2f33'],
+      }
+    : {
+        deep: '#082224', mid: '#123c39', shallow: '#245c4a', bank: '#3d7355',
+        murk: '10,44,46', silt: 'rgba(255,255,255,0.10)',
+        stone: ['#8f8c84', '#7c7870', '#a29c92', '#6e6b64', '#98928a', '#8a7d6b', '#6f6558', '#a8a294'],
+      };
+}
+
+/**
+ * Caustics, as a LATTICE of rings rather than families of concentric ones.
+ *
+ * Concentric was the first try and it was a spirograph: three enormous
+ * bullseyes that the eye locks onto in half a second, because a caustic net
+ * has no centre and a repeating-radial-gradient is nothing but centre. This
+ * tiles ONE small ring instead, four times over, at sizes with no common
+ * factor — the crossings then drift in and out of phase across the whole pond
+ * and never settle into a pattern you can name. Two of these layers, rotated
+ * against each other and drifting at different rates, is water.
+ */
+function koiCaustic(a: number, scale: number, seed: number) {
+  const cells: [number, number][] = [[233, 167], [151, 113], [89, 67]];
+  const img: string[] = [];
+  const size: string[] = [];
+  const pos: string[] = [];
+  cells.forEach(([w, h], i) => {
+    const k = ((i * 7 + seed) % 9) - 4;
+    const al = a * (1 - i * 0.26);
+    img.push(
+      `radial-gradient(ellipse ${(w * 0.5) | 0}px ${(h * 0.5) | 0}px at 50% 50%,` +
+      ' rgba(255,255,255,0) 0 ' + (34 + k) + '%,' +
+      ` rgba(255,255,255,${(al * 0.3).toFixed(3)}) ${44 + k}%,` +
+      ` rgba(255,255,255,${al.toFixed(3)}) ${52 + k}%,` +
+      ` rgba(255,255,255,${(al * 0.26).toFixed(3)}) ${60 + k}%,` +
+      ` rgba(255,255,255,0) ${74 + k}%)`
+    );
+    size.push(`${(w * scale) | 0}px ${(h * scale) | 0}px`);
+    pos.push(`${(i * 37 + seed * 13) % 91}px ${(i * 53 + seed * 29) % 67}px`);
+  });
+  return `background-image:${img.join(',')};background-size:${size.join(',')};background-position:${pos.join(',')};`;
+}
+
+/**
+ * One net of light, in three nodes.
+ *
+ *  - `outer` carries the blend and the mask, and never moves.
+ *  - `drift` carries the animation. It is exactly pond-sized ON PURPOSE: it is
+ *    the node that gets its own compositor layer, and the layer costs width x
+ *    height of video memory. The first version put the animation on the
+ *    oversized node instead and asked the GPU for a 5000px texture per net.
+ *  - `tilt` is oversized and static, so it is only ever painted INTO the layer
+ *    above it. Tilted AND stretched: round cells all of one size tile into a
+ *    honeycomb the eye reads as wallpaper in about a second, and stretching one
+ *    net wide against another tall means their crossings are never the same
+ *    shape twice.
+ */
+function koiCausticNet(
+  host: HTMLElement, css: string, rot: number, a: number, scale: number, seed: number, anim: string,
+  sx = 1, sy = 1
+) {
+  const outer = koiInner(host, 'mix-blend-mode:screen;' + css);
+  const drift = document.createElement('div');
+  drift.style.cssText = `position:absolute;inset:0;will-change:transform;animation:${anim};`;
+  const tilt = document.createElement('div');
+  tilt.style.cssText =
+    `position:absolute;inset:-40%;transform:rotate(${rot}deg) scale(${sx}, ${sy});` +
+    koiCaustic(a, scale, seed);
+  drift.appendChild(tilt);
+  outer.appendChild(drift);
+  return outer;
+}
+
+/** Suspended silt, hanging in the water column. Two scales, no motion of its
+ *  own — the layer it lives on drifts, which is how dust in water behaves. */
+const KOI_SILT = (c: string) =>
+  'background-image:' +
+  `radial-gradient(circle, ${c} 0 1.1px, transparent 1.6px) 0 0/83px 71px,` +
+  `radial-gradient(circle, ${c} 0 0.8px, transparent 1.2px) 37px 23px/59px 47px;`;
+
+/* -- the fish ------------------------------------------------------------- */
+
+const KOI_SEG = 8;
+/** Body width at each joint, as a fraction of the widest point. A carp seen
+ *  from above is widest at the shoulders and thins to almost nothing at the
+ *  peduncle; get this curve wrong and you have drawn a sausage. */
+const KOI_WIDTH = [0.52, 0.88, 1, 0.94, 0.8, 0.6, 0.4, 0.22];
+/** Link lengths as fractions of the body — shorter toward the tail, so the
+ *  last third can whip without the whole fish folding. */
+const KOI_LINK = [0, 0.158, 0.152, 0.144, 0.134, 0.122, 0.11, 0.096];
+
+/**
+ * The varieties, which are real ones. Kohaku is white with red; Showa is a
+ * black fish with red and white on it; Ogon is a single metal colour and gets
+ * a much stronger sheen because that is the entire point of an Ogon.
+ */
+const KOI_COATS = [
+  { base: '#f7f3ec', hi: '#d9451c', sumi: '', sheen: 0.55, runs: 2 },   // kohaku
+  { base: '#f7f3ec', hi: '#dd4f1c', sumi: '#26221f', sheen: 0.55, runs: 2 }, // sanke
+  { base: '#262220', hi: '#cf4419', sumi: '#f2eee5', sheen: 0.5, runs: 3 },  // showa
+  { base: '#dda637', hi: '#f6dc94', sumi: '', sheen: 0.95, runs: 1 },   // ogon
+  { base: '#a3784a', hi: '#c69c66', sumi: '', sheen: 0.5, runs: 1 },    // chagoi
+  { base: '#8496a8', hi: '#c2512b', sumi: '#2c3b4a', sheen: 0.55, runs: 2 }, // asagi
+  { base: '#eceff2', hi: '#fbfdff', sumi: '', sheen: 0.92, runs: 1 },   // platinum
+];
+
+function koiCoat() {
+  const c = pick(KOI_COATS);
+  const cols = new Array<string>(KOI_SEG).fill(c.base);
+  const runs = 1 + ((Math.random() * c.runs) | 0);
+  for (let r = 0; r < runs; r++) {
+    const at = 1 + ((Math.random() * (KOI_SEG - 2)) | 0);
+    const long = 1 + ((Math.random() * 3) | 0);
+    for (let i = at; i < Math.min(KOI_SEG, at + long); i++) cols[i] = c.hi;
+  }
+  if (c.sumi) {
+    const n = 1 + ((Math.random() * 2) | 0);
+    for (let k = 0; k < n; k++) cols[1 + ((Math.random() * (KOI_SEG - 2)) | 0)] = c.sumi;
+  }
+  /* Tancho: one red crown on an otherwise unmarked white fish. Rare, and the
+     one people point at, so it is worth having a one-in-six chance of. */
+  const tancho = c.base === '#f7f3ec' && !c.sumi && Math.random() < 0.17;
+  if (tancho) cols.fill(c.base);
+  return { cols, sheen: c.sheen, tancho, hi: c.hi, dark: c.base === '#262220' };
+}
+
+/** Everything about one fish that will not fit in a Particle's four slots. */
+interface KoiFish {
+  seg: HTMLElement[];
+  ang: number[];
+  jx: number[];
+  jy: number[];
+  link: number[];
+  shadow: HTMLElement;
+  len: number;
+  head: number;
+  speed: number;
+  cruise: number;
+  beat: number;
+  z: number;
+  zWant: number;
+  zBase: number;
+  zHz: number;
+  zPh: number;
+  moodHz: number;
+  moodPh: number;
+  wanderHz: number;
+  wanderPh: number;
+  /** which way round the pond this one prefers to patrol */
+  spin: number;
+  /** how hard it commits to food — a pond has bold fish and shy ones */
+  bold: number;
+  /** how far from the bank its body must stay */
+  margin: number;
+  band: number;
+  gulp: number;
+  bubble: number;
+}
+
+const koiState = new WeakMap<Particle, KoiFish>();
+
+/** A translucent fin, with the rays fanning out of the point it is joined at. */
+function koiFin(w: number, h: number, css: string, from: string, rays: string) {
+  const el = document.createElement('div');
+  el.style.cssText =
+    'position:absolute;pointer-events:none;max-width:none;max-height:none;' +
+    `width:${w.toFixed(1)}px;height:${h.toFixed(1)}px;` +
+    'background-image:' +
+    `repeating-conic-gradient(from ${rays}, rgba(255,255,255,0.2) 0 1.3deg, rgba(255,255,255,0) 1.3deg 6.5deg),` +
+    `linear-gradient(${from}, rgba(255,255,255,0.4), rgba(255,255,255,0.07));` +
+    css;
+  return el;
+}
+
+/**
+ * One koi, as DOM.
+ *
+ * Everything that can be a child of a segment is a child of a segment: fins,
+ * eyes and barbels then inherit the segment's rotation for nothing, and the
+ * only per-frame writes for the whole fish are the wrapper, the shadow and the
+ * eight ellipses of its spine.
+ */
+function koiBody(len: number) {
+  const coat = koiCoat();
+  const maxW = len * 0.26;
+
+  const el = document.createElement('div');
+  baseStyle(el, 0, `width:0;height:0;z-index:${Z_DEEP};`);
+
+  /* The cast shadow goes on first so it sits under its own fish. It is a soft
+     smear rather than a fish-shaped cut-out, because that is what a shadow
+     through a metre of moving water actually is — and it is drawn with gradient
+     stops rather than a blur filter, which would re-raster every frame. */
+  const shadow = document.createElement('div');
+  shadow.style.cssText =
+    'position:absolute;left:0;top:0;pointer-events:none;max-width:none;max-height:none;' +
+    `width:${(len * 1.12).toFixed(1)}px;height:${(maxW * 1.7).toFixed(1)}px;` +
+    'background:radial-gradient(closest-side ellipse, rgba(0,0,0,0.62), rgba(0,0,0,0.3) 54%, rgba(0,0,0,0) 78%);';
+  el.appendChild(shadow);
+
+  const seg: HTMLElement[] = [];
+  const link: number[] = [];
+  for (let i = 0; i < KOI_SEG; i++) {
+    link.push(KOI_LINK[i] * len);
+    /* Each ellipse is nearly three link-lengths long, so its ends are always
+       buried inside its neighbours. At 2.05 you could count the segments: the
+       fish had a scalloped outline and read as a caterpillar. */
+    const segLen = (i === 0 ? len * 0.24 : link[i] * 2.9);
+    const segW = KOI_WIDTH[i] * maxW;
+    const from = i === 0 ? coat.cols[0] : coat.cols[i - 1];
+    const to = coat.cols[i];
+
+    const s = document.createElement('div');
+    s.style.cssText =
+      'position:absolute;left:0;top:0;pointer-events:none;max-width:none;max-height:none;' +
+      `width:${segLen.toFixed(1)}px;height:${segW.toFixed(1)}px;border-radius:50%;` +
+      'background-image:' +
+      /* Lit from the sky, seen from directly above: a bright line down the
+         spine and both flanks falling away. This is the layer that turns a flat
+         oval into something with a back. */
+      `linear-gradient(180deg, rgba(0,0,0,0.17) 0%, rgba(0,0,0,0) 30%,` +
+      ` rgba(255,255,255,${(0.19 * coat.sheen).toFixed(2)}) 48%, rgba(255,255,255,0) 70%,` +
+      ` rgba(0,0,0,0.15) 100%),` +
+      // Scales: two hatchings crossing at low alpha. Invisible as lines, visible as skin.
+      'repeating-linear-gradient(56deg, rgba(0,0,0,0.032) 0 1px, rgba(0,0,0,0) 1px 8px),' +
+      'repeating-linear-gradient(-56deg, rgba(255,255,255,0.032) 0 1px, rgba(255,255,255,0) 1px 8px),' +
+      `linear-gradient(90deg, ${from} 0%, ${from} 12%, ${to} 62%, ${to} 100%);`;
+    el.appendChild(s);
+    seg.push(s);
+  }
+
+  /* --- the head: eyes, barbels, and a tancho crown if it has one --- */
+  const headW = KOI_WIDTH[0] * maxW;
+  const eyeR = Math.max(2, headW * 0.13);
+  for (const side of [-1, 1]) {
+    const eye = document.createElement('div');
+    eye.style.cssText =
+      'position:absolute;pointer-events:none;border-radius:50%;' +
+      `width:${(eyeR * 2).toFixed(1)}px;height:${(eyeR * 2).toFixed(1)}px;` +
+      `left:${(len * 0.24 * 0.7).toFixed(1)}px;` +
+      `top:${(headW / 2 + side * headW * 0.32 - eyeR).toFixed(1)}px;` +
+      'background:radial-gradient(circle at 36% 32%, rgba(255,255,255,0.75) 0 18%, #1b1714 34%, #000 100%);';
+    seg[0].appendChild(eye);
+  }
+  // Barbels. Two of them, and they are the reason it reads as a carp and not a goldfish.
+  for (const side of [-1, 1]) {
+    const w = document.createElement('div');
+    w.style.cssText =
+      'position:absolute;pointer-events:none;border-radius:2px;' +
+      `width:${(len * 0.1).toFixed(1)}px;height:1.6px;` +
+      `left:${(len * 0.24 * 0.86).toFixed(1)}px;` +
+      `top:${(headW / 2 + side * headW * 0.24).toFixed(1)}px;` +
+      'background:linear-gradient(90deg, rgba(90,80,70,0.5), rgba(90,80,70,0));' +
+      `transform-origin:0 50%;animation:relaxKoiBarbel ${rand(1.6, 2.6).toFixed(2)}s ease-in-out infinite alternate;` +
+      `animation-delay:${(side * 0.4).toFixed(2)}s;`;
+    seg[0].appendChild(w);
+  }
+  if (coat.tancho) {
+    const spot = document.createElement('div');
+    const d = headW * 0.86;
+    spot.style.cssText =
+      'position:absolute;pointer-events:none;border-radius:50%;' +
+      `width:${d.toFixed(1)}px;height:${(d * 0.82).toFixed(1)}px;` +
+      `left:${(len * 0.24 * 0.34).toFixed(1)}px;top:${(headW / 2 - d * 0.41).toFixed(1)}px;` +
+      `background:radial-gradient(closest-side ellipse, ${coat.hi} 62%, rgba(217,69,28,0) 100%);`;
+    seg[0].appendChild(spot);
+  }
+
+  /* --- pectoral fins, on the shoulders. They flutter on a CSS animation of
+         their own, on top of whatever the segment they hang from is doing. --- */
+  const shoulder = KOI_WIDTH[1] * maxW;
+  const fw = len * 0.145;
+  const fh = shoulder * 0.6;
+  const pecL = koiFin(fw, fh,
+    `left:${(link[1] * 0.4).toFixed(1)}px;top:${(-fh * 0.72).toFixed(1)}px;` +
+    'border-radius:70% 20% 40% 60% / 80% 30% 70% 20%;transform-origin:88% 94%;' +
+    `animation:relaxKoiFinL ${rand(1.1, 1.7).toFixed(2)}s ease-in-out infinite alternate;`,
+    '206deg', '188deg at 88% 94%');
+  const pecR = koiFin(fw, fh,
+    `left:${(link[1] * 0.4).toFixed(1)}px;top:${(shoulder - fh * 0.28).toFixed(1)}px;` +
+    'border-radius:70% 20% 60% 40% / 20% 70% 30% 80%;transform-origin:88% 6%;' +
+    `animation:relaxKoiFinR ${rand(1.1, 1.7).toFixed(2)}s ease-in-out infinite alternate;`,
+    '154deg', '124deg at 88% 6%');
+  seg[1].appendChild(pecL);
+  seg[1].appendChild(pecR);
+
+  /* --- the dorsal ridge. From above it is barely a fin at all, which is
+         exactly how much of it there should be. --- */
+  const dorsal = document.createElement('div');
+  const dW = KOI_WIDTH[3] * maxW;
+  dorsal.style.cssText =
+    'position:absolute;pointer-events:none;border-radius:50%;' +
+    `width:${(link[3] * 2.6).toFixed(1)}px;height:${(dW * 0.42).toFixed(1)}px;` +
+    `left:${(-link[3] * 0.6).toFixed(1)}px;top:${(dW * 0.29).toFixed(1)}px;` +
+    'background:linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0.06));';
+  seg[3].appendChild(dorsal);
+
+  /* --- the caudal fin: forked, translucent, and joined at its right edge so
+         the last segment's sweep carries it. --- */
+  const tailLen = len * 0.27;
+  const tailH = maxW * 1.3;
+  const tail = koiFin(tailLen, tailH,
+    `left:${(-tailLen + link[7] * 1.5).toFixed(1)}px;top:${(KOI_WIDTH[7] * maxW / 2 - tailH / 2).toFixed(1)}px;` +
+    'clip-path:polygon(100% 50%, 10% 4%, 42% 50%, 10% 96%);transform-origin:100% 50%;opacity:0.82;' +
+    `animation:relaxKoiTail ${rand(0.9, 1.4).toFixed(2)}s ease-in-out infinite alternate;`,
+    '270deg', '150deg at 100% 50%');
+  seg[7].appendChild(tail);
+
+  return { el, seg, link, shadow, sheen: coat.sheen };
+}
+
+/* -- the pond ------------------------------------------------------------- */
+
+/** A layer of the water: pond-sized, pond-shaped, and clipped to it. It is
+ *  placed once, here, and the loop never touches its transform again. */
+function koiLayer(at: KoiPond, z: number, css: string) {
+  const el = document.createElement('div');
+  baseStyle(el, 0,
+    `width:${POND_W}px;height:${POND_H}px;border-radius:50%;overflow:hidden;z-index:${z};` +
+    `transform:translate3d(${(at.x - POND_W / 2).toFixed(1)}px, ${(at.y - POND_H / 2).toFixed(1)}px, 0);` +
+    css);
+  return el;
+}
+
+function koiInner(parent: HTMLElement, css: string) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:absolute;pointer-events:none;inset:0;' + css;
+  parent.appendChild(el);
+  return el;
+}
+
+/** Fade every node of the pond in on arrival and out together at the end. */
+function koiFade(p: Particle, now: number, ms = 1300) {
+  const rise = Math.min(1, (now - p.born) / ms);
+  if (!pondEnd) return rise;
+  const out = 1 - (now - pondEnd) / 1600;
+  if (out <= 0) {
+    // Retire it: t must come out ABOVE 1 or the engine will keep stepping it.
+    p.born = now - p.life - 1;
+    return 0;
+  }
+  return rise * out;
+}
 
 const koi: RelaxEffect = {
   id: 'koi',
   label: 'Koi Pond',
   group: 'Water',
-  blurb: 'Fish the size of your hand, going nowhere in particular. Click the water to scatter food — every one of them turns and comes.',
+  blurb: 'Real water, a stone edge, and twelve fish that swim with their whole bodies. Click anywhere to scatter food — they turn, race for it, and eat it.',
   space: 'world',
   flash: '',
-  burstMs: 60_000,
-  openingPop: 6,
-  spawnEveryMs: 2600,
-  spawnPerTick: 1,
-  maxParticles: 30,
-  onStart(x, y) {
+  burstMs: 120_000,
+  openingPop: 0,
+  spawnEveryMs: 0,
+  spawnPerTick: 0,
+  maxParticles: 260,
+
+  onStart(x, y, api) {
     startAmbience('ocean');
-    koiHome = { x, y };
+    /* A second visit while the water is still draining should un-drain it, not
+       dig a second pond on top of the first. */
+    if (pond && pondBed && pondBed.isConnected) {
+      pondEnd = 0;
+      return;
+    }
+    pond = { x, y, dark: api.isDark };
+    pondEnd = 0;
+    koiLast = 0;
+    school.length = 0;
+    crumbs.length = 0;
+
+    api.spawn(x, y, 1, K_BED);
+    api.spawn(x, y, 2, K_MURK);
+    api.spawn(x, y, 1, K_SURFACE);
+    api.spawn(x, y, 1, K_RIM);
+    api.spawn(x, y, 12, K_FISH);
   },
+
   onStop() {
     stopAmbience('ocean');
-    koiFood = null;
-    koiHome = null;
+    // Not a teardown — a drain. Everything fades on the same clock and then dies.
+    if (pondEnd === 0) pondEnd = performance.now();
   },
+
   onBurst(x, y, api) {
-    koiFood = { x, y, until: performance.now() + 5600 };
-    playPlop();
-    api.spawn(x, y, 3, RIPPLE);
+    if (!pond) return;
+    /* Food thrown at the bank lands in the water anyway. Nobody aims, and a
+       handful that vanishes into the stones is just a click that did nothing. */
+    const ux = (x - pond.x) / (POND_W / 2);
+    const uy = (y - pond.y) / (POND_H / 2);
+    const r = Math.hypot(ux, uy);
+    const fx = r > 0.82 ? pond.x + (ux / r) * 0.82 * (POND_W / 2) : x;
+    const fy = r > 0.82 ? pond.y + (uy / r) * 0.82 * (POND_H / 2) : y;
+    api.spawn(fx, fy, 5 + ((Math.random() * 4) | 0), K_FOOD);
   },
-  create(x, y, now, api, kind = 0) {
-    if (kind === RIPPLE) {
+
+  create(x, y, now, api, kind = 0, tint, index = 0) {
+    const P = pond ?? { x, y, dark: api.isDark };
+    const c = koiWater(P.dark);
+
+    /* --------------------------------------------------------- the floor -- */
+    if (kind === K_BED) {
+      const el = koiLayer(P, Z_BED,
+        `background:radial-gradient(closest-side ellipse at 50% 47%, ${c.deep} 0%, ${c.deep} 18%, ${c.mid} 46%, ${c.shallow} 78%, ${c.bank} 100%);` +
+        'box-shadow:inset 0 0 110px 40px rgba(0,0,0,0.55);');
+
+      // Silt and weed on the bottom, in patches rather than evenly — a pond bed
+      // is not a texture, it is a few darker places.
+      koiInner(el,
+        'background-image:' +
+        `radial-gradient(closest-side ellipse at 24% 66%, ${c.silt} 0%, transparent 100%),` +
+        `radial-gradient(closest-side ellipse at 71% 33%, ${c.silt} 0%, transparent 100%),` +
+        `radial-gradient(closest-side ellipse at 58% 78%, ${c.silt} 0%, transparent 100%);` +
+        'background-size:44% 38%, 36% 30%, 30% 26%;background-repeat:no-repeat;opacity:0.75;');
+
+      // Pebbles, gathered toward the shallows where the light finds them.
+      for (let i = 0; i < 44; i++) {
+        const th = rand(0, KOI_TAU);
+        const rr = Math.sqrt(rand(0.24, 1)) * 0.99;
+        const w = rand(11, 30);
+        const st = document.createElement('div');
+        st.style.cssText =
+          'position:absolute;pointer-events:none;' +
+          `width:${w.toFixed(1)}px;height:${(w * rand(0.6, 0.86)).toFixed(1)}px;` +
+          `left:${(50 + 50 * rr * Math.cos(th)).toFixed(2)}%;top:${(50 + 50 * rr * Math.sin(th)).toFixed(2)}%;` +
+          `margin:${(-w * 0.36).toFixed(1)}px 0 0 ${(-w / 2).toFixed(1)}px;` +
+          'border-radius:52% 48% 46% 54% / 50% 54% 46% 50%;' +
+          `transform:rotate(${rand(0, 180).toFixed(0)}deg);opacity:${rand(0.18, 0.42).toFixed(2)};` +
+          `background:linear-gradient(150deg, ${pick(c.stone)} 0%, rgba(0,0,0,0.45) 100%);`;
+        el.appendChild(st);
+      }
+
+      /* Two nets of light on the floor, drifting against each other. Masked
+         away from the middle: caustics reach the bottom in the shallows and are
+         swallowed by the depth in the centre, which is most of why the centre
+         reads as deep at all. */
+      const g = 'radial-gradient(closest-side ellipse, rgba(0,0,0,0.05) 0 18%, rgba(0,0,0,0.32) 52%, rgba(0,0,0,0.86) 82%, #000 100%)';
+      const mask = `-webkit-mask-image:${g};mask-image:${g};`;
+      koiCausticNet(el, mask, -12, P.dark ? 0.13 : 0.17, 1.15, 0, 'relaxKoiCausA 47s ease-in-out infinite', 1.24, 0.85);
+      koiCausticNet(el, mask, 37, P.dark ? 0.09 : 0.11, 2.3, 5, 'relaxKoiCausB 71s ease-in-out infinite', 0.84, 1.26);
+
+      pondBed = el;
+      const bed = particle(el, P.x, P.y, POND_W, 900_000, now);
+      bed.kind = K_BED;
+      return bed;
+    }
+
+    /* ----------------------------------------- the water above the fish -- */
+    if (kind === K_MURK) {
+      const up = index === 1;   // the upper slab is thinner and catches more light
+      const a = up ? 0.14 : 0.26;
+      const el = koiLayer(P, up ? Z_MURK + 2 : Z_MURK,
+        `background:radial-gradient(closest-side ellipse at 50% 47%, rgba(${c.murk},${a}) 0%,` +
+        ` rgba(${c.murk},${(a * 0.55).toFixed(2)}) 62%, rgba(${c.murk},${(a * 0.2).toFixed(2)}) 100%);`);
+      koiInner(el, 'inset:-10%;opacity:0.5;will-change:transform;' + KOI_SILT(c.silt) +
+        `animation:relaxKoiDrift ${up ? 96 : 132}s ease-in-out infinite;`);
+      if (up) {
+        koiCausticNet(el, 'opacity:0.5;', 7, P.dark ? 0.06 : 0.08, 1.5, 3,
+          'relaxKoiCausB 58s ease-in-out infinite', 1.16, 0.9);
+      }
+      const murk = particle(el, P.x, P.y, POND_W, 900_000, now);
+      murk.kind = K_MURK;
+      return murk;
+    }
+
+    /* ------------------------------------------------------- the surface -- */
+    if (kind === K_SURFACE) {
+      const el = koiLayer(P, Z_SURFACE, 'box-shadow:inset 0 0 76px 26px rgba(0,0,0,0.42);');
+
+      // The sky, lying on the water. One soft shape, moving too slowly to catch.
+      koiInner(el,
+        'inset:-20%;mix-blend-mode:screen;will-change:transform;' +
+        `background:radial-gradient(closest-side ellipse at 34% 26%, rgba(${P.dark ? '150,190,255' : '255,255,255'},0.3) 0%, transparent 74%),` +
+        `radial-gradient(closest-side ellipse at 74% 68%, rgba(${P.dark ? '120,160,230' : '235,245,255'},0.2) 0%, transparent 76%);` +
+        'background-size:74% 56%, 58% 44%;background-repeat:no-repeat;' +
+        'animation:relaxKoiSky 118s ease-in-out infinite;');
+
+      /* Wind on the water. The bands run across, so the gradient angle is ~178°
+         — a repeating-linear-gradient draws its bands PERPENDICULAR to its
+         angle, and 92° here gave the pond vertical stripes for an hour. */
+      koiInner(el,
+        'inset:-8%;will-change:transform;opacity:0.55;' +
+        'background-image:repeating-linear-gradient(178deg,' +
+        ' rgba(255,255,255,0.055) 0 1.5px, rgba(0,0,0,0.035) 1.5px 3px, rgba(255,255,255,0) 3px 11px);' +
+        'animation:relaxKoiWind 19s linear infinite;');
+
+      // The glitter: the same net as the floor, but finer, faster and on top.
+      koiCausticNet(el, 'animation:relaxKoiShimmer 7s ease-in-out infinite alternate;', -37,
+        P.dark ? 0.1 : 0.12, 0.6, 2, 'relaxKoiCausA 31s ease-in-out infinite', 1.45, 0.78);
+
+      // The dark ring the stones throw onto the water they overhang.
+      koiInner(el,
+        'background:radial-gradient(closest-side ellipse, transparent 78%, rgba(0,0,0,0.34) 94%, rgba(0,0,0,0.5) 100%);');
+
+      const surf = particle(el, P.x, P.y, POND_W, 900_000, now);
+      surf.kind = K_SURFACE;
+      return surf;
+    }
+
+    /* ------------------------------------------- the bank: stones, pads -- */
+    if (kind === K_RIM) {
+      const RW = POND_W + 170;
+      const RH = POND_H + 170;
       const el = document.createElement('div');
-      const size = 44;
-      const ring = api.isDark
-        ? 'border:2px solid rgba(170,220,255,0.55);'
-        : 'border:2px solid rgba(60,130,180,0.5);';
-      baseStyle(el, size, `border-radius:50%;${ring}`);
-      const p = particle(el, x, y, size, rand(1500, 2200), now);
-      p.a = rand(0, 0.3);
-      p.b = rand(3, 6);
+      baseStyle(el, 0,
+        `width:${RW}px;height:${RH}px;z-index:${Z_RIM};` +
+        `transform:translate3d(${(P.x - RW / 2).toFixed(1)}px, ${(P.y - RH / 2).toFixed(1)}px, 0);`);
+
+      // Wet ground and moss outside the stones.
+      koiInner(el,
+        'border-radius:50%;background:' +
+        `radial-gradient(closest-side ellipse, transparent 72%, rgba(${P.dark ? '18,36,24' : '42,74,40'},0.62) 86%,` +
+        ` rgba(${P.dark ? '8,18,12' : '22,44,24'},0.85) 100%),` +
+        // Moss in patches, so the bank is a place rather than a band.
+        `radial-gradient(closest-side ellipse at 18% 34%, rgba(${P.dark ? '30,58,34' : '74,110,52'},0.55), transparent 100%),` +
+        `radial-gradient(closest-side ellipse at 76% 71%, rgba(${P.dark ? '26,50,30' : '66,100,48'},0.5), transparent 100%),` +
+        `radial-gradient(closest-side ellipse at 62% 14%, rgba(${P.dark ? '22,44,26' : '58,92,44'},0.45), transparent 100%);` +
+        'background-size:100% 100%, 40% 26%, 34% 22%, 26% 18%;background-repeat:no-repeat;');
+
+      /* The stone edge. The stones follow their own wandering radius rather than
+         the water's ellipse, so some sit out on the bank and some stand in the
+         shallows — which is what stops a laid edge looking like a laid edge. */
+      const w1 = rand(0, KOI_TAU);
+      const w2 = rand(0, KOI_TAU);
+      /* Two passes: the laid edge, then a scatter of smaller ones tucked in
+         among it. One even row of identical lozenges is a necklace rather than
+         a bank, and the second pass is what breaks the rhythm. */
+      const laid = 44;
+      for (let i = 0; i < laid + 24; i++) {
+        const edge = i < laid;
+        const th = edge ? (i / laid) * KOI_TAU + rand(-0.03, 0.03) : rand(0, KOI_TAU);
+        const rr = 1 + 0.038 * Math.sin(3 * th + w1) + 0.026 * Math.sin(5 * th + w2) +
+          (edge ? rand(-0.014, 0.014) : rand(-0.055, 0.05));
+        const w = edge ? rand(58, 142) : rand(22, 62);
+        const h = w * rand(0.5, 0.84);
+        const wet = rr < 1;
+        const st = document.createElement('div');
+        st.style.cssText =
+          'position:absolute;pointer-events:none;' +
+          `width:${w.toFixed(1)}px;height:${h.toFixed(1)}px;` +
+          `left:${(RW / 2 + (POND_W / 2) * rr * Math.cos(th)).toFixed(1)}px;` +
+          `top:${(RH / 2 + (POND_H / 2) * rr * Math.sin(th)).toFixed(1)}px;` +
+          `margin:${(-h / 2).toFixed(1)}px 0 0 ${(-w / 2).toFixed(1)}px;` +
+          `border-radius:${rand(42, 58) | 0}% ${rand(42, 58) | 0}% ${rand(42, 58) | 0}% ${rand(42, 58) | 0}% /` +
+          ` ${rand(44, 56) | 0}% ${rand(44, 56) | 0}% ${rand(44, 56) | 0}% ${rand(44, 56) | 0}%;` +
+          `transform:rotate(${rand(-30, 30).toFixed(1)}deg);` +
+          `background:linear-gradient(${rand(120, 165).toFixed(0)}deg, ${pick(c.stone)} 0%,` +
+          ` rgba(0,0,0,${wet ? 0.55 : 0.3}) 100%);` +
+          `box-shadow:0 8px 18px rgba(0,0,0,0.42), inset 0 1px 2px rgba(255,255,255,${wet ? 0.16 : 0.1}),` +
+          ' inset 0 -5px 10px rgba(0,0,0,0.36);' +
+          `opacity:${(edge ? rand(0.9, 1) : rand(0.72, 0.95)).toFixed(2)};`;
+        el.appendChild(st);
+      }
+
+      /* Lily pads. Notched with a mask rather than drawn with a notch, so the
+         leaf underneath can be a proper gradient instead of a flat wedge. */
+      for (let i = 0; i < 9; i++) {
+        const th = rand(0, KOI_TAU);
+        const rr = rand(0.28, 0.78);
+        // A raft of pads is mostly small ones, with two or three big.
+        const d = i < 3 ? rand(112, 178) : rand(48, 104);
+        const notch = rand(0, 360);
+        const wrap = document.createElement('div');
+        wrap.style.cssText =
+          'position:absolute;pointer-events:none;' +
+          `width:${d.toFixed(1)}px;height:${(d * rand(0.82, 0.96)).toFixed(1)}px;` +
+          `left:${(RW / 2 + (POND_W / 2) * rr * Math.cos(th)).toFixed(1)}px;` +
+          `top:${(RH / 2 + (POND_H / 2) * rr * Math.sin(th)).toFixed(1)}px;` +
+          `margin:${(-d * 0.46).toFixed(1)}px 0 0 ${(-d / 2).toFixed(1)}px;` +
+          `opacity:${rand(0.86, 0.97).toFixed(2)};` +
+          `animation:relaxKoiPad ${rand(8, 14).toFixed(1)}s ease-in-out infinite alternate;` +
+          `animation-delay:${rand(-8, 0).toFixed(1)}s;will-change:transform;`;
+        const sh = document.createElement('div');
+        sh.style.cssText =
+          'position:absolute;inset:0;border-radius:50%;transform:translate(9px, 16px) scale(1.02);' +
+          'background:radial-gradient(closest-side ellipse, rgba(0,0,0,0.34), rgba(0,0,0,0.16) 62%, transparent 82%);';
+        const leaf = document.createElement('div');
+        leaf.style.cssText =
+          'position:absolute;inset:0;border-radius:50%;' +
+          `-webkit-mask-image:conic-gradient(from ${notch}deg, transparent 0 15deg, #000 15deg 100%);` +
+          `mask-image:conic-gradient(from ${notch}deg, transparent 0 15deg, #000 15deg 100%);` +
+          'background-image:' +
+          /* Ribs, but barely: at 0.07 they fanned out like a beach umbrella. A
+             pad shows its ribs where the light catches them and nowhere else,
+             so they go under the sheen rather than over it. */
+          `repeating-conic-gradient(from ${notch + 8}deg at 50% 50%, rgba(255,255,255,0.038) 0 0.6deg, transparent 0.6deg 19deg),` +
+          'radial-gradient(circle at 62% 74%, rgba(255,255,255,0.12) 0%, transparent 46%),' +
+          'linear-gradient(158deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0) 34%),' +
+          `radial-gradient(circle at 34% 28%, ${P.dark ? '#33613a' : '#59904c'} 0%, ${P.dark ? '#22492a' : '#3a6b3a'} 44%,` +
+          ` ${P.dark ? '#153320' : '#244d2b'} 78%, ${P.dark ? '#0e2717' : '#1a3d23'} 100%);` +
+          'box-shadow:inset 0 -6px 14px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(255,255,255,0.08);';
+        wrap.appendChild(sh);
+        wrap.appendChild(leaf);
+        el.appendChild(wrap);
+      }
+
+      /* Two water lilies, because a pond wants somewhere for the eye to land.
+         Two rings of narrow petals rather than one ring of fat ones — nine fat
+         petals is a daisy, and a daisy floating on a pond is a sticker. */
+      for (let i = 0; i < 2; i++) {
+        const th = rand(0, KOI_TAU);
+        const rr = rand(0.34, 0.66);
+        const d = rand(58, 78);
+        const wrap = document.createElement('div');
+        wrap.style.cssText =
+          'position:absolute;pointer-events:none;' +
+          `width:${d}px;height:${d}px;` +
+          `left:${(RW / 2 + (POND_W / 2) * rr * Math.cos(th)).toFixed(1)}px;` +
+          `top:${(RH / 2 + (POND_H / 2) * rr * Math.sin(th)).toFixed(1)}px;` +
+          `margin:${(-d / 2).toFixed(1)}px 0 0 ${(-d / 2).toFixed(1)}px;` +
+          `animation:relaxKoiLotus ${rand(11, 16).toFixed(1)}s ease-in-out infinite alternate;will-change:transform;`;
+        const petals = (n: number, len: number, wide: number, lift: number, top: string, mid: string, tip: string, turn: number) => {
+          for (let k = 0; k < n; k++) {
+            const petal = document.createElement('div');
+            petal.style.cssText =
+              'position:absolute;left:50%;top:50%;pointer-events:none;' +
+              `width:${(d * wide).toFixed(1)}px;height:${(d * len).toFixed(1)}px;` +
+              `margin:${(-d * len).toFixed(1)}px 0 0 ${(-d * wide * 0.5).toFixed(1)}px;` +
+              'border-radius:52% 52% 40% 40% / 66% 66% 34% 34%;transform-origin:50% 100%;' +
+              `transform:rotate(${((k / n) * 360 + turn).toFixed(1)}deg) translateY(${(d * lift).toFixed(1)}px);` +
+              `background:linear-gradient(180deg, ${top} 0%, ${mid} 58%, ${tip} 100%);` +
+              'box-shadow:0 1px 2px rgba(0,0,0,0.14);';
+            wrap.appendChild(petal);
+          }
+        };
+        // Sepals, then the open flower, then a tight pale heart.
+        petals(7, 0.44, 0.13, 0.2, '#7fa86a', '#5d8a52', '#456b3e', 26);
+        petals(9, 0.42, 0.14, 0.12, '#fffafc', '#f6dfe8', '#e6b8cd', 0);
+        petals(7, 0.3, 0.12, 0.06, '#ffffff', '#fdf1f5', '#f3d3e0', 22);
+        const heart = document.createElement('div');
+        heart.style.cssText =
+          'position:absolute;left:50%;top:50%;pointer-events:none;border-radius:50%;' +
+          `width:${(d * 0.2).toFixed(1)}px;height:${(d * 0.2).toFixed(1)}px;` +
+          `margin:${(-d * 0.1).toFixed(1)}px 0 0 ${(-d * 0.1).toFixed(1)}px;` +
+          'background:radial-gradient(circle at 42% 38%, #fff4c4 0 30%, #edcb62 68%, #c9a032 100%);';
+        wrap.appendChild(heart);
+        el.appendChild(wrap);
+      }
+
+      const rim = particle(el, P.x, P.y, POND_W, 900_000, now);
+      rim.kind = K_RIM;
+      return rim;
+    }
+
+    /* ---------------------------------------------------------- the fish -- */
+    if (kind === K_FISH) {
+      const len = rand(76, 132);
+      const built = koiBody(len);
+      const th = rand(0, KOI_TAU);
+      const rr = Math.sqrt(Math.random()) * 0.62;
+      const p = particle(built.el, P.x + Math.cos(th) * rr * (POND_W / 2), P.y + Math.sin(th) * rr * (POND_H / 2), len, 900_000, now);
+      p.kind = K_FISH;
+      const z = rand(0.15, 0.85);
+      koiState.set(p, {
+        seg: built.seg,
+        link: built.link,
+        shadow: built.shadow,
+        ang: new Array(KOI_SEG).fill(th),
+        jx: new Array(KOI_SEG).fill(0),
+        jy: new Array(KOI_SEG).fill(0),
+        len,
+        head: th,
+        speed: rand(0.4, 0.9),
+        // Big fish are slower. It is the single cue that makes them read as big.
+        cruise: rand(0.62, 1.15) * (1.28 - len / 210),
+        beat: rand(0, KOI_TAU),
+        z,
+        zWant: z,
+        zBase: z,
+        zHz: rand(0.00004, 0.00011),
+        zPh: rand(0, KOI_TAU),
+        moodHz: rand(0.00006, 0.00016),
+        moodPh: rand(0, KOI_TAU),
+        wanderHz: rand(0.0004, 0.0011),
+        wanderPh: rand(0, KOI_TAU),
+        spin: Math.random() < 0.5 ? -1 : 1,
+        bold: rand(0.35, 1),
+        margin: 40 + len * 0.62,
+        band: -1,
+        gulp: 0,
+        bubble: now + rand(8000, 60_000),
+      });
+      school.push(p);
       return p;
     }
 
-    const el = document.createElement('img');
-    const size = rand(48, 92);
-    el.src = pick(RELAX_KOI);
-    el.draggable = false;
-    /* Fish sit UNDER the surface, so they are never quite in focus and never
-       quite at full strength. That one line of separation is what stops them
-       reading as stickers dropped on the board. */
-    baseStyle(el, size, 'object-fit:contain;filter:saturate(0.86) blur(0.35px);');
+    /* ---------------------------------------------------------- the food -- */
+    if (kind === K_FOOD) {
+      const d = rand(7, 11);
+      const el = document.createElement('div');
+      baseStyle(el, d, `border-radius:50%;z-index:${Z_DEEP + 4};` +
+        'background:radial-gradient(circle at 34% 28%, #ffe0ad 0 16%, #d98f3e 52%, #7d4b1a 100%);' +
+        'box-shadow:0 1px 2px rgba(0,0,0,0.35);');
+      const p = particle(el, x + rand(-46, 46), y + rand(-40, 40), d, 30_000, now);
+      p.kind = K_FOOD;
+      p.a = -rand(0.55, 1.15);        // above the water, still falling
+      p.b = rand(0.75, 1.3);          // how fast this one sinks
+      p.c = 0;                        // eaten
+      p.d = rand(0, KOI_TAU);         // its wobble
+      crumbs.push(p);
+      return p;
+    }
 
-    const p = particle(el, x + rand(-420, 420), y + rand(-300, 300), size, 600_000, now);
-    p.a = rand(0, Math.PI * 2);       // heading
-    p.c = rand(0.42, 0.86);           // cruise speed
-    p.b = rand(0.0016, 0.0042);       // how fast it wanders off course
-    p.d = rand(0, Math.PI * 2);       // wander phase
-    p.maxScale = rand(0.9, 1.1);
-    return p;
+    /* --------------------------------------------------- rings and spray -- */
+    if (kind === K_RING) {
+      const el = document.createElement('div');
+      const size = 46;
+      const g = P.dark ? '190,232,255' : '255,255,255';
+      baseStyle(el, size,
+        `border-radius:50%;z-index:${Z_RIPPLE};` +
+        `border:1.5px solid rgba(${g},0.5);` +
+        `box-shadow:0 0 8px rgba(${g},0.2), inset 0 0 10px rgba(0,0,0,0.16);`);
+      const p = particle(el, x, y, size, rand(1700, 2600), now);
+      p.kind = K_RING;
+      p.a = index * 0.12;                    // each ring of a splash leaves later
+      p.b = rand(3.4, 6.2);
+      p.c = rand(0.4, 0.75);
+      return p;
+    }
+
+    if (kind === K_DROP) {
+      const d = rand(3, 6);
+      const el = document.createElement('div');
+      baseStyle(el, d, `border-radius:50%;z-index:${Z_RIPPLE};` +
+        `background:radial-gradient(circle at 36% 30%, rgba(255,255,255,0.95), rgba(${P.dark ? '170,220,255' : '210,235,240'},0.6));`);
+      const p = particle(el, x, y, d, rand(420, 700), now);
+      p.kind = K_DROP;
+      const th = rand(0, KOI_TAU);
+      const sp = rand(1.4, 3.6);
+      p.vx = Math.cos(th) * sp;
+      p.vy = Math.sin(th) * sp;
+      p.a = rand(0.06, 0.12);                // gravity, such as it is from above
+      return p;
+    }
+
+    if (kind === K_BUBBLE) {
+      const d = rand(4, 9);
+      const el = document.createElement('div');
+      baseStyle(el, d, `border-radius:50%;z-index:${Z_DEEP + 4};` +
+        'background:radial-gradient(circle at 34% 30%, rgba(255,255,255,0.8) 0 20%, rgba(255,255,255,0.12) 46%, rgba(255,255,255,0.34) 82%, rgba(255,255,255,0.05) 100%);' +
+        'box-shadow:inset 0 0 4px rgba(255,255,255,0.4);');
+      const p = particle(el, x, y, d, 14_000, now);
+      p.kind = K_BUBBLE;
+      /* The depth it was let go at, handed over as the tint — the only
+         per-spawn value the engine passes through. Spawned at `index` it was
+         born at the surface and popped on the frame it appeared. */
+      p.a = Number(tint) || 0.5;
+      p.b = rand(0.0022, 0.0045);
+      p.c = rand(0, KOI_TAU);
+      return p;
+    }
+
+    // Unreachable in practice — the engine only ever spawns what onStart asks for.
+    const el = document.createElement('div');
+    baseStyle(el, 1, '');
+    return particle(el, x, y, 1, 100, now);
   },
-  step(p, t, now) {
-    if (p.kind === RIPPLE) {
-      const local = (t - p.a) / (1 - p.a);
-      if (local <= 0) { p.el.style.opacity = '0'; return; }
-      const eased = 1 - Math.pow(1 - local, 2.4);
-      p.el.style.transform =
-        `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) scale(${0.3 + eased * p.b})`;
-      p.el.style.opacity = String((1 - local) * 0.55);
-      return;
+
+  step(p, t, now, api) {
+    const fade = koiFade(p, now);
+    if (fade <= 0) return;
+
+    switch (p.kind) {
+      /* The pond itself never moves: its transform was written once, at build
+         time, and the loop only ever touches its opacity. */
+      case K_BED: {
+        /* One clock for everybody. The bed is spawned first, so it steps first,
+           and every fish this frame integrates against the same dt — otherwise
+           the pond runs at double speed on a 120Hz display. */
+        const dt = koiLast ? now - koiLast : 16.7;
+        koiLast = now;
+        koiK = Math.max(0.25, Math.min(2.6, dt / 16.7));
+        for (let i = school.length - 1; i >= 0; i--) if (!school[i].el.isConnected) school.splice(i, 1);
+        for (let i = crumbs.length - 1; i >= 0; i--) if (!crumbs[i].el.isConnected) crumbs.splice(i, 1);
+        p.el.style.opacity = String(fade);
+        return;
+      }
+      case K_MURK:
+      case K_SURFACE:
+      case K_RIM:
+        p.el.style.opacity = String(fade);
+        return;
+
+      /* ------------------------------------------------------------ koi -- */
+      case K_FISH: {
+        const f = koiState.get(p);
+        if (!f || !pond) return;
+        const k = koiK;
+        const P = pond;
+
+        /* What it wants, as a vector. Steering is summed as directions and
+           resolved once — averaging ANGLES wraps at π and sends a fish that
+           wanted to go slightly left into a spin. */
+        let dx = Math.cos(f.head);
+        let dy = Math.sin(f.head);
+        let urge = 0;
+
+        // A slow meander, so a fish with nothing to do still has an opinion.
+        const wob = Math.sin(now * f.wanderHz + f.wanderPh);
+        dx += -Math.sin(f.head) * wob * 0.55;
+        dy += Math.cos(f.head) * wob * 0.55;
+
+        /* Food. Nearest wins, but depth counts against distance — a pellet on
+           the floor is not interesting to a fish cruising the surface until it
+           has nothing better, which is what stops all twelve stacking on the
+           first crumb to land. */
+        let best: Particle | null = null;
+        let bestD = 1e9;
+        for (const c of crumbs) {
+          if (c.a < 0 || c.c) continue;
+          const ax = c.x - p.x;
+          const ay = c.y - p.y;
+          const d = Math.sqrt(ax * ax + ay * ay) + Math.abs(c.a - f.z) * 300 * (1.2 - f.bold);
+          if (d < bestD) { bestD = d; best = c; }
+        }
+        if (best && bestD < 700) {
+          const ax = best.x - p.x;
+          const ay = best.y - p.y;
+          const d = Math.sqrt(ax * ax + ay * ay) || 1;
+          /* Ease off as it arrives. At full weight right on top of the pellet
+             every fish in range drove into the same point and they welded into
+             one animal — a koi that has reached the food mills in it. */
+          const w = (2.4 + f.bold * 1.6) * Math.min(1, d / 90);
+          dx += (ax / d) * w;
+          dy += (ay / d) * w;
+          urge = 1;
+          f.zWant = best.a;
+
+          // The mouth is at the front of the head segment, not at the middle.
+          const mx = p.x + Math.cos(f.head) * f.len * 0.4;
+          const my = p.y + Math.sin(f.head) * f.len * 0.4;
+          const bite = Math.hypot(best.x - mx, best.y - my);
+          if (bite < 16 + f.len * 0.1 && Math.abs(best.a - f.z) < 0.24) {
+            best.c = 1;                         // taken
+            best.born = now - best.life + 180;  // and gone, over a couple of frames
+            f.gulp = now + 260;
+            f.speed *= 1.35;
+            if (now - lastGulp > 110) { lastGulp = now; playPlop(); }
+            if (best.a < 0.14) api.spawn(best.x, best.y, 1, K_RING);
+          }
+        }
+
+        /* Neighbours. Separation only, and only from fish at roughly the same
+           depth — two koi passing over each other is a thing that happens. */
+        for (const o of school) {
+          if (o === p) continue;
+          const of_ = koiState.get(o);
+          if (!of_) continue;
+          const ox = p.x - o.x;
+          const oy = p.y - o.y;
+          const near = 74 + f.len * 0.58;
+          const d2 = ox * ox + oy * oy;
+          if (d2 > near * near || d2 < 0.5) continue;
+          const zGap = Math.min(1, Math.abs(of_.z - f.z) * 3.4);
+          const d = Math.sqrt(d2);
+          const push = (1 - d / near) * 3.4 * (1 - zGap);
+          dx += (ox / d) * push;
+          dy += (oy / d) * push;
+        }
+
+        /* The bank. A koi that meets the edge turns and runs along it; a koi
+           that bounces off it reads as a screensaver, so the correction is
+           mostly tangent and only a little inward. */
+        const ax = POND_W / 2 - f.margin;
+        const ay = POND_H / 2 - f.margin;
+        const ux = (p.x - P.x) / ax;
+        const uy = (p.y - P.y) / ay;
+        const r = Math.sqrt(ux * ux + uy * uy);
+        if (r > 0.7) {
+          const push = Math.min(4.2, ((r - 0.7) / 0.3) * 4.2);
+          const inx = -ux / r;
+          const iny = -uy / r;
+          dx += (inx * 0.42 - iny * f.spin * 0.58) * push;
+          dy += (iny * 0.42 + inx * f.spin * 0.58) * push;
+        }
+        if (r > 1) {
+          p.x = P.x + (ux / r) * ax;
+          p.y = P.y + (uy / r) * ay;
+        }
+
+        /* Turn toward it, rate-limited — and limited harder the faster it is
+           going, because a body with momentum turns in a wider arc. */
+        const want = Math.atan2(dy, dx);
+        let diff = want - f.head;
+        while (diff > Math.PI) diff -= KOI_TAU;
+        while (diff < -Math.PI) diff += KOI_TAU;
+        const agility = (0.058 - Math.min(0.034, f.speed * 0.013)) * k;
+        f.head += Math.max(-agility, Math.min(agility, diff));
+
+        /* Speed. Koi do not cruise: they beat, glide, and hang almost still for
+           minutes at a time. `mood` is that hour-long lull, and it is the
+           difference between a pond and a screensaver. */
+        const mood = 0.5 + 0.5 * Math.sin(now * f.moodHz + f.moodPh);
+        let goal = f.cruise * (0.16 + mood * 1.05);
+        if (urge) goal = f.cruise * 2.5;
+        else if (now < f.gulp) goal = f.cruise * 1.6;
+        f.speed += (goal - f.speed) * 0.04 * k;
+
+        // The tail beats faster the harder it is working. It is never zero.
+        f.beat += (0.06 + f.speed * 0.058) * k;
+        const surge = 0.86 + 0.26 * Math.abs(Math.sin(f.beat));
+        p.x += Math.cos(f.head) * f.speed * surge * k;
+        p.y += Math.sin(f.head) * f.speed * surge * k;
+
+        // Depth: a slow rise and fall, overruled by anything worth eating.
+        if (!urge) f.zWant = f.zBase + Math.sin(now * f.zHz + f.zPh) * 0.28;
+        f.z += (Math.max(0.04, Math.min(0.96, f.zWant)) - f.z) * 0.014 * k;
+
+        /* The spine. Each joint's angle is the one in front of it plus a
+           travelling wave whose amplitude grows toward the tail — that is the
+           carangiform stroke, and it is why the fish looks like it is pushing
+           water rather than being dragged along a path. The rate limit on top
+           is what makes the body LAG through a turn. */
+        const flick = now < f.gulp ? 2.1 : 1;
+        const amp = (0.1 + Math.min(0.16, f.speed * 0.075)) * flick;
+        f.ang[0] = f.head;
+        f.jx[0] = 0;
+        f.jy[0] = 0;
+        for (let i = 1; i < KOI_SEG; i++) {
+          const s = i / (KOI_SEG - 1);
+          const wave = Math.sin(f.beat - s * 3.9) * amp * (0.28 + s * s * 1.45);
+          let d = f.ang[i - 1] + wave - f.ang[i];
+          while (d > Math.PI) d -= KOI_TAU;
+          while (d < -Math.PI) d += KOI_TAU;
+          f.ang[i] += Math.max(-0.22 * k, Math.min(0.22 * k, d));
+          // No folding: a carp is a stiff animal compared with an eel.
+          let rel = f.ang[i] - f.ang[i - 1];
+          while (rel > Math.PI) rel -= KOI_TAU;
+          while (rel < -Math.PI) rel += KOI_TAU;
+          f.ang[i] = f.ang[i - 1] + Math.max(-0.4, Math.min(0.4, rel));
+          f.jx[i] = f.jx[i - 1] - Math.cos(f.ang[i]) * f.link[i];
+          f.jy[i] = f.jy[i - 1] - Math.sin(f.ang[i]) * f.link[i];
+        }
+
+        // Nearer the surface is nearer the eye: bigger, brighter, sharper.
+        const lift = 1 - f.z;
+        const scale = 0.74 + lift * 0.34;
+        p.el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) scale(${scale.toFixed(3)})`;
+        p.el.style.opacity = String(fade * (0.74 + lift * 0.26));
+
+        const band = f.z < 0.36 ? 2 : f.z < 0.68 ? 1 : 0;
+        if (band !== f.band) {
+          f.band = band;
+          p.el.style.zIndex = String(Z_DEEP + band * 2);
+        }
+
+        for (let i = 0; i < KOI_SEG; i++) {
+          const s = f.seg[i];
+          const w = i === 0 ? f.len * 0.24 : f.link[i] * 2.9;
+          const h = KOI_WIDTH[i] * f.len * 0.26;
+          s.style.transform =
+            `translate3d(${(f.jx[i] - w / 2).toFixed(1)}px, ${(f.jy[i] - h / 2).toFixed(1)}px, 0)` +
+            ` rotate(${((f.ang[i] * 180) / Math.PI).toFixed(1)}deg)`;
+        }
+
+        /* The shadow on the floor. It lies under the middle of the body, slides
+           away from the fish as the fish rises, and softens and spreads as it
+           goes — which is the cue that tells you how deep the fish is even when
+           you are not looking at it. */
+        const sx = -Math.cos(f.ang[3]) * f.len * 0.34 + lift * 34;
+        const sy = -Math.sin(f.ang[3]) * f.len * 0.34 + lift * 78;
+        f.shadow.style.transform =
+          `translate3d(${(sx - f.len * 0.56).toFixed(1)}px, ${(sy - f.len * 0.22).toFixed(1)}px, 0)` +
+          ` rotate(${((f.ang[3] * 180) / Math.PI).toFixed(1)}deg) scale(${(1 + lift * 0.4).toFixed(2)})`;
+        f.shadow.style.opacity = String((0.22 + f.z * 0.36) * fade);
+
+        // Every so often one lets a bubble go, and it climbs.
+        if (now > f.bubble) {
+          f.bubble = now + rand(30_000, 120_000);
+          api.spawn(p.x - Math.cos(f.head) * f.len * 0.2, p.y - Math.sin(f.head) * f.len * 0.2,
+            1, K_BUBBLE, String(f.z));
+        }
+        return;
+      }
+
+      /* ----------------------------------------------------------- food -- */
+      case K_FOOD: {
+        const k = koiK;
+        if (p.a < 0) {
+          // Still in the air. It is closer to the eye, so it is bigger.
+          p.a += 0.055 * k;
+          if (p.a >= 0) {
+            p.a = 0;
+            api.spawn(p.x, p.y, 2, K_RING);
+            api.spawn(p.x, p.y, 3, K_DROP);
+            if (now - lastGulp > 90) { lastGulp = now; playPlop(); }
+          }
+          const s = 1 + Math.max(0, -p.a) * 1.6;
+          p.el.style.transform =
+            `translate3d(${(p.x - p.size / 2).toFixed(1)}px, ${(p.y - p.size / 2).toFixed(1)}px, 0) scale(${s.toFixed(2)})`;
+          p.el.style.opacity = String(fade * 0.9);
+          return;
+        }
+        if (!p.c) {
+          // Sinking, and wobbling as it goes the way a light thing does in water.
+          p.a = Math.min(1, p.a + 0.0016 * p.b * k);
+          p.x += Math.sin(now * 0.0022 + p.d) * 0.14 * k;
+          p.y += Math.cos(now * 0.0019 + p.d * 1.7) * 0.1 * k;
+        }
+        const zi = p.a < 0.36 ? 2 : p.a < 0.68 ? 1 : 0;
+        if (p.vx !== zi + 1) { p.vx = zi + 1; p.el.style.zIndex = String(Z_DEEP + zi * 2 + 1); }
+        const s = (1.05 - p.a * 0.3) * (p.c ? Math.max(0, 1 - (t - (1 - 180 / p.life)) * 8) : 1);
+        p.el.style.transform =
+          `translate3d(${(p.x - p.size / 2).toFixed(1)}px, ${(p.y - p.size / 2).toFixed(1)}px, 0) scale(${Math.max(0, s).toFixed(2)})`;
+        // Uneaten food dissolves into the silt rather than lying there forever.
+        p.el.style.opacity = String(fade * (t > 0.75 ? (1 - t) * 4 : 1) * (0.95 - p.a * 0.25));
+        return;
+      }
+
+      /* ---------------------------------------------------------- rings -- */
+      case K_RING: {
+        const local = (t - p.a) / (1 - p.a);
+        if (local <= 0) { p.el.style.opacity = '0'; return; }
+        // Rings slow as they widen; the water is taking the energy back.
+        const eased = 1 - Math.pow(1 - local, 2.6);
+        p.el.style.transform =
+          `translate3d(${(p.x - p.size / 2).toFixed(1)}px, ${(p.y - p.size / 2).toFixed(1)}px, 0) scale(${(0.16 + eased * p.b).toFixed(3)})`;
+        p.el.style.opacity = String(fade * Math.pow(1 - local, 1.4) * p.c);
+        return;
+      }
+
+      case K_DROP: {
+        p.vy += p.a * koiK;
+        p.x += p.vx * koiK;
+        p.y += p.vy * koiK;
+        p.el.style.transform =
+          `translate3d(${(p.x - p.size / 2).toFixed(1)}px, ${(p.y - p.size / 2).toFixed(1)}px, 0) scale(${(1 - t * 0.4).toFixed(2)})`;
+        p.el.style.opacity = String(fade * (1 - t) * 0.85);
+        return;
+      }
+
+      case K_BUBBLE: {
+        p.a -= p.b * koiK;
+        if (p.a <= 0.02) {
+          api.spawn(p.x, p.y, 1, K_RING);
+          p.born = now - p.life - 1;
+          return;
+        }
+        const wob = Math.sin(now * 0.004 + p.c) * 9;
+        const s = 0.8 + (1 - p.a) * 0.5;
+        p.el.style.transform =
+          `translate3d(${(p.x + wob - p.size / 2).toFixed(1)}px, ${(p.y - p.size / 2).toFixed(1)}px, 0) scale(${s.toFixed(2)})`;
+        p.el.style.opacity = String(fade * 0.7);
+        return;
+      }
     }
-
-    /* Wandering: a slow sine on the heading. Turning toward food overrides it,
-       and the turn is RATE-LIMITED — a fish that snapped instantly to the new
-       bearing would read as a cursor, not an animal. */
-    let turn = Math.sin(now * p.b + p.d) * 0.03;
-    let speed = p.c;
-
-    /* Two things can override the wander, and the order matters: food first,
-       then the edge of the pond. Without the edge the fish just leave — which
-       is exactly what they did the first time, and a pond you have to keep
-       re-stocking is not restful. */
-    let target: { x: number; y: number } | null = null;
-    let chasing = false;
-    if (koiFood && now < koiFood.until) {
-      target = koiFood;
-      chasing = true;
-    } else if (koiHome) {
-      const out = Math.hypot(p.x - koiHome.x, p.y - koiHome.y);
-      if (out > KOI_POND) target = koiHome;
-    }
-
-    if (target) {
-      /* Each fish aims at its own point on a ring around the food rather than
-         at the food itself. Aimed at one point they arrive and stack into a
-         single clot of fish, which looks like a bug and not like feeding. */
-      const spread = chasing ? 74 : 0;
-      const dx = target.x + Math.cos(p.d * 7.3) * spread - p.x;
-      const dy = target.y + Math.sin(p.d * 7.3) * spread - p.y;
-      const want = Math.atan2(dy, dx);
-      let diff = want - p.a;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      const near = Math.hypot(dx, dy);
-      // Steer, never snap: a fish that turned instantly would read as a cursor.
-      turn = Math.max(-0.05, Math.min(0.05, diff * 0.045));
-      // Crowd the food, then mill about in it rather than piling on one point.
-      if (chasing) speed = near > 60 ? p.c * 2.1 : p.c * 0.6;
-    }
-
-    p.a += turn;
-    p.x += Math.cos(p.a) * speed;
-    p.y += Math.sin(p.a) * speed;
-
-    // The tail beat: a small roll, faster when the fish is hurrying.
-    const beat = Math.sin(now * 0.006 + p.d) * (speed > p.c ? 7 : 4);
-    const fade = Math.min(1, (now - p.born) / 1400);
-
-    p.el.style.transform =
-      `translate3d(${p.x - p.size / 2}px, ${p.y - p.size / 2}px, 0) ` +
-      `rotate(${(p.a * 180) / Math.PI + 90 + beat}deg) scale(${p.maxScale})`;
-    p.el.style.opacity = String(fade * 0.92);
   },
 };
 
