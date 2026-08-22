@@ -42,6 +42,7 @@ import { ImageShape, imageShapeStyle, nextImageShape, IMAGE_SHAPE_LABEL } from '
 import { adjustToFilter, type ImageAdjust } from '@/lib/image/pixels';
 import { getFrameKind, frameColorOf, frameKindMeta, objectsInFrame, type FrameKind } from '@/lib/frames';
 import { PIN_COLORS, pinShade, DEFAULT_PIN_COLOR } from '@/lib/brainstorm';
+import LibraryShape, { isLibraryShape } from './LibraryShape';
 
 /* ------------------------------------------------------------------
    Three block types drag in a syntax-highlighter or a diagram engine, and
@@ -5142,6 +5143,15 @@ function CanvasObject({ obj, isSelected: isSelectedProp, isFocused }: CanvasObje
                     <polygon points="50,72 68,52 82,72" fill="none" stroke={shapeBorder} strokeWidth="2" strokeLinejoin="round" />
                     <circle cx="70" cy="32" r="6" fill="none" stroke={shapeBorder} strokeWidth="2" />
                   </svg>
+                )}
+
+                {/* Everything above is one hand-written block per shape, which
+                    is how the first 214 were built. The other two thousand are
+                    DATA — one row each in shapeLibrary.ts — and this is the
+                    single branch that draws all of them. Anything not matched
+                    above falls through to here. */}
+                {isLibraryShape(shapeType) && (
+                  <LibraryShape id={shapeType} fill={shapeBg} stroke={shapeBorder} strokeWidth={1.1} />
                 )}
               </div>
               

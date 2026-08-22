@@ -4,6 +4,7 @@
 'use client';
 
 import React from 'react';
+import LibraryShape, { isLibraryShape } from './LibraryShape';
 
 type GeoFn = (fill: string, stroke: string) => React.ReactElement;
 
@@ -574,6 +575,17 @@ export default function ShapePreview({
   fill?: string;
   stroke?: string;
 }) {
+  /* The library draws itself, in its own 24-unit viewBox — and it draws with
+     exactly the code the canvas uses, so the tile you click is the mark you
+     get. Only the hand-written 214 come out of GEOMETRY. */
+  if (isLibraryShape(type)) {
+    return (
+      <div style={{ width: size, height: size }} aria-hidden="true">
+        <LibraryShape id={type} fill={fill} stroke={stroke} strokeWidth={1.9} />
+      </div>
+    );
+  }
+
   const geo = GEOMETRY[type] || GEOMETRY['square'];
   return (
     <svg

@@ -8,13 +8,19 @@
  * from it now, and the domains below are the tabs it draws.
  */
 
+import { SHAPE_GENRES, SHAPE_LIBRARY, type ShapeGenre } from './shapeLibrary';
+
 export type ShapeDomain =
-  | 'brainstorm' | 'code' | 'love' | 'usecase' | 'story' | 'system' | 'science' | 'nature' | 'ui';
+  | 'brainstorm' | 'code' | 'love' | 'usecase' | 'story' | 'system' | 'science' | 'nature' | 'ui'
+  /* the library's genres — see shapeLibrary.ts */
+  | ShapeGenre;
 
 export interface ShapeOption {
   id: string;
   label: string;
   domain: ShapeDomain;
+  /** free-text keywords, searched but never shown. Library shapes carry these. */
+  tags?: string;
 }
 
 /** Tab order in the picker - 'all' first, then the domains as authored. */
@@ -29,6 +35,10 @@ export const SHAPE_DOMAINS: { id: ShapeDomain | 'all'; label: string }[] = [
   { id: 'science', label: 'Science' },
   { id: 'nature', label: 'Nature' },
   { id: 'ui', label: 'UI & Layout' },
+  /* Then the library's own genres. The hand-written domains come first because
+     they are the ones this board's own vocabulary was built from; the library
+     is the long tail you reach for by searching. */
+  ...SHAPE_GENRES,
 ];
 
 export const SHAPE_CATALOG: ShapeOption[] = [
@@ -265,10 +275,49 @@ export const SHAPE_CATALOG: ShapeOption[] = [
   { id: 'image-placeholder', label: 'Media Frame', domain: 'ui' },
 ];
 
-/** Domain filter + free-text search, in the order the picker wants them. */
+/* The library, flattened into the same shape the picker already understands.
+   Built once at module load rather than per keystroke — two thousand rows is
+   nothing to iterate but plenty to rebuild sixty times a second. */
+const LIBRARY_OPTIONS: ShapeOption[] = Object.entries(SHAPE_LIBRARY).map(([id, v]) => ({
+  id,
+  label: v.l,
+  domain: v.g,
+  tags: v.t,
+}));
+
+/** Everything: the hand-written catalogue first, then the library. */
+export const ALL_SHAPES: ShapeOption[] = [...SHAPE_CATALOG, ...LIBRARY_OPTIONS];
+
+export const SHAPE_COUNT = ALL_SHAPES.length;
+
+/**
+ * Domain filter + free-text search, in the order the picker wants them.
+ *
+ * Ranked rather than merely filtered: at two thousand shapes a plain substring
+ * match on "star" buries `star` under `star-half`, `star-off` and forty
+ * `starship`s. A name that STARTS with the query wins, an exact name wins
+ * outright, and a keyword-only hit sorts last — so the obvious answer is the
+ * first tile every time.
+ */
 export function filterShapes(domain: ShapeDomain | 'all', query: string): ShapeOption[] {
   const q = query.trim().toLowerCase();
-  return SHAPE_CATALOG.filter(
-    (s) => (domain === 'all' || s.domain === domain) && (!q || s.label.toLowerCase().includes(q) || s.id.includes(q)),
-  );
+  if (!q) {
+    return domain === 'all' ? ALL_SHAPES : ALL_SHAPES.filter((s) => s.domain === domain);
+  }
+
+  const scored: { s: ShapeOption; r: number }[] = [];
+  for (const s of ALL_SHAPES) {
+    const label = s.label.toLowerCase();
+    // The 'lu-'/'geo-' prefix is plumbing; nobody searches for it.
+    const bare = s.id.replace(/^(lu|geo)-/, '').replace(/-/g, ' ');
+    let r = 0;
+    if (label === q || bare === q) r = 100;
+    else if (label.startsWith(q) || bare.startsWith(q)) r = 80;
+    else if (label.includes(q) || bare.includes(q)) r = 55;
+    else if (s.tags && (` ${s.tags} `).includes(` ${q}`)) r = 30;
+    else if (s.tags && s.tags.includes(q)) r = 18;
+    if (r) scored.push({ s, r });
+  }
+  scored.sort((a, b) => b.r - a.r || a.s.label.length - b.s.label.length || a.s.label.localeCompare(b.s.label));
+  return scored.map((x) => x.s);
 }

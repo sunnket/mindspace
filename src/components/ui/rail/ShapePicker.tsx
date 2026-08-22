@@ -2,17 +2,27 @@
 
 import React, { useMemo, useState } from 'react';
 import ShapePreview from '@/components/canvas/ShapePreview';
-import { SHAPE_DOMAINS, filterShapes, type ShapeDomain } from '@/lib/shapeCatalog';
+import { SHAPE_COUNT, SHAPE_DOMAINS, filterShapes, type ShapeDomain } from '@/lib/shapeCatalog';
 import { PillTabs, SearchBox } from './RailKit';
 
 /**
  * The shape catalogue, as a rail control.
  *
- * Two hundred glyphs behind ten domain tabs is a lot to hunt through, and the
- * old flyout offered no way to search them — you picked a tab and scanned. A
- * search box costs one row and turns "where's the funnel" from a scan into a
- * word. Both the Shape tool and a selected shape use this same picker, so
- * swapping a shape you already placed works exactly like placing one.
+ * Two hundred glyphs behind ten domain tabs was already a lot to hunt through,
+ * and there are two thousand now — so search stopped being a convenience and
+ * became the primary way in. It is ranked rather than filtered (see
+ * filterShapes) because at this size a plain substring match buries `star`
+ * under forty `starship`s, and it matches keywords as well as names, so
+ * "storage" finds the database and "launch" finds the rocket.
+ *
+ * The tabs are still there for browsing: the ten hand-authored domains first,
+ * then the library's twenty-one genres. Both the Shape tool and a selected
+ * shape use this same picker, so swapping a shape you already placed works
+ * exactly like placing one.
+ *
+ * The grid is capped rather than virtualised: two thousand buttons is more DOM
+ * than any picker needs, and nobody scrolls past the first hundred without
+ * typing instead.
  */
 export default function ShapePicker({
   value, onPick, columns = 4,
@@ -24,11 +34,14 @@ export default function ShapePicker({
   const [domain, setDomain] = useState<ShapeDomain | 'all'>('all');
   const [query, setQuery] = useState('');
 
-  const shapes = useMemo(() => filterShapes(domain, query), [domain, query]);
+  /* Capped. Rendering two thousand buttons costs more than it is worth — the
+     answer is always in the first screenful or it is a search, not a scroll. */
+  const all = useMemo(() => filterShapes(domain, query), [domain, query]);
+  const shapes = useMemo(() => all.slice(0, 240), [all]);
 
   return (
     <div className="flex flex-col gap-2">
-      <SearchBox value={query} onChange={setQuery} placeholder="Search 200+ shapes…" />
+      <SearchBox value={query} onChange={setQuery} placeholder={`Search ${SHAPE_COUNT.toLocaleString()} shapes…`} />
 
       {/* Searching spans every domain — a tab filter on top of a text query is
           two ways of narrowing the same list and mostly hides the answer. */}
@@ -65,6 +78,12 @@ export default function ShapePicker({
             </button>
           );
         })}
+
+        {all.length > shapes.length && (
+          <span className="text-[9px] text-[var(--text-muted)]" style={{ gridColumn: '1 / -1', padding: '6px 2px 2px' }}>
+            {(all.length - shapes.length).toLocaleString()} more — keep typing to narrow it.
+          </span>
+        )}
 
         {shapes.length === 0 && (
           <span className="text-[10px] text-[var(--text-muted)]" style={{ gridColumn: '1 / -1', padding: '8px 2px' }}>
